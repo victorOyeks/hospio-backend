@@ -28,10 +28,16 @@ public record Tenant(String businessId, String hotelId, String actorId, String a
         return new Tenant(null, null, "system", "system:" + jobName, Set.of(Role.SYSTEM), JwtUtil.SCOPE_PLATFORM);
     }
 
-    /** A system actor working inside one business and hotel, e.g. a Kafka listener applying an event. */
+    /**
+     * A system actor working inside one business and hotel, e.g. a Kafka listener applying an event. An
+     * event with no business (a platform user signing in, a platform job) binds as the platform: a
+     * business scope with no business id would see and write nothing, so the row-level policy would
+     * refuse the activity-log insert and the listener would fail the record.
+     */
     public static Tenant systemFor(String businessId, String hotelId, String actorId, String actorName) {
+        String scope = businessId == null ? JwtUtil.SCOPE_PLATFORM : hotelId == null ? JwtUtil.SCOPE_BUSINESS : JwtUtil.SCOPE_HOTEL;
         return new Tenant(businessId, hotelId, actorId == null ? "system" : actorId, actorName == null ? "system" : actorName,
-                Set.of(Role.SYSTEM), hotelId == null ? JwtUtil.SCOPE_BUSINESS : JwtUtil.SCOPE_HOTEL);
+                Set.of(Role.SYSTEM), scope);
     }
 
     public boolean isPlatform() {
