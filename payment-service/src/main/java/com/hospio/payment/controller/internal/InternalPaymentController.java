@@ -24,6 +24,11 @@ public class InternalPaymentController {
         return ApiResponse.ok(payments.get(id));
     }
 
+    @GetMapping("/payments/by-booking/{bookingId}")
+    public ApiResponse<List<PaymentResponse>> byBooking(@PathVariable String bookingId) {
+        return ApiResponse.ok(payments.forBooking(bookingId));
+    }
+
     @GetMapping("/payments/by-folio/{folioId}")
     public ApiResponse<List<PaymentResponse>> byFolio(@PathVariable String folioId) {
         return ApiResponse.ok(payments.forFolio(folioId));

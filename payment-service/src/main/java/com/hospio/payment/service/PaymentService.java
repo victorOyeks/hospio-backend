@@ -71,6 +71,12 @@ public class PaymentService {
         return payments.findByFolioIdOrderByCreatedAtDesc(folioId).stream().map(PaymentResponse::of).toList();
     }
 
+    /** Every payment taken against a booking, folio or not: deposits before check-in live here until the folio opens. */
+    @Transactional(readOnly = true)
+    public List<PaymentResponse> forBooking(String bookingId) {
+        return payments.findByBookingIdOrderByCreatedAtDesc(bookingId).stream().map(PaymentResponse::of).toList();
+    }
+
     @Transactional
     public PaymentResponse request(PaymentRequestDto dto) {
         HospioUserDetails user = CurrentUser.require();

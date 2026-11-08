@@ -9,6 +9,7 @@ import com.hospio.common.kafka.events.PaymentApprovedEvent;
 import com.hospio.common.kafka.events.RefundApprovedEvent;
 import com.hospio.common.tenancy.TenantBinder;
 import com.hospio.common.tenancy.TenantContext;
+import com.hospio.folio.client.PaymentClient;
 import com.hospio.folio.entity.Folio;
 import com.hospio.folio.entity.PendingDiscount;
 import com.hospio.folio.repository.FolioRepository;
@@ -32,6 +33,7 @@ public class FolioEventListener {
 
     private final FolioService folioService;
     private final FolioRepository folios;
+    private final PaymentClient paymentClient;
     private final PendingDiscountRepository pendingDiscounts;
     private final TenantBinder tenant;
 
@@ -48,6 +50,10 @@ public class FolioEventListener {
                 folioService.postCharge(folio, "RESERVATION", "ROOM-" + e.getBookingId(),
                         "Room " + e.getRoomNumber() + " · " + nights + (nights == 1 ? " night" : " nights"),
                         rate.multiply(BigDecimal.valueOf(nights)), BigDecimal.ZERO, "ACCOMMODATION", e.getActorId(), e.getActorName());
+            }
+            // Deposits taken before check-in were approved with no folio to land on; bring them onto the new folio.
+            for (PaymentClient.ApprovedPayment p : paymentClient.approvedForBooking(e.getBookingId())) {
+                folioService.recordPayment(folio, p.id(), p.amount(), p.method(), p.takenBy() == null ? "Front office" : p.takenBy());
             }
         } finally {
             TenantContext.clear();
@@ -85,10 +91,15 @@ public class FolioEventListener {
     public void onPaymentApproved(PaymentApprovedEvent e) {
         tenant.bind(e);
         try {
-            if (e.getFolioId() == null) {
+            Folio folio = e.getFolioId() == null ? null : folios.findById(e.getFolioId()).orElse(null);
+            if (folio == null && e.getBookingId() != null) {
+                folio = folios.findFirstByBookingIdAndStatus(e.getBookingId(), Folio.Status.OPEN).orElse(null);
+            }
+            if (folio == null) {
+                // No folio yet (a deposit before check-in): the check-in handler picks it up when the folio opens.
                 return;
             }
-            folios.findById(e.getFolioId()).ifPresent(f -> folioService.recordPayment(f, e.getPaymentId(), e.getAmount(), e.getMethod(), e.getActorName()));
+            folioService.recordPayment(folio, e.getPaymentId(), e.getAmount(), e.getMethod(), e.getActorName());
         } finally {
             TenantContext.clear();
         }

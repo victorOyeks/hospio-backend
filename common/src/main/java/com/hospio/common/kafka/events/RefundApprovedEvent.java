@@ -15,6 +15,7 @@ public class RefundApprovedEvent extends HospioEvent {
     private String refundId;
     private String paymentId;
     private String folioId;
+    private String bookingId;
     private java.math.BigDecimal amount;
     private String approvedBy;
 

@@ -93,12 +93,13 @@ public class RefundService {
         r.setApprovedBy(approvedBy);
         r.setDecidedAt(Instant.now());
         refunds.save(r);
-        payments.findById(r.getPaymentId()).ifPresent(p -> {
+        String bookingId = payments.findById(r.getPaymentId()).map(p -> {
             p.setStatus(PaymentStatus.REFUNDED);
             payments.save(p);
-        });
+            return p.getBookingId();
+        }).orElse(null);
         events.publish(KafkaTopics.REFUND_APPROVED, RefundApprovedEvent.builder().refundId(r.getId()).paymentId(r.getPaymentId())
-                .folioId(r.getFolioId()).amount(r.getAmount()).approvedBy(approvedByName).build());
+                .folioId(r.getFolioId()).bookingId(bookingId).amount(r.getAmount()).approvedBy(approvedByName).build());
         return r;
     }
 

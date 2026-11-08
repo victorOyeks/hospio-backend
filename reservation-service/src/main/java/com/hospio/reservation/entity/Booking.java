@@ -81,6 +81,11 @@ public class Booking extends TenantEntity {
     @Column(name = "total_amount", nullable = false)
     private BigDecimal totalAmount;
 
+    /** Approved payments minus approved refunds against this stay, kept current by payment events. */
+    @Column(name = "amount_paid", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal amountPaid = BigDecimal.ZERO;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_plan", nullable = false)
     @lombok.Builder.Default
