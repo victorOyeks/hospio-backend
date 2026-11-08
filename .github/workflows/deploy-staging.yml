@@ -126,7 +126,7 @@ jobs:
           java-version: '21'
           cache: maven
       - name: Build ${{ matrix.service }}
-        run: mvn -pl ${{ matrix.service }} -am package -DskipTests -q
+        run: mvn -B -ntp -pl ${{ matrix.service }} -am package -DskipTests
 
       # Ships the jar straight to the VPS over SSH; nothing needs to live in Actions artifact storage.
       - name: SCP jar to Staging VPS
@@ -135,12 +135,17 @@ jobs:
           printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
-            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-            "mkdir -p /opt/hospio-staging/${{ matrix.service }}"
+          # Fifteen build jobs reach the box at the same moment; sshd's MaxStartups drops some of those
+          # connections, so every remote step retries with a pause before giving up.
+          remote() { for i in 1 2 3 4 5; do "$@" && return 0; echo "attempt $i failed, retrying in $((i*8))s"; sleep $((i*8)); done; return 1; }
           jar=$(ls ${{ matrix.service }}/target/*.jar | head -1)
-          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
-            "$jar" "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/hospio-staging/${{ matrix.service }}/app-new.jar"
+          dest="${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
+          dir="/opt/hospio-staging/${{ matrix.service }}"
+          remote ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 "$dest" "mkdir -p $dir"
+          remote scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 "$jar" "$dest:$dir/app-new.jar.part"
+          # The marker ties the staged jar to this commit, so a jar left behind by an earlier run is never deployed.
+          remote ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 "$dest" \
+            "mv $dir/app-new.jar.part $dir/app-new.jar && echo '${{ github.sha }}' > $dir/app-new.sha"
           rm -f ~/.ssh/deploy_key
 
   deploy:
@@ -153,11 +158,12 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           CHANGED_SERVICES: ${{ needs.detect-changes.outputs.services }}
+          DEPLOY_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: CHANGED_SERVICES
+          envs: CHANGED_SERVICES,DEPLOY_SHA
           command_timeout: 30m
           # Restart order follows the build order in the design handoff: identity → tenant → hotel config →
           # rooms → reservations → folio → payments → departments → back office → platform, gateway last.
@@ -208,11 +214,14 @@ jobs:
                 echo "  — $svc unchanged, skipping"
                 continue
               fi
-              if [ ! -f "/opt/hospio-staging/$svc/app-new.jar" ]; then
-                echo "  ✗ No new JAR for $svc (its build job failed?) — leaving it as it is"
+              staged_sha=$(cat "/opt/hospio-staging/$svc/app-new.sha" 2>/dev/null || echo none)
+              if [ ! -f "/opt/hospio-staging/$svc/app-new.jar" ] || [ "$staged_sha" != "$DEPLOY_SHA" ]; then
+                echo "  ✗ No JAR from this commit for $svc (staged: $staged_sha; its build job failed?) — leaving it as it is"
+                rm -f "/opt/hospio-staging/$svc/app-new.jar" "/opt/hospio-staging/$svc/app-new.sha"
                 missing="$missing $svc"
                 continue
               fi
+              rm -f "/opt/hospio-staging/$svc/app-new.sha"
               echo "→ Deploying $svc"
               [ -f /opt/hospio-staging/$svc/app.jar ] && cp /opt/hospio-staging/$svc/app.jar /opt/hospio-staging/$svc/app.jar.bak
               mv /opt/hospio-staging/$svc/app-new.jar /opt/hospio-staging/$svc/app.jar
