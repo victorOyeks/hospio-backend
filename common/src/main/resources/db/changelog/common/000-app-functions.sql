@@ -1,6 +1,6 @@
 --liquibase formatted sql
 
---changeset hospio:app-functions runOnChange:true
+--changeset hospio:app-functions runOnChange:true splitStatements:false
 -- Shared helpers for row-level security. Every service schema uses app.can_see in its policies.
 -- Session settings app.business_id, app.hotel_id and app.scope are bound per connection by common's
 -- RowLevelSecurityDataSource. CREATE OR REPLACE keeps this idempotent across the services that include it.

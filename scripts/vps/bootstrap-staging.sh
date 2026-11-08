@@ -58,8 +58,13 @@ if sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME
   ok "database $DB_NAME exists"
 else
   sudo -u postgres psql -qc "CREATE DATABASE $DB_NAME OWNER $DB_USER;"
-  ok "database $DB_NAME created (Liquibase creates the schemas on first boot)"
+  ok "database $DB_NAME created"
 fi
+# Liquibase needs each service's schema to exist before it can write its changelog table into it.
+for sch in app identity tenant hotelconfig property reservation folio payment fnb housekeeping maintenance inventory finance messaging platform; do
+  sudo -u postgres psql -d "$DB_NAME" -qc "CREATE SCHEMA IF NOT EXISTS $sch AUTHORIZATION $DB_USER;"
+done
+ok "15 schemas present (app + one per service), owned by $DB_USER"
 
 say "4. Environment file $ENV_FILE"
 if [ -f "$ENV_FILE" ]; then
