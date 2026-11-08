@@ -1,0 +1,10 @@
+package com.hospio.inventory.repository;
+
+import com.hospio.inventory.entity.StockMovement;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface StockMovementRepository extends JpaRepository<StockMovement, String> {
+    List<StockMovement> findByHotelIdOrderByCreatedAtDesc(String hotelId);
+}

@@ -1,0 +1,97 @@
+server:
+  port: 9211
+  forward-headers-strategy: framework
+  servlet:
+    context-path: /inventory
+
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: inventory-service
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:hospio}?currentSchema=inventory
+    username: ${DB_USERNAME:hospio}
+    password: ${DB_PASSWORD:hospio}
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 2
+      idle-timeout: 30000
+      max-lifetime: 600000
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: inventory
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+    default-schema: inventory
+  kafka:
+    bootstrap-servers: ${KAFKA_SERVERS:localhost:9092}
+    consumer:
+      group-id: hospio-inventory-service
+      auto-offset-reset: earliest
+
+jwt:
+  secret: ${JWT_SECRET:change-me-in-every-environment-change-me-in-every-environment}
+  expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+
+hospio:
+  worker:
+    enabled: ${WORKER_ENABLED:true}
+  storage:
+    type: ${STORAGE_TYPE:local}
+    local-dir: ${STORAGE_DIR:./storage}
+  pos:
+    provider: ${POS_PROVIDER:logging}
+  channels:
+    provider: ${CHANNELS_PROVIDER:logging}
+  approvals:
+    manager-spend-limit: ${MANAGER_SPEND_LIMIT:500000}
+    manager-discount-limit: ${MANAGER_DISCOUNT_LIMIT:50000}
+    org-credit-owner-limit: ${ORG_CREDIT_OWNER_LIMIT:1000000}
+
+services:
+  identity:
+    url: ${IDENTITY_SERVICE_URL:http://localhost:9201/identity}
+  tenant:
+    url: ${TENANT_SERVICE_URL:http://localhost:9202/tenant}
+  hotelconfig:
+    url: ${HOTEL_CONFIG_SERVICE_URL:http://localhost:9203/hotel-config}
+  property:
+    url: ${PROPERTY_SERVICE_URL:http://localhost:9204/property}
+  reservation:
+    url: ${RESERVATION_SERVICE_URL:http://localhost:9205/reservation}
+  folio:
+    url: ${FOLIO_SERVICE_URL:http://localhost:9206/folio}
+  payment:
+    url: ${PAYMENT_SERVICE_URL:http://localhost:9207/payment}
+  fnb:
+    url: ${FNB_SERVICE_URL:http://localhost:9208/fnb}
+  housekeeping:
+    url: ${HOUSEKEEPING_SERVICE_URL:http://localhost:9209/housekeeping}
+  maintenance:
+    url: ${MAINTENANCE_SERVICE_URL:http://localhost:9210/maintenance}
+  inventory:
+    url: ${INVENTORY_SERVICE_URL:http://localhost:9211/inventory}
+  finance:
+    url: ${FINANCE_SERVICE_URL:http://localhost:9212/finance}
+  messaging:
+    url: ${MESSAGING_SERVICE_URL:http://localhost:9213/messaging}
+  platform:
+    url: ${PLATFORM_SERVICE_URL:http://localhost:9214/platform}
+  internal:
+    api-key: ${INTERNAL_API_KEY}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+springdoc:
+  paths-to-exclude: /internal/**
+  swagger-ui:
+    path: /swagger-ui.html

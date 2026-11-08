@@ -1,0 +1,53 @@
+# Local development only. On the VPS the services share the existing Kafka and Redis (see
+# docs/deployment-staging.md); every topic is prefixed "hospio-" and every consumer group
+# "hospio-<service>" so they never collide with other products on the same broker.
+#
+# Postgres runs natively by default (DB_HOST=localhost); `docker compose --profile db up` adds one.
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: hospio-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "127.0.0.1:2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: hospio-kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://hospio-kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 48
+    ports:
+      - "127.0.0.1:9092:9092"
+
+  redis:
+    image: redis:7-alpine
+    container_name: hospio-redis
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: hospio-postgres
+    profiles: ["db"]
+    environment:
+      POSTGRES_DB: hospio
+      POSTGRES_USER: hospio
+      POSTGRES_PASSWORD: hospio
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - hospio-pg:/var/lib/postgresql/data
+
+volumes:
+  hospio-pg:

@@ -1,0 +1,23 @@
+# Build output
+target/
+*.class
+
+# Real secrets - only the .example templates get committed
+.env
+.env.dev
+.env.pilot
+.env.prod
+.env.local
+
+# Local object storage (hospio.storage.type=local)
+storage/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+.env.staging

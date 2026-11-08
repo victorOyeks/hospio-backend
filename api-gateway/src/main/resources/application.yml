@@ -1,0 +1,129 @@
+server:
+  port: 9200
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      # Browsers call the API from the web app's origin; the tablet app and admin portal too.
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000,https://sandbox.hospio360.com,https://app.hospio360.com}
+            allowed-methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
+            allowed-headers: "*"
+            allow-credentials: true
+            max-age: 3600
+      routes:
+        - id: identity-service
+          uri: http://${IDENTITY_HOST:localhost}:9201
+          predicates:
+            - Path=/identity/**
+
+        - id: tenant-service
+          uri: http://${TENANT_HOST:localhost}:9202
+          predicates:
+            - Path=/tenant/**
+
+        - id: hotel-config-service
+          uri: http://${HOTEL_CONFIG_HOST:localhost}:9203
+          predicates:
+            - Path=/hotel-config/**
+
+        - id: property-service
+          uri: http://${PROPERTY_HOST:localhost}:9204
+          predicates:
+            - Path=/property/**
+
+        - id: reservation-service
+          uri: http://${RESERVATION_HOST:localhost}:9205
+          predicates:
+            - Path=/reservation/**
+
+        - id: folio-service
+          uri: http://${FOLIO_HOST:localhost}:9206
+          predicates:
+            - Path=/folio/**
+
+        - id: payment-service
+          uri: http://${PAYMENT_HOST:localhost}:9207
+          predicates:
+            - Path=/payment/**
+
+        - id: fnb-service
+          uri: http://${FNB_HOST:localhost}:9208
+          predicates:
+            - Path=/fnb/**
+
+        - id: housekeeping-service
+          uri: http://${HOUSEKEEPING_HOST:localhost}:9209
+          predicates:
+            - Path=/housekeeping/**
+
+        - id: maintenance-service
+          uri: http://${MAINTENANCE_HOST:localhost}:9210
+          predicates:
+            - Path=/maintenance/**
+
+        - id: inventory-service
+          uri: http://${INVENTORY_HOST:localhost}:9211
+          predicates:
+            - Path=/inventory/**
+
+        - id: finance-service
+          uri: http://${FINANCE_HOST:localhost}:9212
+          predicates:
+            - Path=/finance/**
+
+        - id: messaging-service
+          uri: http://${MESSAGING_HOST:localhost}:9213
+          predicates:
+            - Path=/messaging/**
+
+        - id: platform-service
+          uri: http://${PLATFORM_HOST:localhost}:9214
+          predicates:
+            - Path=/platform/**
+
+# Every service's context-path equals its route prefix, so /identity/v3/api-docs forwards unchanged
+# and Swagger UI here can list all fourteen services.
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    urls:
+      - name: identity-service
+        url: /identity/v3/api-docs
+      - name: tenant-service
+        url: /tenant/v3/api-docs
+      - name: hotel-config-service
+        url: /hotel-config/v3/api-docs
+      - name: property-service
+        url: /property/v3/api-docs
+      - name: reservation-service
+        url: /reservation/v3/api-docs
+      - name: folio-service
+        url: /folio/v3/api-docs
+      - name: payment-service
+        url: /payment/v3/api-docs
+      - name: fnb-service
+        url: /fnb/v3/api-docs
+      - name: housekeeping-service
+        url: /housekeeping/v3/api-docs
+      - name: maintenance-service
+        url: /maintenance/v3/api-docs
+      - name: inventory-service
+        url: /inventory/v3/api-docs
+      - name: finance-service
+        url: /finance/v3/api-docs
+      - name: messaging-service
+        url: /messaging/v3/api-docs
+      - name: platform-service
+        url: /platform/v3/api-docs
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

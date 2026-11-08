@@ -1,0 +1,98 @@
+package com.hospio.reservation.controller;
+
+import com.hospio.common.enums.BookingStatus;
+import com.hospio.common.response.ApiResponse;
+import com.hospio.reservation.dto.AvailabilityResponse;
+import com.hospio.reservation.dto.BookingResponse;
+import com.hospio.reservation.dto.CancelBookingRequest;
+import com.hospio.reservation.dto.ChangeBookingRequest;
+import com.hospio.reservation.dto.CheckInRequest;
+import com.hospio.reservation.dto.CheckOutRequest;
+import com.hospio.reservation.dto.CreateBookingRequest;
+import com.hospio.reservation.dto.TodayResponse;
+import com.hospio.reservation.service.BookingService;
+import jakarta.validation.Valid;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+/** Front office 1.1 and 2.x; Manager · Bookings. */
+@RestController
+@RequestMapping("/bookings")
+@RequiredArgsConstructor
+public class BookingController {
+
+    private final BookingService service;
+
+    @GetMapping("/today")
+    public ApiResponse<TodayResponse> today() {
+        return ApiResponse.ok(service.today());
+    }
+
+    @GetMapping
+    public ApiResponse<List<BookingResponse>> list(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                                   @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                                   @RequestParam(required = false) BookingStatus status) {
+        return ApiResponse.ok(service.list(from, to, status));
+    }
+
+    @GetMapping("/availability")
+    public ApiResponse<AvailabilityResponse> availability(@RequestParam String roomTypeId,
+                                                          @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                                          @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ApiResponse.ok(service.availability(roomTypeId, from, to));
+    }
+
+    @GetMapping("/{id}")
+    public ApiResponse<BookingResponse> get(@PathVariable String id) {
+        return ApiResponse.ok(service.get(id));
+    }
+
+    @PostMapping
+    @PreAuthorize("@access.atLeast('FRONT_OFFICE','EDIT')")
+    public ApiResponse<BookingResponse> create(@Valid @RequestBody CreateBookingRequest request) {
+        return ApiResponse.ok("Booking created", service.create(request));
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("@access.atLeast('FRONT_OFFICE','EDIT')")
+    public ApiResponse<BookingResponse> change(@PathVariable String id, @RequestBody ChangeBookingRequest request) {
+        return ApiResponse.ok("Booking changed", service.change(id, request));
+    }
+
+    @PostMapping("/{id}/check-in")
+    @PreAuthorize("@access.atLeast('FRONT_OFFICE','EDIT')")
+    public ApiResponse<BookingResponse> checkIn(@PathVariable String id, @RequestBody(required = false) CheckInRequest request) {
+        return ApiResponse.ok("Checked in", service.checkIn(id, request == null ? new CheckInRequest(null, null, null, null, null, null) : request));
+    }
+
+    @PostMapping("/{id}/check-out")
+    @PreAuthorize("@access.atLeast('FRONT_OFFICE','EDIT')")
+    public ApiResponse<BookingResponse> checkOut(@PathVariable String id, @RequestBody(required = false) CheckOutRequest request) {
+        return ApiResponse.ok("Checked out", service.checkOut(id, request == null ? new CheckOutRequest(null, null, null) : request));
+    }
+
+    @PostMapping("/{id}/late-check-out")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<BookingResponse> lateCheckOut(@PathVariable String id, @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.TIME) LocalTime until) {
+        return ApiResponse.ok("Late check-out set", service.lateCheckOut(id, until));
+    }
+
+    /** Cancelling needs Full access. */
+    @PostMapping("/{id}/cancel")
+    @PreAuthorize("@access.atLeast('FRONT_OFFICE','FULL')")
+    public ApiResponse<BookingResponse> cancel(@PathVariable String id, @Valid @RequestBody CancelBookingRequest request) {
+        return ApiResponse.ok("Booking cancelled", service.cancel(id, request));
+    }
+}

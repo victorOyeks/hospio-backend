@@ -1,0 +1,32 @@
+package com.hospio.reservation.dto;
+
+import com.hospio.common.enums.BookingStatus;
+import com.hospio.common.enums.PaymentPlan;
+import com.hospio.common.enums.PriceKind;
+import com.hospio.reservation.entity.Booking;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+
+public record BookingResponse(String id, String reference, String hotelId, String guestId, String guestName, String roomTypeId,
+                              String roomTypeName, String roomId, String roomNumber, LocalDate checkInDate, LocalDate checkOutDate,
+                              int nights, int adults, int children, BookingStatus status, PriceKind priceKind, BigDecimal nightlyRate,
+                              BigDecimal totalAmount, PaymentPlan paymentPlan, BigDecimal amountDueNow, String organizationId,
+                              String source, String notes, Instant checkedInAt, Instant checkedOutAt, LocalTime lateCheckoutUntil,
+                              Instant cancelledAt, String cancellationReason, Instant createdAt) {
+
+    public static BookingResponse of(Booking b) {
+        BigDecimal dueNow = switch (b.getPaymentPlan()) {
+            case PAY_IN_FULL -> b.getTotalAmount();
+            case DEPOSIT_50 -> b.getTotalAmount().divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
+            case PAY_AT_CHECKOUT, ORGANIZATION -> BigDecimal.ZERO;
+        };
+        return new BookingResponse(b.getId(), b.getReference(), b.getHotelId(), b.getGuestId(), b.getGuestName(), b.getRoomTypeId(),
+                b.getRoomTypeName(), b.getRoomId(), b.getRoomNumber(), b.getCheckInDate(), b.getCheckOutDate(), b.nights(), b.getAdults(),
+                b.getChildren(), b.getStatus(), b.getPriceKind(), b.getNightlyRate(), b.getTotalAmount(), b.getPaymentPlan(), dueNow,
+                b.getOrganizationId(), b.getSource(), b.getNotes(), b.getCheckedInAt(), b.getCheckedOutAt(), b.getLateCheckoutUntil(),
+                b.getCancelledAt(), b.getCancellationReason(), b.getCreatedAt());
+    }
+}
