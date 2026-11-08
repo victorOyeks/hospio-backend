@@ -1,6 +1,8 @@
 package com.hospio.identity.service;
 
 import com.hospio.common.enums.AccessLevel;
+import com.hospio.common.delivery.Delivery;
+import com.hospio.common.delivery.DeliveryService;
 import com.hospio.common.enums.Role;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.exception.ConflictException;
@@ -44,9 +46,11 @@ import org.springframework.util.StringUtils;
 
 /**
  * People and their roles. Hotels can't create roles; they give the module roles to people at three
- * levels. Who may create whom: the platform anyone (an OWNER when it names the business), the owner
- * every hotel role in their business, a manager every hotel role at their own hotels. Every created
- * login gets a temporary password and an invite link, both returned once.
+ * levels. Who may create whom: the platform anyone (an OWNER when it names the business; a platform role
+ * only a SUPER_ADMIN; a MARKETER any platform admin), the owner every hotel role in their business, a
+ * manager every hotel role at their own hotels. Every created login gets a temporary password and an
+ * invite link, both returned once, and the messages that would carry them come back as {@code deliveries}.
+ * Platform accounts (business null, a platform role) are managed by SUPER_ADMIN only.
  */
 @Service
 @RequiredArgsConstructor
@@ -58,6 +62,8 @@ public class UserService {
     private final EventPublisher events;
     private final InviteService invites;
     private final TenantClient tenantClient;
+    private final DeliveryComposer deliveries;
+    private final DeliveryService deliveryService;
 
     @Value("${hospio.auth.temporary-password-hours:72}")
     private long temporaryPasswordHours;
@@ -116,6 +122,25 @@ public class UserService {
         return matched.stream().map(u -> toResponse(u, byUser.getOrDefault(u.getId(), List.of()), inviteStatus.get(u.getId()))).toList();
     }
 
+    /** Admin team: every platform account (no business, a platform role), SUPER_ADMIN only. */
+    @Transactional(readOnly = true)
+    public List<UserResponse> listPlatform(String q) {
+        HospioUserDetails caller = CurrentUser.require();
+        if (!caller.isPlatform() || !caller.has(Role.SUPER_ADMIN)) {
+            throw new ForbiddenException("Only a super admin can see the admin team");
+        }
+        String needle = StringUtils.hasText(q) ? q.trim().toLowerCase(Locale.ROOT) : null;
+        List<UserAccount> accounts = users.findByBusinessIdIsNullOrderByFullName();
+        Map<String, List<RoleGrant>> byUser = grants.findByUserIdIn(accounts.stream().map(UserAccount::getId).toList()).stream()
+                .collect(Collectors.groupingBy(RoleGrant::getUserId));
+        List<UserAccount> matched = accounts.stream()
+                .filter(u -> byUser.getOrDefault(u.getId(), List.of()).stream().anyMatch(g -> g.getRole().isPlatform() && g.getRole() != Role.SYSTEM))
+                .filter(u -> needle == null || contains(u.getFullName(), needle) || contains(u.getEmail(), needle) || contains(u.getPhone(), needle))
+                .toList();
+        Map<String, UserResponse.InviteStatus> inviteStatus = invites.statusFor(matched.stream().map(UserAccount::getId).toList());
+        return matched.stream().map(u -> toResponse(u, byUser.getOrDefault(u.getId(), List.of()), inviteStatus.get(u.getId()))).toList();
+    }
+
     @Transactional(readOnly = true)
     public UserResponse get(String userId) {
         return toResponse(find(userId));
@@ -148,7 +173,8 @@ public class UserService {
         InviteService.Issued invite = invites.issue(user, caller.getUserId());
         events.publish(KafkaTopics.USER_CREATED, UserCreatedEvent.builder()
                 .businessId(user.getBusinessId()).hotelId(hotelId).userId(user.getId()).fullName(user.getFullName()).email(user.getEmail()).build());
-        return new UserCreatedResponse(user.getId(), temporary, expires, invite.token(), invite.expiresAt());
+        List<Delivery> sent = deliveryService.send(deliveries.forLogin(user, Set.of(role), temporary, expires, invite.token(), invite.expiresAt()));
+        return new UserCreatedResponse(user.getId(), temporary, expires, invite.token(), invite.expiresAt(), sent);
     }
 
     /** A fresh temporary password and invite link for someone who lost or never got theirs. */
@@ -167,7 +193,8 @@ public class UserService {
         user.setTemporaryPasswordExpiresAt(expires);
         users.save(user);
         InviteService.Issued invite = invites.issue(user, caller.getUserId());
-        return new UserCreatedResponse(user.getId(), temporary, expires, invite.token(), invite.expiresAt());
+        List<Delivery> sent = deliveryService.send(deliveries.forLogin(user, rolesOf(user), temporary, expires, invite.token(), invite.expiresAt()));
+        return new UserCreatedResponse(user.getId(), temporary, expires, invite.token(), invite.expiresAt(), sent);
     }
 
     @Transactional
@@ -179,7 +206,14 @@ public class UserService {
         if (request.role() == Role.OWNER && !caller.isPlatform()) {
             throw new ForbiddenException("The owner role is given by H.M.S or by transferring ownership");
         }
+        if ((request.role().isPlatform() || request.role() == Role.MARKETER) && !caller.isPlatform()) {
+            throw new ForbiddenException("Only H.M.S can give admin roles");
+        }
+        if (request.role().isPlatform() && !caller.has(Role.SUPER_ADMIN) && !caller.has(Role.SYSTEM)) {
+            throw new ForbiddenException("Only a super admin can give a platform role");
+        }
         UserAccount user = find(userId);
+        assertCanManage(caller, user);
         grant(user, request.role(), request.level() == null ? AccessLevel.FULL : request.level(), request.hotelId(),
                 request.expiresAt(), caller.getUserId());
         return toResponse(user);
@@ -192,6 +226,7 @@ public class UserService {
             throw new ForbiddenException("Only a manager or the owner can change access");
         }
         UserAccount user = find(userId);
+        assertCanManage(caller, user);
         RoleGrant grant = grants.findById(grantId).filter(g -> g.getUserId().equals(userId))
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
         switch (request.change()) {
@@ -225,6 +260,10 @@ public class UserService {
             throw new ForbiddenException("Only a manager or the owner can pause access");
         }
         UserAccount user = find(userId);
+        assertCanManage(caller, user);
+        if (paused && user.getId().equals(caller.getUserId())) {
+            throw new BadRequestException("You cannot pause your own access");
+        }
         user.setStatus(paused ? UserAccount.Status.PAUSED : UserAccount.Status.ACTIVE);
         users.save(user);
         events.publish(KafkaTopics.ACCESS_CHANGED, AccessChangedEvent.builder()
@@ -247,7 +286,8 @@ public class UserService {
         user.setMustChangePassword(true);
         user.setTemporaryPasswordExpiresAt(expires);
         users.save(user);
-        return new UserCreatedResponse(user.getId(), temporary, expires, null, null);
+        List<Delivery> sent = deliveryService.send(deliveries.forPasswordReset(user, rolesOf(user), temporary, expires));
+        return new UserCreatedResponse(user.getId(), temporary, expires, null, null, sent);
     }
 
     @Transactional(readOnly = true)
@@ -281,8 +321,15 @@ public class UserService {
         return TenantContext.requireBusiness();
     }
 
+    /** Platform roles (SUPER_ADMIN, SUPPORT, FINANCE_ADMIN) are created by a SUPER_ADMIN (or the system); marketers by any platform admin. */
     private static void assertMayCreate(HospioUserDetails caller, Role role) {
         if (caller.isPlatform()) {
+            if (role == Role.SYSTEM) {
+                throw new BadRequestException("SYSTEM is not a role a person can hold");
+            }
+            if (role.isPlatform() && !caller.has(Role.SUPER_ADMIN) && !caller.has(Role.SYSTEM)) {
+                throw new ForbiddenException("Only a super admin can add platform staff");
+            }
             return;
         }
         if (role == Role.OWNER) {
@@ -328,12 +375,19 @@ public class UserService {
         }
     }
 
-    /** A manager may only act on people with a grant at one of their hotels; owners on their business; platform on anyone. */
+    /**
+     * A manager may only act on people with a grant at one of their hotels; owners on their business; the
+     * platform on anyone, except that a platform account (business null, a platform role) is managed by a
+     * SUPER_ADMIN only. Marketer accounts are also business-less but any platform admin may manage them.
+     */
     private void assertCanManage(HospioUserDetails caller, UserAccount user) {
         if (caller.isPlatform()) {
+            if (isPlatformStaff(user) && !caller.has(Role.SUPER_ADMIN) && !caller.has(Role.SYSTEM)) {
+                throw new ForbiddenException("Only a super admin can manage admin team accounts");
+            }
             return;
         }
-        if (!caller.getBusinessId().equals(user.getBusinessId())) {
+        if (user.isPlatformAccount() || caller.getBusinessId() == null || !caller.getBusinessId().equals(user.getBusinessId())) {
             throw new ForbiddenException("That person is not in your business");
         }
         if (!caller.has(Role.OWNER)) {
@@ -368,6 +422,14 @@ public class UserService {
         events.publish(KafkaTopics.ROLE_GRANTED, RoleGrantedEvent.builder()
                 .businessId(user.getBusinessId()).hotelId(hotel)
                 .userId(user.getId()).userName(user.getFullName()).role(role.name()).level(level.name()).build());
+    }
+
+    private boolean isPlatformStaff(UserAccount user) {
+        return user.isPlatformAccount() && grants.findByUserId(user.getId()).stream().anyMatch(g -> g.getRole().isPlatform());
+    }
+
+    private Set<Role> rolesOf(UserAccount user) {
+        return grants.findByUserId(user.getId()).stream().map(RoleGrant::getRole).collect(Collectors.toSet());
     }
 
     private UserAccount find(String userId) {

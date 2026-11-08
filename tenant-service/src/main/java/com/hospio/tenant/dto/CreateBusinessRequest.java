@@ -9,5 +9,5 @@ import java.math.BigDecimal;
 public record CreateBusinessRequest(@NotBlank String name, String legalName, String registrationNumber, String businessType,
                                     @NotBlank String ownerName, @NotBlank @Email String ownerEmail, String ownerPhone,
                                     Business.FeeModel feeModel, BigDecimal feeValue, String currency, String country,
-                                    String timezone, String marketerId, String city, Business.Source source) {
+                                    String timezone, String marketerId, String city, Business.Source source, String referralId) {
 }

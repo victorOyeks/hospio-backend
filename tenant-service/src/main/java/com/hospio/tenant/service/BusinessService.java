@@ -13,8 +13,10 @@ import com.hospio.common.response.PagedResponse;
 import com.hospio.common.security.CurrentUser;
 import com.hospio.common.security.HospioUserDetails;
 import com.hospio.common.tenancy.TenantContext;
+import com.hospio.tenant.client.IdentityClient;
 import com.hospio.tenant.dto.BusinessResponse;
 import com.hospio.tenant.dto.BusinessSummary;
+import com.hospio.tenant.dto.BusinessesSummaryResponse;
 import com.hospio.tenant.dto.CreateBusinessRequest;
 import com.hospio.tenant.dto.CreateHotelRequest;
 import com.hospio.tenant.dto.HotelResponse;
@@ -31,10 +33,13 @@ import com.hospio.tenant.repository.BusinessRepository;
 import com.hospio.tenant.repository.HotelRepository;
 import com.hospio.tenant.repository.OnboardingDraftRepository;
 import jakarta.persistence.criteria.Predicate;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -58,6 +63,7 @@ public class BusinessService {
     private final OnboardingDraftRepository drafts;
     private final DraftData draftData;
     private final EventPublisher events;
+    private final IdentityClient identityClient;
 
     // ---- platform: list, read, create, edit ---------------------------------------------------------
 
@@ -77,7 +83,41 @@ public class BusinessService {
             return cb.and(ps.toArray(new Predicate[0]));
         };
         Page<Business> result = businesses.findAll(spec, PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100), Sort.by("name")));
-        return PagedResponse.of(result, this::toSummary);
+        Map<String, String> managers = identityClient.names(result.getContent().stream().map(Business::getAccountManagerId).filter(id -> id != null).toList());
+        return PagedResponse.of(result, b -> toSummary(b, managers));
+    }
+
+    // ---- internal: what platform-service asks for ---------------------------------------------------
+
+    /** Dashboard counts: every business by stage, hotels and rooms across all of them. */
+    @Transactional(readOnly = true)
+    public BusinessesSummaryResponse summary() {
+        List<Business> all = businesses.findAll();
+        Map<Business.Stage, Long> byStage = new EnumMap<>(Business.Stage.class);
+        for (Business.Stage s : Business.Stage.values()) {
+            byStage.put(s, 0L);
+        }
+        for (Business b : all) {
+            byStage.merge(b.getStage(), 1L, Long::sum);
+        }
+        return new BusinessesSummaryResponse(all.size(), byStage, hotels.count(), hotels.sumRoomCount());
+    }
+
+    /** The marketer portal: every business a marketer profile referred. */
+    @Transactional(readOnly = true)
+    public List<BusinessSummary> byMarketer(String marketerId) {
+        List<Business> list = businesses.findByMarketerIdOrderByName(marketerId);
+        Map<String, String> managers = identityClient.names(list.stream().map(Business::getAccountManagerId).filter(id -> id != null).toList());
+        return list.stream().map(b -> toSummary(b, managers)).toList();
+    }
+
+    /** A fee rule saved in platform-service keeps the business's own fee fields in step. */
+    @Transactional
+    public BusinessResponse setFee(String id, Business.FeeModel feeModel, BigDecimal feeValue) {
+        Business b = find(id);
+        b.setFeeModel(feeModel);
+        b.setFeeValue(feeValue);
+        return toResponse(businesses.save(b));
     }
 
     @Transactional(readOnly = true)
@@ -96,7 +136,7 @@ public class BusinessService {
                 .currency(request.currency() == null ? "NGN" : request.currency()).country(request.country())
                 .timezone(request.timezone() == null ? "Africa/Lagos" : request.timezone())
                 .city(request.city()).source(request.source() == null ? Business.Source.BACK_OFFICE : request.source())
-                .marketerId(request.marketerId()).accountManagerId(CurrentUser.require().getUserId())
+                .marketerId(request.marketerId()).referralId(request.referralId()).accountManagerId(CurrentUser.require().getUserId())
                 .stage(Business.Stage.ONBOARDING)
                 .build());
         openDraft(business, CurrentUser.require().getUserId());
@@ -116,6 +156,7 @@ public class BusinessService {
                 .ownerUserId(request.ownerUserId()).ownerName(request.ownerName()).ownerEmail(request.ownerEmail().toLowerCase())
                 .ownerPhone(StringUtils.hasText(request.ownerPhone()) ? request.ownerPhone() : null)
                 .source(request.source() == null ? Business.Source.SELF_SERVE : request.source())
+                .marketerId(request.marketerId()).referralId(request.referralId())
                 .stage(Business.Stage.ONBOARDING)
                 .build();
         business.setId(request.id());
@@ -336,7 +377,8 @@ public class BusinessService {
     private void publishCreated(Business business) {
         events.publish(KafkaTopics.BUSINESS_CREATED, BusinessCreatedEvent.builder()
                 .businessId(business.getId()).name(business.getName()).stage(business.getStage().name())
-                .ownerUserId(business.getOwnerUserId()).source(business.getSource().name()).build());
+                .ownerUserId(business.getOwnerUserId()).source(business.getSource().name())
+                .marketerId(business.getMarketerId()).referralId(business.getReferralId()).build());
     }
 
     private static void requirePlatform() {
@@ -359,16 +401,17 @@ public class BusinessService {
         return new BusinessResponse(b.getId(), b.getName(), b.getLegalName(), b.getRegistrationNumber(), b.getBusinessType(),
                 b.getSource(), b.getCity(), b.getAddress(), b.getEmail(), b.getPhone(), b.getLogoUrl(), b.getBrandColour(),
                 b.getOwnerUserId(), b.getOwnerName(), b.getOwnerEmail(), b.getOwnerPhone(), b.getStage(), b.getAccountManagerId(),
-                b.getMarketerId(), b.getFeeModel(), b.getFeeValue(), b.getCurrency(), b.getCountry(), b.getTimezone(),
+                b.getMarketerId(), b.getReferralId(), b.getFeeModel(), b.getFeeValue(), b.getCurrency(), b.getCountry(), b.getTimezone(),
                 b.getContractStartsOn(), b.getContractNotes(), b.getHotelCount(), b.getSuspendedAt(), b.getSuspensionReason(),
                 b.getCreatedAt(), hotelsOf(b.getId()), onboarding);
     }
 
-    private BusinessSummary toSummary(Business b) {
+    /** {@code lastActiveAt} stays null: activity lives in platform-service, which fills it from its own log. */
+    private BusinessSummary toSummary(Business b, Map<String, String> managerNames) {
         List<Hotel> hs = hotels.findByBusinessIdOrderByName(b.getId());
         int rooms = hs.stream().mapToInt(Hotel::getRoomCount).sum();
         return new BusinessSummary(b.getId(), b.getName(), b.getStage(), b.getSource(), b.getCity(), hs.size(), rooms,
-                b.getOwnerName(), b.getOwnerEmail(), b.getAccountManagerId(), null, b.getMarketerId(), b.getFeeModel(), b.getFeeValue(),
-                b.getCreatedAt(), null);
+                b.getOwnerName(), b.getOwnerEmail(), b.getAccountManagerId(), managerNames.get(b.getAccountManagerId()), b.getMarketerId(),
+                b.getFeeModel(), b.getFeeValue(), b.getCreatedAt(), null);
     }
 }

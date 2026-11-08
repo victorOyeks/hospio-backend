@@ -1,9 +1,11 @@
 package com.hospio.property.controller.internal;
 
 import com.hospio.common.response.ApiResponse;
+import com.hospio.property.dto.HotelOverviewResponse;
 import com.hospio.property.dto.OutOfOrderRequest;
 import com.hospio.property.dto.RoomResponse;
 import com.hospio.property.dto.RoomTypeResponse;
+import com.hospio.property.service.AdminOverviewService;
 import com.hospio.property.service.PropertyService;
 import io.swagger.v3.oas.annotations.Hidden;
 import java.math.BigDecimal;
@@ -27,6 +29,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class InternalPropertyController {
 
     private final PropertyService service;
+    private final AdminOverviewService admin;
+
+    /** platform-service business detail, Hotels tab: rooms, out of order, room types. */
+    @GetMapping("/admin/hotel-overview")
+    public ApiResponse<HotelOverviewResponse> hotelOverview(@RequestParam String hotelId) {
+        return ApiResponse.ok(admin.hotelOverview(hotelId));
+    }
 
     @GetMapping("/rooms")
     public ApiResponse<List<RoomResponse>> rooms(@RequestParam String hotelId, @RequestParam(required = false) String roomTypeId) {

@@ -24,7 +24,9 @@ public record Tenant(String businessId, String hotelId, String actorId, String a
         if (hotel == null && user.getHotelIds().size() == 1 && !user.has(Role.OWNER)) {
             hotel = user.getHotelIds().get(0);
         }
-        return new Tenant(user.getBusinessId(), hotel, user.getUserId(), user.getFullName(), user.roleSet(),
+        // Support access: the activity log shows who at H.M.S was looking, not the owner.
+        String actorName = user.getActedBy() == null ? user.getFullName() : "H.M.S \u00b7 " + user.getFullName();
+        return new Tenant(user.getBusinessId(), hotel, user.getUserId(), actorName, user.roleSet(),
                 hotel == null ? JwtUtil.SCOPE_BUSINESS : JwtUtil.SCOPE_HOTEL);
     }
 

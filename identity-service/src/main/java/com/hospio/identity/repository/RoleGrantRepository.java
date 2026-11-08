@@ -9,6 +9,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface RoleGrantRepository extends JpaRepository<RoleGrant, String> {
     List<RoleGrant> findByUserId(String userId);
 
+    List<RoleGrant> findByUserIdIn(java.util.Collection<String> userIds);
+
     List<RoleGrant> findByHotelIdAndRole(String hotelId, Role role);
 
     List<RoleGrant> findByBusinessId(String businessId);

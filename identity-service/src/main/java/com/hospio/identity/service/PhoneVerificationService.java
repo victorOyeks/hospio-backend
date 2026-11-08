@@ -1,5 +1,7 @@
 package com.hospio.identity.service;
 
+import com.hospio.common.delivery.Delivery;
+import com.hospio.common.delivery.DeliveryService;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.tenancy.Tenant;
@@ -11,6 +13,7 @@ import com.hospio.identity.repository.UserAccountRepository;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,9 +22,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 /**
- * Phone confirmation with a 6-digit code. No SMS or WhatsApp goes out yet: the code is logged here,
- * and on staging {@code hospio.auth.otp-dev-code} (123456) is always accepted. Sign-in never depends
- * on it; the sign-up wizard just shows the step.
+ * Phone confirmation with a 6-digit code. The code is logged here and handed to {@link DeliveryService}
+ * as a PHONE_CODE SMS (echoed in the response on staging, where {@code hospio.auth.otp-dev-code} 123456
+ * is also always accepted). Sign-in never depends on it; the sign-up wizard just shows the step.
  */
 @Slf4j
 @Service
@@ -32,6 +35,8 @@ public class PhoneVerificationService {
 
     private final UserAccountRepository users;
     private final UserService userService;
+    private final DeliveryComposer composer;
+    private final DeliveryService deliveryService;
 
     @Value("${hospio.auth.otp-dev-code:}")
     private String devCode;
@@ -46,14 +51,27 @@ public class PhoneVerificationService {
             if (!StringUtils.hasText(user.getPhone())) {
                 throw new BadRequestException("Add a phone number first");
             }
-            String code = String.format("%06d", RANDOM.nextInt(1_000_000));
-            Instant expires = Instant.now().plus(codeMinutes, ChronoUnit.MINUTES);
-            user.setPhoneCodeHash(Hashing.sha256(code));
-            user.setPhoneCodeExpiresAt(expires);
-            users.save(user);
-            log.info("Phone verification code for {} ({}): {} (valid until {})", user.getEmail(), user.getPhone(), code, expires);
-            return new PhoneCodeResponse(expires);
+            return issue(user);
         });
+    }
+
+    /**
+     * Stores a fresh code on an account that has a phone and sends it. Used by {@link #sendCode} and by sign-up,
+     * so the verify screen already has a code waiting. Returns null when the account has no phone.
+     */
+    @Transactional
+    public PhoneCodeResponse issue(UserAccount user) {
+        if (!StringUtils.hasText(user.getPhone())) {
+            return null;
+        }
+        String code = String.format("%06d", RANDOM.nextInt(1_000_000));
+        Instant expires = Instant.now().plus(codeMinutes, ChronoUnit.MINUTES);
+        user.setPhoneCodeHash(Hashing.sha256(code));
+        user.setPhoneCodeExpiresAt(expires);
+        users.save(user);
+        log.info("Phone verification code for {} ({}): {} (valid until {})", user.getEmail(), user.getPhone(), code, expires);
+        List<Delivery> sent = deliveryService.send(composer.forPhoneCode(user, code, expires));
+        return new PhoneCodeResponse(expires, sent);
     }
 
     @Transactional

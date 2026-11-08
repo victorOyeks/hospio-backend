@@ -84,6 +84,10 @@ public class Business extends BaseEntity {
     @Column(name = "marketer_id", length = 36)
     private String marketerId;
 
+    /** The marketer's referral (platform-service) this business came from, when any. */
+    @Column(name = "referral_id", length = 36)
+    private String referralId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "fee_model")
     private FeeModel feeModel;

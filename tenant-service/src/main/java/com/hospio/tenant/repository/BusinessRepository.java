@@ -9,4 +9,6 @@ public interface BusinessRepository extends JpaRepository<Business, String>, Jpa
     List<Business> findByStageOrderByName(Business.Stage stage);
 
     List<Business> findAllByOrderByName();
+
+    List<Business> findByMarketerIdOrderByName(String marketerId);
 }

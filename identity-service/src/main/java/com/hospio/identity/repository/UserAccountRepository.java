@@ -11,4 +11,7 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, String
     Optional<UserAccount> findByPhone(String phone);
 
     List<UserAccount> findByBusinessIdOrderByFullName(String businessId);
+
+    /** Platform staff and marketers: the accounts with no business. */
+    List<UserAccount> findByBusinessIdIsNullOrderByFullName();
 }

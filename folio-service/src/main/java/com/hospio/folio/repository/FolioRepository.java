@@ -15,4 +15,9 @@ public interface FolioRepository extends JpaRepository<Folio, String> {
     Optional<Folio> findFirstByRoomIdAndStatus(String roomId, Folio.Status status);
 
     List<Folio> findByOrganizationIdOrderByOpenedAtDesc(String organizationId);
+
+    long countByHotelIdAndStatus(String hotelId, Folio.Status status);
+
+    @org.springframework.data.jpa.repository.Query("select coalesce(sum(f.balance), 0) from Folio f where f.hotelId = :hotelId and f.status = 'OPEN'")
+    java.math.BigDecimal openBalance(@org.springframework.data.repository.query.Param("hotelId") String hotelId);
 }

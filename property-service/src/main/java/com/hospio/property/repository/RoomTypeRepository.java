@@ -6,4 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface RoomTypeRepository extends JpaRepository<RoomType, String> {
     List<RoomType> findByHotelIdOrderByName(String hotelId);
+
+    long countByHotelIdAndActiveTrue(String hotelId);
 }

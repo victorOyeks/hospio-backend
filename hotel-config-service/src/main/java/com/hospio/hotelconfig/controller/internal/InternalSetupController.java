@@ -2,8 +2,10 @@ package com.hospio.hotelconfig.controller.internal;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hospio.common.response.ApiResponse;
+import com.hospio.hotelconfig.dto.HotelOverviewResponse;
 import com.hospio.hotelconfig.dto.PriceListResponse;
 import com.hospio.hotelconfig.entity.ListItem;
+import com.hospio.hotelconfig.service.AdminOverviewService;
 import com.hospio.hotelconfig.service.HotelSetupService;
 import com.hospio.hotelconfig.service.ListsAndPricesService;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -27,6 +29,13 @@ public class InternalSetupController {
 
     private final HotelSetupService setup;
     private final ListsAndPricesService lists;
+    private final AdminOverviewService admin;
+
+    /** platform-service business detail, Hotels tab: WhatsApp number, POS provider, share of the setup changed from defaults. */
+    @GetMapping("/admin/hotel-overview")
+    public ApiResponse<HotelOverviewResponse> hotelOverview(@RequestParam String hotelId) {
+        return ApiResponse.ok(admin.hotelOverview(hotelId));
+    }
 
     @GetMapping("/settings/{section}")
     public ApiResponse<Map<String, JsonNode>> section(@RequestParam String hotelId, @PathVariable String section) {

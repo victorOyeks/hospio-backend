@@ -12,6 +12,7 @@ import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.identity.client.TenantClient;
 import com.hospio.identity.dto.AuthResponse;
+import com.hospio.identity.dto.PhoneCodeResponse;
 import com.hospio.identity.dto.SignUpRequest;
 import com.hospio.identity.entity.RoleGrant;
 import com.hospio.identity.entity.UserAccount;
@@ -26,8 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Self-serve sign-up: the business is created in tenant-service with an id chosen here, then the owner
- * account (their own password, phone not yet verified) and the business-wide OWNER grant, and the
- * owner is signed in. Runs as the system: there is no tenant until the business exists.
+ * account (their own password, phone not yet verified) and the business-wide OWNER grant, a phone code is
+ * issued so the verify screen already has one, and the owner is signed in. Runs as the system: there is no
+ * tenant until the business exists.
  */
 @Service
 @RequiredArgsConstructor
@@ -41,6 +43,7 @@ public class SignUpService {
     private final PasswordEncoder passwordEncoder;
     private final TokenIssuer tokenIssuer;
     private final EventPublisher events;
+    private final PhoneVerificationService phoneVerification;
 
     @Transactional
     public AuthResponse signUp(SignUpRequest request) {
@@ -77,10 +80,11 @@ public class SignUpService {
             events.publish(KafkaTopics.ROLE_GRANTED, RoleGrantedEvent.builder()
                     .businessId(businessId).actorId(userId).actorName(name).userId(userId).userName(name)
                     .role(Role.OWNER.name()).level(AccessLevel.FULL.name()).build());
+            PhoneCodeResponse code = phoneVerification.issue(owner);
             AuthResponse response = tokenIssuer.issue(owner);
             events.publish(KafkaTopics.USER_SIGNED_IN, UserSignedInEvent.builder()
                     .businessId(businessId).actorId(userId).actorName(name).userId(userId).method("sign-up").build());
-            return response;
+            return code == null ? response : response.withDeliveries(code.deliveries());
         });
     }
 }

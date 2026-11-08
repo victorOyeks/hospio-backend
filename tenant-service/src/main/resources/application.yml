@@ -44,6 +44,9 @@ jwt:
 hospio:
   deliveries:
     echo: ${DELIVERIES_ECHO:false}
+  apps:
+    # The hotel app's address, printed in the handover pack as the sign-in link.
+    hotel-url: ${HOTEL_APP_URL:https://web-staging.hospio360.com}
   logging:
     # Log request bodies and error responses (secrets masked). On for dev/staging via HOSPIO_LOG_BODIES.
     bodies: ${HOSPIO_LOG_BODIES:false}

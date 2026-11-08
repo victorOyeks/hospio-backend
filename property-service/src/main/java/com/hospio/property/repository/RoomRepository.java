@@ -14,5 +14,7 @@ public interface RoomRepository extends JpaRepository<Room, String> {
 
     long countByHotelId(String hotelId);
 
+    long countByHotelIdAndStatus(String hotelId, Room.Status status);
+
     boolean existsByRoomTypeId(String roomTypeId);
 }

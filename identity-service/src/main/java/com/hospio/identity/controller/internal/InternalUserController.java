@@ -46,7 +46,11 @@ public class InternalUserController {
         return ApiResponse.ok(userService.withRole(hotelId, role));
     }
 
-    /** Onboarding creates the owner and first manager through here; {@code businessId} in the body says whose. */
+    /**
+     * Onboarding creates the owner and first manager through here; {@code businessId} in the body says whose.
+     * platform-service creates marketer logins here too: role MARKETER, no business. The response carries the
+     * temporary password, invite token and the deliveries that would have gone out.
+     */
     @PostMapping
     public ApiResponse<UserCreatedResponse> create(@Valid @RequestBody CreateUserRequest request) {
         return ApiResponse.ok("Login created", userService.create(request));

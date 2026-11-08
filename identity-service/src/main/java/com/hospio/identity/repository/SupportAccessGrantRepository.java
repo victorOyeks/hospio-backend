@@ -6,4 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface SupportAccessGrantRepository extends JpaRepository<SupportAccessGrant, String> {
     List<SupportAccessGrant> findByAdminIdOrderByCreatedAtDesc(String adminId);
+
+    List<SupportAccessGrant> findByBusinessIdOrderByCreatedAtDesc(String businessId);
 }

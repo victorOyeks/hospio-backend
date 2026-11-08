@@ -28,3 +28,8 @@ ALTER TABLE tenant.hotels ADD COLUMN IF NOT EXISTS check_in_time VARCHAR(5) NOT 
 ALTER TABLE tenant.hotels ADD COLUMN IF NOT EXISTS check_out_time VARCHAR(5) NOT NULL DEFAULT '12:00';
 ALTER TABLE tenant.hotels ADD COLUMN IF NOT EXISTS star_rating INTEGER;
 ALTER TABLE tenant.hotels ADD COLUMN IF NOT EXISTS manager_user_id VARCHAR(36);
+
+--changeset hospio:009-business-referral
+-- The marketer referral (platform-service) a business came from; the BusinessCreated event carries it too.
+ALTER TABLE tenant.businesses ADD COLUMN IF NOT EXISTS referral_id VARCHAR(36);
+CREATE INDEX IF NOT EXISTS idx_businesses_marketer ON tenant.businesses (marketer_id);

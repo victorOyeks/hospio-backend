@@ -41,6 +41,10 @@ jwt:
 hospio:
   deliveries:
     echo: ${DELIVERIES_ECHO:false}
+  apps:
+    # Where invite links point: platform staff and marketers open the admin portal, everyone else the hotel app.
+    hotel-url: ${HOTEL_APP_URL:https://web-staging.hospio360.com}
+    admin-url: ${ADMIN_APP_URL:https://admin-staging.hospio360.com}
   logging:
     # Log request bodies and error responses (secrets masked). On for dev/staging via HOSPIO_LOG_BODIES.
     bodies: ${HOSPIO_LOG_BODIES:false}
@@ -58,6 +62,8 @@ hospio:
     phone-code-minutes: 10
     # When set (staging: 123456) this code is always accepted as a phone confirmation code.
     otp-dev-code: ${OTP_DEV_CODE:}
+    # A support-access token ("view as owner") never lives longer than this, whatever the grant says.
+    support-token-max-minutes: 60
 
 services:
   tenant:

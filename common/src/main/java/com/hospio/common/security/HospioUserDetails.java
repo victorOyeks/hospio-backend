@@ -26,9 +26,16 @@ public class HospioUserDetails implements UserDetails {
     private final List<String> hotelIds;
     private final Map<Role, AccessLevel> roles;
     private final String scope;
+    /** The platform admin behind a support-access token ({@code act} claim); null for an ordinary sign-in. */
+    private final String actedBy;
 
     public HospioUserDetails(String userId, String email, String fullName, String businessId, List<String> hotelIds,
                              Map<Role, AccessLevel> roles, String scope) {
+        this(userId, email, fullName, businessId, hotelIds, roles, scope, null);
+    }
+
+    public HospioUserDetails(String userId, String email, String fullName, String businessId, List<String> hotelIds,
+                             Map<Role, AccessLevel> roles, String scope, String actedBy) {
         this.userId = userId;
         this.email = email;
         this.fullName = fullName;
@@ -36,6 +43,7 @@ public class HospioUserDetails implements UserDetails {
         this.hotelIds = hotelIds == null ? List.of() : hotelIds;
         this.roles = roles == null ? Map.of() : roles;
         this.scope = scope;
+        this.actedBy = actedBy;
     }
 
     public Set<Role> roleSet() {
@@ -61,6 +69,17 @@ public class HospioUserDetails implements UserDetails {
 
     public boolean isMarketer() {
         return JwtUtil.SCOPE_MARKETER.equals(scope);
+    }
+
+    /**
+     * A token that may only look: every role it carries is VIEW, or it is a support-access token
+     * ({@code act} set). {@link AccessChecker} refuses manager, owner and EDIT/FULL checks for it.
+     */
+    public boolean isReadOnly() {
+        if (actedBy != null) {
+            return true;
+        }
+        return !roles.isEmpty() && roles.values().stream().allMatch(l -> l == AccessLevel.VIEW);
     }
 
     @Override

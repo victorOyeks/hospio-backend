@@ -1,6 +1,8 @@
 package com.hospio.tenant.service;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.hospio.common.delivery.Delivery;
+import com.hospio.common.delivery.DeliveryService;
 import com.hospio.common.enums.Role;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.exception.ForbiddenException;
@@ -25,7 +27,9 @@ import com.hospio.tenant.repository.HandoverRepository;
 import com.hospio.tenant.repository.OnboardingDraftRepository;
 import com.hospio.tenant.repository.SetupTemplateRepository;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,14 +53,23 @@ public class OnboardingService {
     private final DraftData draftData;
     private final IdentityClient identityClient;
     private final EventPublisher events;
+    private final HandoverPack handoverPack;
+    private final DeliveryService deliveryService;
 
     // ---- platform: the board and the 10-step wizard -------------------------------------------------
 
     @Transactional(readOnly = true)
     public List<OnboardingResponse> list(OnboardingDraft.Status status) {
         requirePlatform();
+        return listInternal(status);
+    }
+
+    /** The same board for platform-service (stalled-onboarding alerts); the internal key is the guard. */
+    @Transactional(readOnly = true)
+    public List<OnboardingResponse> listInternal(OnboardingDraft.Status status) {
         List<OnboardingDraft> list = status == null ? drafts.findAllByOrderByUpdatedAtDesc() : drafts.findByStatusOrderByUpdatedAtDesc(status);
-        return list.stream().map(this::toResponse).toList();
+        Map<String, String> names = identityClient.names(list.stream().map(OnboardingDraft::getAssignedTo).filter(a -> a != null).toList());
+        return list.stream().map(d -> toResponse(d, names)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -92,7 +105,8 @@ public class OnboardingService {
 
     /**
      * J16 · Send handover: the owner's login (temporary password and invite link, shown once), the
-     * handover record, stage HANDED_OVER. Sent again, it re-issues the existing owner's login.
+     * handover record, stage HANDED_OVER, and the handover pack email. Sent again, it re-issues the
+     * existing owner's login. {@code deliveries} = identity's (temporary password, invite) + the pack.
      */
     @Transactional
     public HandoverResponse sendHandover(String businessId) {
@@ -126,11 +140,16 @@ public class OnboardingService {
         businessService.moveStage(business, Business.Stage.HANDED_OVER, null);
         events.publish(KafkaTopics.HANDOVER_SENT, HandoverSentEvent.builder()
                 .businessId(businessId).ownerUserId(login.userId()).ownerEmail(business.getOwnerEmail()).build());
+        List<com.hospio.tenant.dto.HotelResponse> hotels = businessService.hotelsOf(businessId);
+        List<com.fasterxml.jackson.databind.JsonNode> logins = draftData.logins(draftData.parse(draft.getData()));
+        List<Delivery> deliveries = new ArrayList<>(login.deliveries() == null ? List.of() : login.deliveries());
+        deliveries.addAll(deliveryService.send(handoverPack.email(businessId, business.getName(), business.getOwnerName(),
+                business.getOwnerEmail(), hotels, logins)));
         return new HandoverResponse(handover.getId(), businessId, handover.getPackKey(), handover.getSentAt(), handover.getSentBy(),
                 handover.getAcceptedAt(),
                 new HandoverResponse.OwnerLogin(login.userId(), business.getOwnerEmail(), login.temporaryPassword(), login.expiresAt(),
                         login.inviteToken(), login.inviteExpiresAt()),
-                businessService.hotelsOf(businessId), draftData.logins(draftData.parse(draft.getData())));
+                hotels, logins, deliveries);
     }
 
     /** K3 · The owner reviews and accepts the handover; the business goes live. */
@@ -243,11 +262,15 @@ public class OnboardingService {
     }
 
     private OnboardingResponse toResponse(OnboardingDraft d) {
+        return toResponse(d, d.getAssignedTo() == null ? Map.of() : identityClient.names(List.of(d.getAssignedTo())));
+    }
+
+    private OnboardingResponse toResponse(OnboardingDraft d, Map<String, String> assigneeNames) {
         Business business = businessService.find(d.getBusinessId());
         ObjectNode root = draftData.parse(d.getData());
         return new OnboardingResponse(d.getId(), d.getBusinessId(), business.getName(), business.getSource(), d.getStep(),
-                totalSteps(business), draftData.completedSteps(root), d.getAssignedTo(), null, d.getStatus(), draftData.nextAction(root),
-                d.getCreatedAt(), d.getUpdatedAt(), root);
+                totalSteps(business), draftData.completedSteps(root), d.getAssignedTo(), assigneeNames.get(d.getAssignedTo()), d.getStatus(),
+                draftData.nextAction(root), d.getCreatedAt(), d.getUpdatedAt(), root);
     }
 
     private static void requirePlatform() {

@@ -10,7 +10,7 @@ import java.util.List;
 public record BusinessResponse(String id, String name, String legalName, String registrationNumber, String businessType,
                                Business.Source source, String city, String address, String email, String phone, String logoUrl,
                                String brandColour, String ownerUserId, String ownerName, String ownerEmail, String ownerPhone,
-                               Business.Stage stage, String accountManagerId, String marketerId, Business.FeeModel feeModel,
+                               Business.Stage stage, String accountManagerId, String marketerId, String referralId, Business.FeeModel feeModel,
                                BigDecimal feeValue, String currency, String country, String timezone, LocalDate contractStartsOn,
                                String contractNotes, int hotelCount, Instant suspendedAt, String suspensionReason, Instant createdAt,
                                List<HotelResponse> hotels, Onboarding onboarding) {

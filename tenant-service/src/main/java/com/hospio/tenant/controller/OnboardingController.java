@@ -38,7 +38,7 @@ public class OnboardingController {
 
     @Operation(summary = "Owner: my own sign-up wizard progress")
     @GetMapping("/onboarding/mine")
-    @PreAuthorize("@access.owner()")
+    @PreAuthorize("@access.managerView()")
     public ApiResponse<OnboardingResponse> mine() {
         return ApiResponse.ok(service.mine());
     }

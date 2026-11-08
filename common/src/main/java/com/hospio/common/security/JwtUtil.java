@@ -56,6 +56,15 @@ public class JwtUtil {
 
     public String generateToken(String userId, String email, String fullName, String businessId, List<String> hotelIds,
                                 Map<Role, AccessLevel> roles, String scope) {
+        return generateToken(userId, email, fullName, businessId, hotelIds, roles, scope, null, expirationMs);
+    }
+
+    /**
+     * A token with its own lifetime and, for support access, the {@code act} claim naming the platform admin
+     * acting as the business's owner. Everything else is the normal token; every service reads it the same way.
+     */
+    public String generateToken(String userId, String email, String fullName, String businessId, List<String> hotelIds,
+                                Map<Role, AccessLevel> roles, String scope, String actedBy, long ttlMs) {
         List<String> roleClaims = roles.entrySet().stream().map(e -> e.getKey().name() + ":" + e.getValue().name()).toList();
         var builder = Jwts.builder()
                 .subject(userId)
@@ -65,9 +74,12 @@ public class JwtUtil {
                 .claim("roles", roleClaims)
                 .claim("scope", scope)
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + expirationMs));
+                .expiration(new Date(System.currentTimeMillis() + ttlMs));
         if (businessId != null) {
             builder.claim("bid", businessId);
+        }
+        if (actedBy != null) {
+            builder.claim("act", actedBy);
         }
         return builder.signWith(signingKey()).compact();
     }
@@ -105,6 +117,7 @@ public class JwtUtil {
                 claims.get("bid", String.class),
                 hotels,
                 roles,
-                claims.get("scope", String.class));
+                claims.get("scope", String.class),
+                claims.get("act", String.class));
     }
 }

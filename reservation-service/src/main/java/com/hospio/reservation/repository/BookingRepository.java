@@ -39,6 +39,20 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
     List<Booking> between(@Param("hotelId") String hotelId, @Param("from") LocalDate from, @Param("to") LocalDate to,
                           @Param("status") BookingStatus status);
 
+    /** Every stay of a business (any hotel) that was not cancelled or a no-show and touches [from, toExclusive). */
+    @Query("select b from Booking b where b.businessId = :businessId and b.status in ('BOOKED','CHECKED_IN','CHECKED_OUT') "
+            + "and b.checkInDate < :toExclusive and b.checkOutDate > :from")
+    List<Booking> overlappingInBusiness(@Param("businessId") String businessId, @Param("from") LocalDate from,
+                                        @Param("toExclusive") LocalDate toExclusive);
+
+    long countByHotelIdAndStatus(String hotelId, BookingStatus status);
+
+    long countByHotelIdAndStatusAndCheckInDate(String hotelId, BookingStatus status, LocalDate checkInDate);
+
+    long countByHotelIdAndStatusAndCheckOutDate(String hotelId, BookingStatus status, LocalDate checkOutDate);
+
+    long countByHotelIdAndCreatedAtGreaterThanEqual(String hotelId, java.time.Instant since);
+
     @Query(value = "select pg_advisory_xact_lock(hashtext(:key))", nativeQuery = true)
     Object lock(@Param("key") String key);
 }

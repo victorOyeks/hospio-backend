@@ -36,23 +36,29 @@ public class UserController {
         return ApiResponse.ok(userService.me(CurrentUser.require().getUserId()));
     }
 
-    @Operation(summary = "People of a business with roles, status and invite state; platform callers pass businessId, managers see their hotels' people")
+    @Operation(summary = "People of a business with roles, status and invite state; platform callers pass businessId, managers see "
+            + "their hotels' people. scope=platform (SUPER_ADMIN) lists the admin team instead")
     @GetMapping
-    @PreAuthorize("@access.manager()")
-    public ApiResponse<List<UserResponse>> list(@RequestParam(required = false) String businessId,
+    @PreAuthorize("@access.managerView()")
+    public ApiResponse<List<UserResponse>> list(@RequestParam(required = false) String scope,
+                                                @RequestParam(required = false) String businessId,
                                                 @RequestParam(required = false) String hotelId,
                                                 @RequestParam(required = false) Role role,
                                                 @RequestParam(required = false) String q) {
+        if ("platform".equalsIgnoreCase(scope)) {
+            return ApiResponse.ok(userService.listPlatform(q));
+        }
         return ApiResponse.ok(userService.list(businessId, hotelId, role, q));
     }
 
     @GetMapping("/{userId}")
-    @PreAuthorize("@access.manager()")
+    @PreAuthorize("@access.managerView()")
     public ApiResponse<UserResponse> get(@PathVariable String userId) {
         return ApiResponse.ok(userService.get(userId));
     }
 
-    @Operation(summary = "Add a person with a first role; the temporary password and invite token come back once")
+    @Operation(summary = "Add a person with a first role; the temporary password and invite token come back once with the deliveries "
+            + "that would have carried them. A platform role needs SUPER_ADMIN; MARKETER any platform admin")
     @PostMapping
     @PreAuthorize("@access.manager()")
     public ApiResponse<UserCreatedResponse> create(@Valid @RequestBody CreateUserRequest request) {
