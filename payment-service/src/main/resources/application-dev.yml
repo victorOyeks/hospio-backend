@@ -12,3 +12,7 @@ management:
 springdoc:
   swagger-ui:
     enabled: true
+
+hospio:
+  seed:
+    enabled: true

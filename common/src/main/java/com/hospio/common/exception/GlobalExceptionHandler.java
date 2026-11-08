@@ -1,6 +1,7 @@
 package com.hospio.common.exception;
 
 import com.hospio.common.response.ApiResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -26,32 +27,38 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BadRequestException.class)
-    public ResponseEntity<ApiResponse<Void>> badRequest(BadRequestException e) {
+    public ResponseEntity<ApiResponse<Void>> badRequest(BadRequestException e, HttpServletRequest request) {
+        warn(e, request);
         return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
     }
 
     @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ApiResponse<Void>> notFound(ResourceNotFoundException e) {
+    public ResponseEntity<ApiResponse<Void>> notFound(ResourceNotFoundException e, HttpServletRequest request) {
+        warn(e, request);
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(e.getMessage()));
     }
 
     @ExceptionHandler(ConflictException.class)
-    public ResponseEntity<ApiResponse<Void>> conflict(ConflictException e) {
+    public ResponseEntity<ApiResponse<Void>> conflict(ConflictException e, HttpServletRequest request) {
+        warn(e, request);
         return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(e.getMessage()));
     }
 
     @ExceptionHandler(UnauthorizedException.class)
-    public ResponseEntity<ApiResponse<Void>> unauthorized(UnauthorizedException e) {
+    public ResponseEntity<ApiResponse<Void>> unauthorized(UnauthorizedException e, HttpServletRequest request) {
+        warn(e, request);
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error(e.getMessage()));
     }
 
     @ExceptionHandler({ForbiddenException.class, AccessDeniedException.class})
-    public ResponseEntity<ApiResponse<Void>> forbidden(Exception e) {
+    public ResponseEntity<ApiResponse<Void>> forbidden(Exception e, HttpServletRequest request) {
+        warn(e, request);
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(e.getMessage()));
     }
 
     @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<ApiResponse<Void>> unauthenticated(AuthenticationException e) {
+    public ResponseEntity<ApiResponse<Void>> unauthenticated(AuthenticationException e, HttpServletRequest request) {
+        warn(e, request);
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Sign in to continue"));
     }
 
@@ -62,19 +69,22 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiResponse<Map<String, String>>> invalid(MethodArgumentNotValidException e) {
+    public ResponseEntity<ApiResponse<Map<String, String>>> invalid(MethodArgumentNotValidException e, HttpServletRequest request) {
         Map<String, String> fields = new LinkedHashMap<>();
         e.getBindingResult().getFieldErrors().forEach(f -> fields.put(f.getField(), f.getDefaultMessage()));
+        log.warn("{} {} -> 400 Validation failed: {}", request.getMethod(), request.getRequestURI(), fields);
         return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", fields));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiResponse<Void>> unreadable(HttpMessageNotReadableException e) {
+    public ResponseEntity<ApiResponse<Void>> unreadable(HttpMessageNotReadableException e, HttpServletRequest request) {
+        log.warn("{} {} -> 400 unreadable body: {}", request.getMethod(), request.getRequestURI(), e.getMostSpecificCause().getMessage());
         return ResponseEntity.badRequest().body(ApiResponse.error("Request body could not be read"));
     }
 
     @ExceptionHandler(HospioException.class)
-    public ResponseEntity<ApiResponse<Void>> hospio(HospioException e) {
+    public ResponseEntity<ApiResponse<Void>> hospio(HospioException e, HttpServletRequest request) {
+        warn(e, request);
         return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
     }
 
@@ -90,14 +100,20 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({MissingServletRequestParameterException.class, MethodArgumentTypeMismatchException.class})
-    public ResponseEntity<ApiResponse<Void>> badParameter(Exception e) {
+    public ResponseEntity<ApiResponse<Void>> badParameter(Exception e, HttpServletRequest request) {
+        warn(e, request);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error("A required parameter is missing or has the wrong format"));
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<Void>> unexpected(Exception e) {
-        log.error("Unhandled error", e);
+    public ResponseEntity<ApiResponse<Void>> unexpected(Exception e, HttpServletRequest request) {
+        log.error("{} {} -> 500 {}: {}", request.getMethod(), request.getRequestURI(), e.getClass().getSimpleName(), e.getMessage(), e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.error("Something went wrong on our side"));
+    }
+
+    /** One line per handled error, so a 4xx can be traced in the log without the stack: what was asked, what was answered. */
+    private static void warn(Exception e, HttpServletRequest request) {
+        log.warn("{} {} -> {}: {}", request.getMethod(), request.getRequestURI(), e.getClass().getSimpleName(), e.getMessage());
     }
 }

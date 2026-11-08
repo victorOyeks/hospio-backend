@@ -39,6 +39,9 @@ jwt:
   expiration-ms: ${JWT_EXPIRATION_MS:3600000}
 
 hospio:
+  logging:
+    # Log request bodies and error responses (secrets masked). On for dev/staging via HOSPIO_LOG_BODIES.
+    bodies: ${HOSPIO_LOG_BODIES:false}
   seed:
     # Creates the test accounts / example hotel on start-up when missing (env SEED_DEMO_DATA).
     enabled: ${SEED_DEMO_DATA:false}
