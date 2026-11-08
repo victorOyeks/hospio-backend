@@ -1,5 +1,6 @@
 package com.hospio.identity.controller;
 
+import com.hospio.common.enums.Role;
 import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.CurrentUser;
 import com.hospio.identity.dto.AccessChangeRequest;
@@ -9,6 +10,7 @@ import com.hospio.identity.dto.MeResponse;
 import com.hospio.identity.dto.UserCreatedResponse;
 import com.hospio.identity.dto.UserResponse;
 import com.hospio.identity.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -34,11 +36,14 @@ public class UserController {
         return ApiResponse.ok(userService.me(CurrentUser.require().getUserId()));
     }
 
-    /** Everyone in the business with their roles - the Staff access and Users screens. */
+    @Operation(summary = "People of a business with roles, status and invite state; platform callers pass businessId, managers see their hotels' people")
     @GetMapping
     @PreAuthorize("@access.manager()")
-    public ApiResponse<List<UserResponse>> list() {
-        return ApiResponse.ok(userService.listForBusiness());
+    public ApiResponse<List<UserResponse>> list(@RequestParam(required = false) String businessId,
+                                                @RequestParam(required = false) String hotelId,
+                                                @RequestParam(required = false) Role role,
+                                                @RequestParam(required = false) String q) {
+        return ApiResponse.ok(userService.list(businessId, hotelId, role, q));
     }
 
     @GetMapping("/{userId}")
@@ -47,11 +52,18 @@ public class UserController {
         return ApiResponse.ok(userService.get(userId));
     }
 
-    /** Add staff or invite a user; the temporary password comes back once. */
+    @Operation(summary = "Add a person with a first role; the temporary password and invite token come back once")
     @PostMapping
     @PreAuthorize("@access.manager()")
     public ApiResponse<UserCreatedResponse> create(@Valid @RequestBody CreateUserRequest request) {
         return ApiResponse.ok("Login created", userService.create(request));
+    }
+
+    @Operation(summary = "A fresh temporary password and invite link for a person")
+    @PostMapping("/{userId}/resend-invite")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<UserCreatedResponse> resendInvite(@PathVariable String userId) {
+        return ApiResponse.ok("Invite re-sent", userService.resendInvite(userId));
     }
 
     @PostMapping("/{userId}/roles")
@@ -73,6 +85,7 @@ public class UserController {
         return ApiResponse.ok(paused ? "All access paused" : "Access resumed", userService.pauseAll(userId, paused));
     }
 
+    /** Managers, the owner and the platform; a temporary password the person must change. */
     @PostMapping("/{userId}/reset-password")
     @PreAuthorize("@access.manager()")
     public ApiResponse<UserCreatedResponse> resetPassword(@PathVariable String userId) {

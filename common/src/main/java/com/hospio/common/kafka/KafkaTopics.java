@@ -21,6 +21,11 @@ public final class KafkaTopics {
     public static final String HOTEL_CREATED = PREFIX + "hotel-created";
     public static final String BUSINESS_STAGE_CHANGED = PREFIX + "business-stage-changed";
     public static final String HANDOVER_SENT = PREFIX + "handover-sent";
+    public static final String HANDOVER_ACCEPTED = PREFIX + "handover-accepted";
+
+    // Messages to people (email, SMS, WhatsApp); messaging-service subscribes on its own. Kept out of ALL so the
+    // platform activity log never stores a temporary password or an invite link.
+    public static final String DELIVERY_REQUESTED = PREFIX + "delivery-requested";
 
     // Hotel configuration
     public static final String SETTING_CHANGED = PREFIX + "setting-changed";
@@ -88,7 +93,7 @@ public final class KafkaTopics {
     /** Every topic; platform-service's activity log and the live Departments board subscribe to all of them. */
     public static final List<String> ALL = List.of(
             USER_CREATED, USER_SIGNED_IN, ROLE_GRANTED, ACCESS_CHANGED,
-            BUSINESS_CREATED, HOTEL_CREATED, BUSINESS_STAGE_CHANGED, HANDOVER_SENT,
+            BUSINESS_CREATED, HOTEL_CREATED, BUSINESS_STAGE_CHANGED, HANDOVER_SENT, HANDOVER_ACCEPTED,
             SETTING_CHANGED,
             ROOM_OUT_OF_ORDER, ROOM_BACK_IN_SERVICE,
             BOOKING_CREATED, BOOKING_CHANGED, BOOKING_CANCELLED, GUEST_CHECKED_IN, GUEST_CHECKED_OUT,

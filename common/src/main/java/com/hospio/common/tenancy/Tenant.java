@@ -16,6 +16,10 @@ public record Tenant(String businessId, String hotelId, String actorId, String a
         if (user.isPlatform()) {
             return new Tenant(null, hotelHeader, user.getUserId(), user.getFullName(), user.roleSet(), JwtUtil.SCOPE_PLATFORM);
         }
+        if (user.isMarketer()) {
+            // No business and not the platform: app.can_see answers false for every tenant row, which is right for now.
+            return new Tenant(null, hotelHeader, user.getUserId(), user.getFullName(), user.roleSet(), JwtUtil.SCOPE_MARKETER);
+        }
         String hotel = hotelHeader;
         if (hotel == null && user.getHotelIds().size() == 1 && !user.has(Role.OWNER)) {
             hotel = user.getHotelIds().get(0);

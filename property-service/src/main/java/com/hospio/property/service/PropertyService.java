@@ -2,14 +2,18 @@ package com.hospio.property.service;
 
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.exception.ConflictException;
+import com.hospio.common.exception.ExternalServiceException;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.kafka.EventPublisher;
 import com.hospio.common.kafka.KafkaTopics;
 import com.hospio.common.kafka.events.RoomBackInServiceEvent;
 import com.hospio.common.kafka.events.RoomOutOfOrderEvent;
+import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.property.client.TenantClient;
 import com.hospio.property.dto.AreaRequest;
+import com.hospio.property.dto.BulkRoomsRequest;
+import com.hospio.property.dto.BulkRoomsResponse;
 import com.hospio.property.dto.OutOfOrderRequest;
 import com.hospio.property.dto.RoomRequest;
 import com.hospio.property.dto.RoomResponse;
@@ -26,14 +30,23 @@ import com.hospio.property.repository.RoomTypeRepository;
 import com.hospio.property.repository.SpecialPriceRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Room types, rooms and areas. Writes run inside the hotel's business: a platform admin setting up a
+ * hotel carries no business of their own, so it is looked up from tenant-service and bound as the system.
+ */
 @Service
 @RequiredArgsConstructor
 public class PropertyService {
@@ -57,20 +70,34 @@ public class PropertyService {
 
     @Transactional
     public RoomTypeResponse saveRoomType(String id, RoomTypeRequest request) {
-        RoomType type = id == null ? new RoomType() : findType(id);
-        type.setName(request.name());
-        type.setDescription(request.description());
-        type.setBasePrice(request.basePrice());
-        if (request.capacityAdults() != null) {
-            type.setCapacityAdults(request.capacityAdults());
+        String hotelId = TenantContext.requireHotel();
+        return withHotelTenant(hotelId, () -> {
+            RoomType type = id == null ? RoomType.builder().hotelId(hotelId).build() : findType(id);
+            type.setName(request.name());
+            type.setDescription(request.description());
+            type.setBasePrice(request.basePrice());
+            if (request.capacityAdults() != null) {
+                type.setCapacityAdults(request.capacityAdults());
+            }
+            if (request.capacityChildren() != null) {
+                type.setCapacityChildren(request.capacityChildren());
+            }
+            type.setFacilities(request.facilities());
+            if (request.active() != null) {
+                type.setActive(request.active());
+            }
+            return toResponse(roomTypes.save(type));
+        });
+    }
+
+    /** Hides a room type nobody uses; one with rooms is refused (409) until they are moved. */
+    @Transactional
+    public RoomTypeResponse deactivateRoomType(String id) {
+        RoomType type = findType(id);
+        if (rooms.existsByRoomTypeId(id)) {
+            throw new ConflictException("Rooms still use the " + type.getName() + " type. Move them to another type first");
         }
-        if (request.capacityChildren() != null) {
-            type.setCapacityChildren(request.capacityChildren());
-        }
-        type.setFacilities(request.facilities());
-        if (request.active() != null) {
-            type.setActive(request.active());
-        }
+        type.setActive(false);
         return toResponse(roomTypes.save(type));
     }
 
@@ -80,9 +107,11 @@ public class PropertyService {
         if (request.toDate().isBefore(request.fromDate())) {
             throw new BadRequestException("The end date is before the start date");
         }
-        specialPrices.save(SpecialPrice.builder().roomTypeId(type.getId()).name(request.name()).price(request.price())
-                .fromDate(request.fromDate()).toDate(request.toDate()).build());
-        return toResponse(type);
+        return withHotelTenant(type.getHotelId(), () -> {
+            specialPrices.save(SpecialPrice.builder().hotelId(type.getHotelId()).roomTypeId(type.getId()).name(request.name())
+                    .price(request.price()).fromDate(request.fromDate()).toDate(request.toDate()).build());
+            return toResponse(type);
+        });
     }
 
     /** The nightly price for a type on a date: a special price if one covers it, else the base price. */
@@ -109,21 +138,56 @@ public class PropertyService {
     @Transactional
     public RoomResponse saveRoom(String id, RoomRequest request) {
         String hotelId = TenantContext.requireHotel();
-        RoomType type = findType(request.roomTypeId());
-        rooms.findByHotelIdAndNumber(hotelId, request.number()).filter(r -> !r.getId().equals(id)).ifPresent(r -> {
-            throw new ConflictException("Room " + request.number() + " already exists");
+        return withHotelTenant(hotelId, () -> {
+            RoomType type = findType(request.roomTypeId());
+            rooms.findByHotelIdAndNumber(hotelId, request.number()).filter(r -> !r.getId().equals(id)).ifPresent(r -> {
+                throw new ConflictException("Room " + request.number() + " already exists");
+            });
+            Room room = id == null ? Room.builder().hotelId(hotelId).build() : findRoom(id);
+            room.setNumber(request.number());
+            room.setRoomTypeId(type.getId());
+            room.setAreaId(request.areaId());
+            room.setFloor(request.floor());
+            room.setNotes(request.notes());
+            Room saved = rooms.save(room);
+            if (id == null) {
+                tenantClient.updateRoomCount(hotelId, rooms.countByHotelId(hotelId));
+            }
+            return toResponse(saved, type);
         });
-        Room room = id == null ? new Room() : findRoom(id);
-        room.setNumber(request.number());
-        room.setRoomTypeId(type.getId());
-        room.setAreaId(request.areaId());
-        room.setFloor(request.floor());
-        room.setNotes(request.notes());
-        Room saved = rooms.save(room);
-        if (id == null) {
-            tenantClient.updateRoomCount(hotelId, rooms.countByHotelId(hotelId));
-        }
-        return toResponse(saved, type);
+    }
+
+    /**
+     * Onboarding: many rooms at once. A number already in the hotel, or repeated in the request, is
+     * skipped and reported; every room type must belong to this hotel. The room count is synced after.
+     */
+    @Transactional
+    public BulkRoomsResponse bulkRooms(BulkRoomsRequest request) {
+        String hotelId = TenantContext.requireHotel();
+        return withHotelTenant(hotelId, () -> {
+            Set<String> taken = new HashSet<>();
+            rooms.findByHotelIdOrderByNumber(hotelId).forEach(r -> taken.add(r.getNumber().trim().toUpperCase()));
+            Map<String, RoomType> types = new HashMap<>();
+            List<String> skipped = new ArrayList<>();
+            int created = 0;
+            for (BulkRoomsRequest.BulkRoom r : request.rooms()) {
+                String number = r.number().trim();
+                RoomType type = types.computeIfAbsent(r.roomTypeId(), this::findType);
+                if (!hotelId.equals(type.getHotelId())) {
+                    throw new BadRequestException("Room type " + type.getName() + " belongs to another hotel");
+                }
+                if (!taken.add(number.toUpperCase())) {
+                    skipped.add(number);
+                    continue;
+                }
+                rooms.save(Room.builder().hotelId(hotelId).roomTypeId(type.getId()).areaId(r.areaId()).number(number).floor(r.floor()).build());
+                created++;
+            }
+            if (created > 0) {
+                tenantClient.updateRoomCount(hotelId, rooms.countByHotelId(hotelId));
+            }
+            return new BulkRoomsResponse(created, skipped);
+        });
     }
 
     @Transactional
@@ -157,15 +221,34 @@ public class PropertyService {
 
     @Transactional
     public Area saveArea(String id, AreaRequest request) {
-        Area area = id == null ? new Area() : areas.findById(id).orElseThrow(() -> new ResourceNotFoundException("Area not found"));
-        area.setName(request.name());
-        if (request.kind() != null) {
-            area.setKind(request.kind());
+        String hotelId = TenantContext.requireHotel();
+        return withHotelTenant(hotelId, () -> {
+            Area area = id == null ? Area.builder().hotelId(hotelId).build()
+                    : areas.findById(id).orElseThrow(() -> new ResourceNotFoundException("Area not found"));
+            area.setName(request.name());
+            if (request.kind() != null) {
+                area.setKind(request.kind());
+            }
+            if (request.sortOrder() != null) {
+                area.setSortOrder(request.sortOrder());
+            }
+            return areas.save(area);
+        });
+    }
+
+    /**
+     * Business and hotel callers run as themselves. A platform caller has no business, and every row
+     * here needs one, so the hotel's business is looked up and the work runs as the system inside it.
+     */
+    <T> T withHotelTenant(String hotelId, Supplier<T> work) {
+        Tenant current = TenantContext.current().orElse(null);
+        if (current != null && current.businessId() != null) {
+            return work.get();
         }
-        if (request.sortOrder() != null) {
-            area.setSortOrder(request.sortOrder());
-        }
-        return areas.save(area);
+        String businessId = tenantClient.businessOf(hotelId)
+                .orElseThrow(() -> new ExternalServiceException("Could not find which business hotel " + hotelId + " belongs to"));
+        Tenant bound = Tenant.systemFor(businessId, hotelId, current == null ? null : current.actorId(), current == null ? null : current.actorName());
+        return TenantContext.runWith(bound, work);
     }
 
     private RoomType findType(String id) {

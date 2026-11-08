@@ -15,6 +15,8 @@ public class BusinessCreatedEvent extends HospioEvent {
     private String name;
     private String ownerUserId;
     private String stage;
+    /** SELF_SERVE (the owner signed up) or BACK_OFFICE (H.M.S created it). */
+    private String source;
 
     @Override
     public String summary() {

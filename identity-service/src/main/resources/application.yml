@@ -39,6 +39,8 @@ jwt:
   expiration-ms: ${JWT_EXPIRATION_MS:3600000}
 
 hospio:
+  deliveries:
+    echo: ${DELIVERIES_ECHO:false}
   logging:
     # Log request bodies and error responses (secrets masked). On for dev/staging via HOSPIO_LOG_BODIES.
     bodies: ${HOSPIO_LOG_BODIES:false}
@@ -50,8 +52,16 @@ hospio:
     temporary-password-hours: 72
     pin-max-attempts: 5
     pin-lock-minutes: 15
+    # Invite links (/accept-invite?token=) stay valid this long.
+    invite-days: 7
+    # Phone confirmation codes stay valid this long; the code is logged, no SMS goes out yet.
+    phone-code-minutes: 10
+    # When set (staging: 123456) this code is always accepted as a phone confirmation code.
+    otp-dev-code: ${OTP_DEV_CODE:}
 
 services:
+  tenant:
+    url: ${TENANT_SERVICE_URL:http://localhost:9202/tenant}
   internal:
     api-key: ${INTERNAL_API_KEY}
 

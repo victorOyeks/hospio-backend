@@ -3,17 +3,20 @@ package com.hospio.hotelconfig.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hospio.common.response.ApiResponse;
 import com.hospio.common.tenancy.TenantContext;
+import com.hospio.hotelconfig.dto.ApplyTemplateRequest;
 import com.hospio.hotelconfig.dto.ListItemRequest;
 import com.hospio.hotelconfig.dto.PriceListItemRequest;
 import com.hospio.hotelconfig.dto.PriceListResponse;
 import com.hospio.hotelconfig.entity.ListItem;
 import com.hospio.hotelconfig.service.HotelSetupService;
 import com.hospio.hotelconfig.service.ListsAndPricesService;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,6 +35,7 @@ public class HotelSetupController {
     private final HotelSetupService setup;
     private final ListsAndPricesService lists;
 
+    @Operation(summary = "Every setup section for the hotel in X-Hotel-Id, stored values laid over the catalogue defaults")
     @GetMapping
     public ApiResponse<Map<String, Map<String, JsonNode>>> all() {
         return ApiResponse.ok(setup.all(TenantContext.requireHotel()));
@@ -42,9 +46,18 @@ public class HotelSetupController {
         return ApiResponse.ok(setup.section(section));
     }
 
+    @Operation(summary = "Save a section's keys: manager or owner; TAXES_CURRENCY and APPROVAL_LIMITS owner only; platform allowed")
     @PutMapping("/{section}")
+    @PreAuthorize("@access.manager()")
     public ApiResponse<Map<String, JsonNode>> save(@PathVariable String section, @RequestBody Map<String, JsonNode> values) {
         return ApiResponse.ok("Saved", setup.save(section, values));
+    }
+
+    @Operation(summary = "Apply a setup template (by templateId from tenant-service, or inline settings) to the hotel in X-Hotel-Id")
+    @PostMapping("/apply-template")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<Map<String, Map<String, JsonNode>>> applyTemplate(@RequestBody ApplyTemplateRequest request) {
+        return ApiResponse.ok("Template applied", setup.applyTemplate(request));
     }
 
     @GetMapping("/lists/{listName}")
@@ -62,6 +75,13 @@ public class HotelSetupController {
     @PreAuthorize("@access.manager()")
     public ApiResponse<ListItem> updateListItem(@PathVariable String listName, @PathVariable String id, @Valid @RequestBody ListItemRequest request) {
         return ApiResponse.ok("Saved", lists.saveListItem(listName, id, request));
+    }
+
+    @Operation(summary = "Remove a list entry: it is deactivated, never deleted, so past records keep their label")
+    @DeleteMapping("/lists/{listName}/{id}")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<ListItem> deleteListItem(@PathVariable String listName, @PathVariable String id) {
+        return ApiResponse.ok("Removed", lists.deactivate(listName, id));
     }
 
     @GetMapping("/price-lists")

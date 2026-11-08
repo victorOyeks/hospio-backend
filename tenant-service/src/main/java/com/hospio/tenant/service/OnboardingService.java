@@ -1,14 +1,18 @@
 package com.hospio.tenant.service;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.hospio.common.enums.Role;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.exception.ForbiddenException;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.kafka.EventPublisher;
 import com.hospio.common.kafka.KafkaTopics;
+import com.hospio.common.kafka.events.HandoverAcceptedEvent;
 import com.hospio.common.kafka.events.HandoverSentEvent;
 import com.hospio.common.security.CurrentUser;
 import com.hospio.common.security.HospioUserDetails;
 import com.hospio.tenant.client.IdentityClient;
+import com.hospio.tenant.dto.BusinessResponse;
 import com.hospio.tenant.dto.HandoverResponse;
 import com.hospio.tenant.dto.OnboardingResponse;
 import com.hospio.tenant.dto.OnboardingStepRequest;
@@ -27,24 +31,32 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Platform admin Phase 2: the 10-step onboarding wizard (J1-J14), the handover pack (J15-J16) and the
- * owner's acceptance (K3). Setup templates (I3-I4) live here too because onboarding applies them.
+ * The two wizards and the handover. Back office: 10 steps (J1-J14), handover pack (J15-J16), the
+ * owner's acceptance (K3). Self-serve: the owner's 4 steps and "All set". Setup templates (I3-I4)
+ * live here too because onboarding applies them.
  */
 @Service
 @RequiredArgsConstructor
 public class OnboardingService {
 
+    public static final int BACK_OFFICE_STEPS = 10;
+    public static final int SELF_SERVE_STEPS = 4;
+
     private final OnboardingDraftRepository drafts;
     private final HandoverRepository handovers;
     private final SetupTemplateRepository templates;
     private final BusinessService businessService;
+    private final DraftData draftData;
     private final IdentityClient identityClient;
     private final EventPublisher events;
 
+    // ---- platform: the board and the 10-step wizard -------------------------------------------------
+
     @Transactional(readOnly = true)
-    public List<OnboardingResponse> inProgress() {
+    public List<OnboardingResponse> list(OnboardingDraft.Status status) {
         requirePlatform();
-        return drafts.findByStatusOrderByUpdatedAtDesc(OnboardingDraft.Status.IN_PROGRESS).stream().map(this::toResponse).toList();
+        List<OnboardingDraft> list = status == null ? drafts.findAllByOrderByUpdatedAtDesc() : drafts.findByStatusOrderByUpdatedAtDesc(status);
+        return list.stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
@@ -58,15 +70,14 @@ public class OnboardingService {
         requirePlatform();
         Business business = businessService.find(businessId);
         OnboardingDraft draft = drafts.findByBusinessId(businessId).orElseGet(() -> OnboardingDraft.builder()
-                .businessId(businessId).assignedTo(CurrentUser.require().getUserId()).build());
-        draft.setStep(request.step());
-        draft.setData(request.data());
-        if (request.step() >= 10) {
+                .businessId(businessId).assignedTo(CurrentUser.require().getUserId()).data(draftData.empty()).build());
+        save(draft, business, request, BACK_OFFICE_STEPS);
+        if (request.step() >= BACK_OFFICE_STEPS && draft.getStatus() == OnboardingDraft.Status.IN_PROGRESS) {
             draft.setStatus(OnboardingDraft.Status.READY_FOR_HANDOVER);
         }
         drafts.save(draft);
         if (business.getStage() == Business.Stage.LEAD) {
-            business.setStage(Business.Stage.ONBOARDING);
+            businessService.moveStage(business, Business.Stage.ONBOARDING, null);
         }
         return toResponse(draft);
     }
@@ -79,7 +90,10 @@ public class OnboardingService {
         return toResponse(drafts.save(draft));
     }
 
-    /** J16 · Send handover: create the owner's login (temporary password, shown once) and mark the business handed over. */
+    /**
+     * J16 · Send handover: the owner's login (temporary password and invite link, shown once), the
+     * handover record, stage HANDED_OVER. Sent again, it re-issues the existing owner's login.
+     */
     @Transactional
     public HandoverResponse sendHandover(String businessId) {
         requirePlatform();
@@ -88,48 +102,111 @@ public class OnboardingService {
         if (draft.getStatus() == OnboardingDraft.Status.IN_PROGRESS) {
             throw new BadRequestException("Finish the go-live checklist before sending the handover");
         }
-        IdentityClient.CreatedLogin login = identityClient.createUser(business.getOwnerName(), business.getOwnerEmail(),
-                business.getOwnerPhone(), "OWNER", null, businessId);
-        businessService.setOwner(businessId, login.userId());
+        IdentityClient.CreatedLogin login = business.getOwnerUserId() == null
+                ? identityClient.createUser(business.getOwnerName(), business.getOwnerEmail(), business.getOwnerPhone(), "OWNER", null, businessId)
+                : identityClient.resendInvite(business.getOwnerUserId());
+        if (business.getOwnerUserId() == null) {
+            businessService.setOwner(businessId, login.userId());
+            ObjectNode root = draftData.parse(draft.getData());
+            ObjectNode owner = draftData.object();
+            owner.put("userId", login.userId());
+            owner.put("fullName", business.getOwnerName());
+            owner.put("email", business.getOwnerEmail());
+            owner.put("role", "OWNER");
+            owner.putNull("hotelId");
+            draftData.addLogin(root, owner);
+            draft.setData(draftData.write(root));
+        }
         Handover handover = handovers.findByBusinessId(businessId).orElseGet(() -> Handover.builder().businessId(businessId).build());
         handover.setSentAt(Instant.now());
         handover.setSentBy(CurrentUser.require().getUserId());
         handovers.save(handover);
         draft.setStatus(OnboardingDraft.Status.DONE);
         drafts.save(draft);
-        business.setStage(Business.Stage.HANDED_OVER);
+        businessService.moveStage(business, Business.Stage.HANDED_OVER, null);
         events.publish(KafkaTopics.HANDOVER_SENT, HandoverSentEvent.builder()
                 .businessId(businessId).ownerUserId(login.userId()).ownerEmail(business.getOwnerEmail()).build());
         return new HandoverResponse(handover.getId(), businessId, handover.getPackKey(), handover.getSentAt(), handover.getSentBy(),
-                handover.getAcceptedAt(), new HandoverResponse.OwnerLogin(login.userId(), business.getOwnerEmail(), login.temporaryPassword(), login.expiresAt()));
+                handover.getAcceptedAt(),
+                new HandoverResponse.OwnerLogin(login.userId(), business.getOwnerEmail(), login.temporaryPassword(), login.expiresAt(),
+                        login.inviteToken(), login.inviteExpiresAt()),
+                businessService.hotelsOf(businessId), draftData.logins(draftData.parse(draft.getData())));
     }
 
     /** K3 · The owner reviews and accepts the handover; the business goes live. */
     @Transactional
-    public HandoverResponse accept() {
+    public BusinessResponse accept() {
         HospioUserDetails owner = CurrentUser.require();
         String businessId = owner.getBusinessId();
-        if (businessId == null || !owner.has(com.hospio.common.enums.Role.OWNER)) {
+        if (businessId == null || !owner.has(Role.OWNER)) {
             throw new ForbiddenException("Only the owner can accept the handover");
         }
         Handover handover = handovers.findByBusinessId(businessId).orElseThrow(() -> new ResourceNotFoundException("No handover to accept"));
-        handover.setAcceptedAt(Instant.now());
-        handovers.save(handover);
+        if (handover.getAcceptedAt() == null) {
+            handover.setAcceptedAt(Instant.now());
+            handovers.save(handover);
+        }
         Business business = businessService.find(businessId);
-        business.setStage(Business.Stage.LIVE);
-        return new HandoverResponse(handover.getId(), businessId, handover.getPackKey(), handover.getSentAt(), handover.getSentBy(),
-                handover.getAcceptedAt(), null);
+        drafts.findByBusinessId(businessId).ifPresent(d -> {
+            d.setStatus(OnboardingDraft.Status.DONE);
+            drafts.save(d);
+        });
+        businessService.moveStage(business, Business.Stage.LIVE, null);
+        events.publish(KafkaTopics.HANDOVER_ACCEPTED, HandoverAcceptedEvent.builder()
+                .businessId(businessId).ownerUserId(owner.getUserId()).businessName(business.getName()).build());
+        return businessService.toResponse(business);
     }
+
+    // ---- the owner's self-serve wizard ----------------------------------------------------------------
+
+    @Transactional
+    public OnboardingResponse mine() {
+        Business business = ownersBusiness();
+        return toResponse(draftFor(business));
+    }
+
+    @Transactional
+    public OnboardingResponse saveMyStep(OnboardingStepRequest request) {
+        if (request.step() > SELF_SERVE_STEPS) {
+            throw new BadRequestException("The sign-up wizard has " + SELF_SERVE_STEPS + " steps");
+        }
+        Business business = ownersBusiness();
+        OnboardingDraft draft = draftFor(business);
+        save(draft, business, request, SELF_SERVE_STEPS);
+        return toResponse(drafts.save(draft));
+    }
+
+    /** "All set": the business goes live and the wizard is done. */
+    @Transactional
+    public BusinessResponse completeMine() {
+        Business business = ownersBusiness();
+        OnboardingDraft draft = draftFor(business);
+        draft.setStatus(OnboardingDraft.Status.DONE);
+        draft.setStep(SELF_SERVE_STEPS);
+        drafts.save(draft);
+        if (business.getStage() == Business.Stage.LEAD || business.getStage() == Business.Stage.ONBOARDING
+                || business.getStage() == Business.Stage.HANDED_OVER) {
+            businessService.moveStage(business, Business.Stage.LIVE, null);
+        }
+        return businessService.toResponse(business);
+    }
+
+    // ---- templates -----------------------------------------------------------------------------------
 
     @Transactional(readOnly = true)
     public List<SetupTemplate> templates() {
         return templates.findByActiveTrueOrderByName();
     }
 
+    @Transactional(readOnly = true)
+    public SetupTemplate template(String id) {
+        return templates.findById(id).orElseThrow(() -> new ResourceNotFoundException("Template not found"));
+    }
+
     @Transactional
     public SetupTemplate saveTemplate(String id, SetupTemplateRequest request) {
         requirePlatform();
-        SetupTemplate t = id == null ? new SetupTemplate() : templates.findById(id).orElseThrow(() -> new ResourceNotFoundException("Template not found"));
+        SetupTemplate t = id == null ? new SetupTemplate() : template(id);
         t.setName(request.name());
         t.setDescription(request.description());
         t.setSettings(request.settings());
@@ -139,9 +216,38 @@ public class OnboardingService {
         return templates.save(t);
     }
 
+    // ---- shared --------------------------------------------------------------------------------------
+
+    private void save(OnboardingDraft draft, Business business, OnboardingStepRequest request, int totalSteps) {
+        ObjectNode root = draftData.parse(draft.getData());
+        draftData.saveStep(root, request.step(), request.data(), request.nextAction());
+        draft.setData(draftData.write(root));
+        draft.setStep(Math.max(draft.getStep(), Math.min(request.step() + 1, totalSteps)));
+    }
+
+    private Business ownersBusiness() {
+        HospioUserDetails caller = CurrentUser.require();
+        if (caller.isPlatform() || caller.getBusinessId() == null || !caller.has(Role.OWNER)) {
+            throw new ForbiddenException("Only the owner can do this");
+        }
+        return businessService.find(caller.getBusinessId());
+    }
+
+    private OnboardingDraft draftFor(Business business) {
+        return drafts.findByBusinessId(business.getId()).orElseGet(() -> drafts.save(OnboardingDraft.builder()
+                .businessId(business.getId()).step(1).assignedTo(business.getOwnerUserId()).data(draftData.empty()).build()));
+    }
+
+    private static int totalSteps(Business business) {
+        return business.getSource() == Business.Source.SELF_SERVE ? SELF_SERVE_STEPS : BACK_OFFICE_STEPS;
+    }
+
     private OnboardingResponse toResponse(OnboardingDraft d) {
-        return new OnboardingResponse(d.getId(), d.getBusinessId(), businessService.find(d.getBusinessId()).getName(), d.getStep(),
-                d.getData(), d.getAssignedTo(), d.getStatus(), d.getUpdatedAt());
+        Business business = businessService.find(d.getBusinessId());
+        ObjectNode root = draftData.parse(d.getData());
+        return new OnboardingResponse(d.getId(), d.getBusinessId(), business.getName(), business.getSource(), d.getStep(),
+                totalSteps(business), draftData.completedSteps(root), d.getAssignedTo(), null, d.getStatus(), draftData.nextAction(root),
+                d.getCreatedAt(), d.getUpdatedAt(), root);
     }
 
     private static void requirePlatform() {

@@ -56,7 +56,11 @@ public class HospioUserDetails implements UserDetails {
     }
 
     public boolean isPlatform() {
-        return "platform".equals(scope);
+        return JwtUtil.SCOPE_PLATFORM.equals(scope);
+    }
+
+    public boolean isMarketer() {
+        return JwtUtil.SCOPE_MARKETER.equals(scope);
     }
 
     @Override

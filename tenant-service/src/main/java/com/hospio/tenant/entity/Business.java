@@ -8,6 +8,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -29,6 +30,9 @@ public class Business extends BaseEntity {
     /** How H.M.S earns from this business (card 8): % of guest payments, per room-night, or % of bookings. */
     public enum FeeModel { PERCENT_OF_PAYMENTS, PER_ROOM_NIGHT, PERCENT_OF_BOOKINGS }
 
+    /** How the business came in: the owner signed up on the hotel app, or H.M.S onboarded it. */
+    public enum Source { SELF_SERVE, BACK_OFFICE }
+
     @Column(nullable = false)
     private String name;
 
@@ -40,6 +44,22 @@ public class Business extends BaseEntity {
 
     @Column(name = "business_type")
     private String businessType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @lombok.Builder.Default
+    private Source source = Source.BACK_OFFICE;
+
+    private String city;
+    private String address;
+    private String email;
+    private String phone;
+
+    @Column(name = "logo_url", length = 500)
+    private String logoUrl;
+
+    @Column(name = "brand_colour", length = 20)
+    private String brandColour;
 
     @Column(name = "owner_user_id", length = 36)
     private String ownerUserId;
@@ -80,6 +100,16 @@ public class Business extends BaseEntity {
     @Column(nullable = false)
     @lombok.Builder.Default
     private String timezone = "Africa/Lagos";
+
+    @Column(name = "contract_starts_on")
+    private LocalDate contractStartsOn;
+
+    @Column(name = "contract_notes", length = 2000)
+    private String contractNotes;
+
+    @Column(name = "hotel_count", nullable = false)
+    @lombok.Builder.Default
+    private int hotelCount = 0;
 
     @Column(name = "suspended_at")
     private Instant suspendedAt;

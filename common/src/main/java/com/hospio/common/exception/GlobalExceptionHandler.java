@@ -44,6 +44,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(e.getMessage()));
     }
 
+    @ExceptionHandler(GoneException.class)
+    public ResponseEntity<ApiResponse<Void>> gone(GoneException e, HttpServletRequest request) {
+        warn(e, request);
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(e.getMessage()));
+    }
+
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<ApiResponse<Void>> unauthorized(UnauthorizedException e, HttpServletRequest request) {
         warn(e, request);

@@ -11,7 +11,10 @@ import com.hospio.hotelconfig.entity.PriceListItem;
 import com.hospio.hotelconfig.repository.ListItemRepository;
 import com.hospio.hotelconfig.repository.PriceListItemRepository;
 import com.hospio.hotelconfig.repository.PriceListRepository;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +27,10 @@ public class ListsAndPricesService {
     private final ListItemRepository listItems;
     private final PriceListRepository priceLists;
     private final PriceListItemRepository priceListItems;
+
+    /** A list entry a template or the catalogue wants present. */
+    public record SeedItem(String code, String label, Integer sortOrder) {
+    }
 
     @Transactional(readOnly = true)
     public List<ListItem> list(String hotelId, String listName, boolean activeOnly) {
@@ -45,6 +52,39 @@ public class ListsAndPricesService {
             item.setActive(request.active());
         }
         return listItems.save(item);
+    }
+
+    /** "Delete" hides the item: anything that referenced it keeps its label. */
+    @Transactional
+    public ListItem deactivate(String listName, String id) {
+        ListItem item = listItems.findById(id).filter(i -> i.getListName().equalsIgnoreCase(listName))
+                .orElseThrow(() -> new ResourceNotFoundException("List item not found"));
+        item.setActive(false);
+        return listItems.save(item);
+    }
+
+    /** Adds the entries a hotel's list lacks, matched by code (or label when there is no code). Idempotent. */
+    @Transactional
+    public int ensureItems(String hotelId, String listName, List<SeedItem> items) {
+        String name = listName.toUpperCase();
+        Set<String> present = new HashSet<>();
+        for (ListItem existing : listItems.findByHotelIdAndListNameOrderBySortOrderAscLabelAsc(hotelId, name)) {
+            present.add(keyOf(existing.getCode(), existing.getLabel()));
+        }
+        int added = 0;
+        for (SeedItem item : items) {
+            if (item.label() == null || item.label().isBlank() || !present.add(keyOf(item.code(), item.label()))) {
+                continue;
+            }
+            listItems.save(ListItem.builder().hotelId(hotelId).listName(name).code(item.code()).label(item.label())
+                    .sortOrder(item.sortOrder() == null ? 0 : item.sortOrder()).build());
+            added++;
+        }
+        return added;
+    }
+
+    private static String keyOf(String code, String label) {
+        return code != null && !code.isBlank() ? "code:" + code.toUpperCase(Locale.ROOT) : "label:" + label.trim().toLowerCase(Locale.ROOT);
     }
 
     @Transactional(readOnly = true)

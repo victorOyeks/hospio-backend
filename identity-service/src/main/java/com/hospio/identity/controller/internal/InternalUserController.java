@@ -46,9 +46,15 @@ public class InternalUserController {
         return ApiResponse.ok(userService.withRole(hotelId, role));
     }
 
-    /** Onboarding creates the owner and first manager through here. */
+    /** Onboarding creates the owner and first manager through here; {@code businessId} in the body says whose. */
     @PostMapping
     public ApiResponse<UserCreatedResponse> create(@Valid @RequestBody CreateUserRequest request) {
         return ApiResponse.ok("Login created", userService.create(request));
+    }
+
+    /** A handover sent again for an owner who already has a login: new temporary password and invite. */
+    @PostMapping("/{userId}/resend-invite")
+    public ApiResponse<UserCreatedResponse> resendInvite(@PathVariable String userId) {
+        return ApiResponse.ok("Invite re-sent", userService.resendInvite(userId));
     }
 }

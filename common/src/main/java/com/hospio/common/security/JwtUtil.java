@@ -29,6 +29,8 @@ public class JwtUtil {
     public static final String SCOPE_HOTEL = "hotel";
     public static final String SCOPE_BUSINESS = "business";
     public static final String SCOPE_PLATFORM = "platform";
+    /** Marketers: no business, no platform powers; row-level policies grant them nothing tenant-scoped. */
+    public static final String SCOPE_MARKETER = "marketer";
 
     @Value("${jwt.secret}")
     private String secret;

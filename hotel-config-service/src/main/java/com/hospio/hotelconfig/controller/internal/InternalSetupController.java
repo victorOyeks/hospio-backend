@@ -48,7 +48,7 @@ public class InternalSetupController {
         return ApiResponse.ok(lists.priceList(hotelId, kind));
     }
 
-    /** Onboarding J8 · Hotel setup from a template. */
+    /** Onboarding J8 · Hotel setup from a template. Runs inside the hotel's business, whoever calls. */
     @PostMapping("/apply-template")
     public ApiResponse<Void> applyTemplate(@RequestParam String hotelId, @RequestBody String templateJson) {
         setup.applyTemplate(hotelId, templateJson);

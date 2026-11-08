@@ -9,4 +9,6 @@ public interface OnboardingDraftRepository extends JpaRepository<OnboardingDraft
     Optional<OnboardingDraft> findByBusinessId(String businessId);
 
     List<OnboardingDraft> findByStatusOrderByUpdatedAtDesc(OnboardingDraft.Status status);
+
+    List<OnboardingDraft> findAllByOrderByUpdatedAtDesc();
 }

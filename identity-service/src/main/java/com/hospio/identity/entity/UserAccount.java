@@ -73,6 +73,17 @@ public class UserAccount extends BaseEntity {
     @Column(name = "last_sign_in_at")
     private Instant lastSignInAt;
 
+    @Column(name = "phone_verified", nullable = false)
+    @lombok.Builder.Default
+    private boolean phoneVerified = false;
+
+    /** SHA-256 of the 6-digit code sent to the phone, until it is used or expires. */
+    @Column(name = "phone_code_hash", length = 128)
+    private String phoneCodeHash;
+
+    @Column(name = "phone_code_expires_at")
+    private Instant phoneCodeExpiresAt;
+
     public boolean isLocked() {
         return lockedUntil != null && lockedUntil.isAfter(Instant.now());
     }

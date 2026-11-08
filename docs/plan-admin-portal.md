@@ -1,0 +1,18 @@
+# Plan · admin portal end to end
+
+Goal: every screen of the H.M.S admin portal (apps/admin) and the hotel-side onboarding runs on real APIs, nothing on sample data, from onboarding a hotel business to managing it. Anything that would normally be emailed or texted (temporary passwords, invite links, phone codes, handover packs) is returned by the API and shown on screen in a dismissable notice until email/SMS is connected; staging shows a note saying so.
+
+Each phase lists what it covers, its contract document, and its status. Update the status lines as work lands (date + commit).
+
+| Phase | Covers | Contract | Status |
+|---|---|---|---|
+| 1 · Onboarding core | sign-up, phone code, invites and accept-invite, owner wizard (business, first hotel, rooms and prices, first manager), back-office 10-step wizard, handover and acceptance, owner Hotels/Users/Settings/Hotel setup live, manager Staff and Hotel setup live, hotel-config defaults for a new hotel, bulk rooms | `docs/onboarding.md` | **In progress** (2026-11-08): backend being built; packages/api done; apps/hotel and apps/admin screens being built |
+| 2 · Admin portal domains | dashboard overview, admin team (platform staff), fees and billing (rules, statements, payments, generation), payments (settlements, payout batches, failed payouts), support (tickets, assignment, comments), marketers (profiles, invites, referrals, commissions) and the marketer portal, changes by H.M.S (list, record, undo), platform settings and integrations, health scores and system alerts, business detail tabs (usage, money, people, support, contract and activity), hotel overview and view-only bookings for platform | `docs/admin-portal.md` | Not started |
+| 3 · Deliveries and support access | the `deliveries` echo on every response that would have emailed or texted someone, the on-screen DeliveryNotice in both apps with the staging note, "view as owner" support access tokens with the reason modal | `docs/admin-portal.md` (sections Deliveries, Support access) | Not started |
+| 4 · Verification and release | end-to-end run on staging of both onboarding paths and every admin screen, QA scripts (`hospio-frontend/docs/qa/onboarding.md`, `docs/qa/admin-portal.md`), fixtures removed from the admin data seam, push develop → staging, credentials shared | — | Not started |
+
+After phase 4: the manager, front desk and other hotel roles (separate plan).
+
+## Phase log
+
+- 2026-11-08 · Phase 1 started. Contract written. Known blocking bugs fixed in the contract: handed-over owner saved without a business; owner token without hotels; no defaults for a new hotel; no sign-up or invite flow.

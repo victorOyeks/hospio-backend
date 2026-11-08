@@ -3,6 +3,8 @@ package com.hospio.property.controller;
 import com.hospio.common.response.ApiResponse;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.property.dto.AreaRequest;
+import com.hospio.property.dto.BulkRoomsRequest;
+import com.hospio.property.dto.BulkRoomsResponse;
 import com.hospio.property.dto.OutOfOrderRequest;
 import com.hospio.property.dto.RoomRequest;
 import com.hospio.property.dto.RoomResponse;
@@ -11,10 +13,12 @@ import com.hospio.property.dto.RoomTypeResponse;
 import com.hospio.property.dto.SpecialPriceRequest;
 import com.hospio.property.entity.Area;
 import com.hospio.property.service.PropertyService;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,6 +51,13 @@ public class PropertyController {
         return ApiResponse.ok("Saved", service.saveRoomType(id, request));
     }
 
+    @Operation(summary = "Hide a room type nobody uses; 409 while rooms still reference it")
+    @DeleteMapping("/room-types/{id}")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<RoomTypeResponse> deleteRoomType(@PathVariable String id) {
+        return ApiResponse.ok("Room type hidden", service.deactivateRoomType(id));
+    }
+
     @PostMapping("/room-types/{id}/special-prices")
     @PreAuthorize("@access.manager()")
     public ApiResponse<RoomTypeResponse> addSpecialPrice(@PathVariable String id, @Valid @RequestBody SpecialPriceRequest request) {
@@ -67,6 +78,13 @@ public class PropertyController {
     @PreAuthorize("@access.manager()")
     public ApiResponse<RoomResponse> addRoom(@Valid @RequestBody RoomRequest request) {
         return ApiResponse.ok("Room added", service.saveRoom(null, request));
+    }
+
+    @Operation(summary = "Add up to 500 rooms at once to the hotel in X-Hotel-Id; numbers already present are skipped")
+    @PostMapping("/rooms/bulk")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<BulkRoomsResponse> addRoomsBulk(@Valid @RequestBody BulkRoomsRequest request) {
+        return ApiResponse.ok("Rooms added", service.bulkRooms(request));
     }
 
     @PutMapping("/rooms/{id}")

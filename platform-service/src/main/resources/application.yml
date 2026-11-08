@@ -47,6 +47,8 @@ jwt:
   expiration-ms: ${JWT_EXPIRATION_MS:3600000}
 
 hospio:
+  deliveries:
+    echo: ${DELIVERIES_ECHO:false}
   logging:
     # Log request bodies and error responses (secrets masked). On for dev/staging via HOSPIO_LOG_BODIES.
     bodies: ${HOSPIO_LOG_BODIES:false}
