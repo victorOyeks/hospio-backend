@@ -45,11 +45,20 @@ public final class TenantContext {
         CURRENT.remove();
     }
 
+    /**
+     * Runs {@code work} as {@code tenant}, then restores the previous tenant. Changes made inside are
+     * flushed to the database before the switch back, so they are written under this tenant's row-level
+     * scope rather than at the caller's commit (see {@link TenantFlushSupport}).
+     */
     public static <T> T runWith(Tenant tenant, Supplier<T> work) {
         Tenant previous = CURRENT.get();
         CURRENT.set(tenant);
         try {
-            return work.get();
+            T result = work.get();
+            if (previous != null && !previous.equals(tenant)) {
+                TenantFlushSupport.flushIfActive();
+            }
+            return result;
         } finally {
             if (previous == null) {
                 CURRENT.remove();

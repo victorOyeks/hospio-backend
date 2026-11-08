@@ -12,6 +12,10 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 
 /**
  * Without this every custom exception falls through to Spring Boot's default handling and surfaces
@@ -72,6 +76,22 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HospioException.class)
     public ResponseEntity<ApiResponse<Void>> hospio(HospioException e) {
         return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+    }
+
+    /** A path that is not an endpoint is a 404, not a server fault. */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> noSuchEndpoint(NoResourceFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("No such endpoint"));
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> wrongMethod(HttpRequestMethodNotSupportedException e) {
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(ApiResponse.error("That method is not allowed here"));
+    }
+
+    @ExceptionHandler({MissingServletRequestParameterException.class, MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<ApiResponse<Void>> badParameter(Exception e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error("A required parameter is missing or has the wrong format"));
     }
 
     @ExceptionHandler(Exception.class)
