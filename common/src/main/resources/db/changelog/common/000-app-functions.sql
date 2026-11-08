@@ -5,6 +5,11 @@
 -- Session settings app.business_id, app.hotel_id and app.scope are bound per connection by common's
 -- RowLevelSecurityDataSource. CREATE OR REPLACE keeps this idempotent across the services that include it.
 
+-- Several services share this changeset and may start at the same moment (a reboot, a first deploy); each
+-- has its own Liquibase lock, so this transaction-scoped lock is what keeps them from creating the
+-- functions concurrently ("duplicate key value violates unique constraint pg_proc_proname_args_nsp_index").
+SELECT pg_advisory_xact_lock(hashtext('hospio.app-functions'));
+
 CREATE SCHEMA IF NOT EXISTS app;
 
 CREATE OR REPLACE FUNCTION app.current_business() RETURNS text LANGUAGE sql STABLE AS $$

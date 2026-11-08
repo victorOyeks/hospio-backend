@@ -16,7 +16,8 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Test accounts for the example business (see {@link SeedFixtures}), created on start-up when
@@ -32,11 +33,14 @@ public class DataSeeder implements ApplicationRunner {
     private final UserAccountRepository users;
     private final RoleGrantRepository grants;
     private final PasswordEncoder passwordEncoder;
+    private final PlatformTransactionManager transactionManager;
 
     @Override
-    @Transactional
     public void run(ApplicationArguments args) {
-        int created = TenantContext.runWith(Tenant.system("seed"), () -> {
+        // The tenant must be bound before the transaction opens its connection: the row-level policies read
+        // the session settings the data source sets at connection time, so the transaction starts inside runWith.
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        int created = TenantContext.runWith(Tenant.system("seed"), () -> tx.execute(status -> {
             int n = 0;
             n += seed(SeedFixtures.OWNER, SeedFixtures.BUSINESS_ID, null);
             n += seed(SeedFixtures.MANAGER, SeedFixtures.BUSINESS_ID, SeedFixtures.HOTEL_ID);
@@ -47,7 +51,7 @@ public class DataSeeder implements ApplicationRunner {
                 n += seed(p, null, null);
             }
             return n;
-        });
+        }));
         if (created > 0) {
             log.info("Seeded {} test accounts (owner, manager, staff, admins) with password '{}' and PIN {}",
                     created, SeedFixtures.SEED_PASSWORD, SeedFixtures.SEED_PIN);

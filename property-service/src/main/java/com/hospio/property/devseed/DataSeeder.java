@@ -15,7 +15,8 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Simpas Ikeja's rooms (see {@link SeedFixtures}): four room types, four floors and 120 rooms,
@@ -31,12 +32,14 @@ public class DataSeeder implements ApplicationRunner {
     private final RoomTypeRepository roomTypes;
     private final AreaRepository areas;
     private final RoomRepository rooms;
+    private final PlatformTransactionManager transactionManager;
 
     @Override
-    @Transactional
     public void run(ApplicationArguments args) {
+        // Bind the tenant first, then open the transaction, so the connection carries this hotel's scope.
         Tenant tenant = Tenant.systemFor(SeedFixtures.BUSINESS_ID, SeedFixtures.HOTEL_ID, "seed", "Seed");
-        TenantContext.runWith(tenant, () -> {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        TenantContext.runWith(tenant, () -> tx.executeWithoutResult(status -> {
             int types = 0;
             for (SeedFixtures.RoomTypeSeed t : SeedFixtures.ROOM_TYPES) {
                 if (roomTypes.findById(t.id()).isEmpty()) {
@@ -72,6 +75,6 @@ public class DataSeeder implements ApplicationRunner {
             } else {
                 log.info("Rooms for {} already present; nothing seeded", SeedFixtures.HOTEL_NAME);
             }
-        });
+        }));
     }
 }

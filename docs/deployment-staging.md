@@ -76,7 +76,7 @@ property-service create the example business on start-up when it is missing and 
 Royal Suites Ltd → Simpas Ikeja (Lagos) with four room types (Regular ₦35,000, Deluxe ₦45,000, Executive
 ₦65,000, Suite ₦120,000), four floors and 120 rooms (A101–A130, A201–A230, A301–A330, B101–B130).
 
-All accounts: password `Hospio123!`, tablet PIN `1234`. A tester who changes a password keeps the new one.
+All accounts sign in with the password `Hospio123!`. A tester who changes a password keeps the new one. (Each account also has the 4-digit PIN `1234` for the quick PIN sign-in that identity-service offers staff on shared devices; the web app does not use it yet.)
 
 | Role | Name | Email |
 |---|---|---|

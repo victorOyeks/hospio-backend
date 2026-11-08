@@ -13,7 +13,8 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** Royal Suites Ltd with Simpas Ikeja, using the fixed ids every service shares; created when missing and hospio.seed.enabled=true. */
 @Slf4j
@@ -24,11 +25,13 @@ public class DataSeeder implements ApplicationRunner {
 
     private final BusinessRepository businesses;
     private final HotelRepository hotels;
+    private final PlatformTransactionManager transactionManager;
 
     @Override
-    @Transactional
     public void run(ApplicationArguments args) {
-        TenantContext.runWith(Tenant.system("seed"), () -> {
+        // Bind the tenant first, then open the transaction, so the connection carries the platform scope.
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        TenantContext.runWith(Tenant.system("seed"), () -> tx.executeWithoutResult(status -> {
             if (businesses.findById(SeedFixtures.BUSINESS_ID).isEmpty()) {
                 Business b = Business.builder().name(SeedFixtures.BUSINESS_NAME).legalName("Royal Suites Limited")
                         .ownerUserId(SeedFixtures.OWNER.userId()).ownerName(SeedFixtures.OWNER.fullName())
@@ -44,7 +47,7 @@ public class DataSeeder implements ApplicationRunner {
                 h.setId(SeedFixtures.HOTEL_ID);
                 hotels.save(h);
             }
-        });
+        }));
         log.info("Seeded {} / {}", SeedFixtures.BUSINESS_NAME, SeedFixtures.HOTEL_NAME);
     }
 }

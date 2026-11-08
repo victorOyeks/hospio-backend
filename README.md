@@ -37,7 +37,7 @@ The design handoff's rule is **build it as if it were fourteen services** — on
 
 ## Test accounts
 
-Set `SEED_DEMO_DATA=true` (the `dev` profile does) and identity, tenant and property create the example business on start-up when missing: Royal Suites Ltd, Simpas Ikeja with 120 rooms, and one account per role (`docs/deployment-staging.md` has the table). Password `Hospio123!`, PIN `1234`.
+Set `SEED_DEMO_DATA=true` (the `dev` profile does) and identity, tenant and property create the example business on start-up when missing: Royal Suites Ltd, Simpas Ikeja with 120 rooms, and one account per role (`docs/deployment-staging.md` has the table). Password `Hospio123!` (each account also has PIN `1234` for the quick PIN sign-in identity-service offers staff on shared devices; the web app does not use it yet).
 
 ## Running locally
 
@@ -57,7 +57,7 @@ java -jar tenant-service/target/tenant-service-1.0.0-SNAPSHOT.jar
 java -jar api-gateway/target/api-gateway-1.0.0-SNAPSHOT.jar
 ```
 
-With `SPRING_PROFILES_ACTIVE=dev`, identity-service and tenant-service seed the example business from the design handoff: Royal Suites Ltd, Simpas Ikeja, owner Godwin Kwin, GM Tunde Bakare and the named staff. Password `Hospio123!`, PIN `1234` (see `common/.../devseed/SeedFixtures.java`).
+With `SPRING_PROFILES_ACTIVE=dev` (or `SEED_DEMO_DATA=true`), identity, tenant and property seed the example business from the design handoff: Royal Suites Ltd, Simpas Ikeja, owner Godwin Kwin, GM Tunde Bakare and the named staff. Password `Hospio123!`, PIN `1234` (see `common/.../devseed/SeedFixtures.java`).
 
 Swagger UI for every service: http://localhost:9200/swagger-ui.html. Sign in at `POST /identity/auth/sign-in`, then send `Authorization: Bearer <token>` and `X-Hotel-Id: <hotel id>` on every call.
 
