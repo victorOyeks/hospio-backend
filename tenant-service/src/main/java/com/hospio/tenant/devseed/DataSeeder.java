@@ -11,14 +11,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/** dev/test only: Royal Suites Ltd with Simpas Ikeja, using the fixed ids every service shares. */
+/** Royal Suites Ltd with Simpas Ikeja, using the fixed ids every service shares; created when missing and hospio.seed.enabled=true. */
 @Slf4j
 @Component
-@Profile({"dev", "test"})
+@ConditionalOnProperty(name = "hospio.seed.enabled", havingValue = "true")
 @RequiredArgsConstructor
 public class DataSeeder implements ApplicationRunner {
 

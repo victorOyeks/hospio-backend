@@ -35,6 +35,10 @@ The design handoff's rule is **build it as if it were fourteen services** — on
 - **Integrations are ports.** `PosProvider`, `MessageChannel` and `ObjectStorage` in `common` have logging/local implementations for development; a Moniepoint or OPay adapter, a WhatsApp Business adapter or an S3 adapter is a new bean, not a change to business logic.
 - **Nothing is hard-coded.** Rules, lists, prices and limits come from hotel-config-service (Hotel setup); taxes, currency and approval limits are owner-only and H.M.S never changes them.
 
+## Test accounts
+
+Set `SEED_DEMO_DATA=true` (the `dev` profile does) and identity, tenant and property create the example business on start-up when missing: Royal Suites Ltd, Simpas Ikeja with 120 rooms, and one account per role (`docs/deployment-staging.md` has the table). Password `Hospio123!`, PIN `1234`.
+
 ## Running locally
 
 Prerequisites: Java 21, Maven, Docker, a local Postgres (or `docker compose --profile db up -d`).

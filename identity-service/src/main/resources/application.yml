@@ -39,6 +39,9 @@ jwt:
   expiration-ms: ${JWT_EXPIRATION_MS:3600000}
 
 hospio:
+  seed:
+    # Creates the test accounts / example hotel on start-up when missing (env SEED_DEMO_DATA).
+    enabled: ${SEED_DEMO_DATA:false}
   auth:
     refresh-days: 30
     temporary-password-hours: 72

@@ -69,6 +69,35 @@ swaps in the new site (same certbot lines, upstream `:9200`), reloads nginx, con
 `https://api-staging.hospio360.com/identity/actuator/health`, then stops and disables `his-be-staging`.
 `scripts/vps/rollback-staging.sh` reverses it.
 
+## Test accounts
+
+With `SEED_DEMO_DATA=true` in `.env.staging` (set on the staging box), identity-service, tenant-service and
+property-service create the example business on start-up when it is missing and leave existing rows alone:
+Royal Suites Ltd → Simpas Ikeja (Lagos) with four room types (Regular ₦35,000, Deluxe ₦45,000, Executive
+₦65,000, Suite ₦120,000), four floors and 120 rooms (A101–A130, A201–A230, A301–A330, B101–B130).
+
+All accounts: password `Hospio123!`, tablet PIN `1234`. A tester who changes a password keeps the new one.
+
+| Role | Name | Email |
+|---|---|---|
+| Owner | Godwin Kwin | godwin@royalsuites.ng |
+| Manager | Tunde Bakare | tunde@royalsuites.ng |
+| Front office | Victor Adeyemi, Toyin Balogun | victor@royalsuites.ng, toyin@royalsuites.ng |
+| Housekeeping | Grace Okafor, Kemi Adebayo | grace@royalsuites.ng, kemi@royalsuites.ng |
+| Laundry | Lola Eze | lola@royalsuites.ng |
+| Maintenance | Chinedu Obi | chinedu@royalsuites.ng |
+| Kitchen | Mariam Bello | mariam@royalsuites.ng |
+| Bar | Segun Ajayi | segun@royalsuites.ng |
+| Inventory | Jide Alabi | jide@royalsuites.ng |
+| Finance | Femi Ojo | femi@royalsuites.ng |
+| Super admin | Amoria Nwosu | amoria@hospio360.com |
+| Support | Kola Adeniyi | kola@hospio360.com |
+| Finance admin | Tobi Lawal | tobi@hospio360.com |
+| Marketer | Ese Okoro | ese@hospio360.com |
+
+The list lives in `common/src/main/java/com/hospio/common/devseed/SeedFixtures.java`; add a person or a room type
+there and every service picks it up on its next start.
+
 ## After cutover
 
 - Swagger for every service: `https://api-staging.hospio360.com/swagger-ui.html`.

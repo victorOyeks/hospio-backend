@@ -13,18 +13,19 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * dev/test only: the example business from the design handoff, so the apps can be exercised end to
- * end. Idempotent; always resets passwords and PINs to the seed values.
+ * Test accounts for the example business (see {@link SeedFixtures}), created on start-up when
+ * {@code hospio.seed.enabled=true}. Only accounts that do not exist yet are created, so a password a
+ * tester changed stays changed; a missing role grant is added to an existing account.
  */
 @Slf4j
 @Component
-@Profile({"dev", "test"})
+@ConditionalOnProperty(name = "hospio.seed.enabled", havingValue = "true")
 @RequiredArgsConstructor
 public class DataSeeder implements ApplicationRunner {
 
@@ -35,30 +36,45 @@ public class DataSeeder implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        TenantContext.runWith(Tenant.system("seed"), () -> {
-            seed(SeedFixtures.OWNER, SeedFixtures.BUSINESS_ID, null);
-            seed(SeedFixtures.MANAGER, SeedFixtures.BUSINESS_ID, SeedFixtures.HOTEL_ID);
-            SeedFixtures.STAFF.forEach(p -> seed(p, SeedFixtures.BUSINESS_ID, SeedFixtures.HOTEL_ID));
-            SeedFixtures.ADMINS.forEach(p -> seed(p, null, null));
+        int created = TenantContext.runWith(Tenant.system("seed"), () -> {
+            int n = 0;
+            n += seed(SeedFixtures.OWNER, SeedFixtures.BUSINESS_ID, null);
+            n += seed(SeedFixtures.MANAGER, SeedFixtures.BUSINESS_ID, SeedFixtures.HOTEL_ID);
+            for (SeedFixtures.Person p : SeedFixtures.STAFF) {
+                n += seed(p, SeedFixtures.BUSINESS_ID, SeedFixtures.HOTEL_ID);
+            }
+            for (SeedFixtures.Person p : SeedFixtures.ADMINS) {
+                n += seed(p, null, null);
+            }
+            return n;
         });
-        log.info("Seeded owner, manager, {} staff and {} admins - password {} / PIN {}",
-                SeedFixtures.STAFF.size(), SeedFixtures.ADMINS.size(), SeedFixtures.SEED_PASSWORD, SeedFixtures.SEED_PIN);
+        if (created > 0) {
+            log.info("Seeded {} test accounts (owner, manager, staff, admins) with password '{}' and PIN {}",
+                    created, SeedFixtures.SEED_PASSWORD, SeedFixtures.SEED_PIN);
+        } else {
+            log.info("Test accounts already present; nothing seeded");
+        }
     }
 
-    private void seed(SeedFixtures.Person p, String businessId, String hotelId) {
-        UserAccount user = users.findById(p.userId()).orElseGet(() -> {
-            UserAccount u = UserAccount.builder().businessId(businessId).fullName(p.fullName()).email(p.email()).phone(p.phone()).build();
-            u.setId(p.userId());
-            return u;
-        });
-        user.setPasswordHash(passwordEncoder.encode(SeedFixtures.SEED_PASSWORD));
-        user.setPinHash(passwordEncoder.encode(SeedFixtures.SEED_PIN));
-        user.setMustChangePassword(false);
-        user.setStatus(UserAccount.Status.ACTIVE);
-        users.save(user);
+    /** @return 1 when the account was created, 0 when it already existed. */
+    private int seed(SeedFixtures.Person p, String businessId, String hotelId) {
+        int created = 0;
+        UserAccount user = users.findById(p.userId()).orElse(null);
+        if (user == null) {
+            user = UserAccount.builder().businessId(businessId).fullName(p.fullName()).email(p.email()).phone(p.phone()).build();
+            user.setId(p.userId());
+            user.setPasswordHash(passwordEncoder.encode(SeedFixtures.SEED_PASSWORD));
+            user.setPinHash(passwordEncoder.encode(SeedFixtures.SEED_PIN));
+            user.setMustChangePassword(false);
+            user.setStatus(UserAccount.Status.ACTIVE);
+            user = users.save(user);
+            created = 1;
+        }
         Role role = Role.valueOf(p.role());
-        grants.findByUserIdAndHotelIdAndRole(user.getId(), hotelId, role).orElseGet(() ->
-                grants.save(RoleGrant.builder().userId(user.getId()).businessId(businessId).hotelId(hotelId)
+        String userId = user.getId();
+        grants.findByUserIdAndHotelIdAndRole(userId, hotelId, role).orElseGet(() ->
+                grants.save(RoleGrant.builder().userId(userId).businessId(businessId).hotelId(hotelId)
                         .role(role).level(AccessLevel.FULL).build()));
+        return created;
     }
 }
