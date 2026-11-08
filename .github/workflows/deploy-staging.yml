@@ -19,9 +19,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # A manual run, or the very first push to the branch (no "before" commit), deploys everything.
+      # A manual run, the very first push to the branch (no "before" commit), or a commit whose message
+      # contains [deploy-all] deploys everything.
       - id: all
-        if: ${{ github.event_name == 'workflow_dispatch' || github.event.before == '0000000000000000000000000000000000000000' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event.before == '0000000000000000000000000000000000000000' || contains(github.event.head_commit.message, '[deploy-all]') }}
         env:
           REQUESTED: ${{ github.event.inputs.services }}
         run: |
@@ -140,7 +141,8 @@ jobs:
   deploy:
     needs: [detect-changes, build]
     runs-on: ubuntu-latest
-    if: needs.build.result == 'success'
+    # Deploy whatever built, even if some matrix jobs failed; the script reports the ones that did not ship.
+    if: ${{ !cancelled() && needs.detect-changes.outputs.services != '[]' }}
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -158,6 +160,7 @@ jobs:
           script: |
             set -e
             changed=$(echo "$CHANGED_SERVICES" | tr -d '[]" ' | tr ',' '\n')
+            missing=""
             echo "Changed services: $(echo $changed | tr '\n' ' ')"
 
             declare -A health_urls
@@ -201,8 +204,9 @@ jobs:
                 continue
               fi
               if [ ! -f "/opt/hospio-staging/$svc/app-new.jar" ]; then
-                echo "  ✗ No JAR found for $svc"
-                exit 1
+                echo "  ✗ No new JAR for $svc (its build job failed?) — leaving it as it is"
+                missing="$missing $svc"
+                continue
               fi
               echo "→ Deploying $svc"
               [ -f /opt/hospio-staging/$svc/app.jar ] && cp /opt/hospio-staging/$svc/app.jar /opt/hospio-staging/$svc/app.jar.bak
@@ -227,4 +231,8 @@ jobs:
               fi
               rm -f /opt/hospio-staging/$svc/app.jar.bak
             done
+            if [ -n "$missing" ]; then
+              echo "✗ Deployed everything that built, but these did not ship:$missing"
+              exit 1
+            fi
             echo "✓ Staging deployment complete"
