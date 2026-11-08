@@ -137,7 +137,9 @@ jobs:
           ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
           # Fifteen build jobs reach the box at the same moment; sshd's MaxStartups drops some of those
           # connections, so every remote step retries with a pause before giving up.
-          remote() { for i in 1 2 3 4 5; do "$@" && return 0; echo "attempt $i failed, retrying in $((i*8))s"; sleep $((i*8)); done; return 1; }
+          remote() { for i in 1 2 3 4 5 6 7 8; do "$@" && return 0; echo "attempt $i failed, retrying in $((i*10))s"; sleep $((i*10)); done; return 1; }
+          # Spread the fifteen uploads over a minute so they do not all knock on sshd at once.
+          sleep $((RANDOM % 60))
           jar=$(ls ${{ matrix.service }}/target/*.jar | head -1)
           dest="${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
           dir="/opt/hospio-staging/${{ matrix.service }}"
