@@ -30,7 +30,13 @@ sudo cp "$NEW" "$SITE"
 sudo nginx -t
 sudo systemctl reload nginx
 ok "nginx reloaded"
-curl -fsS https://api-staging.hospio360.com/identity/actuator/health | grep -q '"UP"' && ok "https://api-staging.hospio360.com/identity/actuator/health is UP" || die "the public URL does not answer; check nginx -t and the DNS record"
+# nginx takes a moment to swap workers after the reload; give the public URL a few tries.
+public_ok=false
+for i in 1 2 3 4 5 6; do
+  if curl -fsS -m 10 https://api-staging.hospio360.com/identity/actuator/health 2>/dev/null | grep -q '"UP"'; then public_ok=true; break; fi
+  sleep 5
+done
+$public_ok && ok "https://api-staging.hospio360.com/identity/actuator/health is UP" || die "the public URL does not answer after 30s; check nginx -t, the error log and the DNS record"
 
 say "3. Stop the old backend"
 if systemctl list-unit-files | grep -q "^$OLD_SERVICE.service"; then
