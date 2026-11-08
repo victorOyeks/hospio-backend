@@ -216,6 +216,12 @@ jobs:
               fi
               staged_sha=$(cat "/opt/hospio-staging/$svc/app-new.sha" 2>/dev/null || echo none)
               if [ ! -f "/opt/hospio-staging/$svc/app-new.jar" ] || [ "$staged_sha" != "$DEPLOY_SHA" ]; then
+                if [ "$(cat "/opt/hospio-staging/$svc/app.sha" 2>/dev/null)" = "$DEPLOY_SHA" ]; then
+                  # A rerun of failed jobs: this service already shipped from this commit on an earlier attempt.
+                  echo "  — $svc already running this commit, skipping"
+                  rm -f "/opt/hospio-staging/$svc/app-new.jar" "/opt/hospio-staging/$svc/app-new.sha"
+                  continue
+                fi
                 echo "  ✗ No JAR from this commit for $svc (staged: $staged_sha; its build job failed?) — leaving it as it is"
                 rm -f "/opt/hospio-staging/$svc/app-new.jar" "/opt/hospio-staging/$svc/app-new.sha"
                 missing="$missing $svc"
@@ -225,6 +231,7 @@ jobs:
               echo "→ Deploying $svc"
               [ -f /opt/hospio-staging/$svc/app.jar ] && cp /opt/hospio-staging/$svc/app.jar /opt/hospio-staging/$svc/app.jar.bak
               mv /opt/hospio-staging/$svc/app-new.jar /opt/hospio-staging/$svc/app.jar
+              echo "$DEPLOY_SHA" > /opt/hospio-staging/$svc/app.sha
               sudo systemctl enable -q hospio-$svc
               sudo systemctl restart hospio-$svc
               ok=false
