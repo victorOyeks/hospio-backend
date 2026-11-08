@@ -24,8 +24,10 @@ java_ver=$(java -version 2>&1 | head -1 || true)
 echo "  java: ${java_ver:-missing}"
 echo "$java_ver" | grep -q '"21' || die "Java 21 is required (found: ${java_ver:-none}). Install temurin-21-jdk and re-run."
 mem_mb=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo)
-echo "  memory: ${mem_mb} MB total"
-[ "$mem_mb" -lt 8000 ] && warn "15 JVMs need roughly 6–7 GB with the JAVA_OPTS below; this box has ${mem_mb} MB. Expect swapping unless other apps are small."
+avail_mb=$(awk '/MemAvailable/ {printf "%d", $2/1024}' /proc/meminfo)
+fits=$(( avail_mb / 420 ))
+echo "  memory: ${mem_mb} MB total, ${avail_mb} MB available → room for about ${fits} services at ~420 MB each (JAVA_OPTS caps the heap at 320 MB)"
+[ "$fits" -lt 15 ] && warn "all 15 services need ~6.3 GB free. Deploy a subset (workflow input services=identity-service,tenant-service,api-gateway) and add RAM before the rest; stopping his-be-staging frees what it uses now."
 for port in 9092:Kafka 6379:Redis 5432:Postgres; do
   p=${port%%:*}; name=${port##*:}
   if ss -ltn | grep -q ":$p "; then ok "$name is listening on :$p"; else die "$name is not listening on :$p. The services need it (coryd-backend on this box uses the same Kafka and Redis)."; fi
@@ -121,8 +123,7 @@ fi
 say "5. systemd units"
 sudo cp "$HERE"/systemd/hospio-*.service /etc/systemd/system/
 sudo systemctl daemon-reload
-for svc in "${SERVICES[@]}"; do sudo systemctl enable -q "hospio-$svc"; done
-ok "15 units installed and enabled (they start on the first deploy, when app.jar arrives)"
+ok "15 units installed; the deploy step enables and starts each one when its jar arrives (ConditionPathExists keeps the rest idle)"
 
 say "6. nginx site (staged, not yet active)"
 sudo cp "$HERE/nginx/api-staging.hospio360.com" /etc/nginx/sites-available/api-staging.hospio360.com.hospio

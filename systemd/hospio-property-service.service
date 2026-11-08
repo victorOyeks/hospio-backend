@@ -1,6 +1,8 @@
 [Unit]
 Description=Hospio360 property-service (staging)
 After=network.target postgresql.service
+# Enabled on every box, but only runs once CI has shipped a jar for this service.
+ConditionPathExists=/opt/hospio-staging/property-service/app.jar
 
 [Service]
 User=devoyeks

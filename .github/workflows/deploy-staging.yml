@@ -207,6 +207,7 @@ jobs:
               echo "→ Deploying $svc"
               [ -f /opt/hospio-staging/$svc/app.jar ] && cp /opt/hospio-staging/$svc/app.jar /opt/hospio-staging/$svc/app.jar.bak
               mv /opt/hospio-staging/$svc/app-new.jar /opt/hospio-staging/$svc/app.jar
+              sudo systemctl enable -q hospio-$svc
               sudo systemctl restart hospio-$svc
               ok=false
               for i in $(seq 1 60); do

@@ -41,8 +41,11 @@ The script checks Java 21, Kafka, Redis, Postgres and free ports; creates `/opt/
 `JWT_SECRET` and `INTERNAL_API_KEY`; installs and enables the 15 units; and stages the nginx site file
 without activating it. It changes nothing about `his-be-staging` yet.
 
-Memory: the units run with `JAVA_OPTS=-Xmx320m …`, about 350 MB per JVM at the cap, so 15 services need
-roughly 6–7 GB on top of what the box already runs. The script prints the total and warns below 8 GB.
+Memory: the units run with `JAVA_OPTS=-Xmx320m …`, about 400 MB per JVM, so all 15 services need roughly
+6.3 GB free. The staging box (12 GB, no swap) already runs coryd, marketrun, the old backend and three Node
+apps and had about 1.6 GB free on 2026-11-08. Deploy a subset first (Actions → Run workflow →
+`services=identity-service,tenant-service,api-gateway`), cut over, and add RAM (or a second box) before the
+rest; a unit without a jar stays idle (`ConditionPathExists`), so enabling all 15 is safe.
 
 ### 3. First deploy
 

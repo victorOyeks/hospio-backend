@@ -13,9 +13,9 @@ ok()   { printf '  ✓ %s\n' "$*"; }
 die()  { printf '  ✗ %s\n' "$*" >&2; exit 1; }
 
 say "1. Is the new backend up?"
-for svc in identity-service tenant-service reservation-service platform-service; do
-  systemctl is-active --quiet "hospio-$svc" || die "hospio-$svc is not running; deploy first (journalctl -u hospio-$svc -n 50)"
-done
+systemctl is-active --quiet hospio-identity-service || die "hospio-identity-service is not running; deploy first (journalctl -u hospio-identity-service -n 50)"
+running=$(systemctl list-units --type=service --state=running --no-legend 'hospio-*' | awk '{print $1}' | sed 's/hospio-//; s/.service//' | tr '\n' ' ')
+echo "  running: $running"
 curl -fsS http://127.0.0.1:9200/actuator/health | grep -q '"UP"' || die "api-gateway on :9200 is not healthy"
 curl -fsS http://127.0.0.1:9200/identity/actuator/health | grep -q '"UP"' || die "gateway cannot reach identity-service"
 ok "gateway and services answer on :9200"
