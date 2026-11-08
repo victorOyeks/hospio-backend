@@ -10,6 +10,11 @@ on:
         required: false
         default: all
 
+# One deploy at a time on the box; a new run waits for the running one instead of racing it.
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
