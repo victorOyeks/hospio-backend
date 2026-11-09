@@ -11,4 +11,8 @@ public interface ExpenseRepository extends JpaRepository<Expense, String> {
     List<Expense> findByHotelIdAndExpenseDateBetween(String hotelId, java.time.LocalDate from, java.time.LocalDate to);
 
     Optional<Expense> findByApprovalId(String approvalId);
+
+    List<Expense> findByHotelIdAndStatusIn(String hotelId, java.util.Collection<Expense.Status> statuses);
+
+    List<Expense> findByHotelIdAndPaidAtBetween(String hotelId, java.time.Instant from, java.time.Instant to);
 }

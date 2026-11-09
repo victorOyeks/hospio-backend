@@ -15,7 +15,7 @@ public record BookingResponse(String id, String reference, String hotelId, Strin
                               int nights, int adults, int children, BookingStatus status, PriceKind priceKind, BigDecimal nightlyRate,
                               BigDecimal totalAmount, BigDecimal amountPaid, PaymentPlan paymentPlan, BigDecimal amountDueNow, String organizationId,
                               String source, String notes, Instant checkedInAt, Instant checkedOutAt, LocalTime lateCheckoutUntil,
-                              Instant cancelledAt, String cancellationReason, Instant createdAt) {
+                              Instant cancelledAt, String cancellationReason, Instant createdAt, String warning) {
 
     public static BookingResponse of(Booking b) {
         BigDecimal paid = b.getAmountPaid() == null ? BigDecimal.ZERO : b.getAmountPaid();
@@ -29,6 +29,12 @@ public record BookingResponse(String id, String reference, String hotelId, Strin
                 b.getRoomTypeName(), b.getRoomId(), b.getRoomNumber(), b.getCheckInDate(), b.getCheckOutDate(), b.nights(), b.getAdults(),
                 b.getChildren(), b.getStatus(), b.getPriceKind(), b.getNightlyRate(), b.getTotalAmount(), paid, b.getPaymentPlan(), dueNow,
                 b.getOrganizationId(), b.getSource(), b.getNotes(), b.getCheckedInAt(), b.getCheckedOutAt(), b.getLateCheckoutUntil(),
-                b.getCancelledAt(), b.getCancellationReason(), b.getCreatedAt());
+                b.getCancelledAt(), b.getCancellationReason(), b.getCreatedAt(), null);
+    }
+
+    public BookingResponse withWarning(String warning) {
+        return new BookingResponse(id, reference, hotelId, guestId, guestName, roomTypeId, roomTypeName, roomId, roomNumber, checkInDate,
+                checkOutDate, nights, adults, children, status, priceKind, nightlyRate, totalAmount, amountPaid, paymentPlan, amountDueNow,
+                organizationId, source, notes, checkedInAt, checkedOutAt, lateCheckoutUntil, cancelledAt, cancellationReason, createdAt, warning);
     }
 }

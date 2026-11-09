@@ -11,4 +11,6 @@ public interface TillRepository extends JpaRepository<Till, String> {
     List<Till> findByHotelIdAndStatusOrderByOpenedAt(String hotelId, Till.Status status);
 
     List<Till> findByHotelIdAndOpenedAtAfterOrderByOpenedAtDesc(String hotelId, java.time.Instant since);
+
+    List<Till> findByHotelIdAndClosedAtBetween(String hotelId, java.time.Instant from, java.time.Instant to);
 }

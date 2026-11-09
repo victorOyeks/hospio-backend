@@ -1,6 +1,7 @@
 package com.hospio.platform.kafka;
 
 import com.hospio.common.kafka.KafkaTopics;
+import com.hospio.common.kafka.events.ApprovalAnsweredEvent;
 import com.hospio.common.kafka.events.ApprovalRequestedEvent;
 import com.hospio.common.kafka.events.HospioEvent;
 import com.hospio.common.tenancy.TenantBinder;
@@ -41,6 +42,9 @@ public class PlatformEventListener {
             activityLog.record(topic, event);
             if (KafkaTopics.APPROVAL_REQUESTED.equals(topic) && event instanceof ApprovalRequestedEvent e) {
                 approvals.onRequested(e);
+            }
+            if (KafkaTopics.APPROVAL_ANSWERED.equals(topic) && event instanceof ApprovalAnsweredEvent e) {
+                approvals.onAnswered(e);
             }
             try {
                 domain.on(topic, event);

@@ -9,4 +9,6 @@ public interface ApprovalRepository extends JpaRepository<Approval, String> {
     List<Approval> findByBusinessIdAndStatusOrderByCreatedAt(String businessId, com.hospio.common.enums.ApprovalStatus status);
 
     List<Approval> findByBusinessIdOrderByCreatedAtDesc(String businessId);
+
+    long countByHotelIdAndStatus(String hotelId, com.hospio.common.enums.ApprovalStatus status);
 }

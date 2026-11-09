@@ -4,7 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
+import java.time.LocalDate;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -37,6 +40,25 @@ public class ReservationClient {
             log.debug("No active stay for room {}: {}", roomId, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /** Room ids that have a BOOKED arrival on {@code date}; empty when reservation-service can't be reached. */
+    public Set<String> roomsWithArrivalOn(String hotelId, LocalDate date) {
+        Set<String> rooms = new HashSet<>();
+        try {
+            JsonNode body = restClient.get().uri("/internal/arrivals?hotelId={h}&date={d}", hotelId, date.toString()).retrieve().body(JsonNode.class);
+            if (body != null) {
+                for (JsonNode b : body.path("data")) {
+                    String roomId = b.path("roomId").asText(null);
+                    if (roomId != null) {
+                        rooms.add(roomId);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Could not read arrivals for hotel {} on {}: {}", hotelId, date, e.getMessage());
+        }
+        return rooms;
     }
 
     public ActiveStay requireActiveStay(String roomId) {

@@ -9,4 +9,6 @@ public interface ShiftRepository extends JpaRepository<Shift, String> {
     List<Shift> findByHotelIdAndShiftDateBetweenOrderByShiftDateAscStartsAtAsc(String hotelId, java.time.LocalDate from, java.time.LocalDate to);
 
     List<Shift> findByUserIdAndShiftDateGreaterThanEqualOrderByShiftDateAsc(String userId, java.time.LocalDate from);
+
+    List<Shift> findByUserIdAndShiftDateBetween(String userId, java.time.LocalDate from, java.time.LocalDate to);
 }

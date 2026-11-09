@@ -1,66 +1,75 @@
 package com.hospio.finance.service;
 
+import com.hospio.common.delivery.Delivery;
+import com.hospio.common.enums.AccessLevel;
 import com.hospio.common.enums.PaymentMethod;
+import com.hospio.common.enums.Role;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.exception.ForbiddenException;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.kafka.EventPublisher;
 import com.hospio.common.kafka.KafkaTopics;
+import com.hospio.common.kafka.events.ApprovalAnsweredEvent;
 import com.hospio.common.kafka.events.ApprovalRequestedEvent;
 import com.hospio.common.kafka.events.CashBankedEvent;
-import com.hospio.common.kafka.events.DayClosedEvent;
 import com.hospio.common.kafka.events.ExpenseRecordedEvent;
+import com.hospio.common.kafka.events.TillClosedEvent;
 import com.hospio.common.security.CurrentUser;
 import com.hospio.common.security.HospioUserDetails;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.common.util.Money;
+import com.hospio.finance.client.HotelSettings;
+import com.hospio.finance.client.PeerServices;
 import com.hospio.finance.dto.FinanceRequests;
 import com.hospio.finance.dto.MoneyToday;
 import com.hospio.finance.entity.BankDeposit;
 import com.hospio.finance.entity.Budget;
 import com.hospio.finance.entity.Expense;
-import com.hospio.finance.entity.NightAudit;
 import com.hospio.finance.entity.RevenueEntry;
 import com.hospio.finance.entity.Till;
 import com.hospio.finance.entity.TillEntry;
 import com.hospio.finance.repository.BankDepositRepository;
 import com.hospio.finance.repository.BudgetRepository;
 import com.hospio.finance.repository.ExpenseRepository;
-import com.hospio.finance.repository.NightAuditRepository;
 import com.hospio.finance.repository.RevenueEntryRepository;
 import com.hospio.finance.repository.TillEntryRepository;
 import com.hospio.finance.repository.TillRepository;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Finance 1.x-4.x: today's money, expenses and approvals, tills and cash, night audit, banking. */
+/** Finance 1.x-4.x: today's money, expenses and approvals, tills and cash, banking. (The night audit is {@link NightAuditService}.) */
 @Service
 @RequiredArgsConstructor
 public class MoneyService {
 
-    private static final ZoneId LAGOS = ZoneId.of("Africa/Lagos");
+    static final ZoneId LAGOS = ZoneId.of("Africa/Lagos");
+
+    /** Roles that take cash and so have a till. */
+    static final List<Role> PAYING_ROLES = List.of(Role.FRONT_OFFICE, Role.FINANCE, Role.BAR, Role.KITCHEN, Role.LAUNDRY);
 
     private final RevenueEntryRepository revenue;
     private final TillRepository tills;
     private final TillEntryRepository tillEntries;
     private final ExpenseRepository expenses;
     private final BudgetRepository budgets;
-    private final NightAuditRepository audits;
     private final BankDepositRepository deposits;
     private final EventPublisher events;
-
-    @Value("${hospio.approvals.manager-spend-limit:500000}")
-    private BigDecimal managerLimit;
+    private final HotelSettings settings;
+    private final PeerServices peers;
+    private final Notifier notifier;
 
     // ---- revenue from PaymentApproved ---------------------------------------------------------------
 
@@ -70,17 +79,27 @@ public class MoneyService {
             return;
         }
         LocalDate date = (at == null ? Instant.now() : at).atZone(LAGOS).toLocalDate();
-        revenue.save(RevenueEntry.builder().paymentId(paymentId).businessDate(date).amount(Money.of(amount)).method(method).role(role).folioId(folioId).build());
-        if (PaymentMethod.CASH.name().equals(method) && role != null) {
-            tills.findFirstByHotelIdAndRoleAndStatus(TenantContext.requireHotel(), role, Till.Status.OPEN).ifPresent(till -> {
-                if (tillEntries.findByPaymentId(paymentId).isEmpty()) {
-                    tillEntries.save(TillEntry.builder().tillId(till.getId()).paymentId(paymentId).amount(Money.of(amount)).method(method).description("Cash payment").build());
-                    till.setCashIn(Money.add(till.getCashIn(), amount));
-                    till.setExpectedCash(Money.add(till.getOpeningFloat(), till.getCashIn()));
-                    tills.save(till);
-                }
-            });
+        boolean cash = PaymentMethod.CASH.name().equals(method);
+        Optional<Till> till = cash && role != null ? openTill(TenantContext.requireHotel(), role) : Optional.empty();
+        revenue.save(RevenueEntry.builder().paymentId(paymentId).businessDate(date).amount(Money.of(amount)).method(method).role(role).folioId(folioId)
+                .unattachedCash(cash && till.isEmpty()).build());
+        till.ifPresent(t -> {
+            if (tillEntries.findByPaymentId(paymentId).isEmpty()) {
+                addEntry(t, TillEntry.Kind.PAYMENT, Money.of(amount), method, "Cash payment", null, paymentId);
+            }
+        });
+    }
+
+    /** A cash refund comes out of the drawer of the role that took the payment, when that till is still open. */
+    @Transactional
+    public void onRefundApproved(String refundId, BigDecimal amount, String method, String role) {
+        if (!PaymentMethod.CASH.name().equals(method) || role == null || amount == null || amount.signum() <= 0) {
+            return;
         }
+        if (tillEntries.findFirstByKindAndRef(TillEntry.Kind.REFUND, refundId).isPresent()) {
+            return;
+        }
+        openTill(TenantContext.requireHotel(), role).ifPresent(t -> addEntry(t, TillEntry.Kind.REFUND, Money.of(amount).negate(), "CASH", "Cash refund", refundId, null));
     }
 
     @Transactional(readOnly = true)
@@ -91,16 +110,35 @@ public class MoneyService {
         Map<String, BigDecimal> byMethod = new LinkedHashMap<>();
         Map<String, BigDecimal> byRole = new LinkedHashMap<>();
         BigDecimal total = BigDecimal.ZERO;
+        BigDecimal unattached = BigDecimal.ZERO;
+        int unattachedCount = 0;
         for (RevenueEntry e : entries) {
             total = total.add(e.getAmount());
             byMethod.merge(e.getMethod(), e.getAmount(), BigDecimal::add);
             byRole.merge(e.getRole() == null ? "OTHER" : e.getRole(), e.getAmount(), BigDecimal::add);
+            if (e.isUnattachedCash()) {
+                unattached = unattached.add(e.getAmount());
+                unattachedCount++;
+            }
         }
         BigDecimal spent = expenses.findByHotelIdAndExpenseDateBetween(hotelId, d, d).stream()
                 .filter(x -> x.getStatus() != Expense.Status.DECLINED).map(Expense::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         List<Till> open = tills.findByHotelIdAndStatusOrderByOpenedAt(hotelId, Till.Status.OPEN);
         BigDecimal cash = open.stream().map(Till::getExpectedCash).reduce(BigDecimal.ZERO, BigDecimal::add);
-        return new MoneyToday(Money.of(total), byMethod, byRole, Money.of(spent), Money.of(cash), open.size(), entries.size());
+        Optional<PeerServices.Day> day = peers.daySoft(hotelId, d);
+        int rooms = day.isPresent() ? peers.roomCount(hotelId) : -1;
+        Double occupancy = day.isPresent() && rooms > 0 ? pct(day.get().roomsOccupied(), rooms) : null;
+        Integer pending = peers.pendingApprovals(hotelId);
+        if (pending == null) {
+            pending = expenses.findByHotelIdAndStatusIn(hotelId, EnumSet.of(Expense.Status.PENDING_APPROVAL, Expense.Status.QUESTION)).size();
+        }
+        return new MoneyToday(Money.of(total), byMethod, byRole, Money.of(spent), Money.of(cash), open.size(), entries.size(), occupancy,
+                day.map(PeerServices.Day::arrivals).orElse(null), day.map(PeerServices.Day::departures).orElse(null), day.map(PeerServices.Day::inHouse).orElse(null),
+                Money.of(unattached), unattachedCount, pending);
+    }
+
+    static Double pct(int part, int whole) {
+        return whole <= 0 ? null : BigDecimal.valueOf(part * 100.0 / whole).setScale(1, RoundingMode.HALF_UP).doubleValue();
     }
 
     @Transactional(readOnly = true)
@@ -127,28 +165,48 @@ public class MoneyService {
     // ---- expenses ------------------------------------------------------------------------------------
 
     @Transactional(readOnly = true)
-    public List<Expense> expenses() {
-        return expenses.findByHotelIdOrderByExpenseDateDesc(TenantContext.requireHotel());
+    public List<Expense> expenses(String status, LocalDate from, LocalDate to) {
+        Expense.Status wanted = null;
+        if (status != null && !status.isBlank()) {
+            try {
+                wanted = Expense.Status.valueOf(status.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new BadRequestException("Unknown status " + status);
+            }
+        }
+        Expense.Status s = wanted;
+        return expenses.findByHotelIdOrderByExpenseDateDesc(TenantContext.requireHotel()).stream()
+                .filter(e -> s == null || e.getStatus() == s)
+                .filter(e -> from == null || !e.getExpenseDate().isBefore(from))
+                .filter(e -> to == null || !e.getExpenseDate().isAfter(to)).toList();
     }
 
     @Transactional
     public Expense recordExpense(FinanceRequests.ExpenseRequest request) {
         HospioUserDetails user = CurrentUser.require();
+        String hotelId = TenantContext.requireHotel();
+        if (!Money.isPositive(request.amount())) {
+            throw new BadRequestException("Enter an amount above zero");
+        }
         Expense e = Expense.builder().category(request.category()).amount(Money.of(request.amount())).description(request.description())
                 .paidFrom(request.paidFrom()).receiptKey(request.receiptKey())
                 .expenseDate(request.expenseDate() == null ? LocalDate.now(LAGOS) : request.expenseDate())
                 .requestedBy(user.getUserId()).requestedByName(user.getFullName()).build();
-        boolean needsOwner = e.getAmount().compareTo(managerLimit) > 0 && !user.has(com.hospio.common.enums.Role.OWNER) && !user.isPlatform();
-        boolean needsManager = !user.isManagerOrOwner() && !user.isPlatform();
-        if (needsOwner || needsManager) {
+        HotelSettings.Limits limits = settings.limits(hotelId);
+        ExpenseRouting.Caller caller = user.has(Role.OWNER) || user.isPlatform() ? ExpenseRouting.Caller.OWNER
+                : user.isManagerOrOwner() ? ExpenseRouting.Caller.MANAGER : ExpenseRouting.Caller.STAFF;
+        ExpenseRouting.Route route = ExpenseRouting.route(e.getAmount(), limits.managerExpenseLimit(), limits.ownerExpenseLimit(), caller);
+        if (route.needsApproval()) {
             e.setStatus(Expense.Status.PENDING_APPROVAL);
             e.setApprovalId(UUID.randomUUID().toString());
+            e.setApproverLevel(route.approverLevel());
         }
         expenses.save(e);
         if (e.getApprovalId() != null) {
             events.publish(KafkaTopics.APPROVAL_REQUESTED, ApprovalRequestedEvent.builder().approvalId(e.getApprovalId()).sourceModule("FINANCE")
                     .sourceRef(e.getId()).kind("EXPENSE").amount(e.getAmount()).requesterId(user.getUserId()).requesterName(user.getFullName())
-                    .approverLevel(needsOwner ? "OWNER" : "MANAGER").description(e.getCategory() + " · " + e.getAmount() + " · " + e.getDescription()).build());
+                    .requesterRole(roleLabel(user)).approverLevel(route.approverLevel())
+                    .description(e.getCategory() + " · " + e.getAmount() + " · " + e.getDescription()).build());
         }
         events.publish(KafkaTopics.EXPENSE_RECORDED, ExpenseRecordedEvent.builder().expenseId(e.getId()).category(e.getCategory())
                 .amount(e.getAmount()).description(e.getDescription()).status(e.getStatus().name()).build());
@@ -172,13 +230,47 @@ public class MoneyService {
         });
     }
 
+    /** The requester answers the question on their expense; the approval goes back to waiting through ApprovalAnswered. */
     @Transactional
-    public Expense markPaid(String id) {
+    public Expense answer(String id, String note) {
+        HospioUserDetails user = CurrentUser.require();
         Expense e = expenses.findById(id).orElseThrow(() -> new ResourceNotFoundException("Expense not found"));
-        if (e.getStatus() == Expense.Status.PENDING_APPROVAL || e.getStatus() == Expense.Status.DECLINED) {
+        if (e.getRequestedBy() == null || !e.getRequestedBy().equals(user.getUserId())) {
+            throw new ForbiddenException("Only the person who raised this expense can answer");
+        }
+        if (e.getStatus() != Expense.Status.QUESTION || e.getApprovalId() == null) {
+            throw new BadRequestException("Nobody is waiting for an answer on this expense");
+        }
+        e.setStatus(Expense.Status.PENDING_APPROVAL);
+        String joined = (e.getDecisionNote() == null ? "" : e.getDecisionNote() + "\n") + "Answer: " + note;
+        e.setDecisionNote(joined.length() > 500 ? joined.substring(joined.length() - 500) : joined);
+        expenses.save(e);
+        events.publish(KafkaTopics.APPROVAL_ANSWERED, ApprovalAnsweredEvent.builder().approvalId(e.getApprovalId()).sourceModule("FINANCE")
+                .sourceRef(e.getId()).answeredBy(user.getUserId()).answeredByName(user.getFullName()).note(note).build());
+        return e;
+    }
+
+    @Transactional
+    public Expense markPaid(String id, String paidFromOverride) {
+        HospioUserDetails user = CurrentUser.require();
+        Expense e = expenses.findById(id).orElseThrow(() -> new ResourceNotFoundException("Expense not found"));
+        if (e.getStatus() == Expense.Status.PAID) {
+            throw new BadRequestException("This expense is already paid");
+        }
+        if (e.getStatus() != Expense.Status.APPROVED && e.getStatus() != Expense.Status.RECORDED) {
             throw new BadRequestException("This expense isn't approved");
         }
+        if (paidFromOverride != null && !paidFromOverride.isBlank()) {
+            e.setPaidFrom(paidFromOverride.trim().toUpperCase());
+        }
+        if ("TILL".equals(e.getPaidFrom())) {
+            Till till = tillForPayOut(user);
+            addEntry(till, TillEntry.Kind.EXPENSE, Money.of(e.getAmount()).negate(), "CASH", e.getCategory() + " · " + e.getDescription(), e.getId(), null);
+        }
         e.setStatus(Expense.Status.PAID);
+        e.setPaidBy(user.getUserId());
+        e.setPaidByName(user.getFullName());
+        e.setPaidAt(Instant.now());
         return expenses.save(e);
     }
 
@@ -201,39 +293,142 @@ public class MoneyService {
 
     // ---- tills and cash ------------------------------------------------------------------------------
 
+    /** Tills opened today plus any still open from an earlier day, newest first, each with its entry count. */
     @Transactional(readOnly = true)
     public List<Till> tillsToday() {
-        return tills.findByHotelIdAndOpenedAtAfterOrderByOpenedAtDesc(TenantContext.requireHotel(), LocalDate.now(LAGOS).atStartOfDay(LAGOS).toInstant());
+        String hotelId = TenantContext.requireHotel();
+        Map<String, Till> byId = new LinkedHashMap<>();
+        tills.findByHotelIdAndOpenedAtAfterOrderByOpenedAtDesc(hotelId, LocalDate.now(LAGOS).atStartOfDay(LAGOS).toInstant()).forEach(t -> byId.put(t.getId(), t));
+        tills.findByHotelIdAndStatusOrderByOpenedAt(hotelId, Till.Status.OPEN).forEach(t -> byId.putIfAbsent(t.getId(), t));
+        List<Till> list = byId.values().stream().sorted((a, b) -> b.getOpenedAt().compareTo(a.getOpenedAt())).toList();
+        fillEntryCounts(list);
+        return list;
+    }
+
+    /** The open till of the caller's paying role, or null. */
+    @Transactional(readOnly = true)
+    public Till myTill() {
+        HospioUserDetails user = CurrentUser.require();
+        String hotelId = TenantContext.requireHotel();
+        for (Role role : PAYING_ROLES) {
+            if (user.has(role)) {
+                Optional<Till> t = tills.findFirstByHotelIdAndRoleAndStatus(hotelId, role.name(), Till.Status.OPEN);
+                if (t.isPresent()) {
+                    fillEntryCounts(List.of(t.get()));
+                    return t.get();
+                }
+            }
+        }
+        return null;
     }
 
     @Transactional
     public Till openTill(FinanceRequests.OpenTillRequest request) {
         HospioUserDetails user = CurrentUser.require();
         String hotelId = TenantContext.requireHotel();
-        tills.findFirstByHotelIdAndRoleAndStatus(hotelId, request.role(), Till.Status.OPEN).ifPresent(t -> {
-            throw new BadRequestException("The " + request.role().toLowerCase().replace('_', ' ') + " till is already open");
+        Role role = payingRole(request.role());
+        if (!TillAccess.canOpenOrClose(user, role)) {
+            throw new ForbiddenException("Only a manager, finance or the " + label(role) + " can open this till");
+        }
+        openTill(hotelId, role.name()).ifPresent(t -> {
+            throw new BadRequestException("The " + label(role) + " till is already open");
         });
-        return tills.save(Till.builder().role(request.role()).openedBy(user.getUserId()).openedByName(user.getFullName())
-                .openingFloat(Money.of(request.openingFloat())).expectedCash(Money.of(request.openingFloat())).build());
+        BigDecimal opening = request.openingFloat() == null ? settings.tillFloat(hotelId) : Money.of(request.openingFloat());
+        if (opening.signum() < 0) {
+            throw new BadRequestException("The opening float can't be negative");
+        }
+        return tills.save(Till.builder().role(role.name()).openedBy(user.getUserId()).openedByName(user.getFullName())
+                .openingFloat(opening).expectedCash(opening).build());
+    }
+
+    @Transactional
+    public TillEntry addMovement(String tillId, FinanceRequests.MovementRequest request) {
+        HospioUserDetails user = CurrentUser.require();
+        Till t = till(tillId);
+        if (!TillAccess.canMove(user, roleOf(t))) {
+            throw new ForbiddenException("Only a manager or the " + label(roleOf(t)) + " can move cash in this till");
+        }
+        if (t.getStatus() != Till.Status.OPEN) {
+            throw new BadRequestException("This till is closed");
+        }
+        TillEntry.Kind kind;
+        try {
+            kind = TillEntry.Kind.valueOf(request.kind().trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException("The movement is either PAY_IN or PAY_OUT");
+        }
+        if (kind != TillEntry.Kind.PAY_IN && kind != TillEntry.Kind.PAY_OUT) {
+            throw new BadRequestException("The movement is either PAY_IN or PAY_OUT");
+        }
+        BigDecimal amount = Money.of(request.amount());
+        return addEntry(t, kind, kind == TillEntry.Kind.PAY_OUT ? amount.negate() : amount, "CASH", request.reason().trim(), null, null);
     }
 
     @Transactional
     public Till closeTill(String id, FinanceRequests.CloseTillRequest request) {
-        Till t = tills.findById(id).orElseThrow(() -> new ResourceNotFoundException("Till not found"));
+        HospioUserDetails user = CurrentUser.require();
+        Till t = till(id);
+        if (!TillAccess.canOpenOrClose(user, roleOf(t))) {
+            throw new ForbiddenException("Only a manager, finance or the " + label(roleOf(t)) + " can close this till");
+        }
+        return close(t, request.countedCash(), request.note(), user, null);
+    }
+
+    public record Handover(Till closed, Till opened) {
+    }
+
+    @Transactional
+    public Handover handover(String id, FinanceRequests.HandoverRequest request) {
+        HospioUserDetails user = CurrentUser.require();
+        Till t = till(id);
+        if (!TillAccess.canMove(user, roleOf(t))) {
+            throw new ForbiddenException("Only a manager or the " + label(roleOf(t)) + " can hand this till over");
+        }
+        Till closed = close(t, request.countedCash(), request.note(), user, request);
+        Till opened = tills.save(Till.builder().role(t.getRole()).openedBy(request.toUserId()).openedByName(request.toUserName())
+                .openingFloat(Money.of(request.countedCash())).expectedCash(Money.of(request.countedCash())).build());
+        return new Handover(closed, opened);
+    }
+
+    private Till close(Till t, BigDecimal counted, String note, HospioUserDetails user, FinanceRequests.HandoverRequest handover) {
         if (t.getStatus() == Till.Status.CLOSED) {
             throw new BadRequestException("This till is already closed");
         }
-        t.setCountedCash(Money.of(request.countedCash()));
-        t.setVariance(Money.subtract(request.countedCash(), t.getExpectedCash()));
+        recompute(t);
+        BigDecimal variance = TillMath.variance(counted, t.getExpectedCash());
+        if (variance.signum() != 0 && (note == null || note.isBlank())) {
+            throw new BadRequestException("The count is " + variance.abs().toPlainString() + (variance.signum() < 0 ? " short" : " over") + ". Add a note saying why");
+        }
+        t.setCountedCash(Money.of(counted));
+        t.setVariance(variance);
         t.setStatus(Till.Status.CLOSED);
         t.setClosedAt(Instant.now());
-        t.setClosedBy(CurrentUser.require().getUserId());
-        t.setNote(request.note());
-        return tills.save(t);
+        t.setClosedBy(user.getUserId());
+        t.setClosedByName(user.getFullName());
+        t.setNote(note);
+        if (handover != null) {
+            t.setHandedOverTo(handover.toUserId());
+            t.setHandedOverToName(handover.toUserName());
+        }
+        tills.save(t);
+        events.publish(KafkaTopics.TILL_CLOSED, TillClosedEvent.builder().tillId(t.getId()).role(t.getRole()).expectedCash(t.getExpectedCash())
+                .countedCash(t.getCountedCash()).variance(variance).build());
+        if (variance.signum() != 0) {
+            String subject = "Till variance: " + label(roleOf(t)) + " " + (variance.signum() < 0 ? "short " : "over ") + variance.abs().toPlainString();
+            String text = "The " + label(roleOf(t)) + " till closed by " + user.getFullName() + " should hold " + t.getExpectedCash().toPlainString() + " but "
+                    + t.getCountedCash().toPlainString() + " was counted (" + (variance.signum() < 0 ? "short " : "over ") + variance.abs().toPlainString() + "). Note: " + note;
+            List<Delivery> sent = notifier.toManagers(t.getHotelId() == null ? TenantContext.requireHotel() : t.getHotelId(), subject, text, Delivery.Kind.TILL_VARIANCE, t.getId());
+            t.setDeliveries(sent);
+        }
+        return t;
     }
 
     @Transactional(readOnly = true)
     public List<TillEntry> tillEntries(String tillId) {
+        Till t = till(tillId);
+        if (!TillAccess.canSee(CurrentUser.require(), roleOf(t))) {
+            throw new ForbiddenException("You can't see this till");
+        }
         return tillEntries.findByTillIdOrderByCreatedAt(tillId);
     }
 
@@ -241,7 +436,7 @@ public class MoneyService {
     public BankDeposit bankCash(FinanceRequests.BankCashRequest request) {
         HospioUserDetails user = CurrentUser.require();
         BankDeposit d = deposits.save(BankDeposit.builder().amount(Money.of(request.amount())).bankAccount(request.bankAccount())
-                .reference(request.reference()).bankedBy(user.getUserId()).build());
+                .reference(request.reference()).bankedBy(user.getUserId()).bankedByName(user.getFullName()).build());
         events.publish(KafkaTopics.CASH_BANKED, CashBankedEvent.builder().amount(d.getAmount()).bankAccount(d.getBankAccount()).bankedBy(user.getFullName()).build());
         return d;
     }
@@ -251,55 +446,111 @@ public class MoneyService {
         return deposits.findByHotelIdOrderByBankedAtDesc(TenantContext.requireHotel());
     }
 
-    // ---- night audit ---------------------------------------------------------------------------------
+    // ---- helpers -------------------------------------------------------------------------------------
 
-    @Transactional
-    public NightAudit audit(LocalDate date) {
-        String hotelId = TenantContext.requireHotel();
-        LocalDate d = date == null ? LocalDate.now(LAGOS) : date;
-        return audits.findByHotelIdAndBusinessDate(hotelId, d).orElseGet(() -> audits.save(NightAudit.builder().businessDate(d).build()));
+    private Optional<Till> openTill(String hotelId, String role) {
+        return tills.findFirstByHotelIdAndRoleAndStatus(hotelId, role, Till.Status.OPEN);
     }
 
-    @Transactional(readOnly = true)
-    public List<NightAudit> pastAudits() {
-        return audits.findByHotelIdOrderByBusinessDateDesc(TenantContext.requireHotel());
+    private TillEntry addEntry(Till t, TillEntry.Kind kind, BigDecimal amount, String method, String description, String ref, String paymentId) {
+        HospioUserDetails user = CurrentUser.get().orElse(null);
+        TillEntry entry = tillEntries.save(TillEntry.builder().tillId(t.getId()).kind(kind).paymentId(paymentId).amount(amount).method(method)
+                .description(description).ref(ref).createdBy(user == null ? null : user.getUserId()).createdByName(user == null ? null : user.getFullName()).build());
+        recompute(t);
+        tills.save(t);
+        return entry;
     }
 
-    @Transactional
-    public NightAudit saveChecklist(LocalDate date, FinanceRequests.ChecklistRequest request) {
-        NightAudit a = audit(date);
-        a.setChecklist(request.checklist());
-        return audits.save(a);
+    private void recompute(Till t) {
+        List<BigDecimal> amounts = tillEntries.findByTillIdOrderByCreatedAt(t.getId()).stream().map(TillEntry::getAmount).toList();
+        t.setCashIn(TillMath.cashIn(amounts));
+        t.setCashOut(TillMath.cashOut(amounts));
+        t.setExpectedCash(TillMath.expected(t.getOpeningFloat(), amounts));
     }
 
-    @Transactional
-    public NightAudit closeDay(LocalDate date, FinanceRequests.CloseDayRequest request) {
-        HospioUserDetails user = CurrentUser.require();
-        if (!user.isManagerOrOwner() && !user.has(com.hospio.common.enums.Role.FINANCE, com.hospio.common.enums.AccessLevel.FULL)) {
-            throw new ForbiddenException("Closing the day needs Finance Full or a manager");
+    private void fillEntryCounts(List<Till> list) {
+        if (list.isEmpty()) {
+            return;
         }
-        NightAudit a = audit(date);
-        if (a.getStatus() == NightAudit.Status.CLOSED) {
-            throw new BadRequestException("This day is already closed");
+        Map<String, Long> counts = new HashMap<>();
+        for (Object[] row : tillEntries.countByTill(list.stream().map(Till::getId).toList())) {
+            counts.put((String) row[0], (Long) row[1]);
         }
+        list.forEach(t -> t.setEntries(counts.getOrDefault(t.getId(), 0L)));
+    }
+
+    /** The till a cash expense comes out of: the caller's own paying role, or the only till open at the hotel. */
+    private Till tillForPayOut(HospioUserDetails user) {
         String hotelId = TenantContext.requireHotel();
+        for (Role role : PAYING_ROLES) {
+            if (user.has(role)) {
+                Optional<Till> t = openTill(hotelId, role.name());
+                if (t.isPresent()) {
+                    return t.get();
+                }
+            }
+        }
         List<Till> open = tills.findByHotelIdAndStatusOrderByOpenedAt(hotelId, Till.Status.OPEN);
-        if (!open.isEmpty()) {
-            throw new BadRequestException(open.size() + " till(s) are still open. Count and close them first");
+        if (open.size() == 1) {
+            return open.get(0);
         }
-        MoneyToday today = today(a.getBusinessDate());
-        a.setRevenue(today.revenue());
-        a.setCashCounted(request == null ? null : request.cashCounted());
-        BigDecimal cashTaken = today.byMethod().getOrDefault("CASH", BigDecimal.ZERO);
-        a.setVariance(request == null || request.cashCounted() == null ? null : Money.subtract(request.cashCounted(), cashTaken));
-        a.setRoomsOccupied(request == null ? null : request.roomsOccupied());
-        a.setNote(request == null ? null : request.note());
-        a.setStatus(NightAudit.Status.CLOSED);
-        a.setClosedBy(user.getUserId());
-        a.setClosedAt(Instant.now());
-        audits.save(a);
-        events.publish(KafkaTopics.DAY_CLOSED, DayClosedEvent.builder().auditId(a.getId()).businessDate(a.getBusinessDate()).revenue(a.getRevenue())
-                .cashCounted(a.getCashCounted()).variance(a.getVariance()).closedBy(user.getFullName()).build());
-        return a;
+        throw new BadRequestException(open.isEmpty() ? "There is no open till to pay this from" : "Say which till to pay this from: open your own till first");
+    }
+
+    private Till till(String id) {
+        return tills.findById(id).orElseThrow(() -> new ResourceNotFoundException("Till not found"));
+    }
+
+    private static Role roleOf(Till t) {
+        try {
+            return Role.valueOf(t.getRole());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static Role payingRole(String name) {
+        try {
+            Role r = Role.valueOf(name.trim().toUpperCase());
+            if (PAYING_ROLES.contains(r)) {
+                return r;
+            }
+        } catch (IllegalArgumentException ignored) {
+            // falls through to the message
+        }
+        throw new BadRequestException("A till belongs to one of: " + PAYING_ROLES.stream().map(Role::name).toList());
+    }
+
+    private static String label(Role role) {
+        return role == null ? "till" : role.name().toLowerCase().replace('_', ' ');
+    }
+
+    static String roleLabel(HospioUserDetails user) {
+        if (user.has(Role.OWNER)) {
+            return Role.OWNER.name();
+        }
+        if (user.has(Role.MANAGER)) {
+            return Role.MANAGER.name();
+        }
+        return user.roleSet().stream().map(Role::name).sorted().findFirst().orElse(null);
+    }
+
+    /** Who may open, move cash in, close or look at a till of a role. */
+    static final class TillAccess {
+
+        private TillAccess() {
+        }
+
+        static boolean canOpenOrClose(HospioUserDetails u, Role role) {
+            return !u.isReadOnly() && (u.isPlatform() || u.isManagerOrOwner() || u.has(Role.FINANCE, AccessLevel.EDIT) || (role != null && u.has(role)));
+        }
+
+        static boolean canMove(HospioUserDetails u, Role role) {
+            return !u.isReadOnly() && (u.isPlatform() || u.isManagerOrOwner() || (role != null && u.has(role)));
+        }
+
+        static boolean canSee(HospioUserDetails u, Role role) {
+            return u.isPlatform() || u.isManagerOrOwner() || u.has(Role.FINANCE, AccessLevel.VIEW) || (role != null && u.has(role));
+        }
     }
 }

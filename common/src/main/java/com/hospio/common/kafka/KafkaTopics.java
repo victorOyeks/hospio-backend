@@ -81,6 +81,9 @@ public final class KafkaTopics {
     public static final String CASH_BANKED = PREFIX + "cash-banked";
     public static final String SHIFT_CHANGE_REQUESTED = PREFIX + "shift-change-requested";
     public static final String LEAVE_REQUESTED = PREFIX + "leave-requested";
+    public static final String LEAVE_DECIDED = PREFIX + "leave-decided";
+    public static final String SHIFT_REQUEST_DECIDED = PREFIX + "shift-request-decided";
+    public static final String TILL_CLOSED = PREFIX + "till-closed";
 
     // Messaging & Notifications
     public static final String MESSAGE_SENT = PREFIX + "message-sent";
@@ -88,6 +91,7 @@ public final class KafkaTopics {
     // Platform & Insights
     public static final String APPROVAL_REQUESTED = PREFIX + "approval-requested";
     public static final String APPROVAL_DECIDED = PREFIX + "approval-decided";
+    public static final String APPROVAL_ANSWERED = PREFIX + "approval-answered";
     public static final String CHANGE_BY_PLATFORM = PREFIX + "change-by-platform";
 
     /** Every topic; platform-service's activity log and the live Departments board subscribe to all of them. */
@@ -104,8 +108,9 @@ public final class KafkaTopics {
             REPAIR_OPENED, REPAIR_DONE, PARTS_REQUESTED,
             STOCK_LOW, STOCK_REQUESTED, STOCK_ISSUED, DELIVERY_RECEIVED,
             EXPENSE_RECORDED, DAY_CLOSED, CASH_BANKED, SHIFT_CHANGE_REQUESTED, LEAVE_REQUESTED,
+            LEAVE_DECIDED, SHIFT_REQUEST_DECIDED, TILL_CLOSED,
             MESSAGE_SENT,
-            APPROVAL_REQUESTED, APPROVAL_DECIDED, CHANGE_BY_PLATFORM);
+            APPROVAL_REQUESTED, APPROVAL_DECIDED, APPROVAL_ANSWERED, CHANGE_BY_PLATFORM);
 
     public static final String[] ALL_ARRAY = ALL.toArray(new String[0]);
 }

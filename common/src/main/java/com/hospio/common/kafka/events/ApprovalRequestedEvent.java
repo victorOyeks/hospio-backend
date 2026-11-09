@@ -20,6 +20,7 @@ public class ApprovalRequestedEvent extends HospioEvent {
     private String requesterId;
     private String requesterName;
     private String approverLevel;
+    private String requesterRole;
     private String description;
 
     @Override

@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,6 +38,20 @@ public class HousekeepingController {
     @GetMapping("/room-status")
     public ApiResponse<List<com.hospio.housekeeping.entity.RoomStatus>> roomStatus() {
         return ApiResponse.ok(service.roomBoard(com.hospio.common.tenancy.TenantContext.requireHotel()));
+    }
+
+    /** Front desk "mark ready" (CLEAN or INSPECTED) and "send to housekeeping" (DIRTY). */
+    @PostMapping("/room-status/{roomId}")
+    @PreAuthorize("@access.manager() or @access.atLeast('FRONT_OFFICE','EDIT') or @access.atLeast('HOUSEKEEPING','EDIT')")
+    public ApiResponse<com.hospio.housekeeping.entity.RoomStatus> setRoomStatus(@PathVariable String roomId,
+                                                                                @Valid @RequestBody TaskRequests.RoomStatusRequest request) {
+        return ApiResponse.ok("Room updated", service.setStatus(roomId, request));
+    }
+
+    @PostMapping("/tasks/{id}/rush")
+    @PreAuthorize("@access.manager() or @access.atLeast('FRONT_OFFICE','EDIT')")
+    public ApiResponse<CleaningTask> rush(@PathVariable String id) {
+        return ApiResponse.ok("Marked rush", service.rush(id));
     }
 
     @GetMapping("/tasks/to-inspect")

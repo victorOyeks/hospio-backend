@@ -47,4 +47,9 @@ public class RevenueEntry extends TenantEntity {
     @Column(nullable = false)
     @lombok.Builder.Default
     private boolean matched = true;
+
+    /** Cash taken while no till was open for the role: it reaches the ledger but no till, and the manager is shown it. */
+    @Column(name = "unattached_cash", nullable = false)
+    @lombok.Builder.Default
+    private boolean unattachedCash = false;
 }

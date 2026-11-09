@@ -74,7 +74,7 @@ public class BookingController {
     @PostMapping("/{id}/check-in")
     @PreAuthorize("@access.atLeast('FRONT_OFFICE','EDIT')")
     public ApiResponse<BookingResponse> checkIn(@PathVariable String id, @RequestBody(required = false) CheckInRequest request) {
-        return ApiResponse.ok("Checked in", service.checkIn(id, request == null ? new CheckInRequest(null, null, null, null, null, null) : request));
+        return ApiResponse.ok("Checked in", service.checkIn(id, request == null ? new CheckInRequest(null, null, null, null, null, null, null) : request));
     }
 
     @PostMapping("/{id}/check-out")

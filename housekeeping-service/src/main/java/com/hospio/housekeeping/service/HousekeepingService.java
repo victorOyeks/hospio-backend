@@ -49,15 +49,21 @@ public class HousekeepingService {
     private final LostFoundItemRepository lostFound;
     private final MaintenanceClient maintenance;
     private final ReservationClient reservations;
+    private final com.hospio.housekeeping.client.PropertyClient property;
     private final EventPublisher events;
 
     @Transactional(readOnly = true)
     public List<CleaningTask> myRooms(LocalDate date) {
         HospioUserDetails user = CurrentUser.require();
         LocalDate d = date == null ? LocalDate.now() : date;
-        return user.isManagerOrOwner() || user.has(com.hospio.common.enums.Role.HOUSEKEEPING, com.hospio.common.enums.AccessLevel.FULL)
+        List<CleaningTask> list = user.isManagerOrOwner() || user.has(com.hospio.common.enums.Role.HOUSEKEEPING, com.hospio.common.enums.AccessLevel.FULL)
                 ? tasks.findByHotelIdAndDueDateOrderByRoomNumber(TenantContext.requireHotel(), d)
                 : tasks.findByHotelIdAndAssignedToAndDueDateOrderByRoomNumber(TenantContext.requireHotel(), user.getUserId(), d);
+        if (!list.isEmpty()) {
+            java.util.Set<String> arriving = reservations.roomsWithArrivalOn(TenantContext.requireHotel(), d);
+            list.forEach(t -> t.setGuestArrives(arriving.contains(t.getRoomId())));
+        }
+        return list;
     }
 
     @Transactional(readOnly = true)
@@ -65,9 +71,57 @@ public class HousekeepingService {
         return tasks.findByHotelIdAndStatusOrderByDoneAt(TenantContext.requireHotel(), CleaningTask.Status.DONE);
     }
 
+    /** Every room of the hotel (property-service), CLEAN where housekeeping has no row for it yet, ordered by room number. */
     @Transactional(readOnly = true)
     public List<RoomStatus> roomBoard(String hotelId) {
-        return roomStatuses.findByHotelIdOrderByRoomNumber(hotelId);
+        return mergeBoard(roomStatuses.findByHotelIdOrderByRoomNumber(hotelId), property.rooms(hotelId), hotelId);
+    }
+
+    static List<RoomStatus> mergeBoard(List<RoomStatus> stored, List<com.hospio.housekeeping.client.PropertyClient.Room> rooms, String hotelId) {
+        java.util.Map<String, RoomStatus> byRoom = new java.util.LinkedHashMap<>();
+        stored.forEach(r -> byRoom.put(r.getRoomId(), r));
+        for (com.hospio.housekeeping.client.PropertyClient.Room room : rooms) {
+            byRoom.computeIfAbsent(room.id(), id -> RoomStatus.builder().hotelId(hotelId).roomId(id).roomNumber(room.number())
+                    .status(RoomStatus.Cleanliness.CLEAN).build());
+        }
+        return byRoom.values().stream().sorted(java.util.Comparator.comparing(r -> r.getRoomNumber() == null ? "" : r.getRoomNumber(),
+                java.util.Comparator.comparingInt(HousekeepingService::numeric).thenComparing(java.util.Comparator.naturalOrder()))).toList();
+    }
+
+    private static int numeric(String number) {
+        try {
+            return Integer.parseInt(number.replaceAll("\\D", ""));
+        } catch (NumberFormatException e) {
+            return Integer.MAX_VALUE;
+        }
+    }
+
+    /** Front desk "mark ready" (CLEAN, INSPECTED) and "send to housekeeping" (DIRTY, which also puts a clean on today's list). */
+    @Transactional
+    public RoomStatus setStatus(String roomId, TaskRequests.RoomStatusRequest request) {
+        HospioUserDetails user = CurrentUser.require();
+        String number = roomStatuses.findByRoomId(roomId).map(RoomStatus::getRoomNumber)
+                .orElseGet(() -> property.rooms(TenantContext.requireHotel()).stream().filter(r -> r.id().equals(roomId)).map(com.hospio.housekeeping.client.PropertyClient.Room::number)
+                        .findFirst().orElse(null));
+        if (request.status() == RoomStatus.Cleanliness.DIRTY) {
+            createTask(roomId, number, CleaningTask.Kind.DEPARTURE, LocalDate.now());
+        }
+        setRoomStatus(roomId, number, request.status(), user.getUserId());
+        RoomStatus rs = roomStatuses.findByRoomId(roomId).orElseThrow();
+        rs.setNote(request.note());
+        roomStatuses.save(rs);
+        if (request.status() != RoomStatus.Cleanliness.DIRTY) {
+            events.publish(KafkaTopics.ROOM_CLEANED, RoomCleanedEvent.builder().roomId(roomId).roomNumber(number).cleanedBy(user.getFullName())
+                    .inspected(request.status() == RoomStatus.Cleanliness.INSPECTED).build());
+        }
+        return rs;
+    }
+
+    @Transactional
+    public CleaningTask rush(String taskId) {
+        CleaningTask t = task(taskId);
+        t.setPriority(CleaningTask.Priority.RUSH);
+        return tasks.save(t);
     }
 
     @Transactional
@@ -86,7 +140,10 @@ public class HousekeepingService {
         if (exists) {
             return null;
         }
-        setRoomStatus(roomId, roomNumber, RoomStatus.Cleanliness.DIRTY, null);
+        if (kind == CleaningTask.Kind.DEPARTURE) {
+            // Only a departure dirties the room. A stay-over task is tomorrow's top-up clean and the guest is in it tonight.
+            setRoomStatus(roomId, roomNumber, RoomStatus.Cleanliness.DIRTY, null);
+        }
         return tasks.save(CleaningTask.builder().roomId(roomId).roomNumber(roomNumber).kind(kind).dueDate(dueDate).build());
     }
 

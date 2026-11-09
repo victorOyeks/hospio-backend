@@ -71,4 +71,25 @@ public class Till extends TenantEntity {
 
     @Column(length = 500)
     private String note;
+
+    @Column(name = "cash_out", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal cashOut = BigDecimal.ZERO;
+
+    @Column(name = "closed_by_name", length = 150)
+    private String closedByName;
+
+    @Column(name = "handed_over_to", length = 36)
+    private String handedOverTo;
+
+    @Column(name = "handed_over_to_name", length = 150)
+    private String handedOverToName;
+
+    /** Not stored: how many entries the till has. */
+    @jakarta.persistence.Transient
+    private long entries;
+
+    /** Not stored: what went to the hotel's managers on a closing variance (returned when deliveries echo is on). */
+    @jakarta.persistence.Transient
+    private java.util.List<com.hospio.common.delivery.Delivery> deliveries;
 }

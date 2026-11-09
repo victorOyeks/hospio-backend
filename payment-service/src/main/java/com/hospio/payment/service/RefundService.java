@@ -42,6 +42,7 @@ public class RefundService {
     private final DisputeRepository disputes;
     private final PaymentRequestRepository payments;
     private final EventPublisher events;
+    private final com.hospio.payment.client.HotelConfigClient hotelConfig;
 
     @Value("${hospio.approvals.manager-spend-limit:500000}")
     private BigDecimal managerLimit;
@@ -74,7 +75,10 @@ public class RefundService {
         if (r.getStatus() != Refund.Status.PENDING_APPROVAL) {
             throw new BadRequestException("This refund is already " + r.getStatus().name().toLowerCase().replace('_', ' '));
         }
-        if (r.getAmount().compareTo(managerLimit) > 0 && !user.has(com.hospio.common.enums.Role.OWNER) && !user.isPlatform()) {
+        com.hospio.payment.client.HotelConfigClient.ApprovalLimits hotel = hotelConfig.approvalLimits(r.getHotelId());
+        BigDecimal limit = hotel.managerExpenseLimit() != null ? hotel.managerExpenseLimit() : managerLimit;
+        boolean needsOwner = hotel.refundsNeedOwner() || r.getAmount().compareTo(limit) > 0;
+        if (needsOwner && !user.has(com.hospio.common.enums.Role.OWNER) && !user.isPlatform()) {
             if (r.getApprovalId() == null) {
                 r.setApprovalId(UUID.randomUUID().toString());
                 refunds.save(r);
@@ -82,7 +86,8 @@ public class RefundService {
                         .sourceModule("PAYMENT").sourceRef(r.getId()).kind("REFUND").amount(r.getAmount()).requesterId(user.getUserId())
                         .requesterName(user.getFullName()).approverLevel("OWNER").description("Refund of " + r.getAmount() + ": " + r.getReason()).build());
             }
-            throw new BadRequestException("A refund over " + managerLimit + " goes to the owner. It has been sent for approval");
+            throw new BadRequestException(hotel.refundsNeedOwner() ? "Refunds go to the owner. It has been sent for approval"
+                    : "A refund over " + limit + " goes to the owner. It has been sent for approval");
         }
         return settle(r, user.getUserId(), user.getFullName());
     }
@@ -93,13 +98,17 @@ public class RefundService {
         r.setApprovedBy(approvedBy);
         r.setDecidedAt(Instant.now());
         refunds.save(r);
-        String bookingId = payments.findById(r.getPaymentId()).map(p -> {
+        String[] paid = new String[3];
+        payments.findById(r.getPaymentId()).ifPresent(p -> {
             p.setStatus(PaymentStatus.REFUNDED);
             payments.save(p);
-            return p.getBookingId();
-        }).orElse(null);
+            paid[0] = p.getBookingId();
+            paid[1] = p.getMethod() == null ? null : p.getMethod().name();
+            paid[2] = p.getRole() == null ? null : p.getRole().name();
+        });
+        String bookingId = paid[0];
         events.publish(KafkaTopics.REFUND_APPROVED, RefundApprovedEvent.builder().refundId(r.getId()).paymentId(r.getPaymentId())
-                .folioId(r.getFolioId()).bookingId(bookingId).amount(r.getAmount()).approvedBy(approvedByName).build());
+                .folioId(r.getFolioId()).bookingId(bookingId).amount(r.getAmount()).approvedBy(approvedByName).method(paid[1]).role(paid[2]).build());
         return r;
     }
 

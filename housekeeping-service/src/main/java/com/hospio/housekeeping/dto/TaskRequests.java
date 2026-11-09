@@ -17,6 +17,10 @@ public final class TaskRequests {
                                 String assignedTo, String assignedToName) {
     }
 
+    /** Front desk: mark a room ready (CLEAN or INSPECTED) or send it to housekeeping (DIRTY). */
+    public record RoomStatusRequest(@NotNull com.hospio.housekeeping.entity.RoomStatus.Cleanliness status, String note) {
+    }
+
     public record ReassignRequest(@NotBlank String assignedTo, String assignedToName) {
     }
 

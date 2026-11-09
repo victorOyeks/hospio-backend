@@ -1,6 +1,7 @@
 package com.hospio.finance.entity;
 
 import com.hospio.common.entity.TenantEntity;
+import com.fasterxml.jackson.annotation.JsonRawValue;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -60,4 +61,9 @@ public class NightAudit extends TenantEntity {
 
     @Column(length = 1000)
     private String note;
+
+    /** The closing report as JSON (revenue, payments by method, expenses, cash, occupancy), served as an object. */
+    @JsonRawValue
+    @Column(columnDefinition = "text")
+    private String report;
 }

@@ -66,4 +66,17 @@ public class Expense extends TenantEntity {
 
     @Column(name = "decision_note", length = 500)
     private String decisionNote;
+
+    /** Who has to approve it while it waits: MANAGER or OWNER; null once recorded without approval. */
+    @Column(name = "approver_level", length = 20)
+    private String approverLevel;
+
+    @Column(name = "paid_by", length = 36)
+    private String paidBy;
+
+    @Column(name = "paid_by_name", length = 150)
+    private String paidByName;
+
+    @Column(name = "paid_at")
+    private Instant paidAt;
 }

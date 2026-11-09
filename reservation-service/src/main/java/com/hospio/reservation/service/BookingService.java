@@ -19,6 +19,8 @@ import com.hospio.common.security.HospioUserDetails;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.common.util.Money;
 import com.hospio.reservation.client.PropertyClient;
+import com.hospio.reservation.client.RoomReadiness;
+import com.hospio.reservation.dto.DaySummary;
 import com.hospio.reservation.dto.AvailabilityResponse;
 import com.hospio.reservation.dto.BookingResponse;
 import com.hospio.reservation.dto.CancelBookingRequest;
@@ -58,6 +60,7 @@ public class BookingService {
     private final GuestService guestService;
     private final PropertyClient property;
     private final EventPublisher events;
+    private final RoomReadiness readiness;
 
     @Transactional(readOnly = true)
     public TodayResponse today() {
@@ -247,6 +250,18 @@ public class BookingService {
             b.setRoomId(room.id());
             b.setRoomNumber(room.number());
         }
+        String warning = null;
+        if (b.getRoomId() != null && readiness.isDirty(b.getHotelId(), b.getRoomId())) {
+            warning = "Room not cleaned yet";
+            if (readiness.inspectDepartures(b.getHotelId())) {
+                if (!Boolean.TRUE.equals(request.overrideDirty())) {
+                    throw new BadRequestException("Room " + b.getRoomNumber() + " hasn't been cleaned yet. A manager can check the guest in anyway");
+                }
+                if (!user.isManagerOrOwner() && !user.isPlatform()) {
+                    throw new ForbiddenException("Only a manager can check a guest into a room that hasn't been cleaned");
+                }
+            }
+        }
         Guest guest = guestService.get(b.getGuestId());
         if (request.guestEmail() != null || request.guestPhone() != null || request.idNumber() != null) {
             if (request.guestEmail() != null) {
@@ -268,7 +283,8 @@ public class BookingService {
                 .bookingId(b.getId()).guestId(guest.getId()).guestName(guest.getFullName()).guestPhone(guest.getPhone())
                 .guestEmail(guest.getEmail()).roomId(b.getRoomId()).roomNumber(b.getRoomNumber()).checkOutDate(b.getCheckOutDate())
                 .nightlyRate(b.getNightlyRate()).nights(b.nights()).paymentPlan(b.getPaymentPlan().name()).organizationId(b.getOrganizationId()).build());
-        return BookingResponse.of(b);
+        BookingResponse response = BookingResponse.of(b);
+        return warning == null ? response : response.withWarning(warning);
     }
 
     @Transactional
@@ -333,6 +349,43 @@ public class BookingService {
     @Transactional(readOnly = true)
     public List<BookingResponse> inHouse(String hotelId) {
         return bookings.findByHotelIdAndStatusOrderByCheckInDate(hotelId, BookingStatus.CHECKED_IN).stream().map(BookingResponse::of).toList();
+    }
+
+    /** BOOKED arrivals for a date (and one room when given): housekeeping's "guest arrives today" and the desk's pending list. */
+    @Transactional(readOnly = true)
+    public List<BookingResponse> bookedArrivals(String hotelId, LocalDate date, String roomId) {
+        return bookings.bookedArrivalsOn(hotelId, date).stream().filter(b -> roomId == null || roomId.equals(b.getRoomId())).map(BookingResponse::of).toList();
+    }
+
+    /** What finance's night audit needs to know about a business day. */
+    @Transactional(readOnly = true)
+    public DaySummary daySummary(String hotelId, LocalDate date) {
+        List<Booking> pendingIn = bookings.unresolvedArrivals(hotelId, date);
+        List<Booking> pendingOut = bookings.unresolvedDepartures(hotelId, date);
+        List<Booking> inHouse = bookings.findByHotelIdAndStatusOrderByCheckInDate(hotelId, BookingStatus.CHECKED_IN);
+        int roomsOccupied = (int) inHouse.stream().map(Booking::getRoomId).filter(java.util.Objects::nonNull).distinct().count();
+        long noShows = bookings.between(hotelId, date, date, BookingStatus.NO_SHOW).stream().filter(b -> date.equals(b.getCheckInDate())).count();
+        return new DaySummary(date, (int) bookings.countExpectedArrivals(hotelId, date), pendingIn.size(), (int) bookings.countDepartures(hotelId, date),
+                pendingOut.size(), inHouse.size(), (int) noShows, roomsOccupied, pendingIn.stream().map(BookingService::stay).toList(),
+                pendingOut.stream().map(BookingService::stay).toList(), bookings.departuresOn(hotelId, date).stream().map(BookingService::stay).toList());
+    }
+
+    /** Night audit close with markNoShows: every BOOKED arrival up to the date becomes NO_SHOW. Returns how many. */
+    @Transactional
+    public int markNoShows(String hotelId, LocalDate date) {
+        List<Booking> pending = bookings.unresolvedArrivals(hotelId, date);
+        for (Booking b : pending) {
+            b.setStatus(BookingStatus.NO_SHOW);
+            bookings.save(b);
+            events.publish(KafkaTopics.BOOKING_CHANGED, BookingChangedEvent.builder()
+                    .bookingId(b.getId()).guestName(b.getGuestName()).change("Marked no-show by the night audit")
+                    .roomId(b.getRoomId()).roomNumber(b.getRoomNumber()).checkInDate(b.getCheckInDate()).checkOutDate(b.getCheckOutDate()).build());
+        }
+        return pending.size();
+    }
+
+    private static DaySummary.Stay stay(Booking b) {
+        return new DaySummary.Stay(b.getId(), b.getReference(), b.getGuestName(), b.getRoomNumber(), b.getCheckInDate(), b.getCheckOutDate());
     }
 
     private Booking find(String id) {

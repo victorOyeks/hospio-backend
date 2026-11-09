@@ -40,4 +40,7 @@ public class RoomStatus extends TenantEntity {
 
     @Column(name = "changed_by", length = 36)
     private String changedBy;
+
+    @Column(length = 300)
+    private String note;
 }

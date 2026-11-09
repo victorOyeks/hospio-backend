@@ -56,4 +56,8 @@ public class ShiftRequest extends TenantEntity {
 
     @Column(name = "decided_by", length = 36)
     private String decidedBy;
+
+    /** Not stored: what went to the staff member on this decision (returned when deliveries echo is on). */
+    @jakarta.persistence.Transient
+    private java.util.List<com.hospio.common.delivery.Delivery> deliveries;
 }

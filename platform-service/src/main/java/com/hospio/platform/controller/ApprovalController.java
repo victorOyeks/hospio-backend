@@ -24,13 +24,13 @@ public class ApprovalController {
     private final ApprovalService service;
 
     @GetMapping
-    @PreAuthorize("@access.manager()")
+    @PreAuthorize("@access.managerView()")
     public ApiResponse<List<Approval>> pending() {
         return ApiResponse.ok(service.pending());
     }
 
     @GetMapping("/all")
-    @PreAuthorize("@access.manager()")
+    @PreAuthorize("@access.managerView()")
     public ApiResponse<List<Approval>> all() {
         return ApiResponse.ok(service.all());
     }
@@ -40,5 +40,12 @@ public class ApprovalController {
     @PreAuthorize("@access.manager()")
     public ApiResponse<Approval> decide(@PathVariable String id, @Valid @RequestBody PlatformRequests.DecisionRequest request) {
         return ApiResponse.ok("Decided", service.decide(id, request));
+    }
+
+    /** A manager hands a MANAGER-level approval up to the owner, with a note on why. */
+    @PostMapping("/{id}/escalate")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<Approval> escalate(@PathVariable String id, @RequestBody(required = false) PlatformRequests.EscalateRequest request) {
+        return ApiResponse.ok("Sent to the owner", service.escalate(id, request == null ? null : request.note()));
     }
 }

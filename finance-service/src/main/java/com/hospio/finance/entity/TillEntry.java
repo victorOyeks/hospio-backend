@@ -25,6 +25,9 @@ import lombok.experimental.SuperBuilder;
 @Table(name = "till_entries")
 public class TillEntry extends TenantEntity {
 
+    /** PAYMENT is cash taken against a folio; PAY_IN and PAY_OUT are manual movements; REFUND and EXPENSE take cash out. */
+    public enum Kind { PAYMENT, PAY_IN, PAY_OUT, REFUND, EXPENSE }
+
     @Column(name = "till_id", nullable = false, length = 36)
     private String tillId;
 
@@ -39,4 +42,19 @@ public class TillEntry extends TenantEntity {
 
     @Column(length = 300)
     private String description;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @lombok.Builder.Default
+    private Kind kind = Kind.PAYMENT;
+
+    /** What the entry is about: the refund or expense id, so a replayed event never posts twice. */
+    @Column(length = 80)
+    private String ref;
+
+    @Column(name = "created_by", length = 36)
+    private String createdBy;
+
+    @Column(name = "created_by_name", length = 150)
+    private String createdByName;
 }

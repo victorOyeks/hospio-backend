@@ -44,7 +44,8 @@ class BookingServiceTest {
     private final GuestService guests = mock(GuestService.class);
     private final PropertyClient property = mock(PropertyClient.class);
     private final EventPublisher events = mock(EventPublisher.class);
-    private final BookingService service = new BookingService(bookings, guests, property, events);
+    private final com.hospio.reservation.client.RoomReadiness readiness = mock(com.hospio.reservation.client.RoomReadiness.class);
+    private final BookingService service = new BookingService(bookings, guests, property, events, readiness);
 
     private final LocalDate in = LocalDate.now().plusDays(1);
     private final LocalDate out = in.plusDays(3);
@@ -105,6 +106,55 @@ class BookingServiceTest {
 
         assertThat(b.nightlyRate()).isEqualByComparingTo("30000.00");
         assertThat(b.totalAmount()).isEqualByComparingTo("90000.00");
+    }
+
+    private com.hospio.reservation.entity.Booking arrivalIn(String roomId) {
+        com.hospio.reservation.entity.Booking b = com.hospio.reservation.entity.Booking.builder().reference("HBTEST01").guestId("g1").guestName("Ifeoma")
+                .roomTypeId("t1").roomId(roomId).roomNumber("101").checkInDate(LocalDate.now()).checkOutDate(LocalDate.now().plusDays(2))
+                .nightlyRate(new BigDecimal("45000")).totalAmount(new BigDecimal("90000")).paymentPlan(PaymentPlan.PAY_AT_CHECKOUT).build();
+        b.setId("b1");
+        b.setHotelId("h1");
+        when(bookings.findById("b1")).thenReturn(Optional.of(b));
+        Guest guest = Guest.builder().fullName("Ifeoma").build();
+        guest.setId("g1");
+        when(guests.get("g1")).thenReturn(guest);
+        return b;
+    }
+
+    @Test
+    void checkingIntoADirtyRoomWarnsWhenInspectionIsOff() {
+        arrivalIn("r1");
+        when(readiness.isDirty("h1", "r1")).thenReturn(true);
+        when(readiness.inspectDepartures("h1")).thenReturn(false);
+
+        BookingResponse r = service.checkIn("b1", new com.hospio.reservation.dto.CheckInRequest(null, null, null, null, null, null, null));
+
+        assertThat(r.status()).isEqualTo(BookingStatus.CHECKED_IN);
+        assertThat(r.warning()).isEqualTo("Room not cleaned yet");
+    }
+
+    @Test
+    void withInspectionOnADirtyRoomNeedsAManagersOverride() {
+        arrivalIn("r1");
+        when(readiness.isDirty("h1", "r1")).thenReturn(true);
+        when(readiness.inspectDepartures("h1")).thenReturn(true);
+
+        assertThatThrownBy(() -> service.checkIn("b1", new com.hospio.reservation.dto.CheckInRequest(null, null, null, null, null, null, null)))
+                .isInstanceOf(com.hospio.common.exception.BadRequestException.class);
+        assertThatThrownBy(() -> service.checkIn("b1", new com.hospio.reservation.dto.CheckInRequest(null, null, null, null, null, null, true)))
+                .isInstanceOf(ForbiddenException.class);
+
+        signInAs(Role.MANAGER, AccessLevel.FULL);
+        BookingResponse r = service.checkIn("b1", new com.hospio.reservation.dto.CheckInRequest(null, null, null, null, null, null, true));
+        assertThat(r.warning()).isEqualTo("Room not cleaned yet");
+    }
+
+    @Test
+    void aCleanRoomChecksInWithNoWarning() {
+        arrivalIn("r1");
+        when(readiness.isDirty("h1", "r1")).thenReturn(false);
+
+        assertThat(service.checkIn("b1", new com.hospio.reservation.dto.CheckInRequest(null, null, null, null, null, null, null)).warning()).isNull();
     }
 
     private CreateBookingRequest request(PriceKind kind, BigDecimal special) {

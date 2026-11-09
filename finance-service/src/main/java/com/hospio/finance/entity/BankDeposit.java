@@ -40,4 +40,7 @@ public class BankDeposit extends TenantEntity {
     @Column(name = "banked_at", nullable = false)
     @lombok.Builder.Default
     private Instant bankedAt = Instant.now();
+
+    @Column(name = "banked_by_name", length = 150)
+    private String bankedByName;
 }

@@ -52,4 +52,13 @@ public class LeaveRequest extends TenantEntity {
 
     @Column(name = "decision_note", length = 300)
     private String decisionNote;
+
+    /** Calendar days the leave covers, both ends included. */
+    public long getDays() {
+        return fromDate == null || toDate == null ? 0 : java.time.temporal.ChronoUnit.DAYS.between(fromDate, toDate) + 1;
+    }
+
+    /** Not stored: what went to the staff member on this decision (returned when deliveries echo is on). */
+    @jakarta.persistence.Transient
+    private java.util.List<com.hospio.common.delivery.Delivery> deliveries;
 }

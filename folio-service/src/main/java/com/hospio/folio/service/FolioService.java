@@ -69,6 +69,16 @@ public class FolioService {
         return FolioResponse.of(f, lines.findByFolioIdOrderByPostedAt(f.getId()));
     }
 
+    /** Open folios that still owe money: the night audit's "balances" check lists the departures among them. */
+    @Transactional(readOnly = true)
+    public List<OpenBalance> openBalances(String hotelId) {
+        return folios.openWithBalance(hotelId).stream()
+                .map(f -> new OpenBalance(f.getId(), f.getBookingId(), f.getGuestName(), f.getRoomNumber(), f.getBalance())).toList();
+    }
+
+    public record OpenBalance(String folioId, String bookingId, String guestName, String roomNumber, BigDecimal balance) {
+    }
+
     @Transactional(readOnly = true)
     public Optional<Folio> activeForRoom(String roomId) {
         return folios.findFirstByRoomIdAndStatus(roomId, Folio.Status.OPEN);
@@ -147,14 +157,15 @@ public class FolioService {
         if (amount.signum() <= 0 || amount.compareTo(f.getBalance()) > 0) {
             throw new BadRequestException("The discount has to be between 0 and the balance of " + f.getBalance());
         }
-        if (!user.isPlatform() && !user.has(com.hospio.common.enums.Role.OWNER) && amount.compareTo(limits.getManagerDiscountLimit()) > 0) {
+        BigDecimal discountLimit = limits.discountLimit(f.getHotelId(), Money.add(f.getTotalCharges(), f.getTotalTax()));
+        if (!user.isPlatform() && !user.has(com.hospio.common.enums.Role.OWNER) && amount.compareTo(discountLimit) > 0) {
             String approvalId = UUID.randomUUID().toString();
             pendingDiscounts.save(PendingDiscount.builder().folioId(f.getId()).approvalId(approvalId).amount(amount).reason(request.reason()).build());
             events.publish(KafkaTopics.APPROVAL_REQUESTED, ApprovalRequestedEvent.builder()
                     .approvalId(approvalId).sourceModule("FOLIO").sourceRef(f.getId()).kind("DISCOUNT").amount(amount)
                     .requesterId(user.getUserId()).requesterName(user.getFullName()).approverLevel("OWNER")
                     .description("Discount of " + amount + " for " + f.getGuestName() + ": " + request.reason()).build());
-            throw new BadRequestException("A discount over " + limits.getManagerDiscountLimit() + " goes to the owner. It has been sent for approval");
+            throw new BadRequestException("A discount over " + discountLimit + " goes to the owner. It has been sent for approval");
         }
         applyDiscount(f, amount, request.reason(), user.getUserId(), user.getFullName());
         return get(folioId);

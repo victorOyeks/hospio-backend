@@ -18,6 +18,9 @@ public class RefundApprovedEvent extends HospioEvent {
     private String bookingId;
     private java.math.BigDecimal amount;
     private String approvedBy;
+    /** How the original payment was taken (CASH, CARD, TRANSFER) and by which role, so finance can reverse cash from the right till. */
+    private String method;
+    private String role;
 
     @Override
     public String summary() {

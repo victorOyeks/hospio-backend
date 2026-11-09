@@ -29,6 +29,8 @@ public class CleaningTask extends TenantEntity {
 
     public enum Status { TODO, IN_PROGRESS, DONE, INSPECTED, SENT_BACK, SKIPPED }
 
+    public enum Priority { NORMAL, RUSH }
+
     @Column(name = "room_id", nullable = false, length = 36)
     private String roomId;
 
@@ -77,4 +79,14 @@ public class CleaningTask extends TenantEntity {
 
     @Column(name = "skip_reason", length = 300)
     private String skipReason;
+
+    /** RUSH when the front desk needs the room sooner (a guest is waiting or arriving). */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @lombok.Builder.Default
+    private Priority priority = Priority.NORMAL;
+
+    /** Not stored: true when the room has a BOOKED arrival on the task's date (reservation-service). */
+    @jakarta.persistence.Transient
+    private boolean guestArrives;
 }

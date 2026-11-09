@@ -65,4 +65,16 @@ public class Approval extends TenantEntity {
 
     @Column(name = "decided_at")
     private Instant decidedAt;
+
+    /** The hotel's name, snapshotted when the request arrived (the list shows it for an owner looking across hotels). */
+    @Column(name = "hotel_name", length = 150)
+    private String hotelName;
+
+    /** The role the requester held when they asked, e.g. FRONT_OFFICE. */
+    @Column(name = "requester_role", length = 30)
+    private String requesterRole;
+
+    /** Not stored: what went to the requester on this decision, returned when deliveries echo is on. */
+    @jakarta.persistence.Transient
+    private java.util.List<com.hospio.common.delivery.Delivery> deliveries;
 }

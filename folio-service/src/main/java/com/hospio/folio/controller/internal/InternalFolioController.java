@@ -33,6 +33,12 @@ public class InternalFolioController {
         return ApiResponse.ok(admin.hotelOverview(hotelId));
     }
 
+    /** finance's night audit: every open folio of the hotel with money still owing. */
+    @GetMapping("/folios/open-balances")
+    public ApiResponse<java.util.List<FolioService.OpenBalance>> openBalances(@RequestParam String hotelId) {
+        return ApiResponse.ok(folios.openBalances(hotelId));
+    }
+
     @GetMapping("/folios/by-booking/{bookingId}")
     public ApiResponse<FolioResponse> byBooking(@PathVariable String bookingId) {
         return ApiResponse.ok(folios.byBooking(bookingId));

@@ -16,6 +16,9 @@ public final class PlatformRequests {
     public record DecisionRequest(@NotBlank String decision, String note) {
     }
 
+    public record EscalateRequest(String note) {
+    }
+
     public record ReportRequest(@NotBlank String kind, LocalDate periodFrom, LocalDate periodTo, String schedule, String recipients) {
     }
 

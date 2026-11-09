@@ -3,6 +3,7 @@ package com.hospio.finance.kafka;
 import com.hospio.common.kafka.KafkaTopics;
 import com.hospio.common.kafka.events.ApprovalDecidedEvent;
 import com.hospio.common.kafka.events.PaymentApprovedEvent;
+import com.hospio.common.kafka.events.RefundApprovedEvent;
 import com.hospio.common.tenancy.TenantBinder;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.finance.service.MoneyService;
@@ -25,6 +26,18 @@ public class FinanceEventListener {
         tenant.bind(e);
         try {
             money.recordPayment(e.getPaymentId(), e.getAmount(), e.getMethod(), e.getRole(), e.getFolioId(), e.getOccurredAt());
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    /** A cash refund leaves the drawer of the role that took the payment. */
+    @Transactional
+    @KafkaListener(topics = KafkaTopics.REFUND_APPROVED)
+    public void onRefundApproved(RefundApprovedEvent e) {
+        tenant.bind(e);
+        try {
+            money.onRefundApproved(e.getRefundId(), e.getAmount(), e.getMethod(), e.getRole());
         } finally {
             TenantContext.clear();
         }

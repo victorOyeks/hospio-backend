@@ -22,6 +22,12 @@ public class InternalPlatformController {
     private final ApprovalRepository approvals;
     private final PlatformSettingsService settings;
 
+    /** finance's today screen: how many approvals are waiting at a hotel. */
+    @GetMapping("/approvals/pending-count")
+    public ApiResponse<Long> pendingCount(@org.springframework.web.bind.annotation.RequestParam String hotelId) {
+        return ApiResponse.ok(approvals.countByHotelIdAndStatus(hotelId, com.hospio.common.enums.ApprovalStatus.PENDING));
+    }
+
     @GetMapping("/approvals/{id}")
     public ApiResponse<Approval> approval(@PathVariable String id) {
         return ApiResponse.ok(approvals.findById(id).orElseThrow(() -> new com.hospio.common.exception.ResourceNotFoundException("Approval not found")));

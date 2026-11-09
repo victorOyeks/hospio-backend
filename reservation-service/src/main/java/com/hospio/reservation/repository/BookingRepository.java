@@ -55,4 +55,24 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
 
     @Query(value = "select pg_advisory_xact_lock(hashtext(:key))", nativeQuery = true)
     Object lock(@Param("key") String key);
+
+    /** BOOKED stays whose arrival date is on or before {@code date}: still unresolved at the end of that day. */
+    @Query("select b from Booking b where b.hotelId = :hotelId and b.status = 'BOOKED' and b.checkInDate <= :date order by b.checkInDate, b.roomNumber")
+    List<Booking> unresolvedArrivals(@Param("hotelId") String hotelId, @Param("date") LocalDate date);
+
+    @Query("select b from Booking b where b.hotelId = :hotelId and b.status = 'BOOKED' and b.checkInDate = :date order by b.roomNumber")
+    List<Booking> bookedArrivalsOn(@Param("hotelId") String hotelId, @Param("date") LocalDate date);
+
+    /** Stays that were expected on {@code date}: anything with that arrival date that was not cancelled. */
+    @Query("select count(b) from Booking b where b.hotelId = :hotelId and b.checkInDate = :date and b.status <> 'CANCELLED'")
+    long countExpectedArrivals(@Param("hotelId") String hotelId, @Param("date") LocalDate date);
+
+    @Query("select count(b) from Booking b where b.hotelId = :hotelId and b.checkOutDate = :date and b.status in ('CHECKED_IN','CHECKED_OUT')")
+    long countDepartures(@Param("hotelId") String hotelId, @Param("date") LocalDate date);
+
+    @Query("select b from Booking b where b.hotelId = :hotelId and b.status = 'CHECKED_IN' and b.checkOutDate <= :date order by b.roomNumber")
+    List<Booking> unresolvedDepartures(@Param("hotelId") String hotelId, @Param("date") LocalDate date);
+
+    @Query("select b from Booking b where b.hotelId = :hotelId and b.checkOutDate = :date and b.status in ('CHECKED_IN','CHECKED_OUT') order by b.roomNumber")
+    List<Booking> departuresOn(@Param("hotelId") String hotelId, @Param("date") LocalDate date);
 }
