@@ -461,7 +461,7 @@ public class LaundryService {
         if (!back.isEmpty()) {
             events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().kind("LINEN").title("Clean linen back · " + b.getNumber())
                     .body(back.entrySet().stream().map(e -> plain(e.getValue()) + " × " + nameOf(next, e.getKey())).collect(Collectors.joining(", ")))
-                    .link("/linen").roles(List.of("HOUSEKEEPING")).userIds(b.getSentBy() == null ? null : List.of(b.getSentBy())).build());
+                    .link("/linen").roles(List.of("HOUSEKEEPING")).build());
         }
         return batchView(b);
     }
