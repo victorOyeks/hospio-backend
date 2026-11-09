@@ -35,8 +35,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The POS model (handoff card 10). Ask card, transfer or cash → card/transfer goes to the role's POS
- * and waits for the provider's answer; cash is approved on the spot. Verify settles a pending one.
+ * The POS model (handoff card 10). Ask card, transfer or cash → a card goes to the role's POS and waits
+ * for the provider's answer; cash and a transfer the desk has confirmed are approved on the spot. Verify settles a pending one.
  */
 @Slf4j
 @Service
@@ -106,9 +106,11 @@ public class PaymentService {
                 .guestPhone(dto.guestPhone()).guestEmail(dto.guestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
                 .role(role).method(dto.method()).amount(Money.of(dto.amount())).description(dto.description())
                 .receiptPreference(dto.receiptPreference() == null ? settings.receipts() : dto.receiptPreference()).build();
-        if (dto.method() == PaymentMethod.CASH) {
+        if (dto.method() == PaymentMethod.CASH || dto.method() == PaymentMethod.TRANSFER) {
+            // Cash is counted at the desk; a transfer is recorded once the desk has seen it land in the hotel's
+            // account. Both are approved on the spot; finance matches transfers to the bank line afterwards.
             payments.save(p);
-            approve(p, null, "cash");
+            approve(p, null, dto.method() == PaymentMethod.CASH ? "cash" : "bank transfer");
             return PaymentResponse.of(p);
         }
         PosTerminal terminal = terminals.forRole(hotelId, role)

@@ -85,6 +85,10 @@ public class SettlementService {
             if (p.getStatus() != PaymentStatus.APPROVED || !SETTLING_METHODS.contains(p.getMethod()) || p.getBusinessId() == null) {
                 continue;
             }
+            // A transfer the desk confirmed went straight to the hotel's bank: no provider, nothing to settle.
+            if (p.getMethod() == PaymentMethod.TRANSFER && !StringUtils.hasText(p.getProvider())) {
+                continue;
+            }
             groups.computeIfAbsent(p.getBusinessId() + "|" + providerOf(p), k -> new ArrayList<>()).add(p);
         }
         List<Settlement> out = new ArrayList<>();

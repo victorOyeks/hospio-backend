@@ -92,8 +92,18 @@ class PaymentServiceTest {
         PosTerminal t = PosTerminal.builder().name("Bar POS").provider("logging").terminalRef("T1").status(PosTerminal.Status.OFFLINE).build();
         when(terminals.forRole("h1", Role.BAR)).thenReturn(Optional.of(t));
 
-        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.TRANSFER, new BigDecimal("5000"), null, null, null, null, null, null, null)))
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CARD, new BigDecimal("5000"), null, null, null, null, null, null, null)))
                 .isInstanceOf(BadRequestException.class).hasMessageContaining("offline");
+    }
+
+    @Test
+    void aConfirmedTransferIsApprovedWithoutAPos() {
+        when(terminals.forRole("h1", Role.BAR)).thenReturn(Optional.empty());
+
+        PaymentResponse p = service.request(new PaymentRequestDto(PaymentMethod.TRANSFER, new BigDecimal("5000"), null, "bk1", "Ada", null, null, "Deposit", null));
+
+        assertThat(p.status()).isEqualTo(PaymentStatus.APPROVED);
+        verify(events).publish(eq(KafkaTopics.PAYMENT_APPROVED), any());
     }
 
     @Test

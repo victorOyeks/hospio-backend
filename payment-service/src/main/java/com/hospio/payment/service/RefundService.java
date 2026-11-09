@@ -61,6 +61,14 @@ public class RefundService {
         if (Money.of(dto.amount()).compareTo(p.getAmount()) > 0) {
             throw new BadRequestException("A refund can't be more than the payment of " + p.getAmount());
         }
+        // Refunds already asked for or given on this payment count too: together they can't pass what was paid.
+        java.math.BigDecimal taken = refunds.findByPaymentId(p.getId()).stream().filter(r -> r.getStatus() != Refund.Status.DECLINED)
+                .map(Refund::getAmount).reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+        java.math.BigDecimal left = p.getAmount().subtract(taken);
+        if (Money.of(dto.amount()).compareTo(left) > 0) {
+            throw new BadRequestException(left.signum() <= 0 ? "This payment has already been refunded in full"
+                    : "Only " + Money.of(left) + " of this payment is left to refund");
+        }
         return refunds.save(Refund.builder().paymentId(p.getId()).folioId(p.getFolioId()).amount(Money.of(dto.amount()))
                 .reason(dto.reason()).requestedBy(CurrentUser.require().getUserId()).build());
     }

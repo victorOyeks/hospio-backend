@@ -396,6 +396,9 @@ public class BookingService {
         if (request.guest() == null || request.guest().fullName() == null || request.guest().fullName().isBlank()) {
             throw new BadRequestException("Choose a guest or enter the guest's name");
         }
+        if (request.guest().phone() == null || request.guest().phone().isBlank()) {
+            throw new BadRequestException("Enter the guest's phone number");
+        }
         return request.guest();
     }
 
