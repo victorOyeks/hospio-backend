@@ -51,8 +51,14 @@ public class FolioService {
 
     @Transactional(readOnly = true)
     public List<FolioResponse> open() {
-        return folios.findByHotelIdAndStatusOrderByRoomNumber(TenantContext.requireHotel(), Folio.Status.OPEN).stream()
-                .map(f -> FolioResponse.of(f, List.of())).toList();
+        // With their lines: the desk's Folios screen shows each folio's charges and payments from this list.
+        List<Folio> open = folios.findByHotelIdAndStatusOrderByRoomNumber(TenantContext.requireHotel(), Folio.Status.OPEN);
+        if (open.isEmpty()) {
+            return List.of();
+        }
+        java.util.Map<String, List<FolioLine>> byFolio = lines.findByFolioIdInOrderByPostedAt(open.stream().map(Folio::getId).toList())
+                .stream().collect(java.util.stream.Collectors.groupingBy(FolioLine::getFolioId));
+        return open.stream().map(f -> FolioResponse.of(f, byFolio.getOrDefault(f.getId(), List.of()))).toList();
     }
 
     @Transactional(readOnly = true)
