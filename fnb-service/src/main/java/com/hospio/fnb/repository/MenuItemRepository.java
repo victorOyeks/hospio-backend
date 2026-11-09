@@ -9,4 +9,8 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, String> {
     List<MenuItem> findByOutletIdAndActiveTrueOrderByCategoryAscSortOrderAscNameAsc(String outletId);
 
     List<MenuItem> findByHotelIdAndActiveTrueOrderByCategoryAscNameAsc(String hotelId);
+
+    List<MenuItem> findByOutletIdOrderByCategoryAscSortOrderAscNameAsc(String outletId);
+
+    boolean existsByOutletIdAndName(String outletId, String name);
 }

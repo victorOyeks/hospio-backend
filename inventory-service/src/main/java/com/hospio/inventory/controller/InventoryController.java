@@ -15,6 +15,7 @@ import com.hospio.inventory.service.InventoryService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,6 +28,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequiredArgsConstructor
 public class InventoryController {
+
+    /** The store's own team (the service checks the store's kind), the inventory team, or a manager. */
+    private static final String USE = "@access.manager() or @access.atLeast('INVENTORY','EDIT') or @access.atLeast('KITCHEN','EDIT') or @access.atLeast('BAR','EDIT')"
+            + " or @access.atLeast('HOUSEKEEPING','EDIT') or @access.atLeast('LAUNDRY','EDIT') or @access.atLeast('MAINTENANCE','EDIT')";
+    /** Issuing and declining what a team asked the store for is the inventory team's job, or a manager's. */
+    private static final String STORE = "@access.manager() or @access.atLeast('INVENTORY','EDIT')";
 
     private final InventoryService service;
 
@@ -76,6 +83,7 @@ public class InventoryController {
     }
 
     @PostMapping("/levels/use")
+    @PreAuthorize(USE)
     public ApiResponse<StockLevel> useOrWaste(@Valid @RequestBody InventoryRequests.UseOrWasteRequest request) {
         return ApiResponse.ok("Recorded", service.useOrWaste(request));
     }
@@ -91,11 +99,13 @@ public class InventoryController {
     }
 
     @PostMapping("/requests/{id}/issue")
+    @PreAuthorize(STORE)
     public ApiResponse<StockRequest> issue(@PathVariable String id, @Valid @RequestBody InventoryRequests.IssueRequest request) {
         return ApiResponse.ok("Issued", service.issue(id, request));
     }
 
     @PostMapping("/requests/{id}/decline")
+    @PreAuthorize(STORE)
     public ApiResponse<StockRequest> decline(@PathVariable String id) {
         return ApiResponse.ok("Declined", service.decline(id));
     }

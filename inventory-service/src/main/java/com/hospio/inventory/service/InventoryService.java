@@ -10,6 +10,7 @@ import com.hospio.common.kafka.EventPublisher;
 import com.hospio.common.kafka.KafkaTopics;
 import com.hospio.common.kafka.events.ApprovalRequestedEvent;
 import com.hospio.common.kafka.events.DeliveryReceivedEvent;
+import com.hospio.common.kafka.events.OrderSettledEvent;
 import com.hospio.common.kafka.events.StockIssuedEvent;
 import com.hospio.common.kafka.events.StockLowEvent;
 import com.hospio.common.kafka.events.StockRequestedEvent;
@@ -39,15 +40,19 @@ import com.hospio.inventory.repository.SupplierRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Inventory 1.x-7.x: stores and stock, requests from teams, orders, deliveries, counts, suppliers. */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class InventoryService {
 
@@ -135,8 +140,74 @@ public class InventoryService {
 
     @Transactional
     public StockLevel useOrWaste(InventoryRequests.UseOrWasteRequest request) {
+        Store store = stores.findById(request.storeId()).orElseThrow(() -> new ResourceNotFoundException("Store not found"));
+        if (!canUse(CurrentUser.require(), store)) {
+            throw new ForbiddenException("Using or wasting stock in the " + store.getName() + " is for its team, the store or a manager");
+        }
         StockLevel level = level(request.itemId(), request.storeId());
         return move(level, request.waste() ? StockMovement.Kind.WASTE : StockMovement.Kind.USED, request.quantity().negate(), null, request.note());
+    }
+
+    /** Whoever works a store may use or waste its stock: the store's own team (Kitchen, Bar, ...), the inventory team or a manager. */
+    static boolean canUse(HospioUserDetails user, Store store) {
+        if (user.isReadOnly()) {
+            return false;
+        }
+        if (user.isPlatform() || user.isManagerOrOwner() || user.has(com.hospio.common.enums.Role.INVENTORY, com.hospio.common.enums.AccessLevel.EDIT)) {
+            return true;
+        }
+        try {
+            return user.has(com.hospio.common.enums.Role.valueOf(store.getKind().toUpperCase()), com.hospio.common.enums.AccessLevel.EDIT);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    // ---- selling draws stock ---------------------------------------------------------------------------
+
+    /**
+     * A kitchen or bar order was settled: every sold line draws its recipe (per portion, times quantity) from the outlet's store as USED
+     * movements referenced {@code ORDER-{orderId}}. Done once per order however often the event arrives. Stock never goes below zero
+     * here: what the store doesn't hold is left for a count to put right. Items without a recipe draw nothing.
+     */
+    @Transactional
+    public void onOrderSettled(OrderSettledEvent e) {
+        if (e.getStoreId() == null || e.getLines() == null || e.getOrderId() == null) {
+            return;
+        }
+        String reference = "ORDER-" + e.getOrderId();
+        if (movements.existsByReferenceAndKind(reference, StockMovement.Kind.USED)) {
+            return;
+        }
+        if (stores.findById(e.getStoreId()).isEmpty()) {
+            log.warn("Order {} names store {} which this hotel doesn't have; nothing drawn", e.getOrderNumber(), e.getStoreId());
+            return;
+        }
+        Map<String, BigDecimal> needed = new LinkedHashMap<>();
+        for (OrderSettledEvent.Line line : e.getLines()) {
+            if (line.getRecipe() == null) {
+                continue;
+            }
+            for (OrderSettledEvent.Ingredient i : line.getRecipe()) {
+                if (i.getStockItemId() != null && i.getQuantity() != null) {
+                    needed.merge(i.getStockItemId(), i.getQuantity().multiply(BigDecimal.valueOf(line.getQuantity())), BigDecimal::add);
+                }
+            }
+        }
+        for (Map.Entry<String, BigDecimal> n : needed.entrySet()) {
+            if (items.findById(n.getKey()).isEmpty()) {
+                log.warn("Order {} uses stock item {} which this hotel doesn't have", e.getOrderNumber(), n.getKey());
+                continue;
+            }
+            StockLevel level = level(n.getKey(), e.getStoreId());
+            BigDecimal take = Money.of(n.getValue()).min(level.getQuantity());
+            if (take.signum() <= 0) {
+                log.warn("Order {} needed {} of stock item {} but the store has none", e.getOrderNumber(), n.getValue(), n.getKey());
+                continue;
+            }
+            move(level, StockMovement.Kind.USED, take.negate(), reference, "Sold on order " + e.getOrderNumber()
+                    + (take.compareTo(Money.of(n.getValue())) < 0 ? " (store was short by " + Money.of(n.getValue()).subtract(take) + ")" : ""));
+        }
     }
 
     // ---- requests from teams ------------------------------------------------------------------------

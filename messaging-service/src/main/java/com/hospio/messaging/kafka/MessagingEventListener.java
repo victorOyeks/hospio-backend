@@ -13,6 +13,7 @@ import com.hospio.common.kafka.events.LeaveDecidedEvent;
 import com.hospio.common.kafka.events.LeaveRequestedEvent;
 import com.hospio.common.kafka.events.LinenRequestedEvent;
 import com.hospio.common.kafka.events.OrderCreatedEvent;
+import com.hospio.common.kafka.events.OrderReadyEvent;
 import com.hospio.common.kafka.events.PartsRequestedEvent;
 import com.hospio.common.kafka.events.PaymentApprovedEvent;
 import com.hospio.common.kafka.events.PosOfflineEvent;
@@ -24,6 +25,7 @@ import com.hospio.common.kafka.events.ShiftRequestDecidedEvent;
 import com.hospio.common.kafka.events.StockIssuedEvent;
 import com.hospio.common.kafka.events.StockLowEvent;
 import com.hospio.common.kafka.events.StockRequestedEvent;
+import com.hospio.common.kafka.events.TabLimitReachedEvent;
 import com.hospio.common.kafka.events.TillClosedEvent;
 import com.hospio.common.tenancy.TenantBinder;
 import com.hospio.common.tenancy.TenantContext;
@@ -151,13 +153,42 @@ public class MessagingEventListener {
         });
     }
 
+    /** Tells the outlet's team about an order opened by someone outside it (front office room service), with a link they can open. */
     @Transactional
     @KafkaListener(topics = {KafkaTopics.ORDER_CREATED})
     public void onOrderCreated(OrderCreatedEvent e) {
         bound(e, () -> {
-            if (e.getRoomId() != null) {
-                notifications.notifyRoles(e.getEventId(), "ROOM_SERVICE", "New room-service order", e.getOutletName() + " · " + e.getTotal(), "/orders/" + e.getOrderId(), "BAR".equals(e.getOutletKind()) ? "BAR" : "KITCHEN");
+            boolean outside = e.getOutsideOutlet() != null ? e.getOutsideOutlet() : e.getRoomId() != null;
+            if (outside) {
+                notifications.notifyRoles(e.getEventId(), "ROOM_SERVICE", "New " + ("BAR".equals(e.getOutletKind()) ? "bar" : "kitchen") + " order" + (e.getOrderNumber() == null ? "" : " " + e.getOrderNumber()),
+                        e.getOutletName() + " · " + naira(e.getTotal()) + (e.getActorName() == null ? "" : " · from " + e.getActorName()), "/dashboard?order=" + e.getOrderId(),
+                        "BAR".equals(e.getOutletKind()) ? "BAR" : "KITCHEN");
             }
+            return null;
+        });
+    }
+
+    /** Tells whoever opened the order that it is ready. */
+    @Transactional
+    @KafkaListener(topics = KafkaTopics.ORDER_READY)
+    public void onOrderReady(OrderReadyEvent e) {
+        bound(e, () -> {
+            if (e.getOpenedBy() != null) {
+                String where = e.getRoomNumber() != null ? "Room " + e.getRoomNumber() : e.getTableNo() != null ? "Table " + e.getTableNo() : nz(e.getOutletName());
+                notifications.notify(e.getEventId(), e.getOpenedBy(), null, "ORDER_READY", "Order " + nz(e.getOrderNumber()) + " is ready", where, "/dashboard?order=" + e.getOrderId());
+            }
+            return null;
+        });
+    }
+
+    /** A drink was refused because the tab reached the hotel's limit; the manager can settle it or raise the limit. */
+    @Transactional
+    @KafkaListener(topics = KafkaTopics.TAB_LIMIT_REACHED)
+    public void onTabLimitReached(TabLimitReachedEvent e) {
+        bound(e, () -> {
+            notifications.notifyRoles(e.getEventId(), "TAB_LIMIT", "Tab limit reached · " + nz(e.getOutletName()),
+                    (e.getTableNo() == null ? "" : "Table " + e.getTableNo() + " · ") + "limit " + naira(e.getLimit()) + " · " + nz(e.getActorName()) + " was refused",
+                    e.getOrderId() == null ? "/dashboard" : "/dashboard?order=" + e.getOrderId(), "MANAGER");
             return null;
         });
     }

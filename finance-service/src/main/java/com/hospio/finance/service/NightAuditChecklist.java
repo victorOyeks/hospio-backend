@@ -29,6 +29,35 @@ public final class NightAuditChecklist {
         return items;
     }
 
+    /** Open tabs and unsettled orders at one outlet. */
+    public record OutletOrders(String name, int openTabs, int unsettled) {
+    }
+
+    /**
+     * The four checks plus {@code orders}: no open tab or unsettled order left at any outlet. {@code ordersKnown} is false when the outlets
+     * couldn't be asked, which fails the check rather than guessing.
+     */
+    public static List<Item> build(int arrivalsPending, int departuresPending, List<String> openTillRoles, int balancesOwing, BigDecimal balanceTotal,
+                                   boolean ordersKnown, List<OutletOrders> outlets) {
+        List<Item> items = new ArrayList<>(build(arrivalsPending, departuresPending, openTillRoles, balancesOwing, balanceTotal));
+        List<String> where = new ArrayList<>();
+        for (OutletOrders o : outlets) {
+            if (o.openTabs() > 0) {
+                where.add(plural(o.openTabs(), "open tab") + " at the " + o.name());
+            }
+            if (o.unsettled() > 0) {
+                where.add(plural(o.unsettled(), "unsettled order") + " at the " + o.name());
+            }
+        }
+        if (!ordersKnown) {
+            items.add(new Item("orders", "No open tabs or unsettled orders at the outlets", false, "The restaurant and bar can't be checked right now"));
+        } else {
+            items.add(new Item("orders", "No open tabs or unsettled orders at the outlets", where.isEmpty(),
+                    where.isEmpty() ? "Every restaurant and bar order is settled" : String.join(", ", where) + " \u00b7 settle or move them"));
+        }
+        return items;
+    }
+
     public static boolean done(List<Item> items, String key) {
         return items.stream().filter(i -> i.key().equals(key)).allMatch(Item::done);
     }

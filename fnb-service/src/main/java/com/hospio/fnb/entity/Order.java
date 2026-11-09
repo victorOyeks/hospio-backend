@@ -105,6 +105,27 @@ public class Order extends TenantEntity {
     @Column(length = 500)
     private String notes;
 
+    @Column(name = "closed_by", length = 36)
+    private String closedBy;
+
+    @Column(name = "closed_by_name", length = 150)
+    private String closedByName;
+
+    /** PAYMENT, ROOM, COMPLIMENTARY or CANCELLED: how the order ended. */
+    @Column(name = "settled_by", length = 20)
+    private String settledBy;
+
+    @Column(name = "settled_at")
+    private Instant settledAt;
+
+    @Column(name = "cancel_reason", length = 300)
+    private String cancelReason;
+
+    /** Approved payments received so far; the order is paid when this reaches the total. */
+    @Column(name = "paid_amount", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal paidAmount = BigDecimal.ZERO;
+
     public boolean isSettled() {
         return paid || chargedToRoom;
     }

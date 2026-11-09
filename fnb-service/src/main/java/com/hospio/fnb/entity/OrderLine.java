@@ -55,7 +55,23 @@ public class OrderLine extends TenantEntity {
     @lombok.Builder.Default
     private Status status = Status.NEW;
 
+    /** What happy hour took off this line (an amount). */
+    @Column(nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal discount = BigDecimal.ZERO;
+
+    @Column(name = "cancel_reason", length = 300)
+    private String cancelReason;
+
+    @Column(name = "cancelled_by", length = 36)
+    private String cancelledBy;
+
+    /** Price times quantity, before any discount. */
     public BigDecimal lineTotal() {
         return unitPrice.multiply(BigDecimal.valueOf(quantity));
+    }
+
+    public boolean isLive() {
+        return status != Status.CANCELLED;
     }
 }

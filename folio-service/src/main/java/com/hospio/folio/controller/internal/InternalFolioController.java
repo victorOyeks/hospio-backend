@@ -39,6 +39,12 @@ public class InternalFolioController {
         return ApiResponse.ok(folios.openBalances(hotelId));
     }
 
+    /** fnb's charge to room: 200 when the booking has an open folio, 404 when it hasn't. */
+    @GetMapping("/folios/open")
+    public ApiResponse<FolioService.OpenFolio> open(@RequestParam String bookingId) {
+        return ApiResponse.ok(folios.openForBooking(bookingId));
+    }
+
     @GetMapping("/folios/by-booking/{bookingId}")
     public ApiResponse<FolioResponse> byBooking(@PathVariable String bookingId) {
         return ApiResponse.ok(folios.byBooking(bookingId));

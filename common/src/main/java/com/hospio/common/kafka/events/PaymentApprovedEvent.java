@@ -23,6 +23,8 @@ public class PaymentApprovedEvent extends HospioEvent {
     private String role;
     private String providerRef;
     private String receiptPreference;
+    /** The kitchen or bar order this payment settles, when it is for one. */
+    private String orderId;
 
     @Override
     public String summary() {

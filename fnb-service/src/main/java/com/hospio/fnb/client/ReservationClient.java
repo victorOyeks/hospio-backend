@@ -25,6 +25,24 @@ public class ReservationClient {
     public record ActiveStay(String bookingId, String guestName, String roomNumber, String paymentPlan, String organizationId) {
     }
 
+    /** The current stay in the room, or empty when nobody is checked in (or the lookup fails to find one). */
+    public java.util.Optional<ActiveStay> findActiveStay(String roomId) {
+        try {
+            JsonNode body = restClient.get().uri("/internal/rooms/{id}/active-booking", roomId).retrieve().body(JsonNode.class);
+            JsonNode d = body == null ? null : body.path("data");
+            if (d == null || d.isMissingNode() || d.isNull() || d.path("id").asText("").isEmpty()) {
+                return java.util.Optional.empty();
+            }
+            return java.util.Optional.of(new ActiveStay(d.path("id").asText(), d.path("guestName").asText(), d.path("roomNumber").asText(),
+                    d.path("paymentPlan").asText(null), d.path("organizationId").asText(null)));
+        } catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 404) {
+                return java.util.Optional.empty();
+            }
+            throw new BadRequestException("Can't check that room right now");
+        }
+    }
+
     public ActiveStay activeStay(String roomId) {
         try {
             JsonNode body = restClient.get().uri("/internal/rooms/{id}/active-booking", roomId).retrieve().body(JsonNode.class);

@@ -40,4 +40,8 @@ public class Outlet extends TenantEntity {
     @Column(nullable = false, length = 20)
     @lombok.Builder.Default
     private Status status = Status.OPEN;
+
+    /** The inventory store this outlet draws from when an order is settled. */
+    @Column(name = "store_id", length = 36)
+    private String storeId;
 }

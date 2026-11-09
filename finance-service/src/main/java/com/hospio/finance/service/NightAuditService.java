@@ -37,6 +37,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -57,7 +58,8 @@ public class NightAuditService {
     private final EventPublisher events;
     private final ObjectMapper mapper;
 
-    private record Computed(PeerServices.Day day, List<Till> openTills, List<PeerServices.Owing> owing, List<NightAuditChecklist.Item> checklist, int rooms) {
+    private record Computed(PeerServices.Day day, List<Till> openTills, List<PeerServices.Owing> owing, List<NightAuditChecklist.Item> checklist, int rooms,
+                            Optional<PeerServices.OpenOrders> orders) {
     }
 
     /** The audit if one exists, with the live checklist while the day is open. Never creates a row. */
@@ -116,6 +118,19 @@ public class NightAuditService {
             }
         }
 
+        // Open tabs and unsettled orders at the outlets stop the close unless a manager carries them over.
+        NightAuditChecklist.Item ordersItem = c.checklist().stream().filter(i -> "orders".equals(i.key())).findFirst().orElse(null);
+        boolean carried = false;
+        if (ordersItem != null && !ordersItem.done()) {
+            if (request == null || !Boolean.TRUE.equals(request.carryOpenTabs())) {
+                throw new BadRequestException(ordersItem.detail() + ". Settle them, or a manager can close the day carrying them over");
+            }
+            if (!user.isManagerOrOwner() && !user.isPlatform()) {
+                throw new ForbiddenException("Only a manager can close the day with open tabs and unsettled orders");
+            }
+            carried = true;
+        }
+
         MoneyToday today = money.today(d);
         BigDecimal expensesTotal = BigDecimal.ZERO;
         Map<String, BigDecimal> byCategory = new LinkedHashMap<>();
@@ -167,6 +182,22 @@ public class NightAuditService {
             row.put("variance", t.getVariance());
         }
         report.put("balancesOwing", c.owing().size());
+        if (today.outletSales() != null) {
+            report.set("outletSales", today.outletSales());
+        }
+        report.put("carriedOpenTabs", carried);
+        if (carried) {
+            ArrayNode carriedRows = report.putArray("openOrdersCarried");
+            c.orders().ifPresent(o -> o.outlets().forEach(x -> {
+                ObjectNode row = carriedRows.addObject();
+                row.put("outlet", x.name());
+                row.put("openTabs", x.openTabs());
+                row.put("unsettled", x.unsettled());
+            }));
+            if (c.orders().isEmpty()) {
+                report.put("openOrdersNote", "The outlets couldn't be checked when the day was closed");
+            }
+        }
         report.put("closedBy", user.getFullName());
 
         a.setRevenue(today.revenue());
@@ -207,14 +238,18 @@ public class NightAuditService {
         BigDecimal owed = owing.stream().map(PeerServices.Owing::balance).reduce(BigDecimal.ZERO, BigDecimal::add);
         List<String> roles = open.stream().map(t -> t.getRole().toLowerCase().replace('_', ' ')).toList();
         int rooms = Math.max(peers.roomCount(hotelId), 0);
-        return new Computed(day, open, owing, NightAuditChecklist.build(day.arrivalsPending(), day.departuresPending(), roles, owing.size(), Money.of(owed)), rooms);
+        Optional<PeerServices.OpenOrders> openOrders = peers.openOrders(hotelId, d);
+        List<NightAuditChecklist.OutletOrders> outletOrders = openOrders.map(o -> o.outlets().stream()
+                .map(x -> new NightAuditChecklist.OutletOrders(x.name(), x.openTabs(), x.unsettled())).toList()).orElse(List.of());
+        return new Computed(day, open, owing, NightAuditChecklist.build(day.arrivalsPending(), day.departuresPending(), roles, owing.size(), Money.of(owed),
+                openOrders.isPresent(), outletOrders), rooms, openOrders);
     }
 
     private NightAuditView closedView(NightAudit a) {
         JsonNode r = read(a.getReport());
         JsonNode guests = r.path("guests");
         JsonNode occ = r.path("occupancy");
-        List<NightAuditChecklist.Item> done = new ArrayList<>(NightAuditChecklist.build(0, 0, List.of(), 0, BigDecimal.ZERO));
+        List<NightAuditChecklist.Item> done = new ArrayList<>(NightAuditChecklist.build(0, 0, List.of(), 0, BigDecimal.ZERO, true, List.of()));
         return new NightAuditView(a.getId(), a.getBusinessDate(), a.getStatus().name(), a.getRevenue(), a.getCashCounted(), a.getVariance(), a.getClosedBy(), a.getClosedAt(),
                 a.getNote(), a.getReport(), a.getChecklist(), done, guests.path("arrivals").asInt(), guests.path("departures").asInt(), guests.path("inHouse").asInt(),
                 guests.path("noShows").asInt(), a.getRoomsOccupied() == null ? occ.path("roomsOccupied").asInt() : a.getRoomsOccupied(), occ.path("rooms").asInt(), null);

@@ -2,6 +2,7 @@ package com.hospio.inventory.kafka;
 
 import com.hospio.common.kafka.KafkaTopics;
 import com.hospio.common.kafka.events.ApprovalDecidedEvent;
+import com.hospio.common.kafka.events.OrderSettledEvent;
 import com.hospio.common.tenancy.TenantBinder;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.inventory.service.InventoryService;
@@ -10,7 +11,7 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/** The owner decided on a purchase order over the manager's limit. */
+/** The owner decided on a purchase order over the manager's limit; a kitchen or bar order was settled. */
 @Component
 @RequiredArgsConstructor
 public class InventoryEventListener {
@@ -27,6 +28,17 @@ public class InventoryEventListener {
         tenant.bind(e);
         try {
             service.onOrderDecided(e.getApprovalId(), e.getDecision());
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Transactional
+    @KafkaListener(topics = KafkaTopics.ORDER_SETTLED)
+    public void onOrderSettled(OrderSettledEvent e) {
+        tenant.bind(e);
+        try {
+            service.onOrderSettled(e);
         } finally {
             TenantContext.clear();
         }

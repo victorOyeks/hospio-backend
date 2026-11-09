@@ -29,10 +29,11 @@ public class PeerServices {
     private final RestClient property;
     private final RestClient folio;
     private final RestClient platform;
+    private final RestClient fnb;
 
     public PeerServices(@Value("${services.identity.url}") String identityUrl, @Value("${services.tenant.url}") String tenantUrl,
                         @Value("${services.reservation.url}") String reservationUrl, @Value("${services.property.url}") String propertyUrl,
-                        @Value("${services.folio.url}") String folioUrl, @Value("${services.platform.url}") String platformUrl,
+                        @Value("${services.folio.url}") String folioUrl, @Value("${services.platform.url}") String platformUrl, @Value("${services.fnb.url}") String fnbUrl,
                         JwtUtil jwtUtil, @Value("${services.internal.api-key}") String key) {
         this.identity = ServiceClients.system(identityUrl, jwtUtil, key);
         this.tenant = ServiceClients.system(tenantUrl, jwtUtil, key);
@@ -40,6 +41,7 @@ public class PeerServices {
         this.property = ServiceClients.system(propertyUrl, jwtUtil, key);
         this.folio = ServiceClients.system(folioUrl, jwtUtil, key);
         this.platform = ServiceClients.system(platformUrl, jwtUtil, key);
+        this.fnb = ServiceClients.system(fnbUrl, jwtUtil, key);
     }
 
     public record Contact(String id, String fullName, String email, String phone) {
@@ -56,6 +58,13 @@ public class PeerServices {
 
     public record Day(int arrivals, int arrivalsPending, int departures, int departuresPending, int inHouse, int noShows, int roomsOccupied,
                       List<Stay> pendingArrivals, List<Stay> pendingDepartures, List<Stay> departingToday) {
+    }
+
+    /** Open tabs and unsettled orders at one outlet. */
+    public record OutletOpen(String outletId, String name, int openTabs, int unsettled) {
+    }
+
+    public record OpenOrders(int openTabs, int unsettled, List<OutletOpen> outlets) {
     }
 
     public record Owing(String bookingId, String guestName, String roomNumber, BigDecimal balance) {
@@ -177,6 +186,34 @@ public class PeerServices {
             return out;
         } catch (Exception e) {
             throw new ExternalServiceException("Guest balances can't be read right now", e);
+        }
+    }
+
+    // ---- fnb ------------------------------------------------------------------------------------------
+
+    /** What the outlets sold on a day (fnb's day summary as it came), or empty when fnb-service can't be reached. */
+    public Optional<JsonNode> outletSales(String hotelId, LocalDate date) {
+        try {
+            return Optional.ofNullable(data(fnb.get().uri("/internal/sales?hotelId={h}&date={d}", hotelId, date.toString()).retrieve().body(JsonNode.class)));
+        } catch (Exception e) {
+            log.warn("fnb-service sales of {} on {} failed: {}", hotelId, date, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /** Open tabs and unsettled orders at the outlets, or empty when fnb-service can't be reached: the night audit must not close on a guess. */
+    public Optional<OpenOrders> openOrders(String hotelId, LocalDate date) {
+        try {
+            JsonNode d = data(fnb.get().uri("/internal/orders/open?hotelId={h}&date={d}", hotelId, date.toString()).retrieve().body(JsonNode.class));
+            if (d == null) {
+                return Optional.empty();
+            }
+            List<OutletOpen> out = new ArrayList<>();
+            d.path("outlets").forEach(n -> out.add(new OutletOpen(n.path("outletId").asText(null), n.path("name").asText(null), n.path("openTabs").asInt(), n.path("unsettled").asInt())));
+            return Optional.of(new OpenOrders(d.path("openTabs").asInt(), d.path("unsettled").asInt(), out));
+        } catch (Exception e) {
+            log.warn("fnb-service open orders of {} failed: {}", hotelId, e.getMessage());
+            return Optional.empty();
         }
     }
 

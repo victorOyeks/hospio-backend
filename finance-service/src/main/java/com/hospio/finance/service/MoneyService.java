@@ -134,7 +134,7 @@ public class MoneyService {
         }
         return new MoneyToday(Money.of(total), byMethod, byRole, Money.of(spent), Money.of(cash), open.size(), entries.size(), occupancy,
                 day.map(PeerServices.Day::arrivals).orElse(null), day.map(PeerServices.Day::departures).orElse(null), day.map(PeerServices.Day::inHouse).orElse(null),
-                Money.of(unattached), unattachedCount, pending);
+                Money.of(unattached), unattachedCount, pending, peers.outletSales(hotelId, d).orElse(null));
     }
 
     static Double pct(int part, int whole) {

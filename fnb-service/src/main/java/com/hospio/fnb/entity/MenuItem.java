@@ -54,6 +54,18 @@ public class MenuItem extends TenantEntity {
     @lombok.Builder.Default
     private boolean active = true;
 
+    /** JSON {@code [{stockItemId, quantity}]}: what one portion draws from the outlet's store. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Column(name = "recipe", columnDefinition = "text")
+    private String recipeJson;
+
+    /** The recipe as a list, which is how it is served ({@code recipe: [{stockItemId, quantity}]}). */
+    @com.fasterxml.jackson.annotation.JsonProperty("recipe")
+    @jakarta.persistence.Transient
+    public java.util.List<com.hospio.fnb.rules.Recipes.Line> recipeLines() {
+        return com.hospio.fnb.rules.Recipes.read(recipeJson);
+    }
+
     @Column(name = "sort_order", nullable = false)
     @lombok.Builder.Default
     private int sortOrder = 0;

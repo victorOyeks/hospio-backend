@@ -58,6 +58,9 @@ public final class KafkaTopics {
     // Food & beverage
     public static final String ORDER_CREATED = PREFIX + "order-created";
     public static final String ITEM_SOLD_OUT = PREFIX + "item-sold-out";
+    public static final String ORDER_SETTLED = PREFIX + "order-settled";
+    public static final String ORDER_READY = PREFIX + "order-ready";
+    public static final String TAB_LIMIT_REACHED = PREFIX + "tab-limit-reached";
 
     // Housekeeping & Laundry
     public static final String ROOM_CLEANED = PREFIX + "room-cleaned";
@@ -103,7 +106,7 @@ public final class KafkaTopics {
             BOOKING_CREATED, BOOKING_CHANGED, BOOKING_CANCELLED, GUEST_CHECKED_IN, GUEST_CHECKED_OUT,
             CHARGE_POSTED, FOLIO_OPENED, FOLIO_CLOSED, DISCOUNT_APPLIED, INVOICE_ISSUED,
             PAYMENT_REQUESTED, PAYMENT_APPROVED, PAYMENT_DECLINED, REFUND_APPROVED, POS_OFFLINE,
-            ORDER_CREATED, ITEM_SOLD_OUT,
+            ORDER_CREATED, ITEM_SOLD_OUT, ORDER_SETTLED, ORDER_READY, TAB_LIMIT_REACHED,
             ROOM_CLEANED, PROBLEM_REPORTED, LINEN_REQUESTED,
             REPAIR_OPENED, REPAIR_DONE, PARTS_REQUESTED,
             STOCK_LOW, STOCK_REQUESTED, STOCK_ISSUED, DELIVERY_RECEIVED,

@@ -82,6 +82,17 @@ public class FolioService {
                 .map(f -> new OpenBalance(f.getId(), f.getBookingId(), f.getGuestName(), f.getRoomNumber(), f.getBalance())).toList();
     }
 
+    /** The booking's open folio, for outlets checking a room can take a charge. 404 when the bill is closed or was never opened. */
+    @Transactional(readOnly = true)
+    public OpenFolio openForBooking(String bookingId) {
+        Folio f = folios.findFirstByBookingIdAndStatus(bookingId, Folio.Status.OPEN)
+                .orElseThrow(() -> new ResourceNotFoundException("No open folio for that booking"));
+        return new OpenFolio(f.getId(), f.getBookingId(), f.getRoomNumber(), f.getBalance());
+    }
+
+    public record OpenFolio(String folioId, String bookingId, String roomNumber, BigDecimal balance) {
+    }
+
     public record OpenBalance(String folioId, String bookingId, String guestName, String roomNumber, BigDecimal balance) {
     }
 

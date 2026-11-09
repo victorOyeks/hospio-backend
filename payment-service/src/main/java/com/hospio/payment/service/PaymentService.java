@@ -45,6 +45,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class PaymentService {
 
     private static final Set<Role> PAYING_ROLES = Set.of(Role.FRONT_OFFICE, Role.BAR, Role.KITCHEN, Role.LAUNDRY, Role.MANAGER, Role.OWNER);
+    /** Which desk a payment is taken for when the caller holds several roles and doesn't say: the same answer every time. */
+    static final List<Role> ROLE_PREFERENCE = List.of(Role.FRONT_OFFICE, Role.BAR, Role.KITCHEN, Role.LAUNDRY, Role.MANAGER, Role.OWNER);
 
     private final PaymentRequestRepository payments;
     private final ReceiptRepository receipts;
@@ -83,8 +85,7 @@ public class PaymentService {
     public PaymentResponse request(PaymentRequestDto dto) {
         HospioUserDetails user = CurrentUser.require();
         String hotelId = TenantContext.requireHotel();
-        Role role = user.roleSet().stream().filter(PAYING_ROLES::contains).findFirst()
-                .orElseThrow(() -> new BadRequestException("Your role doesn't take payments"));
+        Role role = payingRole(user, dto.role());
         HotelConfigClient.PaymentSettings settings = hotelConfig.paymentSettings(hotelId);
         switch (dto.method()) {
             case CASH -> {
@@ -114,7 +115,7 @@ public class PaymentService {
                 throw new BadRequestException("This booking is cancelled. It can't take a payment");
             }
         }
-        PaymentRequest p = PaymentRequest.builder().folioId(dto.folioId()).bookingId(dto.bookingId()).guestName(dto.guestName())
+        PaymentRequest p = PaymentRequest.builder().folioId(dto.folioId()).bookingId(dto.bookingId()).orderId(blankToNull(dto.orderId())).guestName(dto.guestName())
                 .guestPhone(dto.guestPhone()).guestEmail(dto.guestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
                 .role(role).method(dto.method()).amount(Money.of(dto.amount())).description(dto.description())
                 .receiptPreference(dto.receiptPreference() == null ? settings.receipts() : dto.receiptPreference()).build();
@@ -126,6 +127,22 @@ public class PaymentService {
             return PaymentResponse.of(p);
         }
         return sendToPos(p, role, hotelId);
+    }
+
+    /** The requested desk when the caller holds it, else the first of {@link #ROLE_PREFERENCE} they hold. */
+    static Role payingRole(HospioUserDetails user, Role requested) {
+        if (requested != null) {
+            if (!PAYING_ROLES.contains(requested) || !user.has(requested)) {
+                throw new BadRequestException("You don't take payments for " + requested.name().toLowerCase().replace('_', ' '));
+            }
+            return requested;
+        }
+        return ROLE_PREFERENCE.stream().filter(user::has).findFirst()
+                .orElseThrow(() -> new BadRequestException("Your role doesn't take payments"));
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s;
     }
 
     /**
@@ -150,7 +167,7 @@ public class PaymentService {
         if (old.getStatus() != PaymentStatus.DECLINED && old.getStatus() != PaymentStatus.NO_RESPONSE && old.getStatus() != PaymentStatus.FAILED) {
             throw new BadRequestException("Only a declined or unanswered payment can be retried");
         }
-        PaymentRequest p = PaymentRequest.builder().folioId(old.getFolioId()).bookingId(old.getBookingId()).guestName(old.getGuestName())
+        PaymentRequest p = PaymentRequest.builder().folioId(old.getFolioId()).bookingId(old.getBookingId()).orderId(old.getOrderId()).guestName(old.getGuestName())
                 .guestPhone(old.getGuestPhone()).guestEmail(old.getGuestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
                 .role(old.getRole()).method(PaymentMethod.CARD).amount(old.getAmount()).description(old.getDescription())
                 .receiptPreference(old.getReceiptPreference()).build();
@@ -276,7 +293,7 @@ public class PaymentService {
         events.publish(KafkaTopics.PAYMENT_APPROVED, PaymentApprovedEvent.builder().paymentId(p.getId()).folioId(p.getFolioId())
                 .bookingId(p.getBookingId()).guestName(p.getGuestName()).guestPhone(p.getGuestPhone()).guestEmail(p.getGuestEmail())
                 .amount(p.getAmount()).method(p.getMethod().name()).role(p.getRole().name()).providerRef(p.getProviderRef())
-                .receiptPreference(p.getReceiptPreference()).build());
+                .receiptPreference(p.getReceiptPreference()).orderId(p.getOrderId()).build());
         log.info("Payment {} approved via {} · receipt {}", p.getId(), provider, receipt.getNumber());
     }
 

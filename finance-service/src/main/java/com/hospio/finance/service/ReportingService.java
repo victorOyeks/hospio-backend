@@ -1,6 +1,8 @@
 package com.hospio.finance.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.hospio.common.exception.BadRequestException;
+import com.hospio.common.exception.ExternalServiceException;
 import com.hospio.common.security.CurrentUser;
 import com.hospio.common.security.HospioUserDetails;
 import com.hospio.common.tenancy.Tenant;
@@ -40,6 +42,12 @@ public class ReportingService {
     private final BankDepositRepository deposits;
     private final TillEntryRepository tillEntries;
     private final PeerServices peers;
+
+    /** What the restaurant and bar sold on a day, by outlet, as fnb-service reports it (room charges included). */
+    public JsonNode outletSales(LocalDate date) {
+        return peers.outletSales(TenantContext.requireHotel(), date == null ? LocalDate.now(MoneyService.LAGOS) : date)
+                .orElseThrow(() -> new ExternalServiceException("Outlet sales can't be read right now"));
+    }
 
     public record DayPoint(LocalDate date, BigDecimal revenue, BigDecimal expenses) {
     }

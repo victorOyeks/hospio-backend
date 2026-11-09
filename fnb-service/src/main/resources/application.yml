@@ -45,6 +45,9 @@ hospio:
   logging:
     # Log request bodies and error responses (secrets masked). On for dev/staging via HOSPIO_LOG_BODIES.
     bodies: ${HOSPIO_LOG_BODIES:false}
+  seed:
+    # Creates the restaurant and bar (outlets, tables, menus, a happy hour) for the example hotel on start-up when missing (env SEED_DEMO_DATA).
+    enabled: ${SEED_DEMO_DATA:false}
   worker:
     enabled: ${WORKER_ENABLED:true}
   storage:

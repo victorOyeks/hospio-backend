@@ -167,4 +167,45 @@ class PaymentServiceTest {
 
         assertThatThrownBy(() -> service.retry("old2")).isInstanceOf(BadRequestException.class).hasMessageContaining("declined");
     }
+
+    private static HospioUserDetails holding(Role... roles) {
+        Map<Role, AccessLevel> m = new java.util.LinkedHashMap<>();
+        for (Role r : roles) {
+            m.put(r, AccessLevel.EDIT);
+        }
+        return new HospioUserDetails("u2", "multi@x.ng", "Multi", "b1", List.of("h1"), m, JwtUtil.SCOPE_HOTEL);
+    }
+
+    @Test
+    void withoutARoleTheDeskIsChosenInAFixedOrderWhateverOrderTheCallerHoldsThem() {
+        assertThat(PaymentService.payingRole(holding(Role.KITCHEN, Role.BAR, Role.FRONT_OFFICE), null)).isEqualTo(Role.FRONT_OFFICE);
+        assertThat(PaymentService.payingRole(holding(Role.KITCHEN, Role.BAR), null)).isEqualTo(Role.BAR);
+        assertThat(PaymentService.payingRole(holding(Role.MANAGER, Role.KITCHEN), null)).isEqualTo(Role.KITCHEN);
+        assertThat(PaymentService.payingRole(holding(Role.OWNER, Role.MANAGER), null)).isEqualTo(Role.MANAGER);
+    }
+
+    @Test
+    void aRequestedRoleMustBeOneOfTheCallersOwn() {
+        assertThat(PaymentService.payingRole(holding(Role.BAR, Role.KITCHEN), Role.KITCHEN)).isEqualTo(Role.KITCHEN);
+        assertThatThrownBy(() -> PaymentService.payingRole(holding(Role.BAR), Role.KITCHEN)).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> PaymentService.payingRole(holding(Role.HOUSEKEEPING), null)).isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void aPaymentForAnOrderCarriesTheOrderIdOnTheRequestAndTheEvent() {
+        PaymentResponse p = service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("3000"), null, null, null, null, null, "Bar order B-0007", null,
+                "order-7", Role.BAR));
+
+        assertThat(p.orderId()).isEqualTo("order-7");
+        assertThat(p.role()).isEqualTo(Role.BAR);
+        var captor = org.mockito.ArgumentCaptor.forClass(com.hospio.common.kafka.events.PaymentApprovedEvent.class);
+        verify(events).publish(eq(KafkaTopics.PAYMENT_APPROVED), captor.capture());
+        assertThat(captor.getValue().getOrderId()).isEqualTo("order-7");
+    }
+
+    @Test
+    void aRoleTheCallerDoesNotHoldIsRefused() {
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("3000"), null, null, null, null, null, null, null, null, Role.KITCHEN)))
+                .isInstanceOf(BadRequestException.class);
+    }
 }

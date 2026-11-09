@@ -33,6 +33,10 @@ public class PaymentRequest extends TenantEntity {
     @Column(name = "booking_id", length = 36)
     private String bookingId;
 
+    /** The kitchen or bar order this payment is for. */
+    @Column(name = "order_id", length = 36)
+    private String orderId;
+
     @Column(name = "guest_name", length = 150)
     private String guestName;
 

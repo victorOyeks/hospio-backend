@@ -66,6 +66,13 @@ public class FinanceController {
         return ApiResponse.ok(reporting.income(from, to));
     }
 
+    /** What the restaurant and bar sold on a day, by outlet (fnb's day summary), for the manager and owner screens. Income above is money received. */
+    @GetMapping("/sales")
+    @PreAuthorize(READ)
+    public ApiResponse<com.fasterxml.jackson.databind.JsonNode> sales(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return ApiResponse.ok(reporting.outletSales(date));
+    }
+
     /** Per day {date, revenue, expenses} for the range. */
     @GetMapping("/series")
     @PreAuthorize(READ)

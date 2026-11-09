@@ -103,4 +103,36 @@ class NightAuditServiceTest {
 
         assertThatThrownBy(() -> service.close(DAY, null)).isInstanceOf(ForbiddenException.class);
     }
+
+    @Test
+    void openTabsAtTheOutletsStopTheCloseUnlessAManagerCarriesThem() {
+        signIn(Role.MANAGER, AccessLevel.FULL);
+        day(0);
+        when(tills.findByHotelIdAndStatusOrderByOpenedAt("h1", Till.Status.OPEN)).thenReturn(List.of());
+        when(peers.openOrders("h1", DAY)).thenReturn(Optional.of(new PeerServices.OpenOrders(3, 0, List.of(new PeerServices.OutletOpen("bar", "Bar", 3, 0)))));
+
+        assertThatThrownBy(() -> service.close(DAY, null)).isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("3 open tabs at the Bar").hasMessageContaining("carrying them over");
+        assertThatThrownBy(() -> service.close(DAY, new FinanceRequests.CloseDayRequest(null, null, null, false, false))).isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void aFinanceUserWithoutManagerRightsCannotCarryOpenTabs() {
+        signIn(Role.FINANCE, AccessLevel.FULL);
+        day(0);
+        when(tills.findByHotelIdAndStatusOrderByOpenedAt("h1", Till.Status.OPEN)).thenReturn(List.of());
+        when(peers.openOrders("h1", DAY)).thenReturn(Optional.of(new PeerServices.OpenOrders(0, 2, List.of(new PeerServices.OutletOpen("kit", "Restaurant", 0, 2)))));
+
+        assertThatThrownBy(() -> service.close(DAY, new FinanceRequests.CloseDayRequest(null, null, null, false, true))).isInstanceOf(ForbiddenException.class);
+    }
+
+    @Test
+    void anUnreachableOutletServiceIsNotGuessedAt() {
+        signIn(Role.MANAGER, AccessLevel.FULL);
+        day(0);
+        when(tills.findByHotelIdAndStatusOrderByOpenedAt("h1", Till.Status.OPEN)).thenReturn(List.of());
+        when(peers.openOrders("h1", DAY)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.close(DAY, null)).isInstanceOf(BadRequestException.class).hasMessageContaining("can't be checked");
+    }
 }

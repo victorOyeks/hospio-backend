@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface StoreRepository extends JpaRepository<Store, String> {
     List<Store> findByHotelIdAndActiveTrueOrderByName(String hotelId);
+
+    List<Store> findByHotelIdOrderByName(String hotelId);
 }

@@ -20,6 +20,11 @@ public class OrderCreatedEvent extends HospioEvent {
     private String roomId;
     private java.math.BigDecimal total;
     private Integer itemCount;
+    private String orderNumber;
+    /** The user who opened the order. */
+    private String openedBy;
+    /** Opened by someone outside the outlet's own team (front office room service): the outlet's role is told. */
+    private Boolean outsideOutlet;
 
     @Override
     public String summary() {

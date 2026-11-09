@@ -49,7 +49,11 @@ public final class FinanceRequests {
     }
 
     /** {@code markNoShows}: mark the arrivals still BOOKED as no-shows as part of closing the day. */
-    public record CloseDayRequest(BigDecimal cashCounted, Integer roomsOccupied, String note, Boolean markNoShows) {
+    /** {@code carryOpenTabs}: a manager closes the day with open tabs and unsettled orders still at the outlets; they are recorded in the report. */
+    public record CloseDayRequest(BigDecimal cashCounted, Integer roomsOccupied, String note, Boolean markNoShows, Boolean carryOpenTabs) {
+        public CloseDayRequest(BigDecimal cashCounted, Integer roomsOccupied, String note, Boolean markNoShows) {
+            this(cashCounted, roomsOccupied, note, markNoShows, null);
+        }
     }
 
     public record BankCashRequest(@NotNull BigDecimal amount, String bankAccount, String reference) {
