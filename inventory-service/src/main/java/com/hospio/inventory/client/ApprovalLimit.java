@@ -4,6 +4,7 @@ import com.hospio.common.security.JwtUtil;
 import com.hospio.common.setup.HotelSettingsReader;
 import com.hospio.common.setup.SetupCatalogue;
 import java.math.BigDecimal;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -14,6 +15,7 @@ public class ApprovalLimit {
     private final HotelSettingsReader settings;
     private final BigDecimal fallback;
 
+    @Autowired
     public ApprovalLimit(@Value("${services.hotelconfig.url}") String url, JwtUtil jwtUtil, @Value("${services.internal.api-key}") String key,
                          @Value("${hospio.approvals.manager-spend-limit:500000}") BigDecimal fallback) {
         this.settings = new HotelSettingsReader(url, jwtUtil, key);
