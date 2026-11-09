@@ -137,4 +137,34 @@ class PaymentServiceTest {
         assertThat(p.providerRef()).startsWith("LOG-");
         verify(events).publish(eq(KafkaTopics.PAYMENT_REQUESTED), any());
     }
+
+    @Test
+    void aDeclinedCardIsRetriedOnTheSameDesksPos() {
+        var old = com.hospio.payment.entity.PaymentRequest.builder().method(PaymentMethod.CARD).amount(new BigDecimal("5000")).role(Role.BAR)
+                .bookingId("bk1").guestName("Ada").description("Room 12").requestedBy("u1").status(PaymentStatus.DECLINED).build();
+        old.setId("old1");
+        old.setHotelId("h1");
+        when(payments.findById("old1")).thenReturn(Optional.of(old));
+        PosTerminal t = PosTerminal.builder().name("Bar POS").provider("logging").terminalRef("T1").build();
+        t.setId("t1");
+        when(terminals.forRole("h1", Role.BAR)).thenReturn(Optional.of(t));
+
+        PaymentResponse p = service.retry("old1");
+
+        assertThat(p.status()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(p.amount()).isEqualByComparingTo("5000");
+        assertThat(p.bookingId()).isEqualTo("bk1");
+        assertThat(old.getStatus()).isEqualTo(PaymentStatus.DECLINED);
+    }
+
+    @Test
+    void anApprovedPaymentIsNotRetried() {
+        var old = com.hospio.payment.entity.PaymentRequest.builder().method(PaymentMethod.CARD).amount(new BigDecimal("5000")).role(Role.BAR)
+                .requestedBy("u1").status(PaymentStatus.APPROVED).build();
+        old.setId("old2");
+        old.setHotelId("h1");
+        when(payments.findById("old2")).thenReturn(Optional.of(old));
+
+        assertThatThrownBy(() -> service.retry("old2")).isInstanceOf(BadRequestException.class).hasMessageContaining("declined");
+    }
 }

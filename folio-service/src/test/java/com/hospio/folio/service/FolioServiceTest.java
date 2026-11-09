@@ -105,15 +105,29 @@ class FolioServiceTest {
     void discountOverTheManagerLimitGoesToTheOwner() {
         service.postCharge(folio, "RESERVATION", "ROOM-b1", "Room", new BigDecimal("200000"), BigDecimal.ZERO, "ACCOMMODATION", "u1", "Victor");
 
-        assertThatThrownBy(() -> service.discount("f1", new DiscountRequest(new BigDecimal("80000"), "Wedding party")))
-                .isInstanceOf(BadRequestException.class).hasMessageContaining("goes to the owner");
+        FolioService.DiscountResult r = service.discount("f1", new DiscountRequest(new BigDecimal("80000"), "Wedding party"));
+
+        assertThat(r.sentTo()).isEqualTo("OWNER");
+        verify(pending).save(any());
         verify(events).publish(eq(KafkaTopics.APPROVAL_REQUESTED), any());
         assertThat(folio.getTotalDiscounts()).isEqualByComparingTo("0.00");
     }
 
     @Test
-    void receptionistCannotDiscount() {
+    void receptionistsDiscountGoesToTheManager() {
+        service.postCharge(folio, "RESERVATION", "ROOM-b1", "Room", new BigDecimal("20000"), BigDecimal.ZERO, "ACCOMMODATION", "u1", "Victor");
         signInAs(Role.FRONT_OFFICE);
+
+        FolioService.DiscountResult r = service.discount("f1", new DiscountRequest(new BigDecimal("1000"), "Service issue"));
+
+        assertThat(r.sentTo()).isEqualTo("MANAGER");
+        verify(pending).save(any());
+        assertThat(folio.getTotalDiscounts()).isEqualByComparingTo("0.00");
+    }
+
+    @Test
+    void housekeepingCannotDiscount() {
+        signInAs(Role.HOUSEKEEPING);
         assertThatThrownBy(() -> service.discount("f1", new DiscountRequest(new BigDecimal("1000"), "x"))).isInstanceOf(ForbiddenException.class);
     }
 

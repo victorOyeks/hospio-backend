@@ -9,6 +9,7 @@ import com.hospio.payment.dto.ResolveDisputeRequest;
 import com.hospio.payment.entity.Dispute;
 import com.hospio.payment.entity.Refund;
 import com.hospio.payment.service.PaymentService;
+import com.hospio.payment.service.ReceiptService;
 import com.hospio.payment.service.RefundService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -29,6 +30,7 @@ public class PaymentController {
 
     private final PaymentService payments;
     private final RefundService refunds;
+    private final ReceiptService receipts;
 
     @GetMapping
     public ApiResponse<List<PaymentResponse>> mine() {
@@ -49,6 +51,19 @@ public class PaymentController {
     @PostMapping("/{id}/verify")
     public ApiResponse<PaymentResponse> verify(@PathVariable String id) {
         return ApiResponse.ok("Payment confirmed", payments.verify(id));
+    }
+
+    @PostMapping("/{id}/retry")
+    public ApiResponse<PaymentResponse> retry(@PathVariable String id) {
+        PaymentResponse p = payments.retry(id);
+        return ApiResponse.ok(p.status().name().equals("PROCESSING") ? "Sent to the POS again" : "The POS did not answer", p);
+    }
+
+    @PostMapping("/{id}/receipt/resend")
+    @PreAuthorize("@access.manager() or @access.atLeast('FINANCE','EDIT')")
+    public ApiResponse<ReceiptService.Resent> resendReceipt(@PathVariable String id) {
+        ReceiptService.Resent r = receipts.resend(id);
+        return ApiResponse.ok("Receipt " + r.receiptNumber() + " sent to " + r.sentTo(), r);
     }
 
     @PostMapping("/{id}/cancel")

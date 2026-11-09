@@ -152,10 +152,20 @@ public class FolioService {
         recalculate(folio);
     }
 
+    /** What a discount did: applied (sentTo null), or sent to the manager or owner to approve. */
+    public record DiscountResult(FolioResponse folio, String sentTo) {
+    }
+
+    /**
+     * A manager applies a discount up to their limit; over it the discount goes to the owner. Front office
+     * can't change a bill: their discount is sent to the manager (or the owner, over the manager's limit)
+     * and applied when it is approved.
+     */
     @Transactional
-    public FolioResponse discount(String folioId, DiscountRequest request) {
+    public DiscountResult discount(String folioId, DiscountRequest request) {
         HospioUserDetails user = CurrentUser.require();
-        if (!user.isManagerOrOwner()) {
+        boolean manager = user.isManagerOrOwner() || user.isPlatform();
+        if (!manager && !user.has(com.hospio.common.enums.Role.FRONT_OFFICE, com.hospio.common.enums.AccessLevel.EDIT)) {
             throw new ForbiddenException("Discounts are for managers");
         }
         Folio f = find(folioId);
@@ -164,17 +174,27 @@ public class FolioService {
             throw new BadRequestException("The discount has to be between 0 and the balance of " + f.getBalance());
         }
         BigDecimal discountLimit = limits.discountLimit(f.getHotelId(), Money.add(f.getTotalCharges(), f.getTotalTax()));
-        if (!user.isPlatform() && !user.has(com.hospio.common.enums.Role.OWNER) && amount.compareTo(discountLimit) > 0) {
-            String approvalId = UUID.randomUUID().toString();
-            pendingDiscounts.save(PendingDiscount.builder().folioId(f.getId()).approvalId(approvalId).amount(amount).reason(request.reason()).build());
-            events.publish(KafkaTopics.APPROVAL_REQUESTED, ApprovalRequestedEvent.builder()
-                    .approvalId(approvalId).sourceModule("FOLIO").sourceRef(f.getId()).kind("DISCOUNT").amount(amount)
-                    .requesterId(user.getUserId()).requesterName(user.getFullName()).approverLevel("OWNER")
-                    .description("Discount of " + amount + " for " + f.getGuestName() + ": " + request.reason()).build());
-            throw new BadRequestException("A discount over " + discountLimit + " goes to the owner. It has been sent for approval");
+        boolean overLimit = amount.compareTo(discountLimit) > 0;
+        if (!manager) {
+            String level = overLimit ? "OWNER" : "MANAGER";
+            sendForApproval(f, amount, request.reason(), user, level);
+            return new DiscountResult(get(folioId), level);
+        }
+        if (!user.isPlatform() && !user.has(com.hospio.common.enums.Role.OWNER) && overLimit) {
+            sendForApproval(f, amount, request.reason(), user, "OWNER");
+            return new DiscountResult(get(folioId), "OWNER");
         }
         applyDiscount(f, amount, request.reason(), user.getUserId(), user.getFullName());
-        return get(folioId);
+        return new DiscountResult(get(folioId), null);
+    }
+
+    private void sendForApproval(Folio f, BigDecimal amount, String reason, HospioUserDetails user, String level) {
+        String approvalId = UUID.randomUUID().toString();
+        pendingDiscounts.save(PendingDiscount.builder().folioId(f.getId()).approvalId(approvalId).amount(amount).reason(reason).build());
+        events.publish(KafkaTopics.APPROVAL_REQUESTED, ApprovalRequestedEvent.builder()
+                .approvalId(approvalId).sourceModule("FOLIO").sourceRef(f.getId()).kind("DISCOUNT").amount(amount)
+                .requesterId(user.getUserId()).requesterName(user.getFullName()).approverLevel(level)
+                .description("Discount of " + amount + " for " + f.getGuestName() + ": " + reason).build());
     }
 
     @Transactional

@@ -125,6 +125,39 @@ public class PaymentService {
             approve(p, null, dto.method() == PaymentMethod.CASH ? "cash" : "bank transfer");
             return PaymentResponse.of(p);
         }
+        return sendToPos(p, role, hotelId);
+    }
+
+    /**
+     * Retry on POS: a card payment the bank declined (or never answered) is sent again as a new request for
+     * the same amount, guest, booking and folio, to the POS of the desk that took the first one. The first
+     * request stays as it was, so the history shows both.
+     */
+    @Transactional
+    public PaymentResponse retry(String id) {
+        HospioUserDetails user = CurrentUser.require();
+        String hotelId = TenantContext.requireHotel();
+        PaymentRequest old = find(id);
+        if (old.getHotelId() != null && !old.getHotelId().equals(hotelId)) {
+            throw new ResourceNotFoundException("Payment not found");
+        }
+        if (!user.isManagerOrOwner() && !user.getUserId().equals(old.getRequestedBy())) {
+            throw new BadRequestException("Only a manager or the person who took it can retry this payment");
+        }
+        if (old.getMethod() != PaymentMethod.CARD) {
+            throw new BadRequestException("Only a card payment goes back to the POS");
+        }
+        if (old.getStatus() != PaymentStatus.DECLINED && old.getStatus() != PaymentStatus.NO_RESPONSE && old.getStatus() != PaymentStatus.FAILED) {
+            throw new BadRequestException("Only a declined or unanswered payment can be retried");
+        }
+        PaymentRequest p = PaymentRequest.builder().folioId(old.getFolioId()).bookingId(old.getBookingId()).guestName(old.getGuestName())
+                .guestPhone(old.getGuestPhone()).guestEmail(old.getGuestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
+                .role(old.getRole()).method(PaymentMethod.CARD).amount(old.getAmount()).description(old.getDescription())
+                .receiptPreference(old.getReceiptPreference()).build();
+        return sendToPos(p, old.getRole(), hotelId);
+    }
+
+    private PaymentResponse sendToPos(PaymentRequest p, Role role, String hotelId) {
         PosTerminal terminal = terminals.forRole(hotelId, role)
                 .orElseThrow(() -> new BadRequestException("No POS is assigned to " + role.name().toLowerCase().replace('_', ' ') + ". Take cash or ask a manager to assign one in Hotel setup"));
         if (terminal.getStatus() != PosTerminal.Status.ONLINE) {
@@ -135,7 +168,7 @@ public class PaymentService {
         payments.save(p);
         try {
             String ref = posProvider.requestPayment(terminal.getTerminalRef(), p.getId(), p.getAmount(), p.getCurrency(),
-                    dto.description() == null ? "Hospio payment" : dto.description());
+                    p.getDescription() == null ? "Hospio payment" : p.getDescription());
             p.setProviderRef(ref);
             p.setStatus(PaymentStatus.PROCESSING);
         } catch (Exception e) {

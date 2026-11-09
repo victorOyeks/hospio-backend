@@ -11,6 +11,7 @@ import com.hospio.folio.entity.Organization;
 import com.hospio.folio.entity.OrganizationMember;
 import com.hospio.folio.entity.OrganizationPayment;
 import com.hospio.folio.service.OrganizationService;
+import com.hospio.folio.service.OutboundService;
 import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.util.List;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -30,6 +32,35 @@ import org.springframework.web.bind.annotation.RestController;
 public class OrganizationController {
 
     private final OrganizationService service;
+    private final OutboundService outbound;
+
+    /** Put on hold or back to active: {@code ?status=ON_HOLD|ACTIVE}. */
+    @PutMapping("/{id}/status")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<Organization> status(@PathVariable String id, @RequestParam String status) {
+        return ApiResponse.ok("ON_HOLD".equals(status) ? "Account on hold" : "Account active", service.setStatus(id, status));
+    }
+
+    /** Remove a staff member from the account ({@code active=false}) or allow them again. */
+    @PutMapping("/{id}/members/{memberId}/active")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<OrganizationMember> memberActive(@PathVariable String id, @PathVariable String memberId, @RequestParam boolean active) {
+        return ApiResponse.ok(active ? "Allowed again" : "Removed from the account", service.setMemberActive(id, memberId, active));
+    }
+
+    @PostMapping("/{id}/statement")
+    @PreAuthorize("@access.manager() or @access.atLeast('FINANCE','EDIT')")
+    public ApiResponse<OutboundService.Sent> statement(@PathVariable String id) {
+        OutboundService.Sent s = outbound.statement(id);
+        return ApiResponse.ok("Statement sent to " + s.to(), s);
+    }
+
+    @PostMapping("/{id}/reminder")
+    @PreAuthorize("@access.manager() or @access.atLeast('FINANCE','EDIT')")
+    public ApiResponse<OutboundService.Sent> reminder(@PathVariable String id) {
+        OutboundService.Sent s = outbound.reminder(id);
+        return ApiResponse.ok("Reminder sent to " + s.to(), s);
+    }
 
     @GetMapping
     public ApiResponse<List<Organization>> list() {

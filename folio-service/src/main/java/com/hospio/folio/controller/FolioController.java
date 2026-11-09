@@ -25,6 +25,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class FolioController {
 
     private final FolioService service;
+    private final com.hospio.folio.service.OutboundService outbound;
+
+    public record SendFolioRequest(@jakarta.validation.constraints.NotBlank String channel, String to) {
+    }
+
+    /** Email or WhatsApp the stay summary to the guest. */
+    @PostMapping("/{id}/send")
+    @PreAuthorize("@access.manager() or @access.atLeast('FRONT_OFFICE','EDIT')")
+    public ApiResponse<com.hospio.folio.service.OutboundService.Sent> send(@PathVariable String id, @Valid @RequestBody SendFolioRequest request) {
+        var s = outbound.sendFolio(id, request.channel(), request.to());
+        return ApiResponse.ok("Folio sent to " + s.to(), s);
+    }
 
     @GetMapping
     public ApiResponse<List<FolioResponse>> open() {
@@ -52,10 +64,12 @@ public class FolioController {
         return ApiResponse.ok("Charge posted", service.postManualCharge(id, request));
     }
 
+    /** A manager's discount is applied (or sent to the owner over the limit); front office's goes to the manager to approve. */
     @PostMapping("/{id}/discount")
-    @PreAuthorize("@access.manager()")
+    @PreAuthorize("@access.manager() or @access.atLeast('FRONT_OFFICE','EDIT')")
     public ApiResponse<FolioResponse> discount(@PathVariable String id, @Valid @RequestBody DiscountRequest request) {
-        return ApiResponse.ok("Discount applied", service.discount(id, request));
+        FolioService.DiscountResult r = service.discount(id, request);
+        return ApiResponse.ok(r.sentTo() == null ? "Discount applied" : "Sent to the " + r.sentTo().toLowerCase() + " for approval", r.folio());
     }
 
     @PostMapping("/{id}/lines/{lineId}/void")

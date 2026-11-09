@@ -94,6 +94,26 @@ public class OrganizationService {
                 .phone(request.phone()).email(request.email()).build());
     }
 
+    /** Put on hold (no new stays on account) or back to active. */
+    @Transactional
+    public Organization setStatus(String id, String status) {
+        if (!"ACTIVE".equals(status) && !"ON_HOLD".equals(status)) {
+            throw new BadRequestException("Status is ACTIVE or ON_HOLD");
+        }
+        Organization org = get(id);
+        org.setStatus(status);
+        return organizations.save(org);
+    }
+
+    /** Remove a staff member from the account (they can't stay on it any more) or allow them again. */
+    @Transactional
+    public OrganizationMember setMemberActive(String orgId, String memberId, boolean active) {
+        OrganizationMember m = members.findById(memberId).filter(x -> x.getOrganizationId().equals(get(orgId).getId()))
+                .orElseThrow(() -> new ResourceNotFoundException("Staff member not found on this account"));
+        m.setActive(active);
+        return members.save(m);
+    }
+
     @Transactional
     public List<OrganizationMember> importMembers(String orgId, List<MemberRequest> rows) {
         return rows.stream().map(r -> addMember(orgId, r)).toList();
