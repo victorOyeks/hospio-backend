@@ -206,7 +206,7 @@ public class MoneyService {
             events.publish(KafkaTopics.APPROVAL_REQUESTED, ApprovalRequestedEvent.builder().approvalId(e.getApprovalId()).sourceModule("FINANCE")
                     .sourceRef(e.getId()).kind("EXPENSE").amount(e.getAmount()).requesterId(user.getUserId()).requesterName(user.getFullName())
                     .requesterRole(roleLabel(user)).approverLevel(route.approverLevel())
-                    .description(e.getCategory() + " · " + e.getAmount() + " · " + e.getDescription()).build());
+                    .description(categoryLabel(e.getCategory()) + " · " + e.getDescription()).build());
         }
         events.publish(KafkaTopics.EXPENSE_RECORDED, ExpenseRecordedEvent.builder().expenseId(e.getId()).category(e.getCategory())
                 .amount(e.getAmount()).description(e.getDescription()).status(e.getStatus().name()).build());
@@ -265,7 +265,7 @@ public class MoneyService {
         }
         if ("TILL".equals(e.getPaidFrom())) {
             Till till = tillForPayOut(user);
-            addEntry(till, TillEntry.Kind.EXPENSE, Money.of(e.getAmount()).negate(), "CASH", e.getCategory() + " · " + e.getDescription(), e.getId(), null);
+            addEntry(till, TillEntry.Kind.EXPENSE, Money.of(e.getAmount()).negate(), "CASH", categoryLabel(e.getCategory()) + " · " + e.getDescription(), e.getId(), null);
         }
         e.setStatus(Expense.Status.PAID);
         e.setPaidBy(user.getUserId());
@@ -494,6 +494,15 @@ public class MoneyService {
     }
 
     /** The till a cash expense comes out of: the caller's own paying role, or the only till open at the hotel. */
+    /** SUPPLIES → Supplies, FOOD_AND_DRINK → Food and drink: how a category reads to people. */
+    static String categoryLabel(String category) {
+        if (category == null || category.isBlank()) {
+            return "Expense";
+        }
+        String words = category.trim().replace('_', ' ').toLowerCase(java.util.Locale.ROOT);
+        return Character.toUpperCase(words.charAt(0)) + words.substring(1);
+    }
+
     private Till tillForPayOut(HospioUserDetails user) {
         String hotelId = TenantContext.requireHotel();
         for (Role role : PAYING_ROLES) {
