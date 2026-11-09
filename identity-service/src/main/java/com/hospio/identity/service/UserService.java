@@ -131,6 +131,28 @@ public class UserService {
         return matched.stream().map(u -> toResponse(u, byUser.getOrDefault(u.getId(), List.of()), inviteStatus.get(u.getId()))).toList();
     }
 
+    /**
+     * The people working at the caller's active hotel, for any signed-in staff member (swap and cover pickers):
+     * names and this hotel's roles only; contact details and account state stay with managers.
+     */
+    @Transactional(readOnly = true)
+    public List<UserResponse> colleagues() {
+        CurrentUser.require();
+        String business = TenantContext.requireBusiness();
+        String hotel = TenantContext.requireHotel();
+        Map<String, List<RoleGrant>> byUser = grants.findByBusinessId(business).stream()
+                .filter(g -> !g.isPaused() && (g.getHotelId() == null || hotel.equals(g.getHotelId())))
+                .collect(Collectors.groupingBy(RoleGrant::getUserId));
+        return users.findByBusinessIdOrderByFullName(business).stream()
+                .filter(u -> u.getStatus() == UserAccount.Status.ACTIVE && byUser.containsKey(u.getId()))
+                .map(u -> {
+                    UserResponse full = toResponse(u, byUser.get(u.getId()), UserResponse.InviteStatus.NONE);
+                    return new UserResponse(full.id(), full.fullName(), "", null, full.businessId(), full.status(), false, false, false, false,
+                            null, null, full.createdAt(), full.grants(), UserResponse.InviteStatus.NONE);
+                })
+                .toList();
+    }
+
     /** Admin team: every platform account (no business, a platform role). Any platform admin may read it (assignee pickers); changes stay SUPER_ADMIN only. */
     @Transactional(readOnly = true)
     public List<UserResponse> listPlatform(String q) {

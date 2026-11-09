@@ -51,6 +51,12 @@ public class UserController {
         return ApiResponse.ok(userService.list(businessId, hotelId, role, q));
     }
 
+    @Operation(summary = "The people at the caller's active hotel (names and this hotel's roles only), for any staff member: swap and cover pickers")
+    @GetMapping("/colleagues")
+    public ApiResponse<List<UserResponse>> colleagues() {
+        return ApiResponse.ok(userService.colleagues());
+    }
+
     @GetMapping("/{userId}")
     @PreAuthorize("@access.managerView()")
     public ApiResponse<UserResponse> get(@PathVariable String userId) {
