@@ -212,7 +212,7 @@ public class MenuService {
         events.publish(KafkaTopics.APPROVAL_REQUESTED, ApprovalRequestedEvent.builder().approvalId(approvalId).sourceModule("FNB")
                 .sourceRef(m.getId()).kind("PRICE_CHANGE").amount(Money.of(request.newPrice())).requesterId(user.getUserId())
                 .requesterName(user.getFullName()).approverLevel("MANAGER")
-                .description("Change " + m.getName() + " from " + m.getPrice() + " to " + Money.of(request.newPrice())
+                .description("Change " + m.getName() + " (" + outlet.getName() + ") from " + naira(m.getPrice()) + " to " + naira(request.newPrice())
                         + (request.reason() == null ? "" : ": " + request.reason())).build());
         return new PriceChangeResult(m, pc);
     }
@@ -254,6 +254,10 @@ public class MenuService {
             h.setActive(request.active());
         }
         return happyHours.save(h);
+    }
+
+    private static String naira(java.math.BigDecimal amount) {
+        return "₦" + java.text.NumberFormat.getIntegerInstance(java.util.Locale.UK).format(amount.setScale(0, java.math.RoundingMode.HALF_UP));
     }
 
     Outlet outlet(String id) {
