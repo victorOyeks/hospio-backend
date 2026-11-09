@@ -260,8 +260,9 @@ public class InventoryController {
         return ApiResponse.ok("Count submitted · a manager approves the difference", service.submitCount(id, request));
     }
 
+    /** The store may call it; the service answers anyone but a manager or owner with "Approving a count is for a manager". */
     @PostMapping("/counts/{id}/approve")
-    @PreAuthorize("@access.manager()")
+    @PreAuthorize(STORE)
     public ApiResponse<InventoryViews.CountView> approveCount(@PathVariable String id) {
         return ApiResponse.ok("Count approved · levels corrected", service.approveCount(id));
     }
