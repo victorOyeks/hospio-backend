@@ -56,4 +56,27 @@ public class ScheduledJob extends TenantEntity {
     @Column(nullable = false)
     @lombok.Builder.Default
     private boolean deleted = false;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    @lombok.Builder.Default
+    private Repair.Category category = Repair.Category.OTHER;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    @lombok.Builder.Default
+    private Repair.Priority priority = Repair.Priority.NORMAL;
+
+    @Column(name = "asset_id", length = 36)
+    private String assetId;
+
+    @Column(name = "room_id", length = 36)
+    private String roomId;
+
+    @Column(name = "room_number", length = 20)
+    private String roomNumber;
+
+    /** The last due date a work order was opened for (the job never opens two for the same date). */
+    @Column(name = "last_opened")
+    private LocalDate lastOpened;
 }

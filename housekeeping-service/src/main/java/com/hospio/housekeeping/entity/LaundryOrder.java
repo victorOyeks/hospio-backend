@@ -25,7 +25,7 @@ import lombok.experimental.SuperBuilder;
 @Table(name = "laundry_orders")
 public class LaundryOrder extends TenantEntity {
 
-    public enum Status { RECEIVED, WASHING, READY, DELIVERED, CANCELLED }
+    public enum Status { RECEIVED, IN_PROGRESS, READY, DELIVERED, CANCELLED }
 
     @Column(name = "booking_id", length = 36)
     private String bookingId;
@@ -69,4 +69,42 @@ public class LaundryOrder extends TenantEntity {
 
     @Column(name = "delivered_at")
     private Instant deliveredAt;
+
+    @Column(length = 20)
+    private String number;
+
+    /** JSON: [{priceId, name, quantity, unitPrice, amount}]; {@code items} keeps a readable summary. */
+    @Column(columnDefinition = "text")
+    private String lines;
+
+    @Column(nullable = false)
+    @lombok.Builder.Default
+    private boolean express = false;
+
+    @Column(name = "promised_at")
+    private Instant promisedAt;
+
+    @Column(length = 300)
+    private String note;
+
+    @Column(name = "charged_at")
+    private Instant chargedAt;
+
+    @Column(name = "paid_at")
+    private Instant paidAt;
+
+    @Column(name = "paid_amount")
+    private BigDecimal paidAmount;
+
+    @Column(name = "payment_method", length = 20)
+    private String paymentMethod;
+
+    @Column(name = "cancel_reason", length = 300)
+    private String cancelReason;
+
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    @Column(name = "received_by_name", length = 150)
+    private String receivedByName;
 }

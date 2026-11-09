@@ -153,6 +153,22 @@ public class HousekeepingService {
         return tasks.save(CleaningTask.builder().roomId(roomId).roomNumber(roomNumber).kind(kind).dueDate(dueDate).build());
     }
 
+    /**
+     * A room came back from out of order (a work order done or cancelled, or a manager put it back): it is dirty and gets a deep clean on
+     * today's list, so it goes through cleaning and inspection before it is sold again. Once per day per room.
+     */
+    @Transactional
+    public CleaningTask afterRepair(String roomId, String roomNumber) {
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Africa/Lagos"));
+        setRoomStatus(roomId, roomNumber, RoomStatus.Cleanliness.DIRTY, null);
+        boolean exists = tasks.findByRoomIdAndStatusIn(roomId, EnumSet.of(CleaningTask.Status.TODO, CleaningTask.Status.IN_PROGRESS)).stream()
+                .anyMatch(t -> t.getDueDate().equals(today));
+        if (exists) {
+            return null;
+        }
+        return tasks.save(CleaningTask.builder().roomId(roomId).roomNumber(roomNumber).kind(CleaningTask.Kind.DEEP).dueDate(today).build());
+    }
+
     @Transactional
     public CleaningTask reassign(String taskId, TaskRequests.ReassignRequest request) {
         requireSupervisor();

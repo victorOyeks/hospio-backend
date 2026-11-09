@@ -27,7 +27,17 @@ public class Repair extends TenantEntity {
 
     public enum Priority { LOW, NORMAL, HIGH, URGENT }
 
-    public enum Status { OPEN, ASSIGNED, IN_PROGRESS, WAITING_PARTS, DONE, CANCELLED }
+    public enum Status { OPEN, ASSIGNED, IN_PROGRESS, ON_HOLD, DONE, CANCELLED }
+
+    public enum Category { PLUMBING, ELECTRICAL, AC, CARPENTRY, APPLIANCE, PAINTING, CLEANING_EQUIPMENT, IT, OTHER }
+
+    @Column(length = 20)
+    private String number;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    @lombok.Builder.Default
+    private Category category = Category.OTHER;
 
     @Column(name = "room_id", length = 36)
     private String roomId;
@@ -78,4 +88,73 @@ public class Repair extends TenantEntity {
 
     @Column(name = "done_by", length = 36)
     private String doneBy;
+
+    @Column(name = "reported_by_name", length = 150)
+    private String reportedByName;
+
+    @Column(name = "reported_by_role", length = 30)
+    private String reportedByRole;
+
+    @Column(name = "due_at")
+    private Instant dueAt;
+
+    @Column(name = "started_at")
+    private Instant startedAt;
+
+    @Column(name = "hold_reason", length = 300)
+    private String holdReason;
+
+    @Column(name = "completion_note", length = 1000)
+    private String completionNote;
+
+    @Column(name = "labour_minutes")
+    private Integer labourMinutes;
+
+    /** JSON array of the parts drawn from the Maintenance store: [{itemId, name, unit, quantity, unitCost, value}]. */
+    @Column(columnDefinition = "text")
+    private String parts;
+
+    @Column(name = "parts_cost", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal partsCost = BigDecimal.ZERO;
+
+    @Column(name = "vendor_name", length = 150)
+    private String vendorName;
+
+    @Column(name = "vendor_cost", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal vendorCost = BigDecimal.ZERO;
+
+    @Column(name = "reopen_count", nullable = false)
+    @lombok.Builder.Default
+    private int reopenCount = 0;
+
+    @Column(name = "reopen_reason", length = 300)
+    private String reopenReason;
+
+    @Column(name = "cancel_reason", length = 300)
+    private String cancelReason;
+
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    @Column(name = "ooo_until")
+    private LocalDate oooUntil;
+
+    @Column(name = "overdue_notified", nullable = false)
+    @lombok.Builder.Default
+    private boolean overdueNotified = false;
+
+    @Column(name = "asset_id", length = 36)
+    private String assetId;
+
+    @Column(name = "schedule_id", length = 36)
+    private String scheduleId;
+
+    @Column(name = "schedule_due")
+    private LocalDate scheduleDue;
+
+    public boolean isOpen() {
+        return status != Status.DONE && status != Status.CANCELLED;
+    }
 }

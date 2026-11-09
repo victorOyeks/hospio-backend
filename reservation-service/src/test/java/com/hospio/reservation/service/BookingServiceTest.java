@@ -118,7 +118,19 @@ class BookingServiceTest {
         Guest guest = Guest.builder().fullName("Ifeoma").build();
         guest.setId("g1");
         when(guests.get("g1")).thenReturn(guest);
+        if (roomId != null) {
+            when(property.room(roomId)).thenReturn(new PropertyClient.RoomSummary(roomId, "101", "t1", "Standard", true));
+        }
         return b;
+    }
+
+    @Test
+    void aBookedRoomThatWentOutOfOrderIsRefusedAtCheckIn() {
+        arrivalIn("r1");
+        when(property.room("r1")).thenReturn(new PropertyClient.RoomSummary("r1", "101", "t1", "Standard", false));
+
+        assertThatThrownBy(() -> service.checkIn("b1", new com.hospio.reservation.dto.CheckInRequest(null, null, null, null, null, null, null)))
+                .isInstanceOf(com.hospio.common.exception.BadRequestException.class).hasMessage("Room 101 is out of order · choose another room");
     }
 
     @Test

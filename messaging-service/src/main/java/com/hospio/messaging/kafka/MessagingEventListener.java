@@ -18,6 +18,7 @@ import com.hospio.common.kafka.events.PartsRequestedEvent;
 import com.hospio.common.kafka.events.PaymentApprovedEvent;
 import com.hospio.common.kafka.events.PosOfflineEvent;
 import com.hospio.common.kafka.events.ProblemReportedEvent;
+import com.hospio.common.kafka.events.NoticeEvent;
 import com.hospio.common.kafka.events.RepairOpenedEvent;
 import com.hospio.common.kafka.events.RoomOutOfOrderEvent;
 import com.hospio.common.kafka.events.ShiftChangeRequestedEvent;
@@ -253,6 +254,23 @@ public class MessagingEventListener {
             };
             String body = e.getNote() != null ? e.getNote() : e.getItemCount() + " items issued";
             notifications.notifyRoles(e.getEventId(), "STOCK_ISSUED", title, body, "/inventory/requests", e.getToTeam());
+            return null;
+        });
+    }
+
+    /** Work orders, linen batches and the like: one notice per named person and per role. */
+    @Transactional
+    @KafkaListener(topics = KafkaTopics.NOTICE)
+    public void onNotice(NoticeEvent e) {
+        bound(e, () -> {
+            if (e.getUserIds() != null) {
+                e.getUserIds().stream().filter(java.util.Objects::nonNull).distinct()
+                        .forEach(u -> notifications.notify(e.getEventId(), u, null, e.getKind(), e.getTitle(), e.getBody(), e.getLink()));
+            }
+            if (e.getRoles() != null) {
+                notifications.notifyRoles(e.getEventId(), e.getKind(), e.getTitle(), e.getBody(), e.getLink(),
+                        e.getRoles().stream().filter(java.util.Objects::nonNull).distinct().toArray(String[]::new));
+            }
             return null;
         });
     }

@@ -1,14 +1,14 @@
 package com.hospio.housekeeping.controller;
 
 import com.hospio.common.response.ApiResponse;
+import com.hospio.housekeeping.dto.LaundryDtos;
 import com.hospio.housekeeping.dto.TaskRequests;
-import com.hospio.housekeeping.entity.DamagedLinen;
-import com.hospio.housekeeping.entity.LaundryOrder;
-import com.hospio.housekeeping.entity.LinenMovement;
 import com.hospio.housekeeping.service.LaundryService;
 import jakarta.validation.Valid;
+import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,77 +19,123 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Laundry 1.1-3.2. */
+/** Laundry 1.x-3.x: guest laundry, the price list and hotel linen batches (docs/laundry-maintenance.md). */
 @RestController
 @RequestMapping("/laundry")
 @RequiredArgsConstructor
 public class LaundryController {
 
+    static final String ORDERS_READ = "@access.managerView() or @access.has('LAUNDRY') or @access.has('FRONT_OFFICE')";
+    static final String ORDERS_WRITE = "@access.manager() or @access.atLeast('LAUNDRY','EDIT') or @access.atLeast('FRONT_OFFICE','EDIT')";
+    static final String LINEN_READ = "@access.managerView() or @access.has('LAUNDRY') or @access.has('HOUSEKEEPING')";
+    static final String LINEN_SEND = "@access.manager() or @access.atLeast('HOUSEKEEPING','EDIT')";
+    static final String LINEN_LAUNDRY = "@access.manager() or @access.atLeast('LAUNDRY','EDIT')";
+    static final String MONEY = "@access.managerView() or @access.has('FINANCE') or @access.atLeast('LAUNDRY','FULL')";
+    static final String STAFF = "@access.managerView() or @access.has('LAUNDRY') or @access.has('FRONT_OFFICE') or @access.has('HOUSEKEEPING') "
+            + "or @access.has('FINANCE')";
+
     private final LaundryService service;
 
+    @GetMapping("/prices")
+    @PreAuthorize(STAFF)
+    public ApiResponse<List<LaundryDtos.PriceView>> prices() {
+        return ApiResponse.ok(service.prices());
+    }
+
+    @PostMapping("/prices")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<LaundryDtos.PriceView> addPrice(@RequestBody LaundryDtos.PriceRequest request) {
+        return ApiResponse.ok("Price added", service.savePrice(null, request));
+    }
+
+    @PutMapping("/prices/{id}")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<LaundryDtos.PriceView> savePrice(@PathVariable String id, @RequestBody LaundryDtos.PriceRequest request) {
+        return ApiResponse.ok("Saved", service.savePrice(id, request));
+    }
+
     @GetMapping("/orders")
-    public ApiResponse<List<LaundryOrder>> jobs() {
-        return ApiResponse.ok(service.jobs());
+    @PreAuthorize(ORDERS_READ)
+    public ApiResponse<List<LaundryDtos.OrderView>> orders(@RequestParam(required = false) String status) {
+        return ApiResponse.ok(service.orders(status));
     }
 
     @GetMapping("/orders/{id}")
-    public ApiResponse<LaundryOrder> get(@PathVariable String id) {
-        return ApiResponse.ok(service.get(id));
+    @PreAuthorize(ORDERS_READ)
+    public ApiResponse<LaundryDtos.OrderView> get(@PathVariable String id) {
+        return ApiResponse.ok(service.order(id));
     }
 
     @PostMapping("/orders")
-    public ApiResponse<LaundryOrder> create(@Valid @RequestBody TaskRequests.LaundryOrderRequest request) {
-        return ApiResponse.ok("Order created", service.create(request));
+    @PreAuthorize(ORDERS_WRITE)
+    public ApiResponse<LaundryDtos.OrderView> create(@RequestBody LaundryDtos.OrderRequest request) {
+        return ApiResponse.ok("Order taken", service.create(request));
     }
 
-    @PutMapping("/orders/{id}/status")
-    public ApiResponse<LaundryOrder> status(@PathVariable String id, @RequestParam LaundryOrder.Status status) {
-        return ApiResponse.ok("Updated", service.setStatus(id, status));
+    @PostMapping("/orders/{id}/status")
+    @PreAuthorize(ORDERS_WRITE)
+    public ApiResponse<LaundryDtos.OrderView> status(@PathVariable String id, @RequestBody(required = false) LaundryDtos.StatusRequest request) {
+        return ApiResponse.ok("Updated", service.move(id, request));
     }
 
     @PostMapping("/orders/{id}/charge-to-room")
-    public ApiResponse<LaundryOrder> chargeToRoom(@PathVariable String id) {
+    @PreAuthorize(ORDERS_WRITE)
+    public ApiResponse<LaundryDtos.OrderView> chargeToRoom(@PathVariable String id) {
         return ApiResponse.ok("Charged to the room", service.chargeToRoom(id));
     }
 
     @PostMapping("/orders/{id}/paid")
-    public ApiResponse<LaundryOrder> paid(@PathVariable String id, @RequestParam String paymentId) {
-        return ApiResponse.ok("Paid", service.markPaid(id, paymentId));
+    @PreAuthorize(ORDERS_WRITE)
+    public ApiResponse<LaundryDtos.OrderView> paid(@PathVariable String id, @RequestBody(required = false) LaundryDtos.PaidRequest request) {
+        return ApiResponse.ok("Paid", service.paid(id, request));
+    }
+
+    @PostMapping("/orders/{id}/cancel")
+    @PreAuthorize(ORDERS_WRITE)
+    public ApiResponse<LaundryDtos.OrderView> cancel(@PathVariable String id, @RequestBody(required = false) LaundryDtos.ReasonRequest request) {
+        return ApiResponse.ok("Cancelled", service.cancel(id, request));
     }
 
     @PostMapping("/orders/{id}/pocket-note")
-    public ApiResponse<LaundryOrder> pocketNote(@PathVariable String id, @Valid @RequestBody TaskRequests.PocketNoteRequest request) {
+    @PreAuthorize(ORDERS_WRITE)
+    public ApiResponse<LaundryDtos.OrderView> pocketNote(@PathVariable String id, @Valid @RequestBody TaskRequests.PocketNoteRequest request) {
         return ApiResponse.ok("Noted", service.pocketNote(id, request));
     }
 
-    @GetMapping("/linen")
-    public ApiResponse<List<LinenMovement>> linen() {
-        return ApiResponse.ok(service.linenMovements());
+    @GetMapping("/linen-batches")
+    @PreAuthorize(LINEN_READ)
+    public ApiResponse<List<LaundryDtos.BatchView>> batches(@RequestParam(required = false) String status) {
+        return ApiResponse.ok(service.batches(status));
     }
 
-    @PostMapping("/linen")
-    public ApiResponse<List<LinenMovement>> recordLinen(@Valid @RequestBody TaskRequests.LinenBatchRequest request) {
-        return ApiResponse.ok("Recorded", service.recordLinen(request));
+    @PostMapping("/linen-batches")
+    @PreAuthorize(LINEN_SEND)
+    public ApiResponse<LaundryDtos.BatchView> send(@RequestBody LaundryDtos.BatchRequest request) {
+        return ApiResponse.ok("Sent to laundry", service.send(request));
     }
 
-    @GetMapping("/damaged")
-    public ApiResponse<List<DamagedLinen>> damaged() {
-        return ApiResponse.ok(service.damaged());
+    @PostMapping("/linen-batches/{id}/receive")
+    @PreAuthorize(LINEN_LAUNDRY)
+    public ApiResponse<LaundryDtos.BatchView> receive(@PathVariable String id, @RequestBody(required = false) LaundryDtos.BatchRequest request) {
+        return ApiResponse.ok("Received", service.receive(id, request));
     }
 
-    @PostMapping("/damaged")
-    public ApiResponse<DamagedLinen> reportDamaged(@Valid @RequestBody TaskRequests.DamagedLinenRequest request) {
-        return ApiResponse.ok("Recorded", service.reportDamaged(request));
+    @PostMapping("/linen-batches/{id}/return")
+    @PreAuthorize(LINEN_LAUNDRY)
+    public ApiResponse<LaundryDtos.BatchView> giveBack(@PathVariable String id, @RequestBody LaundryDtos.ReturnRequest request) {
+        return ApiResponse.ok("Returned", service.giveBack(id, request));
     }
 
-    @PostMapping("/damaged/{id}/ask-write-off")
-    public ApiResponse<DamagedLinen> askToWriteOff(@PathVariable String id) {
-        return ApiResponse.ok("Sent for approval", service.askToWriteOff(id));
+    @PostMapping("/linen-batches/{id}/close")
+    @PreAuthorize(LINEN_LAUNDRY)
+    public ApiResponse<LaundryDtos.BatchView> close(@PathVariable String id, @RequestBody(required = false) LaundryDtos.ReasonRequest request) {
+        return ApiResponse.ok("Closed", service.close(id, request));
     }
 
-    @PostMapping("/damaged/{id}/approve-write-off")
-    @PreAuthorize("@access.manager()")
-    public ApiResponse<DamagedLinen> approveWriteOff(@PathVariable String id) {
-        return ApiResponse.ok("Written off", service.approveWriteOff(id));
+    @GetMapping("/summary")
+    @PreAuthorize(MONEY)
+    public ApiResponse<LaundryDtos.Summary> summary(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                                    @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ApiResponse.ok(service.summary(from, to));
     }
 }

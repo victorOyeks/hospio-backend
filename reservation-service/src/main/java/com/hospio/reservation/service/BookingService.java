@@ -249,6 +249,9 @@ public class BookingService {
             }
             b.setRoomId(room.id());
             b.setRoomNumber(room.number());
+        } else if (!property.room(b.getRoomId()).inService()) {
+            // The room given at booking went out of order since (a work order): the desk picks another room.
+            throw new BadRequestException("Room " + b.getRoomNumber() + " is out of order · choose another room");
         }
         String warning = null;
         if (b.getRoomId() != null && readiness.isDirty(b.getHotelId(), b.getRoomId())) {

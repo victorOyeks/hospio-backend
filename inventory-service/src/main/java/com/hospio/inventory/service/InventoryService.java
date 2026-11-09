@@ -409,6 +409,99 @@ public class InventoryService {
         }
     }
 
+    // ---- stock moved for other services (docs/laundry-maintenance.md) ---------------------------------
+
+    /**
+     * Maintenance parts used on a work order, linen moved to and from the laundry, linen condemned or lost. Stores are the hotel's first
+     * active store of each kind. Idempotent by reference: when movements with this reference exist, they are answered again and
+     * nothing moves. All lines are checked before anything moves, so a short line leaves the store untouched.
+     */
+    @Transactional
+    public com.hospio.inventory.dto.StockMoves.Result stockMoves(com.hospio.inventory.dto.StockMoves.Request r) {
+        if (r == null || r.reference() == null || r.reference().isBlank() || r.kind() == null) {
+            throw new BadRequestException("Say what the stock is for");
+        }
+        String hotel = TenantContext.requireHotel();
+        Store from = storeOfKind(hotel, r.fromKind());
+        Store to = r.kind() == com.hospio.inventory.dto.StockMoves.Kind.TRANSFER ? storeOfKind(hotel, r.toKind()) : null;
+        Map<String, StockItem> im = itemMap();
+        List<StockMovement> done = movements.findByHotelIdAndReferenceOrderByCreatedAt(hotel, r.reference());
+        if (!done.isEmpty()) {
+            List<com.hospio.inventory.dto.StockMoves.MovedLine> lines = done.stream().filter(m -> m.getQuantity().signum() < 0).map(m -> {
+                StockItem i = im.get(m.getItemId());
+                BigDecimal q = m.getQuantity().negate();
+                BigDecimal c = m.getUnitCost() == null ? BigDecimal.ZERO : m.getUnitCost();
+                return new com.hospio.inventory.dto.StockMoves.MovedLine(m.getItemId(), i == null ? null : i.getName(), i == null ? null : i.getUnit(),
+                        q, c, Money.of(q.multiply(c)));
+            }).toList();
+            return new com.hospio.inventory.dto.StockMoves.Result(r.reference(), from.getId(), from.getName(), to == null ? null : to.getId(),
+                    to == null ? null : to.getName(), lines, Money.of(lines.stream().map(com.hospio.inventory.dto.StockMoves.MovedLine::value)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add)), true);
+        }
+        if (r.lines() == null || r.lines().isEmpty()) {
+            throw new BadRequestException("Add at least one item");
+        }
+        Map<String, BigDecimal> wanted = new LinkedHashMap<>();
+        for (com.hospio.inventory.dto.StockMoves.Line l : r.lines()) {
+            if (l == null || l.itemId() == null || l.quantity() == null) {
+                throw new BadRequestException("Pick an item and a quantity on every line");
+            }
+            if (l.quantity().signum() < 0) {
+                throw new BadRequestException("Quantities can't be negative");
+            }
+            if (l.quantity().signum() == 0) {
+                continue;
+            }
+            StockItem i = im.get(l.itemId());
+            if (i == null) {
+                throw new BadRequestException("That item isn't in this hotel's stock");
+            }
+            if (r.category() != null && !r.category().equalsIgnoreCase(i.getCategory() == null ? "" : i.getCategory())) {
+                throw new BadRequestException(i.getName() + " isn't " + r.category().toLowerCase(Locale.ROOT));
+            }
+            wanted.merge(l.itemId(), Money.of(l.quantity()), BigDecimal::add);
+        }
+        if (wanted.isEmpty()) {
+            throw new BadRequestException("Enter a quantity above zero");
+        }
+        for (Map.Entry<String, BigDecimal> w : wanted.entrySet()) {
+            BigDecimal on = levels.findByItemIdAndStoreId(w.getKey(), from.getId()).map(StockLevel::getQuantity).orElse(BigDecimal.ZERO);
+            if (on.compareTo(w.getValue()) < 0) {
+                StockItem i = im.get(w.getKey());
+                throw new BadRequestException("Only " + StockRules.qty(on) + " " + i.getUnit() + " " + i.getName() + " in the " + from.getName());
+            }
+        }
+        String note = trim(r.note(), 300);
+        List<com.hospio.inventory.dto.StockMoves.MovedLine> out = new ArrayList<>();
+        for (Map.Entry<String, BigDecimal> w : wanted.entrySet()) {
+            StockItem i = im.get(w.getKey());
+            BigDecimal cost = cost(i);
+            switch (r.kind()) {
+                case USE -> move(level(w.getKey(), from.getId()), StockMovement.Kind.USED, w.getValue().negate(), r.reference(), note, r.team(), cost);
+                case WASTE -> move(level(w.getKey(), from.getId()), StockMovement.Kind.WASTE, w.getValue().negate(), r.reference(), note, r.team(), cost);
+                case TRANSFER -> {
+                    // Linen going to and from the laundry is not stock issued to a team: no team on the pair, so usage per team stays honest.
+                    move(level(w.getKey(), from.getId()), StockMovement.Kind.TRANSFER_OUT, w.getValue().negate(), r.reference(), note, null, cost);
+                    move(level(w.getKey(), to.getId()), StockMovement.Kind.TRANSFER_IN, w.getValue(), r.reference(), note, null, cost);
+                }
+            }
+            out.add(new com.hospio.inventory.dto.StockMoves.MovedLine(i.getId(), i.getName(), i.getUnit(), w.getValue(), cost,
+                    Money.of(w.getValue().multiply(cost))));
+        }
+        return new com.hospio.inventory.dto.StockMoves.Result(r.reference(), from.getId(), from.getName(), to == null ? null : to.getId(),
+                to == null ? null : to.getName(), out, Money.of(out.stream().map(com.hospio.inventory.dto.StockMoves.MovedLine::value)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)), false);
+    }
+
+    private Store storeOfKind(String hotel, String kind) {
+        if (kind == null || kind.isBlank()) {
+            throw new BadRequestException("Say which store");
+        }
+        String k = kind.toUpperCase(Locale.ROOT);
+        return stores.findByHotelIdAndActiveTrueOrderByName(hotel).stream().filter(s -> k.equals(s.getKind())).findFirst()
+                .orElseThrow(() -> new BadRequestException("There's no " + teamLabel(k) + " store · add one in Inventory first"));
+    }
+
     // ---- requests from teams ------------------------------------------------------------------------
 
     @Transactional(readOnly = true)

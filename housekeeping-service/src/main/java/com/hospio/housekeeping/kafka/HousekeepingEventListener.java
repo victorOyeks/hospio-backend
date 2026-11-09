@@ -1,14 +1,13 @@
 package com.hospio.housekeeping.kafka;
 
 import com.hospio.common.kafka.KafkaTopics;
-import com.hospio.common.kafka.events.ApprovalDecidedEvent;
 import com.hospio.common.kafka.events.GuestCheckedInEvent;
 import com.hospio.common.kafka.events.GuestCheckedOutEvent;
+import com.hospio.common.kafka.events.RoomBackInServiceEvent;
 import com.hospio.common.tenancy.TenantBinder;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.housekeeping.entity.CleaningTask;
 import com.hospio.housekeeping.service.HousekeepingService;
-import com.hospio.housekeeping.service.LaundryService;
 import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -21,7 +20,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class HousekeepingEventListener {
 
     private final HousekeepingService housekeeping;
-    private final LaundryService laundry;
     private final TenantBinder tenant;
 
     @Transactional
@@ -51,14 +49,13 @@ public class HousekeepingEventListener {
     }
 
     @Transactional
-    @KafkaListener(topics = KafkaTopics.APPROVAL_DECIDED)
-    public void onApprovalDecided(ApprovalDecidedEvent e) {
-        if (!"HOUSEKEEPING".equals(e.getSourceModule())) {
-            return;
-        }
+    @KafkaListener(topics = KafkaTopics.ROOM_BACK_IN_SERVICE)
+    public void onBackInService(RoomBackInServiceEvent e) {
         tenant.bind(e);
         try {
-            laundry.onWriteOffDecided(e.getApprovalId(), e.getDecision());
+            if (e.getRoomId() != null) {
+                housekeeping.afterRepair(e.getRoomId(), e.getRoomNumber());
+            }
         } finally {
             TenantContext.clear();
         }

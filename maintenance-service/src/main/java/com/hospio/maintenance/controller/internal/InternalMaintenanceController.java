@@ -2,7 +2,7 @@ package com.hospio.maintenance.controller.internal;
 
 import com.hospio.common.response.ApiResponse;
 import com.hospio.maintenance.dto.MaintenanceRequests;
-import com.hospio.maintenance.entity.Repair;
+import com.hospio.maintenance.dto.MaintenanceViews;
 import com.hospio.maintenance.service.MaintenanceService;
 import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.validation.Valid;
@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Housekeeping and the front desk open repairs through here. Service-to-service only. */
+/** Housekeeping opens a work order from a reported problem through here. Service-to-service only. */
 @Hidden
 @RestController
 @RequestMapping("/internal")
@@ -22,7 +22,7 @@ public class InternalMaintenanceController {
     private final MaintenanceService service;
 
     @PostMapping("/repairs")
-    public ApiResponse<Repair> open(@Valid @RequestBody MaintenanceRequests.RepairRequest request) {
-        return ApiResponse.ok("Repair opened", service.open(request));
+    public ApiResponse<MaintenanceViews.RepairView> open(@Valid @RequestBody MaintenanceRequests.RepairRequest request) {
+        return ApiResponse.ok("Work order opened", service.open(request, true));
     }
 }

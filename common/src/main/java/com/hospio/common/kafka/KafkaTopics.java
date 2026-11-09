@@ -90,6 +90,8 @@ public final class KafkaTopics {
 
     // Messaging & Notifications
     public static final String MESSAGE_SENT = PREFIX + "message-sent";
+    /** In-app notices to named people or roles (work orders, linen batches); see NoticeEvent. */
+    public static final String NOTICE = PREFIX + "notice";
 
     // Platform & Insights
     public static final String APPROVAL_REQUESTED = PREFIX + "approval-requested";
@@ -112,7 +114,7 @@ public final class KafkaTopics {
             STOCK_LOW, STOCK_REQUESTED, STOCK_ISSUED, DELIVERY_RECEIVED,
             EXPENSE_RECORDED, DAY_CLOSED, CASH_BANKED, SHIFT_CHANGE_REQUESTED, LEAVE_REQUESTED,
             LEAVE_DECIDED, SHIFT_REQUEST_DECIDED, TILL_CLOSED,
-            MESSAGE_SENT,
+            MESSAGE_SENT, NOTICE,
             APPROVAL_REQUESTED, APPROVAL_DECIDED, APPROVAL_ANSWERED, CHANGE_BY_PLATFORM);
 
     public static final String[] ALL_ARRAY = ALL.toArray(new String[0]);

@@ -9,6 +9,10 @@ spring:
     import: optional:file:.env[.properties]
   application:
     name: maintenance-service
+  servlet:
+    multipart:
+      max-file-size: 3MB
+      max-request-size: 4MB
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:hospio}?currentSchema=maintenance
     username: ${DB_USERNAME:hospio}
@@ -45,6 +49,9 @@ hospio:
   logging:
     # Log request bodies and error responses (secrets masked). On for dev/staging via HOSPIO_LOG_BODIES.
     bodies: ${HOSPIO_LOG_BODIES:false}
+  seed:
+    # Assets and preventive schedules for the example hotel on start-up when missing (env SEED_DEMO_DATA).
+    enabled: ${SEED_DEMO_DATA:false}
   worker:
     enabled: ${WORKER_ENABLED:true}
   storage:
