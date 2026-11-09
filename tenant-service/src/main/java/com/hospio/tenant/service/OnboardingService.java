@@ -5,6 +5,7 @@ import com.hospio.common.delivery.Delivery;
 import com.hospio.common.delivery.DeliveryService;
 import com.hospio.common.enums.Role;
 import com.hospio.common.exception.BadRequestException;
+import com.hospio.common.exception.ConflictException;
 import com.hospio.common.exception.ForbiddenException;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.kafka.EventPublisher;
@@ -115,6 +116,11 @@ public class OnboardingService {
         OnboardingDraft draft = drafts.findByBusinessId(businessId).orElseThrow(() -> new BadRequestException("Finish onboarding first"));
         if (draft.getStatus() == OnboardingDraft.Status.IN_PROGRESS) {
             throw new BadRequestException("Finish the go-live checklist before sending the handover");
+        }
+        // Once the owner has accepted (the business is live), sending again would reset the password they chose.
+        boolean accepted = handovers.findByBusinessId(businessId).map(h -> h.getAcceptedAt() != null).orElse(false);
+        if (accepted || business.getStage() != Business.Stage.ONBOARDING && business.getStage() != Business.Stage.HANDED_OVER) {
+            throw new ConflictException("The owner has already accepted the handover; reset their password from People instead");
         }
         IdentityClient.CreatedLogin login = business.getOwnerUserId() == null
                 ? identityClient.createUser(business.getOwnerName(), business.getOwnerEmail(), business.getOwnerPhone(), "OWNER", null, businessId)
