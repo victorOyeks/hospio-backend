@@ -547,9 +547,11 @@ public class OrderService {
             throw new BadRequestException("The quantity must be at least 1");
         }
         int qty = l.quantity() == null ? 1 : l.quantity();
-        BigDecimal gross = Money.of(m.getPrice().multiply(BigDecimal.valueOf(qty)));
+        // A choice can cost more (Hot +500): the portion is priced with what the guest chose.
+        BigDecimal unit = Money.of(m.getPrice().add(com.hospio.fnb.rules.MenuChoices.extra(m.getName(), m.getOptions(), l.options())).max(BigDecimal.ZERO));
+        BigDecimal gross = Money.of(unit.multiply(BigDecimal.valueOf(qty)));
         BigDecimal pct = HappyHours.activePct(happyHours.findByOutletIdAndActiveTrue(outlet.getId()), now.get());
-        return OrderLine.builder().menuItemId(m.getId()).name(m.getName()).quantity(qty).unitPrice(m.getPrice())
+        return OrderLine.builder().menuItemId(m.getId()).name(m.getName()).quantity(qty).unitPrice(unit)
                 .taxRate(m.getTaxRate() != null ? m.getTaxRate() : s.vatPct()).discount(OrderPricing.happyHourDiscount(gross, pct))
                 .options(l.options()).notes(l.notes()).build();
     }
