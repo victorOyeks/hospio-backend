@@ -7,10 +7,10 @@ The hotel's stores end to end on inventory-service: a main store and outlet stor
 | Step | Status |
 |---|---|
 | 1 · Contract | done (2026-11-09) |
-| 2 · Backend (inventory-service, common event/delivery kind, messaging) | committed (2026-11-09), deploying |
-| 3 · Web screens wired (inventory role, manager and owner hub, finance figure) | to do |
-| 4 · Staging verification (API + browser, every role) | to do |
-| 5 · QA script `hotel-internal-system-admin-FE/docs/qa/inventory-stores.md` | to do |
+| 2 · Backend (inventory-service, common event/delivery kind, messaging) | done (2026-11-09): `4cb03f7`, fixes `25b94ff` (approval-limit constructor), `e065eec` (count-approval message); deployed `6895387` [deploy-all]; seeded Main store, 25 items' main levels, 3 suppliers |
+| 3 · Web screens wired (inventory role, manager and owner hub, finance figure) | done: hotel-internal-system-admin-FE `6a85771`, fix `97b0de5` (empty Select values) |
+| 4 · Staging verification (API + browser, every role) | done: API 113/114 then 35/35 after the fix; browser 77/77 (INVENTORY, MANAGER, OWNER, FINANCE, KITCHEN, BAR); ORDER_SETTLED draw-down re-checked |
+| 5 · QA script `hotel-internal-system-admin-FE/docs/qa/inventory-stores.md` | done (`f8fc7be`) |
 
 ## Rules
 
@@ -112,3 +112,5 @@ For Royal Suites · Simpas Ikeja (missing rows only): "Main store" (MAIN, id `80
 - Cancelling an order that is waiting for approval leaves the approval on the approver's list; deciding it later does nothing.
 - Units are free text; there is no unit conversion (a carton is not 24 bottles).
 - A settled order's stock draw (restaurant & bar) is not reversed when the order is cancelled afterwards.
+- Housekeeping, laundry and maintenance have no ask-the-store screen yet; the API takes their requests.
+- Counts and orders stored before this release (old line format) carry no expected quantities.
