@@ -1,6 +1,7 @@
 package com.hospio.tenant.controller;
 
 import com.hospio.common.response.ApiResponse;
+import com.hospio.common.tenancy.TenantContext;
 import com.hospio.common.response.PagedResponse;
 import com.hospio.tenant.dto.BusinessResponse;
 import com.hospio.tenant.dto.BusinessSummary;
@@ -46,8 +47,12 @@ public class BusinessController {
         return ApiResponse.ok("Saved", service.updateMine(request));
     }
 
+    @Operation(summary = "The caller's hotels: every hotel of the business for an owner, the granted ones otherwise; none for platform staff and marketers")
     @GetMapping("/hotels")
     public ApiResponse<List<HotelResponse>> myHotels() {
+        if (TenantContext.current().map(t -> t.businessId() == null).orElse(true)) {
+            return ApiResponse.ok(List.of());
+        }
         return ApiResponse.ok(service.mine().hotels());
     }
 
