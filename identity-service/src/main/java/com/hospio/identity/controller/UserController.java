@@ -37,7 +37,7 @@ public class UserController {
     }
 
     @Operation(summary = "People of a business with roles, status and invite state; platform callers pass businessId, managers see "
-            + "their hotels' people. scope=platform (SUPER_ADMIN) lists the admin team instead")
+            + "their hotels' people. scope=platform lists the admin team instead (any platform admin; changes stay SUPER_ADMIN)")
     @GetMapping
     @PreAuthorize("@access.managerView()")
     public ApiResponse<List<UserResponse>> list(@RequestParam(required = false) String scope,

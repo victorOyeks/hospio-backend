@@ -70,8 +70,9 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public MeResponse me(String userId) {
-        UserAccount user = find(userId);
-        List<RoleGrant> active = grants.findByUserId(userId).stream().filter(RoleGrant::isActive).toList();
+        // The caller's own row: a marketer (no business, scope marketer) would otherwise be hidden by the row-level policy.
+        UserAccount user = TenantContext.runWith(Tenant.system("me"), () -> find(userId));
+        List<RoleGrant> active = TenantContext.runWith(Tenant.system("me"), () -> grants.findByUserId(userId)).stream().filter(RoleGrant::isActive).toList();
         // The hotels a person can pick: their grant hotels plus, for an owner, every hotel of the business, which
         // the token already carries (TokenIssuer asks tenant-service); the grants alone would leave an owner with none.
         java.util.LinkedHashSet<String> hotelIds = new java.util.LinkedHashSet<>();
@@ -130,12 +131,12 @@ public class UserService {
         return matched.stream().map(u -> toResponse(u, byUser.getOrDefault(u.getId(), List.of()), inviteStatus.get(u.getId()))).toList();
     }
 
-    /** Admin team: every platform account (no business, a platform role), SUPER_ADMIN only. */
+    /** Admin team: every platform account (no business, a platform role). Any platform admin may read it (assignee pickers); changes stay SUPER_ADMIN only. */
     @Transactional(readOnly = true)
     public List<UserResponse> listPlatform(String q) {
         HospioUserDetails caller = CurrentUser.require();
-        if (!caller.isPlatform() || !caller.has(Role.SUPER_ADMIN)) {
-            throw new ForbiddenException("Only a super admin can see the admin team");
+        if (!caller.isPlatform()) {
+            throw new ForbiddenException("Only H.M.S staff can see the admin team");
         }
         String needle = StringUtils.hasText(q) ? q.trim().toLowerCase(Locale.ROOT) : null;
         List<UserAccount> accounts = users.findByBusinessIdIsNullOrderByFullName();
