@@ -11,4 +11,7 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, St
     Optional<PurchaseOrder> findByApprovalId(String approvalId);
 
     long countByHotelId(String hotelId);
+    List<PurchaseOrder> findBySupplierIdAndStatusIn(String supplierId, java.util.Collection<PurchaseOrder.Status> statuses);
+
+    List<PurchaseOrder> findByHotelIdAndStatusIn(String hotelId, java.util.Collection<PurchaseOrder.Status> statuses);
 }

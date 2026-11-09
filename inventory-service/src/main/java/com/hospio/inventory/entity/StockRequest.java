@@ -25,7 +25,7 @@ import lombok.experimental.SuperBuilder;
 @Table(name = "stock_requests")
 public class StockRequest extends TenantEntity {
 
-    public enum Status { REQUESTED, ISSUED, PART_ISSUED, DECLINED }
+    public enum Status { REQUESTED, ISSUED, PART_ISSUED, DECLINED, CLOSED }
 
     @Column(name = "from_team", nullable = false, length = 30)
     private String fromTeam;
@@ -52,4 +52,13 @@ public class StockRequest extends TenantEntity {
 
     @Column(name = "issued_at")
     private Instant issuedAt;
+
+    @Column(name = "requested_by_name", length = 150)
+    private String requestedByName;
+
+    @Column(name = "issued_by_name", length = 150)
+    private String issuedByName;
+
+    @Column(name = "reason", length = 300)
+    private String reason;
 }

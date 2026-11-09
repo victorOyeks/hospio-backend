@@ -39,4 +39,10 @@ public class Supplier extends TenantEntity {
     @Column(nullable = false)
     @lombok.Builder.Default
     private boolean active = true;
+
+    @Column(name = "address", length = 300)
+    private String address;
+
+    @Column(name = "notes", length = 500)
+    private String notes;
 }

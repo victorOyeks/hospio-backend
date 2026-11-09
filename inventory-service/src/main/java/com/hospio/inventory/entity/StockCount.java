@@ -49,4 +49,22 @@ public class StockCount extends TenantEntity {
 
     @Column(name = "closed_at")
     private Instant closedAt;
+
+    @Column(name = "note", length = 500)
+    private String note;
+
+    @Column(name = "started_by_name", length = 150)
+    private String startedByName;
+
+    @Column(name = "counted_by_name", length = 150)
+    private String countedByName;
+
+    @Column(name = "approved_by_name", length = 150)
+    private String approvedByName;
+
+    @Column(name = "variance_value")
+    private BigDecimal varianceValue;
+
+    @Column(name = "cancel_reason", length = 300)
+    private String cancelReason;
 }

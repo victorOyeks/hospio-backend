@@ -45,4 +45,13 @@ public class Delivery extends TenantEntity {
 
     @Column(name = "received_by", length = 36)
     private String receivedBy;
+
+    @Column(name = "invoice_number", length = 60)
+    private String invoiceNumber;
+
+    @Column(name = "received_by_name", length = 150)
+    private String receivedByName;
+
+    @Column(name = "summary", length = 300)
+    private String summary;
 }

@@ -9,4 +9,9 @@ public interface StockMovementRepository extends JpaRepository<StockMovement, St
     List<StockMovement> findByHotelIdOrderByCreatedAtDesc(String hotelId);
 
     boolean existsByReferenceAndKind(String reference, StockMovement.Kind kind);
+    List<StockMovement> findTop300ByHotelIdOrderByCreatedAtDesc(String hotelId);
+
+    List<StockMovement> findByHotelIdAndCreatedAtBetweenOrderByCreatedAtDesc(String hotelId, java.time.Instant from, java.time.Instant to);
+
+    List<StockMovement> findTop30ByItemIdOrderByCreatedAtDesc(String itemId);
 }

@@ -9,4 +9,5 @@ public interface StockRequestRepository extends JpaRepository<StockRequest, Stri
     List<StockRequest> findByHotelIdAndStatusOrderByCreatedAt(String hotelId, StockRequest.Status status);
 
     List<StockRequest> findByHotelIdAndFromTeamOrderByCreatedAtDesc(String hotelId, String fromTeam);
+    List<StockRequest> findByHotelIdOrderByCreatedAtDesc(String hotelId);
 }

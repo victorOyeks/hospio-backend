@@ -244,7 +244,15 @@ public class MessagingEventListener {
     @KafkaListener(topics = KafkaTopics.STOCK_ISSUED)
     public void onStockIssued(StockIssuedEvent e) {
         bound(e, () -> {
-            notifications.notifyRoles(e.getEventId(), "STOCK_ISSUED", "Supplies on the way", e.getItemCount() + " items issued", "/inventory/requests", e.getToTeam());
+            String status = e.getStatus() == null ? "ISSUED" : e.getStatus();
+            String title = switch (status) {
+                case "DECLINED" -> "Request declined";
+                case "CLOSED" -> "Rest of your request won't come";
+                case "PART_ISSUED" -> "Part of your request issued";
+                default -> "Supplies issued";
+            };
+            String body = e.getNote() != null ? e.getNote() : e.getItemCount() + " items issued";
+            notifications.notifyRoles(e.getEventId(), "STOCK_ISSUED", title, body, "/inventory/requests", e.getToTeam());
             return null;
         });
     }

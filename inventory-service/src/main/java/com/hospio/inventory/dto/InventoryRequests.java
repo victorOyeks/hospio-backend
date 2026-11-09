@@ -11,40 +11,61 @@ public final class InventoryRequests {
     private InventoryRequests() {
     }
 
-    public record StoreRequest(@NotBlank String name, String kind, Boolean active) {
+    public record StoreRequest(@NotBlank(message = "Give the store a name") String name, String kind, Boolean active) {
     }
 
-    public record ItemRequest(@NotBlank String name, String category, String unit, BigDecimal minLevel, BigDecimal unitCost,
-                              String supplierId, Boolean active) {
+    public record ItemRequest(@NotBlank(message = "Give the item a name") String name, String category, String unit, BigDecimal minLevel,
+                              BigDecimal parLevel, BigDecimal unitCost, String supplierId, Boolean active, String storeId,
+                              BigDecimal openingQuantity) {
     }
 
-    public record Line(@NotBlank String itemId, String name, @NotNull BigDecimal quantity, BigDecimal unitCost) {
+    /** A line on a request, issue, transfer, order, delivery or count. Which fields matter depends on where it is sent. */
+    public record Line(@NotBlank String itemId, String name, @NotNull(message = "Enter a quantity on every line") BigDecimal quantity,
+                       BigDecimal unitCost, BigDecimal damaged, String note) {
+
+        public Line(String itemId, String name, BigDecimal quantity, BigDecimal unitCost) {
+            this(itemId, name, quantity, unitCost, null, null);
+        }
     }
 
-    public record AdjustRequest(@NotBlank String itemId, @NotBlank String storeId, @NotNull BigDecimal quantity, @NotBlank String reason) {
+    public record AdjustRequest(@NotBlank String itemId, @NotBlank String storeId, @NotNull BigDecimal quantity,
+                                @NotBlank(message = "Give a reason for the correction") String reason) {
     }
 
     public record UseOrWasteRequest(@NotBlank String itemId, @NotBlank String storeId, @NotNull BigDecimal quantity, boolean waste, String note) {
     }
 
-    public record StockRequestDto(@NotBlank String fromTeam, String storeId, @NotNull List<Line> lines, String note) {
+    public record StockRequestDto(@NotBlank(message = "Say which team the request is for") String fromTeam, String storeId,
+                                  @NotNull(message = "Add at least one item") List<Line> lines, String note) {
     }
 
-    public record IssueRequest(@NotBlank String storeId, List<Line> lines) {
+    public record IssueRequest(@NotBlank(message = "Pick the store to issue from") String storeId, List<Line> lines) {
     }
 
-    public record SupplierRequest(@NotBlank String name, String contactName, String phone, String email, String paymentTerms, Boolean active) {
+    public record ReasonRequest(String reason) {
     }
 
-    public record PurchaseOrderRequest(@NotBlank String supplierId, String storeId, @NotNull List<Line> lines, LocalDate expectedOn) {
+    public record TransferRequest(@NotBlank(message = "Pick the store to move from") String fromStoreId,
+                                  @NotBlank(message = "Pick the store to move to") String toStoreId,
+                                  @NotNull(message = "Add at least one item") List<Line> lines, String note) {
     }
 
-    public record DeliveryRequest(String purchaseOrderId, String supplierName, @NotBlank String storeId, @NotNull List<Line> lines, String note) {
+    public record SupplierRequest(@NotBlank(message = "Give the supplier a name") String name, String contactName, String phone, String email,
+                                  String paymentTerms, String address, String notes, Boolean active, List<String> itemIds) {
     }
 
-    public record CountRequest(@NotBlank String storeId) {
+    public record PurchaseOrderRequest(@NotBlank(message = "Pick a supplier") String supplierId, String storeId,
+                                       @NotNull(message = "Add at least one item") List<Line> lines, LocalDate expectedOn, String note,
+                                       Boolean submit) {
     }
 
-    public record CountLinesRequest(@NotNull List<Line> lines) {
+    public record DeliveryRequest(String purchaseOrderId, String supplierName, String storeId, String invoiceNumber,
+                                  @NotNull(message = "Add what arrived") List<Line> lines, String note) {
+    }
+
+    public record CountRequest(@NotBlank(message = "Pick the store to count") String storeId) {
+    }
+
+    public record CountLinesRequest(@NotNull(message = "Enter what you counted") List<Line> lines, String note) {
     }
 }

@@ -7,4 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface StockItemRepository extends JpaRepository<StockItem, String> {
     List<StockItem> findByHotelIdAndActiveTrueOrderByCategoryAscNameAsc(String hotelId);
+    List<StockItem> findByHotelIdOrderByCategoryAscNameAsc(String hotelId);
+
+    List<StockItem> findBySupplierId(String supplierId);
 }

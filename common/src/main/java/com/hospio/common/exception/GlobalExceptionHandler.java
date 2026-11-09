@@ -59,7 +59,9 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({ForbiddenException.class, AccessDeniedException.class})
     public ResponseEntity<ApiResponse<Void>> forbidden(Exception e, HttpServletRequest request) {
         warn(e, request);
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(e.getMessage()));
+        String message = e instanceof AccessDeniedException && "Access Denied".equals(e.getMessage())
+                ? "You don't have access to do that" : e.getMessage();
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(message));
     }
 
     @ExceptionHandler(AuthenticationException.class)
@@ -79,7 +81,11 @@ public class GlobalExceptionHandler {
         Map<String, String> fields = new LinkedHashMap<>();
         e.getBindingResult().getFieldErrors().forEach(f -> fields.put(f.getField(), f.getDefaultMessage()));
         log.warn("{} {} -> 400 Validation failed: {}", request.getMethod(), request.getRequestURI(), fields);
-        return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", fields));
+        // The first field's message reads as the error ("Give a reason for the correction"); a stock "must not be blank" names its field.
+        String first = fields.entrySet().stream().findFirst()
+                .map(f -> f.getValue() == null ? "Validation failed" : f.getValue().startsWith("must ") ? f.getKey() + " " + f.getValue() : f.getValue())
+                .orElse("Validation failed");
+        return ResponseEntity.badRequest().body(ApiResponse.error(first, fields));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)

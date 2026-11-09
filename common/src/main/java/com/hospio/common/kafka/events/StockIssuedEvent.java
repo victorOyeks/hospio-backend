@@ -15,6 +15,10 @@ public class StockIssuedEvent extends HospioEvent {
     private String requestId;
     private String toTeam;
     private Integer itemCount;
+    /** ISSUED, PART_ISSUED, DECLINED or CLOSED (null from older senders: issued). */
+    private String status;
+    /** What was issued ("5 kg Rice, 2 litres Oil"), or the reason it was declined. */
+    private String note;
 
     @Override
     public String summary() {

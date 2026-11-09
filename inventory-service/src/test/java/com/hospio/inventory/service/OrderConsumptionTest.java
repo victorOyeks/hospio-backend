@@ -48,7 +48,8 @@ class OrderConsumptionTest {
     private final StockMovementRepository movements = mock(StockMovementRepository.class);
     private final EventPublisher events = mock(EventPublisher.class);
     private final InventoryService service = new InventoryService(stores, items, levels, movements, mock(StockRequestRepository.class), mock(SupplierRepository.class),
-            mock(PurchaseOrderRepository.class), mock(DeliveryRepository.class), mock(StockCountRepository.class), new ObjectMapper(), events);
+            mock(PurchaseOrderRepository.class), mock(DeliveryRepository.class), mock(StockCountRepository.class), new ObjectMapper(), events,
+            com.hospio.inventory.client.ApprovalLimit.fixed(new BigDecimal("200000")), mock(com.hospio.common.delivery.DeliveryService.class));
 
     private final List<StockMovement> recorded = new ArrayList<>();
     private final StockLevel rice = StockLevel.builder().itemId("rice").storeId("kitchen").quantity(new BigDecimal("10.00")).build();

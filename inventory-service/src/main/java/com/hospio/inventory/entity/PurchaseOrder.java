@@ -25,7 +25,7 @@ import lombok.experimental.SuperBuilder;
 @Table(name = "purchase_orders")
 public class PurchaseOrder extends TenantEntity {
 
-    public enum Status { DRAFT, PENDING_APPROVAL, SENT, RECEIVED, CANCELLED }
+    public enum Status { DRAFT, PENDING_APPROVAL, SENT, PARTIAL, RECEIVED, CLOSED, CANCELLED }
 
     @Column(nullable = false, length = 20)
     private String number;
@@ -59,4 +59,26 @@ public class PurchaseOrder extends TenantEntity {
 
     @Column(name = "sent_at")
     private Instant sentAt;
+
+    @Column(name = "note", length = 500)
+    private String note;
+
+    @Column(name = "created_by_name", length = 150)
+    private String createdByName;
+
+    @Column(name = "approver_level", length = 20)
+    private String approverLevel;
+
+    @Column(name = "decision_note", length = 500)
+    private String decisionNote;
+
+    @Column(name = "cancel_reason", length = 300)
+    private String cancelReason;
+
+    @Column(name = "sent_to", length = 255)
+    private String sentTo;
+
+    @Column(name = "received_value", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal receivedValue = BigDecimal.ZERO;
 }

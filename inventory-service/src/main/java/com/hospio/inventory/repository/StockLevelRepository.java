@@ -11,4 +11,5 @@ public interface StockLevelRepository extends JpaRepository<StockLevel, String> 
     List<StockLevel> findByStoreId(String storeId);
 
     List<StockLevel> findByHotelId(String hotelId);
+    List<StockLevel> findByItemId(String itemId);
 }

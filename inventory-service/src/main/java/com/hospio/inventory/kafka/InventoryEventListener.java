@@ -27,7 +27,7 @@ public class InventoryEventListener {
         }
         tenant.bind(e);
         try {
-            service.onOrderDecided(e.getApprovalId(), e.getDecision());
+            service.onOrderDecided(e.getApprovalId(), e.getDecision(), e.getDecidedByName(), e.getNote());
         } finally {
             TenantContext.clear();
         }

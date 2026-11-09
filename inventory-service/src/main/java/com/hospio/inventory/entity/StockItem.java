@@ -47,4 +47,8 @@ public class StockItem extends TenantEntity {
     @Column(nullable = false)
     @lombok.Builder.Default
     private boolean active = true;
+
+    @Column(name = "par_level", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal parLevel = BigDecimal.ZERO;
 }

@@ -25,7 +25,7 @@ import lombok.experimental.SuperBuilder;
 @Table(name = "stock_movements")
 public class StockMovement extends TenantEntity {
 
-    public enum Kind { RECEIVED, ISSUED, USED, WASTE, ADJUSTED, COUNTED }
+    public enum Kind { RECEIVED, ISSUED, USED, WASTE, ADJUSTED, COUNTED, TRANSFER_OUT, TRANSFER_IN }
 
     @Column(name = "item_id", nullable = false, length = 36)
     private String itemId;
@@ -48,4 +48,13 @@ public class StockMovement extends TenantEntity {
 
     @Column(name = "by_user", length = 36)
     private String byUser;
+
+    @Column(name = "unit_cost")
+    private BigDecimal unitCost;
+
+    @Column(name = "team", length = 30)
+    private String team;
+
+    @Column(name = "by_name", length = 150)
+    private String byName;
 }

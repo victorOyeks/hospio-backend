@@ -7,7 +7,7 @@ The hotel's stores end to end on inventory-service: a main store and outlet stor
 | Step | Status |
 |---|---|
 | 1 · Contract | done (2026-11-09) |
-| 2 · Backend (inventory-service, common event/delivery kind, messaging) | in progress |
+| 2 · Backend (inventory-service, common event/delivery kind, messaging) | committed (2026-11-09), deploying |
 | 3 · Web screens wired (inventory role, manager and owner hub, finance figure) | to do |
 | 4 · Staging verification (API + browser, every role) | to do |
 | 5 · QA script `hotel-internal-system-admin-FE/docs/qa/inventory-stores.md` | to do |
@@ -22,6 +22,7 @@ The hotel's stores end to end on inventory-service: a main store and outlet stor
 - **Approval limit for purchase orders** = Hotel setup → Approval limits → `managerExpenseLimit` (default ₦200,000; `hospio.approvals.manager-spend-limit` when hotel-config can't be reached). At or under it an order goes straight to the supplier. Over it: raised by the storekeeper → the manager approves; raised by a manager → the owner approves; raised by the owner → sent. Approval uses the existing approvals (platform-service `APPROVAL_REQUESTED`/`APPROVAL_DECIDED`, kind `PURCHASE_ORDER`), so it shows on the manager's Approvals screen and the owner's approvals.
 - **Deliveries** (anything that would be emailed or texted) are echoed in the response on staging (`deliveries`), as elsewhere: the order sent to the supplier (email when the supplier has one, else SMS to their phone).
 - Money is in naira with 2 decimals; quantities 2 decimals.
+- Errors: a 403 from a route guard reads "You don't have access to do that"; a bean-validation 400 carries the first field's message (common `GlobalExceptionHandler`).
 
 ## inventory-service (`/inventory`)
 
@@ -92,7 +93,6 @@ The hotel's stores end to end on inventory-service: a main store and outlet stor
 |---|---|---|---|
 | GET | `/value` | STORE, FINANCE, manager, owner | `{total, stores:[{storeId, name, kind, items, lowItems, value}], low:[{itemId, name, unit, storeId, storeName, quantity, minLevel, parLevel, suggest, unitCost, supplierId, supplierName}], onOrder}`; `suggest` = par (or 2 × min) − quantity; `onOrder` = value still to arrive on SENT/PARTIAL orders |
 | GET | `/usage?from=&to=` | same | `{from, to, stores:[{storeId, name, kind, received, transferredIn, issuedOut, used, wasted, counted}], teams:[{team, issued}], totals:{received, used, wasted, counted, issued}}`; values at each movement's cost; dates are Lagos days, default the last 30 days |
-| GET | `/internal/value?hotelId=` | internal | `{total}` for other services (not used yet) |
 
 ### Seed (`hospio.seed.enabled`)
 For Royal Suites · Simpas Ikeja (missing rows only): "Main store" (MAIN, id `80000000-0000-4000-8000-000000000003`) holding back stock of the 20 kitchen and bar items plus housekeeping items (bath soap, toilet roll, hand towel, detergent, bin liners) with levels; a "Housekeeping store" is not created (housekeeping is issued to directly). Suppliers "Lagos Fresh Foods" (produce, meat, dry goods), "Ikeja Drinks Depot" (beer, soft drinks), "CleanPro Supplies" (housekeeping), linked as the items' usual supplier.
