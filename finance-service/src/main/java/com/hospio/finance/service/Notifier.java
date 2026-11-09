@@ -23,6 +23,11 @@ public class Notifier {
         return peers.contact(userId).map(c -> send(c.email(), c.phone(), subject, text, kind, ref)).orElse(List.of());
     }
 
+    /** A person's name from identity, when it can be read. */
+    public java.util.Optional<String> nameOf(String userId) {
+        return userId == null ? java.util.Optional.empty() : peers.contact(userId).map(PeerServices.Contact::fullName);
+    }
+
     public List<Delivery> toManagers(String hotelId, String subject, String text, Delivery.Kind kind, String ref) {
         List<Delivery> out = new ArrayList<>();
         for (PeerServices.Contact c : peers.withRole(hotelId, "MANAGER")) {

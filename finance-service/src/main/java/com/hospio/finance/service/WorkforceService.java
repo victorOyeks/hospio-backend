@@ -148,7 +148,7 @@ public class WorkforceService {
         if (approved) {
             if (r.getWithUserId() != null) {
                 s.setUserId(r.getWithUserId());
-                s.setUserName(null);
+                s.setUserName(notifier.nameOf(r.getWithUserId()).orElse(null));
             }
             s.setStatus(r.getKind() == ShiftRequest.Kind.SWAP ? Shift.Status.SWAPPED : Shift.Status.COVERED);
             shifts.save(s);

@@ -250,7 +250,7 @@ public class MessagingEventListener {
     public void onLeaveDecided(LeaveDecidedEvent e) {
         bound(e, () -> {
             notifications.notify(e.getEventId(), e.getStaffUserId(), null, "LEAVE_DECIDED",
-                    "Your leave was " + nz(e.getDecision()).toLowerCase().replace('_', ' '),
+                    "CHANGE_REQUESTED".equals(e.getDecision()) ? "Your manager suggested other dates for your leave" : "Your leave was " + nz(e.getDecision()).toLowerCase().replace('_', ' '),
                     e.getFromDate() + " to " + e.getToDate() + (e.getNote() == null || e.getNote().isBlank() ? "" : " · " + e.getNote()), "/shifts");
             return null;
         });
