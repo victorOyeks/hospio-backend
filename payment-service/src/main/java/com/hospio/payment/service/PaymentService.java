@@ -225,7 +225,7 @@ public class PaymentService {
             terminals.markOnline(terminals.find(p.getTerminalId()));
         }
         Receipt receipt = receipts.findByPaymentId(p.getId()).orElseGet(() -> receipts.save(Receipt.builder().paymentId(p.getId())
-                .number("RCP-" + LocalDate.now().getYear() + "-" + String.format("%06d", receipts.countByHotelId(p.getHotelId()) + 1)).build()));
+                .number(nextReceiptNumber(p.getHotelId())).build()));
         events.publish(KafkaTopics.PAYMENT_APPROVED, PaymentApprovedEvent.builder().paymentId(p.getId()).folioId(p.getFolioId())
                 .bookingId(p.getBookingId()).guestName(p.getGuestName()).guestPhone(p.getGuestPhone()).guestEmail(p.getGuestEmail())
                 .amount(p.getAmount()).method(p.getMethod().name()).role(p.getRole().name()).providerRef(p.getProviderRef())
@@ -244,5 +244,16 @@ public class PaymentService {
 
     PaymentRequest find(String id) {
         return payments.findById(id).orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
+    }
+
+    /** Next number in this hotel's run for the year (RCP-2026-000042): one past the highest issued, so gaps or a reset year never repeat one. */
+    private String nextReceiptNumber(String hotelId) {
+        String prefix = "RCP-" + LocalDate.now().getYear() + "-";
+        long next = receipts.maxNumber(hotelId, prefix)
+                .map(n -> n.substring(prefix.length()))
+                .filter(n -> n.chars().allMatch(Character::isDigit) && !n.isEmpty())
+                .map(Long::parseLong)
+                .orElse(0L) + 1;
+        return prefix + String.format("%06d", next);
     }
 }
