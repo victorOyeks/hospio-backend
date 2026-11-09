@@ -136,7 +136,7 @@ CREATE INDEX idx_alerts_business ON platform.alerts (business_id, kind);
 
 --changeset hospio:012-admin-portal-row-level-security
 -- Business-scoped tables take the standard policy (the owner may see their own statements' payments, ticket
--- comments and alerts; the platform sees everything). Settings, profiles and referrals have no business:
+-- ticket comments and alerts; the platform sees everything). Settings, profiles and referrals have no business:
 -- platform only, and every reader (admin routes, the marketer portal running as the system, payment-service's
 -- settings lookup) is in the platform scope.
 CALL app.protect('platform', 'fee_payments', NULL);
