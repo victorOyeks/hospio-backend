@@ -52,7 +52,14 @@ hospio:
   logging:
     # Log request bodies and error responses (secrets masked). On for dev/staging via HOSPIO_LOG_BODIES.
     bodies: ${HOSPIO_LOG_BODIES:false}
+  seed:
+    # Creates the admin portal's staging data (settings defaults, Royal Suites statements and tickets, the marketer) when missing (env SEED_DEMO_DATA).
+    enabled: ${SEED_DEMO_DATA:false}
+  apps:
+    # Where the marketer invite link points.
+    admin-url: ${ADMIN_APP_URL:https://admin-staging.hospio360.com}
   worker:
+    # The nightly job (01:30 Lagos): overdue statements, health scores, alert sweep.
     enabled: ${WORKER_ENABLED:true}
   storage:
     type: ${STORAGE_TYPE:local}

@@ -38,7 +38,25 @@ public class FeeStatement extends TenantEntity {
     @lombok.Builder.Default
     private BigDecimal paidAmount = BigDecimal.ZERO;
 
+    /** DUE, PART_PAID, PAID or OVERDUE (set by the nightly job once dueOn + grace days have passed). */
     @Column(nullable = false, length = 20)
     @lombok.Builder.Default
     private String status = "DUE";
+
+    @Column(name = "due_on")
+    private LocalDate dueOn;
+
+    @Column(name = "business_name", length = 150)
+    private String businessName;
+
+    /** JSON array of {hotelId, hotelName, base, fee}. */
+    @Column(columnDefinition = "text")
+    private String lines;
+
+    @Column(name = "sent_at")
+    private Instant sentAt;
+
+    public BigDecimal outstanding() {
+        return feeAmount == null ? BigDecimal.ZERO : feeAmount.subtract(paidAmount == null ? BigDecimal.ZERO : paidAmount);
+    }
 }

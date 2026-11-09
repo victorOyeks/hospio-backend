@@ -49,4 +49,13 @@ public class Commission extends TenantEntity {
 
     @Column(name = "paid_at")
     private Instant paidAt;
+
+    @Column(name = "profile_id", length = 36)
+    private String profileId;
+
+    @Column(name = "paid_reference", length = 100)
+    private String paidReference;
+
+    @Column(name = "paid_on")
+    private LocalDate paidOn;
 }

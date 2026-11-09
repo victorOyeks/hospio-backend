@@ -8,6 +8,9 @@ import com.hospio.payment.entity.PosRoleAssignment;
 import com.hospio.payment.entity.PosTerminal;
 import com.hospio.payment.repository.PosRoleAssignmentRepository;
 import com.hospio.payment.repository.PosTerminalRepository;
+import com.hospio.payment.repository.SettlementRepository;
+import com.hospio.payment.service.SettlementService;
+import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +25,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * POS terminals for Simpas Ikeja, one per role that takes payments, on the "logging" provider: card
  * and transfer requests are accepted and stay PROCESSING until a webhook (or Verify) settles them, which
  * is what lets testers walk the POS flow without a real terminal. Created when missing; a terminal a
- * manager renamed or re-assigned in Hotel setup is left alone.
+ * manager renamed or re-assigned in Hotel setup is left alone. Also runs yesterday's settlements once.
  */
 @Slf4j
 @Component
@@ -41,6 +44,8 @@ public class DataSeeder implements ApplicationRunner {
 
     private final PosTerminalRepository terminals;
     private final PosRoleAssignmentRepository assignments;
+    private final SettlementRepository settlements;
+    private final SettlementService settlementService;
     private final PlatformTransactionManager transactionManager;
 
     @Override
@@ -67,6 +72,21 @@ public class DataSeeder implements ApplicationRunner {
             } else {
                 log.info("POS terminals for {} already present; nothing seeded", SeedFixtures.HOTEL_NAME);
             }
+        }));
+        seedSettlementRun();
+    }
+
+    /** One settlement run for yesterday, as the platform, when that day has none yet; a day without card payments creates nothing. */
+    private void seedSettlementRun() {
+        LocalDate yesterday = LocalDate.now(SettlementService.LAGOS).minusDays(1);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        TenantContext.runWith(Tenant.system("seed"), () -> tx.executeWithoutResult(status -> {
+            if (settlements.existsByPeriodDate(yesterday)) {
+                log.info("Settlements for {} already present; nothing seeded", yesterday);
+                return;
+            }
+            var result = settlementService.run(yesterday);
+            log.info("Seed settlement run for {}: {} created", yesterday, result.created());
         }));
     }
 }

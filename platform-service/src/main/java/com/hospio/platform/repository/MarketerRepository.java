@@ -11,4 +11,8 @@ public interface MarketerRepository extends JpaRepository<Marketer, String> {
     List<Marketer> findByUserId(String userId);
 
     List<Marketer> findByBusinessId(String businessId);
+
+    List<Marketer> findByProfileIdOrderByCreatedAtDesc(String profileId);
+
+    Optional<Marketer> findByBusinessIdAndProfileId(String businessId, String profileId);
 }

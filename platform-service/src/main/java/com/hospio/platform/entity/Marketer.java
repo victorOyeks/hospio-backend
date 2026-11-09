@@ -53,4 +53,17 @@ public class Marketer extends TenantEntity {
 
     @Column(name = "ended_on")
     private LocalDate endedOn;
+
+    /** The person behind this agreement ({@link MarketerProfile}); null for agreements made before profiles existed. */
+    @Column(name = "profile_id", length = 36)
+    private String profileId;
+
+    /** The agreement still earns in {@code month} (yyyy-MM) when active and within its months from the start. */
+    public boolean earnsIn(java.time.YearMonth month) {
+        if (!"ACTIVE".equals(status) || startedOn == null) {
+            return false;
+        }
+        java.time.YearMonth start = java.time.YearMonth.from(startedOn);
+        return !month.isBefore(start) && month.isBefore(start.plusMonths(months));
+    }
 }

@@ -2,14 +2,19 @@ package com.hospio.platform.controller;
 
 import com.hospio.common.response.ApiResponse;
 import com.hospio.common.response.PagedResponse;
+import com.hospio.platform.dto.AdminResponses.ChangeRow;
+import com.hospio.platform.dto.AdminResponses.TicketDetail;
 import com.hospio.platform.dto.PlatformRequests;
 import com.hospio.platform.entity.ActivityEntry;
 import com.hospio.platform.entity.PlatformChange;
 import com.hospio.platform.entity.Report;
 import com.hospio.platform.entity.SupportTicket;
 import com.hospio.platform.service.ActivityLogService;
+import com.hospio.platform.service.ChangeService;
 import com.hospio.platform.service.DepartmentsLiveService;
 import com.hospio.platform.service.PlatformAdminService;
+import com.hospio.platform.service.SupportService;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +35,8 @@ public class InsightsController {
     private final ActivityLogService activity;
     private final DepartmentsLiveService live;
     private final PlatformAdminService admin;
+    private final SupportService support;
+    private final ChangeService changes;
 
     @GetMapping("/activity")
     public ApiResponse<PagedResponse<ActivityEntry>> activity(@RequestParam(required = false) String businessId,
@@ -59,24 +66,34 @@ public class InsightsController {
         return ApiResponse.ok(request.schedule() == null ? "Report ready" : "Report scheduled", admin.requestReport(request));
     }
 
+    @Operation(summary = "Hotel users: the tickets of their business (status filter optional); the platform gets the open ones")
     @GetMapping("/support/tickets")
     public ApiResponse<List<SupportTicket>> tickets(@RequestParam(required = false) String status) {
-        return ApiResponse.ok(admin.tickets(status));
+        return ApiResponse.ok(support.mine(status));
     }
 
+    @Operation(summary = "Hotel users: one of their tickets with its non-internal comments")
+    @GetMapping("/support/tickets/{id}")
+    public ApiResponse<TicketDetail> ticket(@PathVariable String id) {
+        return ApiResponse.ok(support.get(id));
+    }
+
+    @Operation(summary = "Hotel users: open a ticket for their business")
     @PostMapping("/support/tickets")
     public ApiResponse<SupportTicket> openTicket(@Valid @RequestBody PlatformRequests.TicketRequest request) {
-        return ApiResponse.ok("Ticket opened", admin.openTicket(request));
+        return ApiResponse.ok("Ticket opened", support.open(request));
     }
 
+    @Operation(summary = "Changes H.M.S made in the caller's business (platform names a businessId)")
     @GetMapping("/changes")
-    public ApiResponse<List<PlatformChange>> changes(@RequestParam(required = false) String businessId) {
-        return ApiResponse.ok(admin.changes(businessId));
+    public ApiResponse<List<ChangeRow>> changes(@RequestParam(required = false) String businessId) {
+        return ApiResponse.ok(changes.forCaller(businessId));
     }
 
+    @Operation(summary = "Undo a change by H.M.S within 7 days: the business's owner or the platform")
     @PostMapping("/changes/{id}/undo")
-    @PreAuthorize("@access.owner()")
+    @PreAuthorize("@access.owner() or @access.platform()")
     public ApiResponse<PlatformChange> undo(@PathVariable String id) {
-        return ApiResponse.ok("Change undone", admin.undo(id));
+        return ApiResponse.ok("Change undone", changes.undo(id));
     }
 }

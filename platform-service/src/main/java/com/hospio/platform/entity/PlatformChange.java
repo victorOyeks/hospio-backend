@@ -52,4 +52,14 @@ public class PlatformChange extends TenantEntity {
 
     @Column(name = "undone_at")
     private Instant undoneAt;
+
+    @Column(name = "undone_by", length = 36)
+    private String undoneBy;
+
+    @Column(name = "business_name", length = 150)
+    private String businessName;
+
+    public boolean isUndone() {
+        return undoneAt != null;
+    }
 }

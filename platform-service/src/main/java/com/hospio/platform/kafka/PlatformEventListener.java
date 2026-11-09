@@ -20,7 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Every action → activity log (card 12). This listener subscribes to every topic; each event is
  * logged under its business and hotel and bumps the live Departments board. ApprovalRequested also
- * opens an approval.
+ * opens an approval, and {@link PlatformDomainEvents} applies the admin portal's rules (marketers, alerts).
  */
 @Slf4j
 @Component
@@ -30,6 +30,7 @@ public class PlatformEventListener {
     private final ActivityLogService activityLog;
     private final ApprovalService approvals;
     private final DepartmentsLiveService live;
+    private final PlatformDomainEvents domain;
     private final TenantBinder tenant;
 
     @Transactional
@@ -40,6 +41,11 @@ public class PlatformEventListener {
             activityLog.record(topic, event);
             if (KafkaTopics.APPROVAL_REQUESTED.equals(topic) && event instanceof ApprovalRequestedEvent e) {
                 approvals.onRequested(e);
+            }
+            try {
+                domain.on(topic, event);
+            } catch (Exception e) {
+                log.warn("Admin portal rules not applied for {} {}: {}", event.type(), event.getEventId(), e.getMessage());
             }
             try {
                 live.bump(topic, event);

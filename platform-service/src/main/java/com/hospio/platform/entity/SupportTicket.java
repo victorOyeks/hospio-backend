@@ -50,4 +50,20 @@ public class SupportTicket extends TenantEntity {
 
     @Column(name = "resolved_at")
     private Instant resolvedAt;
+
+    @Column(name = "business_name", length = 150)
+    private String businessName;
+
+    @Column(name = "opened_by_name", length = 150)
+    private String openedByName;
+
+    @Column(name = "assigned_to_name", length = 150)
+    private String assignedToName;
+
+    @Column(name = "last_activity_at")
+    private Instant lastActivityAt;
+
+    public boolean isOpen() {
+        return "OPEN".equals(status) || "IN_PROGRESS".equals(status);
+    }
 }
