@@ -58,6 +58,14 @@ public class FinanceController {
         return ApiResponse.ok(service.summary(from, to));
     }
 
+    /** Revenue between two dates by the desk that took it, with each share of the total. */
+    @GetMapping("/income")
+    @PreAuthorize(READ)
+    public ApiResponse<List<ReportingService.IncomeSource>> income(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                                                  @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ApiResponse.ok(reporting.income(from, to));
+    }
+
     /** Per day {date, revenue, expenses} for the range. */
     @GetMapping("/series")
     @PreAuthorize(READ)

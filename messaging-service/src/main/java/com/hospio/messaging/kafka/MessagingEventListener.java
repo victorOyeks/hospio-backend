@@ -274,8 +274,8 @@ public class MessagingEventListener {
             if (e.getVariance() != null && e.getVariance().signum() != 0) {
                 String role = nz(e.getRole()).toLowerCase().replace('_', ' ');
                 notifications.notifyRoles(e.getEventId(), "TILL_SHORT",
-                        (e.getVariance().signum() < 0 ? "Till short " : "Till over ") + e.getVariance().abs().toPlainString() + " · " + role,
-                        "Expected " + e.getExpectedCash().toPlainString() + " · counted " + e.getCountedCash().toPlainString(), "/financials", "MANAGER");
+                        (e.getVariance().signum() < 0 ? "Till short " : "Till over ") + naira(e.getVariance().abs()) + " · " + role,
+                        "Expected " + naira(e.getExpectedCash()) + " · counted " + naira(e.getCountedCash()), "/financials", "MANAGER");
             }
             return null;
         });
@@ -286,7 +286,7 @@ public class MessagingEventListener {
     public void onDayClosed(DayClosedEvent e) {
         bound(e, () -> {
             notifications.notifyRoles(e.getEventId(), "DAY_CLOSED", "Day closed · " + e.getBusinessDate(),
-                    "Revenue " + (e.getRevenue() == null ? "0" : e.getRevenue().toPlainString()) + " · closed by " + nz(e.getClosedBy()), "/night-audit", "OWNER", "MANAGER");
+                    "Revenue " + naira(e.getRevenue()) + " · closed by " + nz(e.getClosedBy()), "/night-audit", "OWNER", "MANAGER");
             return null;
         });
     }
@@ -298,6 +298,11 @@ public class MessagingEventListener {
         } finally {
             TenantContext.clear();
         }
+    }
+
+    /** 264300.00 → ₦264,300 */
+    private static String naira(java.math.BigDecimal amount) {
+        return "₦" + java.text.NumberFormat.getIntegerInstance(java.util.Locale.UK).format(amount == null ? java.math.BigDecimal.ZERO : amount.setScale(0, java.math.RoundingMode.HALF_UP));
     }
 
     private static String nz(String s) {

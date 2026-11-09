@@ -72,6 +72,36 @@ public class ReportingService {
         return points;
     }
 
+    public record IncomeSource(String source, BigDecimal amount, int pct) {
+    }
+
+    /** Where the money came from between two dates: revenue by the desk that took it, largest first, with each share of the total. */
+    @Transactional(readOnly = true)
+    public List<IncomeSource> income(LocalDate from, LocalDate to) {
+        range(from, to);
+        Map<String, BigDecimal> by = new LinkedHashMap<>();
+        revenue.findByHotelIdAndBusinessDateBetween(TenantContext.requireHotel(), from, to)
+                .forEach(r -> by.merge(sourceOf(r.getRole()), r.getAmount(), BigDecimal::add));
+        BigDecimal total = by.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        return by.entrySet().stream().sorted((a, b) -> b.getValue().compareTo(a.getValue()))
+                .map(e -> new IncomeSource(e.getKey(), Money.of(e.getValue()),
+                        total.signum() == 0 ? 0 : e.getValue().multiply(BigDecimal.valueOf(100)).divide(total, 0, java.math.RoundingMode.HALF_UP).intValue()))
+                .toList();
+    }
+
+    private static String sourceOf(String role) {
+        if (role == null) {
+            return "Other";
+        }
+        return switch (role) {
+            case "FRONT_OFFICE", "MANAGER", "OWNER" -> "Rooms & front desk";
+            case "BAR" -> "Bar";
+            case "KITCHEN" -> "Kitchen & restaurant";
+            case "LAUNDRY" -> "Laundry";
+            default -> "Other";
+        };
+    }
+
     /** Payments, expenses paid, bank deposits and till movements for a day, newest first. Money leaving the hotel's cash is negative. */
     @Transactional(readOnly = true)
     public List<Transaction> transactions(LocalDate date) {
