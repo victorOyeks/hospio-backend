@@ -72,12 +72,20 @@ public class UserService {
     public MeResponse me(String userId) {
         UserAccount user = find(userId);
         List<RoleGrant> active = grants.findByUserId(userId).stream().filter(RoleGrant::isActive).toList();
+        // The hotels a person can pick: their grant hotels plus, for an owner, every hotel of the business, which
+        // the token already carries (TokenIssuer asks tenant-service); the grants alone would leave an owner with none.
+        java.util.LinkedHashSet<String> hotelIds = new java.util.LinkedHashSet<>();
+        active.stream().map(RoleGrant::getHotelId).filter(h -> h != null).forEach(hotelIds::add);
+        CurrentUser.get().filter(c -> userId.equals(c.getUserId())).ifPresent(c -> hotelIds.addAll(c.getHotelIds()));
+        if (hotelIds.isEmpty() && user.getBusinessId() != null && active.stream().anyMatch(g -> g.getRole() == Role.OWNER)) {
+            tenantClient.hotelIds(user.getBusinessId()).ifPresent(hotelIds::addAll);
+        }
         return new MeResponse(user.getId(), user.getFullName(), user.getEmail(), user.getPhone(), user.getBusinessId(),
                 user.getStatus().name(),
                 active.stream().map(g -> g.getRole().name()).distinct().toList(),
                 active.stream().map(g -> new MeResponse.RoleLevel(g.getRole().name(), g.getLevel().name(), g.getHotelId())).toList(),
                 user.isPhoneVerified(), !user.isMustChangePassword(), user.isTwoStepEnabled(),
-                active.stream().map(RoleGrant::getHotelId).filter(h -> h != null).distinct().toList(),
+                List.copyOf(hotelIds),
                 user.getCreatedAt());
     }
 

@@ -170,7 +170,7 @@ public class BusinessService {
     public BusinessResponse update(String id, UpdateBusinessRequest r) {
         requirePlatform();
         Business b = find(id);
-        b.setName(r.name());
+        if (StringUtils.hasText(r.name())) b.setName(r.name().trim());
         if (r.legalName() != null) b.setLegalName(r.legalName());
         if (r.registrationNumber() != null) b.setRegistrationNumber(r.registrationNumber());
         if (r.businessType() != null) b.setBusinessType(r.businessType());
