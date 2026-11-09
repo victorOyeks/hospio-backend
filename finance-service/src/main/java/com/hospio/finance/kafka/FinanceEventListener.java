@@ -25,7 +25,7 @@ public class FinanceEventListener {
     public void onPaymentApproved(PaymentApprovedEvent e) {
         tenant.bind(e);
         try {
-            money.recordPayment(e.getPaymentId(), e.getAmount(), e.getMethod(), e.getRole(), e.getFolioId(), e.getOccurredAt());
+            money.recordPayment(e.getPaymentId(), e.getAmount(), e.getMethod(), e.getRole(), e.getFolioId(), e.getOccurredAt(), e.getGuestName());
         } finally {
             TenantContext.clear();
         }

@@ -74,7 +74,7 @@ public class MoneyService {
     // ---- revenue from PaymentApproved ---------------------------------------------------------------
 
     @Transactional
-    public void recordPayment(String paymentId, BigDecimal amount, String method, String role, String folioId, Instant at) {
+    public void recordPayment(String paymentId, BigDecimal amount, String method, String role, String folioId, Instant at, String guestName) {
         if (revenue.findByPaymentId(paymentId).isPresent()) {
             return;
         }
@@ -85,7 +85,7 @@ public class MoneyService {
                 .unattachedCash(cash && till.isEmpty()).build());
         till.ifPresent(t -> {
             if (tillEntries.findByPaymentId(paymentId).isEmpty()) {
-                addEntry(t, TillEntry.Kind.PAYMENT, Money.of(amount), method, "Cash payment", null, paymentId);
+                addEntry(t, TillEntry.Kind.PAYMENT, Money.of(amount), method, guestName == null || guestName.isBlank() ? "Cash payment" : "Cash payment · " + guestName, null, paymentId);
             }
         });
     }
