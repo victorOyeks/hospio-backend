@@ -5,9 +5,11 @@ import com.hospio.common.kafka.KafkaTopics;
 import com.hospio.common.kafka.events.ApprovalDecidedEvent;
 import com.hospio.common.kafka.events.ApprovalRequestedEvent;
 import com.hospio.common.kafka.events.BookingCreatedEvent;
+import com.hospio.common.kafka.events.DayClosedEvent;
 import com.hospio.common.kafka.events.GuestCheckedOutEvent;
 import com.hospio.common.kafka.events.HospioEvent;
 import com.hospio.common.kafka.events.ItemSoldOutEvent;
+import com.hospio.common.kafka.events.LeaveDecidedEvent;
 import com.hospio.common.kafka.events.LeaveRequestedEvent;
 import com.hospio.common.kafka.events.LinenRequestedEvent;
 import com.hospio.common.kafka.events.OrderCreatedEvent;
@@ -18,9 +20,11 @@ import com.hospio.common.kafka.events.ProblemReportedEvent;
 import com.hospio.common.kafka.events.RepairOpenedEvent;
 import com.hospio.common.kafka.events.RoomOutOfOrderEvent;
 import com.hospio.common.kafka.events.ShiftChangeRequestedEvent;
+import com.hospio.common.kafka.events.ShiftRequestDecidedEvent;
 import com.hospio.common.kafka.events.StockIssuedEvent;
 import com.hospio.common.kafka.events.StockLowEvent;
 import com.hospio.common.kafka.events.StockRequestedEvent;
+import com.hospio.common.kafka.events.TillClosedEvent;
 import com.hospio.common.tenancy.TenantBinder;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.messaging.service.NotificationService;
@@ -237,6 +241,52 @@ public class MessagingEventListener {
     public void onLeave(LeaveRequestedEvent e) {
         bound(e, () -> {
             notifications.notifyRoles(e.getEventId(), "LEAVE", e.getStaffName() + " asked for leave", e.getFromDate() + " to " + e.getToDate(), "/staff/leave", "MANAGER");
+            return null;
+        });
+    }
+
+    @Transactional
+    @KafkaListener(topics = KafkaTopics.LEAVE_DECIDED)
+    public void onLeaveDecided(LeaveDecidedEvent e) {
+        bound(e, () -> {
+            notifications.notify(e.getEventId(), e.getStaffUserId(), null, "LEAVE_DECIDED",
+                    "Your leave was " + nz(e.getDecision()).toLowerCase().replace('_', ' '),
+                    e.getFromDate() + " to " + e.getToDate() + (e.getNote() == null || e.getNote().isBlank() ? "" : " · " + e.getNote()), "/shifts");
+            return null;
+        });
+    }
+
+    @Transactional
+    @KafkaListener(topics = KafkaTopics.SHIFT_REQUEST_DECIDED)
+    public void onShiftRequestDecided(ShiftRequestDecidedEvent e) {
+        bound(e, () -> {
+            notifications.notify(e.getEventId(), e.getStaffUserId(), null, "SHIFT_DECIDED",
+                    "Your " + nz(e.getKind()).toLowerCase() + " request was " + nz(e.getDecision()).toLowerCase().replace('_', ' '),
+                    "Shift on " + e.getShiftDate(), "/shifts");
+            return null;
+        });
+    }
+
+    @Transactional
+    @KafkaListener(topics = KafkaTopics.TILL_CLOSED)
+    public void onTillClosed(TillClosedEvent e) {
+        bound(e, () -> {
+            if (e.getVariance() != null && e.getVariance().signum() != 0) {
+                String role = nz(e.getRole()).toLowerCase().replace('_', ' ');
+                notifications.notifyRoles(e.getEventId(), "TILL_SHORT",
+                        (e.getVariance().signum() < 0 ? "Till short " : "Till over ") + e.getVariance().abs().toPlainString() + " · " + role,
+                        "Expected " + e.getExpectedCash().toPlainString() + " · counted " + e.getCountedCash().toPlainString(), "/financials", "MANAGER");
+            }
+            return null;
+        });
+    }
+
+    @Transactional
+    @KafkaListener(topics = KafkaTopics.DAY_CLOSED)
+    public void onDayClosed(DayClosedEvent e) {
+        bound(e, () -> {
+            notifications.notifyRoles(e.getEventId(), "DAY_CLOSED", "Day closed · " + e.getBusinessDate(),
+                    "Revenue " + (e.getRevenue() == null ? "0" : e.getRevenue().toPlainString()) + " · closed by " + nz(e.getClosedBy()), "/night-audit", "OWNER", "MANAGER");
             return null;
         });
     }
