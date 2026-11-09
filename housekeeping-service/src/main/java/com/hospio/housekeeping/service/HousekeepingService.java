@@ -56,7 +56,9 @@ public class HousekeepingService {
     public List<CleaningTask> myRooms(LocalDate date) {
         HospioUserDetails user = CurrentUser.require();
         LocalDate d = date == null ? LocalDate.now() : date;
+        // Managers, the housekeeping supervisor and the front desk (which rushes rooms) see every task; attendants see their own.
         List<CleaningTask> list = user.isManagerOrOwner() || user.has(com.hospio.common.enums.Role.HOUSEKEEPING, com.hospio.common.enums.AccessLevel.FULL)
+                || user.has(com.hospio.common.enums.Role.FRONT_OFFICE)
                 ? tasks.findByHotelIdAndDueDateOrderByRoomNumber(TenantContext.requireHotel(), d)
                 : tasks.findByHotelIdAndAssignedToAndDueDateOrderByRoomNumber(TenantContext.requireHotel(), user.getUserId(), d);
         if (!list.isEmpty()) {
