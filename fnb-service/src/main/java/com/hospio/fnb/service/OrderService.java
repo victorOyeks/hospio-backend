@@ -468,6 +468,22 @@ public class OrderService {
         orders.save(o);
     }
 
+    /** For payment-service before it takes money for an order: the order's hotel, state and what is still due. */
+    @Transactional(readOnly = true)
+    public Map<String, Object> due(String id) {
+        Order o = find(id);
+        Map<String, Object> m = new HashMap<>();
+        m.put("id", o.getId());
+        m.put("hotelId", o.getHotelId());
+        m.put("number", o.getNumber());
+        m.put("status", o.getStatus().name());
+        m.put("settled", o.isSettled());
+        m.put("total", o.getTotal());
+        m.put("paidAmount", o.getPaidAmount());
+        m.put("due", Money.of(o.getTotal().subtract(o.getPaidAmount()).max(BigDecimal.ZERO)));
+        return m;
+    }
+
     /** The internal "paid" route: the whole balance was paid by {@code method} (CASH when not said). */
     @Transactional
     public OrderResponse markPaid(String orderId, String paymentId, String method) {
@@ -527,7 +543,10 @@ public class OrderService {
         if (!m.isAvailable() || !m.isActive()) {
             throw new BadRequestException(m.getName() + " is sold out");
         }
-        int qty = l.quantity() == null || l.quantity() < 1 ? 1 : l.quantity();
+        if (l.quantity() != null && l.quantity() < 1) {
+            throw new BadRequestException("The quantity must be at least 1");
+        }
+        int qty = l.quantity() == null ? 1 : l.quantity();
         BigDecimal gross = Money.of(m.getPrice().multiply(BigDecimal.valueOf(qty)));
         BigDecimal pct = HappyHours.activePct(happyHours.findByOutletIdAndActiveTrue(outlet.getId()), now.get());
         return OrderLine.builder().menuItemId(m.getId()).name(m.getName()).quantity(qty).unitPrice(m.getPrice())

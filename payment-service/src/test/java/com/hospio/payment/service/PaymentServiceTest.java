@@ -47,11 +47,13 @@ class PaymentServiceTest {
     private final HotelConfigClient hotelConfig = mock(HotelConfigClient.class);
     private final EventPublisher events = mock(EventPublisher.class);
     private final ReservationClient reservations = mock(ReservationClient.class);
-    private final PaymentService service = new PaymentService(payments, receipts, terminals, new LoggingPosProvider(), hotelConfig, events, reservations);
+    private final com.hospio.payment.client.FnbClient fnb = mock(com.hospio.payment.client.FnbClient.class);
+    private final PaymentService service = new PaymentService(payments, receipts, terminals, new LoggingPosProvider(), hotelConfig, events, reservations, fnb);
 
     @BeforeEach
     void setUp() {
         when(reservations.booking(anyString())).thenReturn(Optional.of(new ReservationClient.BookingState("BOOKED", "h1")));
+        when(fnb.order(anyString())).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "B-0007", "SERVED", false, new BigDecimal("3000"))));
         when(payments.save(any())).thenAnswer(inv -> {
             var p = (com.hospio.payment.entity.PaymentRequest) inv.getArgument(0);
             if (p.getId() == null) {
@@ -207,5 +209,18 @@ class PaymentServiceTest {
     void aRoleTheCallerDoesNotHoldIsRefused() {
         assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("3000"), null, null, null, null, null, null, null, null, Role.KITCHEN)))
                 .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void noPaymentForACancelledSettledOrUnknownOrderOrMoreThanIsDue() {
+        when(fnb.order("cancelled")).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "K-0002", "CANCELLED", false, new BigDecimal("3000"))));
+        when(fnb.order("settled")).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "K-0003", "SERVED", true, BigDecimal.ZERO)));
+        when(fnb.order("missing")).thenReturn(Optional.empty());
+        for (String id : List.of("cancelled", "settled", "missing")) {
+            assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), null, null, null, null, null, null, null, id, Role.BAR)))
+                    .as(id).isInstanceOf(BadRequestException.class);
+        }
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("3500"), null, null, null, null, null, null, null, "order-7", Role.BAR)))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("₦3,000");
     }
 }

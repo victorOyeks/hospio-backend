@@ -61,7 +61,14 @@ public class PeerServices {
     }
 
     /** Open tabs and unsettled orders at one outlet. */
-    public record OutletOpen(String outletId, String name, int openTabs, int unsettled) {
+    public record OutletOpen(String outletId, String name, int openTabs, int unsettled, List<OpenOrder> orders) {
+        public OutletOpen(String outletId, String name, int openTabs, int unsettled) {
+            this(outletId, name, openTabs, unsettled, List.of());
+        }
+    }
+
+    /** One open tab or unsettled order: its number, kind (TAB, DINE_IN, ROOM_SERVICE…), where it is and its total. */
+    public record OpenOrder(String number, String kind, String tableNo, String roomNumber, BigDecimal total) {
     }
 
     public record OpenOrders(int openTabs, int unsettled, List<OutletOpen> outlets) {
@@ -209,7 +216,12 @@ public class PeerServices {
                 return Optional.empty();
             }
             List<OutletOpen> out = new ArrayList<>();
-            d.path("outlets").forEach(n -> out.add(new OutletOpen(n.path("outletId").asText(null), n.path("name").asText(null), n.path("openTabs").asInt(), n.path("unsettled").asInt())));
+            d.path("outlets").forEach(n -> {
+                List<OpenOrder> orders = new ArrayList<>();
+                n.path("orders").forEach(o -> orders.add(new OpenOrder(o.path("number").asText(null), o.path("kind").asText(null), o.path("tableNo").asText(null),
+                        o.path("roomNumber").asText(null), o.path("total").isNumber() ? o.path("total").decimalValue() : null)));
+                out.add(new OutletOpen(n.path("outletId").asText(null), n.path("name").asText(null), n.path("openTabs").asInt(), n.path("unsettled").asInt(), orders));
+            });
             return Optional.of(new OpenOrders(d.path("openTabs").asInt(), d.path("unsettled").asInt(), out));
         } catch (Exception e) {
             log.warn("fnb-service open orders of {} failed: {}", hotelId, e.getMessage());

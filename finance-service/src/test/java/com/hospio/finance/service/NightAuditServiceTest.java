@@ -135,4 +135,31 @@ class NightAuditServiceTest {
 
         assertThatThrownBy(() -> service.close(DAY, null)).isInstanceOf(BadRequestException.class).hasMessageContaining("can't be checked");
     }
+
+    @Test
+    void aManagerCarryingOpenTabsClosesTheDayAndTheReportListsEachOne() throws Exception {
+        signIn(Role.MANAGER, AccessLevel.FULL);
+        day(0);
+        when(tills.findByHotelIdAndStatusOrderByOpenedAt("h1", Till.Status.OPEN)).thenReturn(List.of());
+        when(peers.openOrders("h1", DAY)).thenReturn(Optional.of(new PeerServices.OpenOrders(1, 0, List.of(new PeerServices.OutletOpen("bar", "Bar", 1, 0,
+                List.of(new PeerServices.OpenOrder("B-0004", "TAB", "B2", null, new java.math.BigDecimal("12000"))))))));
+        com.hospio.finance.dto.MoneyToday today = mock(com.hospio.finance.dto.MoneyToday.class);
+        when(today.revenue()).thenReturn(java.math.BigDecimal.ZERO);
+        when(today.byMethod()).thenReturn(Map.of());
+        when(today.byRole()).thenReturn(Map.of());
+        when(today.unattachedCash()).thenReturn(java.math.BigDecimal.ZERO);
+        when(money.today(DAY)).thenReturn(today);
+        when(audits.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.close(DAY, new FinanceRequests.CloseDayRequest(null, null, null, false, true));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(NightAudit.class);
+        verify(audits).save(captor.capture());
+        var report = new ObjectMapper().readTree(captor.getValue().getReport());
+        org.assertj.core.api.Assertions.assertThat(report.path("carriedOpenTabs").asBoolean()).isTrue();
+        var order = report.path("openOrdersCarried").get(0).path("orders").get(0);
+        org.assertj.core.api.Assertions.assertThat(order.path("number").asText()).isEqualTo("B-0004");
+        org.assertj.core.api.Assertions.assertThat(order.path("tableNo").asText()).isEqualTo("B2");
+        org.assertj.core.api.Assertions.assertThat(order.path("total").decimalValue()).isEqualByComparingTo("12000");
+    }
 }

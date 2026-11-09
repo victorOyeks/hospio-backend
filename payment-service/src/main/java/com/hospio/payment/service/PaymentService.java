@@ -25,6 +25,7 @@ import com.hospio.payment.entity.PosTerminal;
 import com.hospio.payment.entity.Receipt;
 import com.hospio.payment.repository.PaymentRequestRepository;
 import com.hospio.payment.repository.ReceiptRepository;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -55,6 +56,7 @@ public class PaymentService {
     private final HotelConfigClient hotelConfig;
     private final EventPublisher events;
     private final ReservationClient reservations;
+    private final com.hospio.payment.client.FnbClient fnb;
 
     @Transactional(readOnly = true)
     public List<PaymentResponse> mine() {
@@ -115,6 +117,9 @@ public class PaymentService {
                 throw new BadRequestException("This booking is cancelled. It can't take a payment");
             }
         }
+        if (blankToNull(dto.orderId()) != null) {
+            checkOrder(dto.orderId(), hotelId, dto.amount());
+        }
         PaymentRequest p = PaymentRequest.builder().folioId(dto.folioId()).bookingId(dto.bookingId()).orderId(blankToNull(dto.orderId())).guestName(dto.guestName())
                 .guestPhone(dto.guestPhone()).guestEmail(dto.guestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
                 .role(role).method(dto.method()).amount(Money.of(dto.amount())).description(dto.description())
@@ -139,6 +144,31 @@ public class PaymentService {
         }
         return ROLE_PREFERENCE.stream().filter(user::has).findFirst()
                 .orElseThrow(() -> new BadRequestException("Your role doesn't take payments"));
+    }
+
+    /** A payment for a kitchen or bar order: the order must be this hotel's, still open and not settled, and the amount no more than is due. */
+    private void checkOrder(String orderId, String hotelId, BigDecimal amount) {
+        com.hospio.payment.client.FnbClient.OrderDue o = fnb.order(orderId).orElseThrow(() -> new BadRequestException("Order not found"));
+        if (o.status() == null) {
+            return; // fnb-service unreachable: take the money, the order is matched when it answers
+        }
+        if (o.hotelId() != null && !o.hotelId().equals(hotelId)) {
+            throw new BadRequestException("Order not found");
+        }
+        String n = o.number() == null ? "This order" : "Order " + o.number();
+        if ("CANCELLED".equals(o.status())) {
+            throw new BadRequestException(n + " is cancelled. It can't take a payment");
+        }
+        if (o.settled() || "CLOSED".equals(o.status())) {
+            throw new BadRequestException(n + " is already settled");
+        }
+        if (o.due() != null && amount != null && amount.compareTo(o.due()) > 0) {
+            throw new BadRequestException("Only " + naira(o.due()) + " is due on " + n.replace("Order ", ""));
+        }
+    }
+
+    private static String naira(BigDecimal amount) {
+        return "₦" + java.text.NumberFormat.getIntegerInstance(java.util.Locale.UK).format(amount.setScale(0, java.math.RoundingMode.HALF_UP));
     }
 
     private static String blankToNull(String s) {

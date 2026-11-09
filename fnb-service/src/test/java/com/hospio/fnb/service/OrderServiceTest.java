@@ -238,6 +238,17 @@ class OrderServiceTest {
         verify(orders, never()).save(any());
     }
 
+    @Test
+    void aQuantityBelowOneIsRefusedNotTurnedIntoOne() {
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+
+        for (int q : new int[] {0, -2}) {
+            assertThatThrownBy(() -> service.create(new OrderRequest("bar", Order.Kind.TAKEAWAY, null, null, null, null, List.of(new OrderRequest.LineRequest("lager", q, null, null)))))
+                    .isInstanceOf(BadRequestException.class).hasMessageContaining("at least 1");
+        }
+        verify(orders, never()).save(any());
+    }
+
     // ---- who may do what -------------------------------------------------------------------------------------
 
     @Test

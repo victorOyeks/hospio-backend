@@ -193,6 +193,15 @@ public class NightAuditService {
                 row.put("outlet", x.name());
                 row.put("openTabs", x.openTabs());
                 row.put("unsettled", x.unsettled());
+                ArrayNode list = row.putArray("orders");
+                for (PeerServices.OpenOrder open : x.orders()) {
+                    ObjectNode one = list.addObject();
+                    one.put("number", open.number());
+                    one.put("kind", open.kind());
+                    one.put("tableNo", open.tableNo());
+                    one.put("roomNumber", open.roomNumber());
+                    one.put("total", open.total());
+                }
             }));
             if (c.orders().isEmpty()) {
                 report.put("openOrdersNote", "The outlets couldn't be checked when the day was closed");

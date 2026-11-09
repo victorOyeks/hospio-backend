@@ -31,6 +31,12 @@ public class InternalFnbController {
         return ApiResponse.ok(orders.getInternal(id));
     }
 
+    /** payment-service's check before it takes money for an order: hotel, status, settled and what is still due. */
+    @GetMapping("/orders/{id}/due")
+    public ApiResponse<java.util.Map<String, Object>> due(@PathVariable String id) {
+        return ApiResponse.ok(orders.due(id));
+    }
+
     /** The whole balance of the order was paid (by {@code method}, CASH when not said). Normally the PAYMENT_APPROVED listener does this. */
     @PostMapping("/orders/{id}/paid")
     public ApiResponse<OrderResponse> paid(@PathVariable String id, @RequestParam String paymentId, @RequestParam(required = false) String method) {
