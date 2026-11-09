@@ -138,6 +138,10 @@ public class HousekeepingService {
         boolean exists = tasks.findByRoomIdAndStatusIn(roomId, EnumSet.of(CleaningTask.Status.TODO, CleaningTask.Status.IN_PROGRESS)).stream()
                 .anyMatch(t -> t.getKind() == kind && t.getDueDate().equals(dueDate));
         if (exists) {
+            // A second departure the same day (the room was marked clean by hand and let again) still dirties it.
+            if (kind == CleaningTask.Kind.DEPARTURE) {
+                setRoomStatus(roomId, roomNumber, RoomStatus.Cleanliness.DIRTY, null);
+            }
             return null;
         }
         if (kind == CleaningTask.Kind.DEPARTURE) {
