@@ -95,6 +95,9 @@ public class NightAuditService {
         }
         String hotelId = TenantContext.requireHotel();
         LocalDate d = date == null ? LocalDate.now(MoneyService.LAGOS) : date;
+        if (d.isAfter(LocalDate.now(MoneyService.LAGOS))) {
+            throw new BadRequestException("You can't close a day that hasn't happened yet");
+        }
         NightAudit a = row(d);
         if (a.getStatus() == NightAudit.Status.CLOSED) {
             throw new BadRequestException("This day is already closed");
