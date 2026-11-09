@@ -75,11 +75,16 @@ public class WorkforceService {
     @Transactional
     public Shift addShift(FinanceRequests.ShiftRequestDto request) {
         requireManager();
-        if (!request.endsAt().isAfter(request.startsAt())) {
-            throw new BadRequestException("The shift has to end after it starts");
-        }
+        requireTimes(request);
         return shifts.save(Shift.builder().userId(request.userId()).userName(request.userName()).role(request.role().toUpperCase())
                 .shiftDate(request.shiftDate()).startsAt(request.startsAt()).endsAt(request.endsAt()).build());
+    }
+
+    /** A shift ending at or before its start time runs over midnight (a night shift); the same start and end is refused. */
+    private static void requireTimes(FinanceRequests.ShiftRequestDto request) {
+        if (request.endsAt().equals(request.startsAt())) {
+            throw new BadRequestException("The shift has to end at a different time than it starts");
+        }
     }
 
     @Transactional
@@ -89,6 +94,7 @@ public class WorkforceService {
         if (s.getStatus() == Shift.Status.CANCELLED) {
             throw new BadRequestException("This shift was cancelled");
         }
+        requireTimes(request);
         s.setUserId(request.userId());
         s.setUserName(request.userName());
         s.setRole(request.role().toUpperCase());

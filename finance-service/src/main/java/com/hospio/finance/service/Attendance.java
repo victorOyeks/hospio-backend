@@ -24,7 +24,9 @@ public final class Attendance {
             return null;
         }
         Instant start = LocalDateTime.of(shift.getShiftDate(), shift.getStartsAt()).atZone(zone).toInstant();
-        Instant end = LocalDateTime.of(shift.getShiftDate(), shift.getEndsAt()).atZone(zone).toInstant();
+        // A shift ending at or before its start time ends the next morning (night shift).
+        Instant end = LocalDateTime.of(shift.getEndsAt().isAfter(shift.getStartsAt()) ? shift.getShiftDate() : shift.getShiftDate().plusDays(1), shift.getEndsAt())
+                .atZone(zone).toInstant();
         Instant first = entries.stream().map(ClockEntry::getClockIn)
                 .filter(t -> !t.isBefore(start.minus(EARLY)) && !t.isAfter(end)).min(Instant::compareTo).orElse(null);
         if (first == null) {

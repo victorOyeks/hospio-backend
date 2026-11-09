@@ -42,6 +42,13 @@ class AttendanceTest {
     }
 
     @Test
+    void aNightShiftEndsTheNextMorning() {
+        Shift night = Shift.builder().userId("u1").role("FRONT_OFFICE").shiftDate(DAY).startsAt(LocalTime.of(22, 0)).endsAt(LocalTime.of(6, 0)).build();
+        assertThat(Attendance.of(night, List.of(), at(23, 30), 15, LAGOS)).isNull();
+        assertThat(Attendance.of(night, List.of(clockedInAt(22, 10)), at(23, 30), 15, LAGOS)).isEqualTo(Attendance.Status.PRESENT);
+    }
+
+    @Test
     void noClockInOnceTheShiftHasEndedIsAbsent() {
         assertThat(Attendance.of(morning, List.of(), at(15, 1), 15, LAGOS)).isEqualTo(Attendance.Status.ABSENT);
     }
