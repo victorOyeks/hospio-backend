@@ -26,7 +26,8 @@ public final class Phones {
             return false;
         }
         String d = digits(phone);
-        return d.length() >= 10 && d.length() <= 15 && !d.matches("^(\\d)\\1*$");
+        // Not one digit repeated, and the subscriber part (last ten digits) not all one digit: "+234 000 000 0000".
+        return d.length() >= 10 && d.length() <= 15 && !key(d).matches("^(\\d)\\1*$");
     }
 
     /** Trims and checks; blank stays null. */
