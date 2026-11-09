@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
  * Resend receipt (Manager · Payments): the receipt of an approved payment goes to the guest again, by WhatsApp
  * when the payment carries a phone, otherwise by email. The delivery is published like every other one; on
  * staging (deliveries echo on) it comes back in the response so the screen can show what would have gone out.
+ * The receipt keeps who it was last sent to and how.
  */
 @Service
 @RequiredArgsConstructor
