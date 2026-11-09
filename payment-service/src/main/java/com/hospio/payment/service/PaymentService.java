@@ -17,6 +17,7 @@ import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.common.util.Money;
 import com.hospio.payment.client.HotelConfigClient;
+import com.hospio.payment.client.ReservationClient;
 import com.hospio.payment.dto.PaymentRequestDto;
 import com.hospio.payment.dto.PaymentResponse;
 import com.hospio.payment.entity.PaymentRequest;
@@ -51,6 +52,7 @@ public class PaymentService {
     private final PosProvider posProvider;
     private final HotelConfigClient hotelConfig;
     private final EventPublisher events;
+    private final ReservationClient reservations;
 
     @Transactional(readOnly = true)
     public List<PaymentResponse> mine() {
@@ -101,6 +103,16 @@ public class PaymentService {
                 }
             }
             case ORGANIZATION -> throw new BadRequestException("Organization stays are billed, not paid here");
+        }
+        if (dto.bookingId() != null && !dto.bookingId().isBlank()) {
+            ReservationClient.BookingState booking = reservations.booking(dto.bookingId())
+                    .orElseThrow(() -> new BadRequestException("Booking not found"));
+            if (booking.hotelId() != null && !booking.hotelId().equals(hotelId)) {
+                throw new BadRequestException("Booking not found");
+            }
+            if ("CANCELLED".equals(booking.status())) {
+                throw new BadRequestException("This booking is cancelled. It can't take a payment");
+            }
         }
         PaymentRequest p = PaymentRequest.builder().folioId(dto.folioId()).bookingId(dto.bookingId()).guestName(dto.guestName())
                 .guestPhone(dto.guestPhone()).guestEmail(dto.guestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())

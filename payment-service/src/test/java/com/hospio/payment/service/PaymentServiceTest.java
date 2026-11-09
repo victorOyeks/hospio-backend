@@ -22,6 +22,7 @@ import com.hospio.common.security.JwtUtil;
 import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.payment.client.HotelConfigClient;
+import com.hospio.payment.client.ReservationClient;
 import com.hospio.payment.dto.PaymentRequestDto;
 import com.hospio.payment.dto.PaymentResponse;
 import com.hospio.payment.entity.PosTerminal;
@@ -45,10 +46,12 @@ class PaymentServiceTest {
     private final TerminalService terminals = mock(TerminalService.class);
     private final HotelConfigClient hotelConfig = mock(HotelConfigClient.class);
     private final EventPublisher events = mock(EventPublisher.class);
-    private final PaymentService service = new PaymentService(payments, receipts, terminals, new LoggingPosProvider(), hotelConfig, events);
+    private final ReservationClient reservations = mock(ReservationClient.class);
+    private final PaymentService service = new PaymentService(payments, receipts, terminals, new LoggingPosProvider(), hotelConfig, events, reservations);
 
     @BeforeEach
     void setUp() {
+        when(reservations.booking(anyString())).thenReturn(Optional.of(new ReservationClient.BookingState("BOOKED", "h1")));
         when(payments.save(any())).thenAnswer(inv -> {
             var p = (com.hospio.payment.entity.PaymentRequest) inv.getArgument(0);
             if (p.getId() == null) {
@@ -77,6 +80,22 @@ class PaymentServiceTest {
 
         assertThat(p.status()).isEqualTo(PaymentStatus.APPROVED);
         verify(events).publish(eq(KafkaTopics.PAYMENT_APPROVED), any());
+    }
+
+    @Test
+    void aCancelledBookingCannotTakeAPayment() {
+        when(reservations.booking("b1")).thenReturn(Optional.of(new ReservationClient.BookingState("CANCELLED", "h1")));
+
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("5000"), null, "b1", "Guest", null, null, "Deposit", null)))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("cancelled");
+    }
+
+    @Test
+    void anotherHotelsBookingIsNotFound() {
+        when(reservations.booking("b2")).thenReturn(Optional.of(new ReservationClient.BookingState("BOOKED", "other")));
+
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("5000"), null, "b2", "Guest", null, null, "Deposit", null)))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("not found");
     }
 
     @Test
