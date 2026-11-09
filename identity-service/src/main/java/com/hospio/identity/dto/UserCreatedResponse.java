@@ -5,7 +5,7 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Shown once: the temporary password (72 hours) and the invite link token (7 days) that lets the person set their own.
+ * Shown once: the temporary password (7 days) and the invite link token (7 days) that lets the person set their own.
  * {@code deliveries} is what would have been emailed or texted (temporary password, invite link), echoed when
  * {@code hospio.deliveries.echo} is on; empty otherwise.
  */

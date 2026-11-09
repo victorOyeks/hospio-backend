@@ -185,8 +185,13 @@ public class UserService {
         String businessId = noBusiness ? null : resolveBusiness(caller, request.businessId());
         assertMayCreate(caller, role);
         String hotelId = noBusiness || role == Role.OWNER ? null : resolveHotel(caller, businessId, request.hotelId());
-        String email = request.email().toLowerCase();
+        String email = request.email().trim().toLowerCase();
+        if (!Phones.meaningfulName(request.fullName())) {
+            throw new BadRequestException("Full name must be a real name, with letters");
+        }
+        String phone = Phones.clean(request.phone(), "Phone");
         assertEmailFree(email);
+        assertPhoneFree(phone);
 
         String temporary = Hashing.temporaryPassword();
         Instant expires = Instant.now().plus(temporaryPasswordHours, ChronoUnit.HOURS);
@@ -194,7 +199,7 @@ public class UserService {
                 .businessId(businessId)
                 .fullName(request.fullName().trim())
                 .email(email)
-                .phone(request.phone())
+                .phone(phone)
                 .passwordHash(passwordEncoder.encode(temporary))
                 .mustChangePassword(true)
                 .temporaryPasswordExpiresAt(expires)
@@ -399,6 +404,16 @@ public class UserService {
     }
 
     /** An email is unique across every business, so the check runs as the system, outside the caller's row-level scope. */
+    private void assertPhoneFree(String phone) {
+        if (phone == null) {
+            return;
+        }
+        long taken = TenantContext.runWith(Tenant.system("phone-check"), () -> users.countByPhoneKey(Phones.key(phone)));
+        if (taken > 0) {
+            throw new ConflictException("This phone number is already in use on another account");
+        }
+    }
+
     private void assertEmailFree(String email) {
         boolean taken = TenantContext.runWith(Tenant.system("email-check"), () -> users.findByEmailIgnoreCase(email).isPresent());
         if (taken) {

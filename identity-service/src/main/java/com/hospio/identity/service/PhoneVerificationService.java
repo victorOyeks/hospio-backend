@@ -44,6 +44,9 @@ public class PhoneVerificationService {
     @Value("${hospio.auth.phone-code-minutes:10}")
     private long codeMinutes;
 
+    @Value("${hospio.auth.phone-code-max-attempts:5}")
+    private int maxAttempts;
+
     @Transactional
     public PhoneCodeResponse sendCode(String userId) {
         return TenantContext.runWith(Tenant.system("phone-code"), () -> {
@@ -68,29 +71,42 @@ public class PhoneVerificationService {
         Instant expires = Instant.now().plus(codeMinutes, ChronoUnit.MINUTES);
         user.setPhoneCodeHash(Hashing.sha256(code));
         user.setPhoneCodeExpiresAt(expires);
+        user.setPhoneCodeAttempts(0);
         users.save(user);
         log.info("Phone verification code for {} ({}): {} (valid until {})", user.getEmail(), user.getPhone(), code, expires);
         List<Delivery> sent = deliveryService.send(composer.forPhoneCode(user, code, expires));
         return new PhoneCodeResponse(expires, sent);
     }
 
-    @Transactional
+    /** A wrong code is counted; after {@code maxAttempts} the code is dropped and a new one must be sent. */
+    @Transactional(noRollbackFor = BadRequestException.class)
     public MeResponse verify(String userId, String code) {
         TenantContext.runWith(Tenant.system("phone-verify"), () -> {
             UserAccount user = find(userId);
+            if (user.getPhoneCodeHash() == null || user.getPhoneCodeExpiresAt() == null) {
+                throw new BadRequestException(user.getPhoneCodeAttempts() >= maxAttempts
+                        ? "Too many wrong codes. Send a new code and try again"
+                        : "Ask for a code first");
+            }
+            if (user.getPhoneCodeExpiresAt().isBefore(Instant.now())) {
+                throw new BadRequestException("That code has expired. Send a new one");
+            }
             boolean devMatch = StringUtils.hasText(devCode) && devCode.equals(code);
-            if (!devMatch) {
-                if (user.getPhoneCodeHash() == null || user.getPhoneCodeExpiresAt() == null) {
-                    throw new BadRequestException("Ask for a code first");
+            if (!devMatch && !user.getPhoneCodeHash().equals(Hashing.sha256(code))) {
+                int attempts = user.getPhoneCodeAttempts() + 1;
+                user.setPhoneCodeAttempts(attempts);
+                if (attempts >= maxAttempts) {
+                    user.setPhoneCodeHash(null);
+                    user.setPhoneCodeExpiresAt(null);
+                    users.save(user);
+                    throw new BadRequestException("Too many wrong codes. Send a new code and try again");
                 }
-                if (user.getPhoneCodeExpiresAt().isBefore(Instant.now())) {
-                    throw new BadRequestException("That code has expired. Ask for a new one");
-                }
-                if (!user.getPhoneCodeHash().equals(Hashing.sha256(code))) {
-                    throw new BadRequestException("That code is wrong");
-                }
+                users.save(user);
+                int left = maxAttempts - attempts;
+                throw new BadRequestException("That code is wrong. " + left + (left == 1 ? " try" : " tries") + " left");
             }
             user.setPhoneVerified(true);
+            user.setPhoneCodeAttempts(0);
             user.setPhoneCodeHash(null);
             user.setPhoneCodeExpiresAt(null);
             users.save(user);

@@ -49,6 +49,17 @@ public class UserAccount extends BaseEntity {
     @Column(name = "locked_until")
     private Instant lockedUntil;
 
+    @Column(name = "failed_sign_in_attempts", nullable = false)
+    @lombok.Builder.Default
+    private int failedSignInAttempts = 0;
+
+    @Column(name = "sign_in_locked_until")
+    private Instant signInLockedUntil;
+
+    @Column(name = "phone_code_attempts", nullable = false)
+    @lombok.Builder.Default
+    private int phoneCodeAttempts = 0;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @lombok.Builder.Default

@@ -49,13 +49,48 @@ public class AuthService {
     @Value("${hospio.auth.pin-lock-minutes:15}")
     private long pinLockMinutes;
 
-    @Transactional
+    @Value("${hospio.auth.sign-in-max-attempts:5}")
+    private int signInMaxAttempts;
+
+    @Value("${hospio.auth.sign-in-lock-minutes:15}")
+    private long signInLockMinutes;
+
+    private static String lockedMessage(Instant until, Instant now) {
+        long minutes = Math.max(1, (long) Math.ceil(java.time.Duration.between(now, until).getSeconds() / 60.0));
+        return "Too many wrong passwords. Sign-in is locked for " + minutes + (minutes == 1 ? " minute" : " minutes")
+                + ". Try again then, or reset your password";
+    }
+
+    /** Counted failures must survive the refusal, so these refusals don't roll the transaction back. */
+    @Transactional(noRollbackFor = UnauthorizedException.class)
     public AuthResponse signIn(LoginRequest request) {
         return TenantContext.runWith(Tenant.system("sign-in"), () -> {
             UserAccount user = users.findByEmailIgnoreCase(request.email())
                     .orElseThrow(() -> new UnauthorizedException("Email or password is wrong"));
+            Instant now = Instant.now();
+            if (user.getSignInLockedUntil() != null && user.getSignInLockedUntil().isAfter(now)) {
+                throw new UnauthorizedException(lockedMessage(user.getSignInLockedUntil(), now));
+            }
             if (user.getPasswordHash() == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
-                throw new UnauthorizedException("Email or password is wrong");
+                int failures = user.getFailedSignInAttempts() + 1;
+                if (failures >= signInMaxAttempts) {
+                    user.setFailedSignInAttempts(0);
+                    user.setSignInLockedUntil(now.plus(signInLockMinutes, ChronoUnit.MINUTES));
+                    users.save(user);
+                    throw new UnauthorizedException(lockedMessage(user.getSignInLockedUntil(), now));
+                }
+                user.setFailedSignInAttempts(failures);
+                users.save(user);
+                int left = signInMaxAttempts - failures;
+                throw new UnauthorizedException(left <= 2
+                        ? "Email or password is wrong. " + left + (left == 1 ? " try" : " tries") + " left before sign-in is locked for "
+                                + signInLockMinutes + " minutes"
+                        : "Email or password is wrong");
+            }
+            if (user.getFailedSignInAttempts() > 0 || user.getSignInLockedUntil() != null) {
+                user.setFailedSignInAttempts(0);
+                user.setSignInLockedUntil(null);
+                users.save(user);
             }
             if (user.getTemporaryPasswordExpiresAt() != null && user.getTemporaryPasswordExpiresAt().isBefore(Instant.now())) {
                 throw new UnauthorizedException("Your temporary password has expired. Ask your manager for a new one");
@@ -65,7 +100,7 @@ public class AuthService {
         });
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = UnauthorizedException.class)
     public AuthResponse signInWithPin(PinLoginRequest request) {
         return TenantContext.runWith(Tenant.system("pin-sign-in"), () -> {
             UserAccount user = users.findByPhone(request.identifier())

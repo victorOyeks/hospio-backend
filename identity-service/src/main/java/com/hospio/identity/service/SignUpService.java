@@ -2,6 +2,7 @@ package com.hospio.identity.service;
 
 import com.hospio.common.enums.AccessLevel;
 import com.hospio.common.enums.Role;
+import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.exception.ConflictException;
 import com.hospio.common.kafka.EventPublisher;
 import com.hospio.common.kafka.KafkaTopics;
@@ -24,6 +25,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 /**
  * Self-serve sign-up: the business is created in tenant-service with an id chosen here, then the owner
@@ -48,16 +50,32 @@ public class SignUpService {
     @Transactional
     public AuthResponse signUp(SignUpRequest request) {
         return TenantContext.runWith(Tenant.system("sign-up"), () -> {
-            String email = request.email().toLowerCase();
+            String email = request.email().trim().toLowerCase();
+            if (!Phones.meaningfulName(request.fullName())) {
+                throw new BadRequestException("Full name must be a real name, with letters");
+            }
+            if (!Phones.meaningfulName(request.businessName())) {
+                throw new BadRequestException("Business name must contain letters, not only numbers or symbols");
+            }
+            if (!StringUtils.hasText(request.city()) || !Phones.meaningfulName(request.city())) {
+                throw new BadRequestException("Enter the city");
+            }
+            String phone = Phones.clean(request.phone(), "Phone");
+            if (phone == null) {
+                throw new BadRequestException("Enter your phone number");
+            }
             users.findByEmailIgnoreCase(email).ifPresent(u -> {
                 throw new ConflictException("Someone already signs in with " + email + ". Sign in instead");
             });
+            if (users.countByPhoneKey(Phones.key(phone)) > 0) {
+                throw new ConflictException("This phone number is already in use on another account. Use a different number or sign in");
+            }
             String businessId = UUID.randomUUID().toString();
             UserAccount owner = UserAccount.builder()
                     .businessId(businessId)
                     .fullName(request.fullName().trim())
                     .email(email)
-                    .phone(request.phone())
+                    .phone(phone)
                     .passwordHash(passwordEncoder.encode(request.password()))
                     .mustChangePassword(false)
                     .phoneVerified(false)
@@ -68,7 +86,7 @@ public class SignUpService {
             grants.save(RoleGrant.builder().userId(owner.getId()).businessId(businessId).hotelId(null)
                     .role(Role.OWNER).level(AccessLevel.FULL).grantedBy(owner.getId()).build());
 
-            tenantClient.createBusiness(new TenantClient.NewBusiness(businessId, request.businessName().trim(), request.city(),
+            tenantClient.createBusiness(new TenantClient.NewBusiness(businessId, request.businessName().trim(), request.city().trim(),
                     owner.getId(), owner.getFullName(), owner.getEmail(), owner.getPhone(), SOURCE_SELF_SERVE));
 
             owner.setLastSignInAt(Instant.now());
