@@ -137,6 +137,12 @@ public class FinanceController {
         return ApiResponse.ok(service.myTill());
     }
 
+    /** The caller's role's tills closed in the last 7 days. */
+    @GetMapping("/tills/mine/closed")
+    public ApiResponse<List<Till>> myClosedTills() {
+        return ApiResponse.ok(service.myClosedTills());
+    }
+
     @PostMapping("/tills")
     public ApiResponse<Till> openTill(@Valid @RequestBody FinanceRequests.OpenTillRequest request) {
         return ApiResponse.ok("Till opened", service.openTill(request));

@@ -322,6 +322,20 @@ public class MoneyService {
         return null;
     }
 
+    /** The tills of the caller's paying role(s) closed in the last 7 days, newest first (the desk's "Past tills"). */
+    @Transactional(readOnly = true)
+    public List<Till> myClosedTills() {
+        HospioUserDetails user = CurrentUser.require();
+        String hotelId = TenantContext.requireHotel();
+        Instant since = LocalDate.now(LAGOS).minusDays(7).atStartOfDay(LAGOS).toInstant();
+        List<Till> list = tills.findByHotelIdAndClosedAtBetween(hotelId, since, Instant.now().plusSeconds(60)).stream()
+                .filter(t -> PAYING_ROLES.stream().anyMatch(r -> user.has(r) && r.name().equals(t.getRole())))
+                .sorted((a, b) -> b.getClosedAt().compareTo(a.getClosedAt()))
+                .toList();
+        fillEntryCounts(list);
+        return list;
+    }
+
     @Transactional
     public Till openTill(FinanceRequests.OpenTillRequest request) {
         HospioUserDetails user = CurrentUser.require();
