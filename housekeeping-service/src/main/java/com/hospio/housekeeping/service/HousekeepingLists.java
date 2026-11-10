@@ -82,7 +82,10 @@ public class HousekeepingLists {
         Page<LinenBatch> page = batches.findAll(filtered, Paging.of(query.page(), query.size(), sort));
         Map<String, Long> counts = groups.by(LinenBatch.class, spec, "status");
         counts.put("OPEN", counts.getOrDefault("SENT", 0L) + counts.getOrDefault("RECEIVED", 0L) + counts.getOrDefault("PART_RETURNED", 0L));
-        return PageWithCounts.of(page, laundry::batchView, counts, null);
+        // What was written off over the whole range (every status): condemned and lost or missing linen, at cost.
+        java.math.BigDecimal condemned = groups.sum(LinenBatch.class, spec, "condemnedValue");
+        java.math.BigDecimal lost = groups.sum(LinenBatch.class, spec, "lostValue");
+        return PageWithCounts.of(page, laundry::batchView, counts, Map.of("condemned", condemned, "lost", lost, "writtenOff", condemned.add(lost)));
     }
 
     @Transactional(readOnly = true)
