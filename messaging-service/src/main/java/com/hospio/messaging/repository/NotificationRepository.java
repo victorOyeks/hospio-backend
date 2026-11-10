@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface NotificationRepository extends JpaRepository<Notification, String> {
+public interface NotificationRepository extends JpaRepository<Notification, String>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<Notification> {
     List<Notification> findByUserIdOrderByCreatedAtDesc(String userId);
 
     List<Notification> findByUserIdAndReadAtIsNullOrderByCreatedAtDesc(String userId);

@@ -9,7 +9,11 @@ import com.hospio.messaging.entity.Template;
 import com.hospio.messaging.service.ConversationService;
 import com.hospio.messaging.service.NotificationService;
 import jakarta.validation.Valid;
+import com.hospio.common.paging.Paging;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import org.springframework.format.annotation.DateTimeFormat;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,9 +32,29 @@ public class MessagingController {
     private final NotificationService notifications;
     private final ConversationService conversations;
 
+    /**
+     * Mine. With {@code page} or {@code size}: a page (newest first, {@code from} 90 days back by default) with {@code counts.all} and
+     * {@code counts.unread}; filters {@code unread}, {@code kind}, {@code q}, {@code from}, {@code to}. Without either: the old full list
+     * (operations scripts read it), {@code unreadOnly} narrowing it.
+     */
     @GetMapping("/notifications")
-    public ApiResponse<List<Notification>> notifications(@RequestParam(defaultValue = "false") boolean unreadOnly) {
-        return ApiResponse.ok(notifications.mine(unreadOnly));
+    public ApiResponse<?> notifications(@RequestParam(defaultValue = "false") boolean unreadOnly,
+                                        @RequestParam(required = false) Boolean unread, @RequestParam(required = false) String kind,
+                                        @RequestParam(required = false) String q,
+                                        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                        @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        if (!Paging.requested(page, size)) {
+            return ApiResponse.ok(notifications.mine(unreadOnly));
+        }
+        Boolean onlyUnread = unread != null ? unread : (unreadOnly ? Boolean.TRUE : null);
+        return ApiResponse.ok(notifications.page(new NotificationService.Filter(onlyUnread, kind, q, from, to), page, size));
+    }
+
+    /** The bell's badge: how many of mine are unread. */
+    @GetMapping("/notifications/unread-count")
+    public ApiResponse<Map<String, Long>> unreadCount() {
+        return ApiResponse.ok(Map.of("count", notifications.unreadCount()));
     }
 
     @PostMapping("/notifications/{id}/read")

@@ -175,7 +175,8 @@ public class ApprovalService {
         }
     }
 
-    private void fillMissing(Approval a) {
+    /** The hotel name and the requester's role on rows saved before they were stored (looked up, not saved). */
+    void fillMissing(Approval a) {
         if (a.getHotelName() == null) {
             a.setHotelName(hotelName(a.getBusinessId(), a.getHotelId()));
         }

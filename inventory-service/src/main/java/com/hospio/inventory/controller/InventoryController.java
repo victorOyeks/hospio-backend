@@ -1,9 +1,11 @@
 package com.hospio.inventory.controller;
 
+import com.hospio.common.paging.Paging;
 import com.hospio.common.response.ApiResponse;
 import com.hospio.inventory.dto.InventoryRequests;
 import com.hospio.inventory.dto.InventoryViews;
 import com.hospio.inventory.entity.StockLevel;
+import com.hospio.inventory.service.InventoryLists;
 import com.hospio.inventory.service.InventoryService;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
@@ -36,6 +38,7 @@ public class InventoryController {
     private static final String MONEY = "@access.managerView() or @access.has('INVENTORY') or @access.has('FINANCE')";
 
     private final InventoryService service;
+    private final InventoryLists lists;
 
     // ---- stores and items
 
@@ -89,11 +92,15 @@ public class InventoryController {
 
     @GetMapping("/movements")
     @PreAuthorize(MONEY)
-    public ApiResponse<List<InventoryViews.MovementView>> movements(@RequestParam(required = false) String itemId, @RequestParam(required = false) String storeId,
-                                                                   @RequestParam(required = false) String kind,
-                                                                   @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-                                                                   @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return ApiResponse.ok(service.movements(itemId, storeId, kind, from, to));
+    public ApiResponse<?> movements(@RequestParam(required = false) String itemId, @RequestParam(required = false) String storeId,
+                                    @RequestParam(required = false) String kind, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                    @RequestParam(required = false) String q, @RequestParam(required = false) String sort,
+                                 @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        if (!Paging.requested(page, size)) {
+            // Unpaged for internal callers and scripts only (docs/pagination.md): the last 90 days without dates, no cap.
+            return ApiResponse.ok(service.movements(itemId, storeId, kind, from, to));
+        }
+        return ApiResponse.ok(lists.movements(itemId, storeId, kind, InventoryLists.query(q, null, from, to, sort, page, size)));
     }
 
     @PostMapping("/levels/adjust")
@@ -127,8 +134,13 @@ public class InventoryController {
 
     @GetMapping("/requests")
     @PreAuthorize(STAFF)
-    public ApiResponse<List<InventoryViews.RequestView>> requests(@RequestParam(required = false) String team, @RequestParam(required = false) String status) {
-        return ApiResponse.ok(service.requests(team, status));
+    public ApiResponse<?> requests(@RequestParam(required = false) String team, @RequestParam(required = false) String status,
+                                   @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to, @RequestParam(required = false) String q, @RequestParam(required = false) String sort,
+                                 @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        if (!Paging.requested(page, size)) {
+            return ApiResponse.ok(service.requests(team, status));
+        }
+        return ApiResponse.ok(lists.requests(team, InventoryLists.query(q, status, from, to, sort, page, size)));
     }
 
     @PostMapping("/requests")
@@ -174,8 +186,13 @@ public class InventoryController {
 
     @GetMapping("/purchase-orders")
     @PreAuthorize(MONEY)
-    public ApiResponse<List<InventoryViews.OrderView>> purchaseOrders(@RequestParam(required = false) String status) {
-        return ApiResponse.ok(service.purchaseOrders(status));
+    public ApiResponse<?> purchaseOrders(@RequestParam(required = false) String status, @RequestParam(required = false) String supplierId,
+                                         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to, @RequestParam(required = false) String q, @RequestParam(required = false) String sort,
+                                 @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        if (!Paging.requested(page, size)) {
+            return ApiResponse.ok(service.purchaseOrders(status));
+        }
+        return ApiResponse.ok(lists.purchaseOrders(supplierId, InventoryLists.query(q, status, from, to, sort, page, size)));
     }
 
     @GetMapping("/purchase-orders/{id}")
@@ -230,8 +247,13 @@ public class InventoryController {
 
     @GetMapping("/deliveries")
     @PreAuthorize(MONEY)
-    public ApiResponse<List<InventoryViews.DeliveryView>> deliveries() {
-        return ApiResponse.ok(service.deliveries());
+    public ApiResponse<?> deliveries(@RequestParam(required = false) String purchaseOrderId, @RequestParam(required = false) String storeId,
+                                     @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to, @RequestParam(required = false) String q, @RequestParam(required = false) String sort,
+                                 @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        if (!Paging.requested(page, size)) {
+            return ApiResponse.ok(service.deliveries());
+        }
+        return ApiResponse.ok(lists.deliveries(purchaseOrderId, storeId, InventoryLists.query(q, null, from, to, sort, page, size)));
     }
 
     @PostMapping("/deliveries")
@@ -244,8 +266,13 @@ public class InventoryController {
 
     @GetMapping("/counts")
     @PreAuthorize(STAFF)
-    public ApiResponse<List<InventoryViews.CountView>> counts() {
-        return ApiResponse.ok(service.counts());
+    public ApiResponse<?> counts(@RequestParam(required = false) String storeId, @RequestParam(required = false) String status,
+                                 @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to, @RequestParam(required = false) String q, @RequestParam(required = false) String sort,
+                                 @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        if (!Paging.requested(page, size)) {
+            return ApiResponse.ok(service.counts());
+        }
+        return ApiResponse.ok(lists.counts(storeId, InventoryLists.query(q, status, from, to, sort, page, size)));
     }
 
     @PostMapping("/counts")

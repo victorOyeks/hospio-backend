@@ -35,6 +35,7 @@ public class LaundryController {
             + "or @access.has('FINANCE')";
 
     private final LaundryService service;
+    private final com.hospio.housekeeping.service.HousekeepingLists lists;
 
     @GetMapping("/prices")
     @PreAuthorize(STAFF)
@@ -56,8 +57,15 @@ public class LaundryController {
 
     @GetMapping("/orders")
     @PreAuthorize(ORDERS_READ)
-    public ApiResponse<List<LaundryDtos.OrderView>> orders(@RequestParam(required = false) String status) {
-        return ApiResponse.ok(service.orders(status));
+    public ApiResponse<?> orders(@RequestParam(required = false) String status, @RequestParam(required = false) String roomId,
+                                 @RequestParam(required = false) String bookingId, @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from, @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to,
+                                 @RequestParam(required = false) String q, @RequestParam(required = false) String sort,
+                                 @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        if (!com.hospio.common.paging.Paging.requested(page, size)) {
+            // Unpaged: the open board (bounded by nature) and internal callers; "all" returns every order, no cap.
+            return ApiResponse.ok(service.orders(status));
+        }
+        return ApiResponse.ok(lists.laundryOrders(roomId, bookingId, new com.hospio.housekeeping.service.HousekeepingLists.Query(q, status, from, to, sort, page, size)));
     }
 
     @GetMapping("/orders/{id}")
@@ -104,8 +112,13 @@ public class LaundryController {
 
     @GetMapping("/linen-batches")
     @PreAuthorize(LINEN_READ)
-    public ApiResponse<List<LaundryDtos.BatchView>> batches(@RequestParam(required = false) String status) {
-        return ApiResponse.ok(service.batches(status));
+    public ApiResponse<?> batches(@RequestParam(required = false) String status, @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from, @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to,
+                                 @RequestParam(required = false) String q, @RequestParam(required = false) String sort,
+                                 @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        if (!com.hospio.common.paging.Paging.requested(page, size)) {
+            return ApiResponse.ok(service.batches(status));
+        }
+        return ApiResponse.ok(lists.linenBatches(new com.hospio.housekeeping.service.HousekeepingLists.Query(q, status, from, to, sort, page, size)));
     }
 
     @PostMapping("/linen-batches")

@@ -14,5 +14,6 @@
     <include file="db/changelog/002-settlements.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/003-receipt-numbers.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/004-payment-order.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/005-payment-list-indexes.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

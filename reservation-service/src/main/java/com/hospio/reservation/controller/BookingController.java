@@ -1,6 +1,7 @@
 package com.hospio.reservation.controller;
 
 import com.hospio.common.enums.BookingStatus;
+import com.hospio.common.paging.Paging;
 import com.hospio.common.response.ApiResponse;
 import com.hospio.reservation.dto.AvailabilityResponse;
 import com.hospio.reservation.dto.BookingResponse;
@@ -11,6 +12,7 @@ import com.hospio.reservation.dto.CheckOutRequest;
 import com.hospio.reservation.dto.CreateBookingRequest;
 import com.hospio.reservation.dto.TodayResponse;
 import com.hospio.reservation.service.BookingService;
+import com.hospio.reservation.service.ReservationListService;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -34,6 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class BookingController {
 
     private final BookingService service;
+    private final ReservationListService lists;
     private final com.hospio.reservation.service.GuestNotices notices;
 
     @GetMapping("/today")
@@ -41,11 +44,28 @@ public class BookingController {
         return ApiResponse.ok(service.today());
     }
 
+    /**
+     * Without {@code page} or {@code size}: the hotel's stays touching {@code from..to} (7 days back to 30 ahead), as before, for scripts and
+     * other callers. With either: one page (docs/pagination.md), newest stay first, filtered by {@code q, status (comma separated), view
+     * (arrivals, departures, in-house, upcoming, past, all), from/to (stays touching those days), arrivingFrom/arrivingTo (check-in day),
+     * guestId} and, for the owner without X-Hotel-Id, {@code hotelId}; with the view counts and the money over the scope.
+     */
     @GetMapping
-    public ApiResponse<List<BookingResponse>> list(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-                                                   @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-                                                   @RequestParam(required = false) BookingStatus status) {
-        return ApiResponse.ok(service.list(from, to, status));
+    public ApiResponse<?> list(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                               @RequestParam(required = false) String status, @RequestParam(required = false) Integer page,
+                               @RequestParam(required = false) Integer size, @RequestParam(required = false) String sort,
+                               @RequestParam(required = false) String q, @RequestParam(required = false) String view,
+                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate arrivingFrom,
+                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate arrivingTo,
+                               @RequestParam(required = false) String hotelId, @RequestParam(required = false) String guestId) {
+        if (!Paging.requested(page, size)) {
+            String checked = ReservationListService.statuses(status);
+            BookingStatus one = checked == null ? null : BookingStatus.valueOf(checked.split(",")[0]);
+            return ApiResponse.ok(service.list(from, to, one));
+        }
+        return ApiResponse.ok(lists.bookings(new ReservationListService.BookingParams(page, size, sort, q, status, view, from, to, arrivingFrom,
+                arrivingTo, hotelId, guestId)));
     }
 
     @GetMapping("/availability")

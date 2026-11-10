@@ -5,7 +5,6 @@ import com.hospio.common.delivery.DeliveryService;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.exception.ConflictException;
 import com.hospio.common.exception.ResourceNotFoundException;
-import com.hospio.common.response.PagedResponse;
 import com.hospio.common.security.CurrentUser;
 import com.hospio.common.security.HospioUserDetails;
 import com.hospio.common.tenancy.Tenant;
@@ -52,7 +51,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
+import com.hospio.common.paging.Paging;
+import com.hospio.common.response.PageWithCounts;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -84,6 +84,7 @@ public class MarketerService {
     private final BusinessNames businessNames;
     private final PlatformSettingsService settings;
     private final DeliveryService deliveries;
+    private final jakarta.persistence.EntityManager em;
 
     @Value("${hospio.apps.admin-url:https://admin-staging.hospio360.com}")
     private String adminUrl;
@@ -200,9 +201,16 @@ public class MarketerService {
 
     // ---- platform: referrals and commissions ---------------------------------------------------------
 
+    /** Referrals, newest first; size 1 to 100 (25 by default). {@code counts} has every stage (and {@code all}) for the profile. */
     @Transactional(readOnly = true)
-    public PagedResponse<Referral> referrals(String profileId, String stage, int page, int size) {
-        Specification<Referral> spec = (root, query, cb) -> {
+    public PageWithCounts<Referral> referrals(String profileId, String stage, Integer page, Integer size) {
+        Page<Referral> result = referrals.findAll(referralSpec(profileId, stage), Paging.of(page, size,
+                Sort.by(Sort.Direction.DESC, "sentAt").and(Sort.by("id"))));
+        return PageWithCounts.of(result, r -> r, referralCounts(profileId), Map.of());
+    }
+
+    static Specification<Referral> referralSpec(String profileId, String stage) {
+        return (root, query, cb) -> {
             List<Predicate> ps = new ArrayList<>();
             if (StringUtils.hasText(profileId)) {
                 ps.add(cb.equal(root.get("profileId"), profileId));
@@ -212,8 +220,15 @@ public class MarketerService {
             }
             return cb.and(ps.toArray(new Predicate[0]));
         };
-        Page<Referral> result = referrals.findAll(spec, PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100), Sort.by(Sort.Direction.DESC, "sentAt")));
-        return PagedResponse.of(result, r -> r);
+    }
+
+    private Map<String, Long> referralCounts(String profileId) {
+        Map<String, Long> counts = new java.util.LinkedHashMap<>();
+        counts.put("all", referrals.count(referralSpec(profileId, null)));
+        for (String s : List.of("LEAD", "CONTACTED", "ONBOARDING", "LIVE", "LOST")) {
+            counts.put(s, referrals.count(referralSpec(profileId, s)));
+        }
+        return counts;
     }
 
     @Transactional
@@ -230,9 +245,21 @@ public class MarketerService {
         return referrals.save(r);
     }
 
+    /**
+     * Commissions, latest month first; size 1 to 100 (25 by default). {@code counts}: all, DUE, WAITING, PAID for the profile and month
+     * (not the status); {@code totals}: gross, wht and net of the filtered range, and what is due, waiting and paid of it.
+     */
     @Transactional(readOnly = true)
-    public PagedResponse<CommissionRow> commissions(String profileId, String status, String month, int page, int size) {
-        Specification<Commission> spec = (root, query, cb) -> {
+    public PageWithCounts<CommissionRow> commissions(String profileId, String status, String month, Integer page, Integer size) {
+        Page<Commission> result = commissions.findAll(commissionSpec(profileId, status, month), Paging.of(page, size,
+                Sort.by(Sort.Direction.DESC, "month").and(Sort.by(Sort.Direction.DESC, "createdAt")).and(Sort.by("id"))));
+        Map<String, String> marketerNames = new HashMap<>();
+        return PageWithCounts.of(result, c -> row(c, marketerName(c, marketerNames)), commissionCounts(profileId, month),
+                commissionTotals(profileId, status, month));
+    }
+
+    static Specification<Commission> commissionSpec(String profileId, String status, String month) {
+        return (root, query, cb) -> {
             List<Predicate> ps = new ArrayList<>();
             if (StringUtils.hasText(profileId)) {
                 ps.add(cb.equal(root.get("profileId"), profileId));
@@ -245,10 +272,36 @@ public class MarketerService {
             }
             return cb.and(ps.toArray(new Predicate[0]));
         };
-        Page<Commission> result = commissions.findAll(spec, PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100),
-                Sort.by(Sort.Direction.DESC, "month").and(Sort.by(Sort.Direction.DESC, "createdAt"))));
-        Map<String, String> marketerNames = new HashMap<>();
-        return PagedResponse.of(result, c -> row(c, marketerName(c, marketerNames)));
+    }
+
+    private Map<String, Long> commissionCounts(String profileId, String month) {
+        Map<String, Long> counts = new java.util.LinkedHashMap<>();
+        counts.put("all", commissions.count(commissionSpec(profileId, null, month)));
+        for (String s : List.of("DUE", "WAITING", "PAID")) {
+            counts.put(s, commissions.count(commissionSpec(profileId, s, month)));
+        }
+        return counts;
+    }
+
+    /** Money over the filtered range, summed in the database. */
+    private Map<String, BigDecimal> commissionTotals(String profileId, String status, String month) {
+        jakarta.persistence.criteria.CriteriaBuilder cb = em.getCriteriaBuilder();
+        jakarta.persistence.criteria.CriteriaQuery<Object[]> cq = cb.createQuery(Object[].class);
+        jakarta.persistence.criteria.Root<Commission> r = cq.from(Commission.class);
+        jakarta.persistence.criteria.Expression<BigDecimal> net = r.get("net");
+        cq.multiselect(cb.coalesce(cb.sum(r.<BigDecimal>get("gross")), BigDecimal.ZERO), cb.coalesce(cb.sum(r.<BigDecimal>get("wht")), BigDecimal.ZERO),
+                cb.coalesce(cb.sum(net), BigDecimal.ZERO),
+                cb.coalesce(cb.sum(cb.<BigDecimal>selectCase().when(cb.equal(r.get("status"), "DUE"), net).otherwise(BigDecimal.ZERO)), BigDecimal.ZERO),
+                cb.coalesce(cb.sum(cb.<BigDecimal>selectCase().when(cb.equal(r.get("status"), "WAITING"), net).otherwise(BigDecimal.ZERO)), BigDecimal.ZERO),
+                cb.coalesce(cb.sum(cb.<BigDecimal>selectCase().when(cb.equal(r.get("status"), "PAID"), net).otherwise(BigDecimal.ZERO)), BigDecimal.ZERO))
+                .where(commissionSpec(profileId, status, month).toPredicate(r, cq, cb));
+        Object[] t = em.createQuery(cq).getSingleResult();
+        Map<String, BigDecimal> totals = new java.util.LinkedHashMap<>();
+        String[] keys = {"gross", "wht", "net", "due", "waiting", "paid"};
+        for (int i = 0; i < keys.length; i++) {
+            totals.put(keys[i], com.hospio.common.util.Money.of(t[i] == null ? BigDecimal.ZERO : new BigDecimal(t[i].toString())));
+        }
+        return totals;
     }
 
     @Transactional
@@ -290,6 +343,26 @@ public class MarketerService {
     @Transactional
     public List<Referral> myReferrals() {
         return asSystem(() -> referrals.findByProfileIdOrderBySentAtDesc(myProfile().getId()));
+    }
+
+    /** My referrals, one page (newest first), with counts per stage. */
+    @Transactional
+    public PageWithCounts<Referral> myReferrals(String stage, Integer page, Integer size) {
+        Paging.of(page, size, Sort.unsorted());
+        return asSystem(() -> referrals(myProfile().getId(), stage, page, size));
+    }
+
+    /** My commissions, one page (latest month first), for a month and status, with counts and totals. */
+    @Transactional
+    public PageWithCounts<CommissionRow> myCommissions(String month, String status, Integer page, Integer size) {
+        Paging.of(page, size, Sort.unsorted());
+        return asSystem(() -> {
+            MarketerProfile p = myProfile();
+            Page<Commission> result = commissions.findAll(commissionSpec(p.getId(), status, month), Paging.of(page, size,
+                    Sort.by(Sort.Direction.DESC, "month").and(Sort.by(Sort.Direction.DESC, "createdAt")).and(Sort.by("id"))));
+            return PageWithCounts.of(result, c -> row(c, p.getFullName()), commissionCounts(p.getId(), month),
+                    commissionTotals(p.getId(), status, month));
+        });
     }
 
     @Transactional

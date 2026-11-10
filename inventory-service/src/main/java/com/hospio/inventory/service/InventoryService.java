@@ -133,7 +133,7 @@ public class InventoryService {
         }
     }
 
-    private static HospioUserDetails user() {
+    static HospioUserDetails user() {
         return CurrentUser.require();
     }
 
@@ -311,16 +311,17 @@ public class InventoryService {
     @Transactional(readOnly = true)
     public List<InventoryViews.MovementView> movements(String itemId, String storeId, String kind, LocalDate from, LocalDate to) {
         String hotel = TenantContext.requireHotel();
-        List<StockMovement> rows = from == null && to == null ? movements.findTop300ByHotelIdOrderByCreatedAtDesc(hotel)
-                : movements.findByHotelIdAndCreatedAtBetweenOrderByCreatedAtDesc(hotel, start(from == null ? to.minusDays(30) : from),
-                        end(to == null ? LocalDate.now(LAGOS) : to));
+        // No cap: without dates the last 90 days (docs/pagination.md); screens page this through InventoryLists.
+        LocalDate t = to == null ? LocalDate.now(LAGOS) : to;
+        LocalDate f = from != null ? from : to != null ? to.minusDays(30) : t.minusDays(com.hospio.common.paging.Paging.DEFAULT_WINDOW_DAYS);
+        List<StockMovement> rows = movements.findByHotelIdAndCreatedAtBetweenOrderByCreatedAtDesc(hotel, start(f), end(t));
         Map<String, StockItem> im = itemMap();
         Map<String, Store> sm = storeMap();
         return rows.stream().filter(m -> itemId == null || itemId.equals(m.getItemId())).filter(m -> storeId == null || storeId.equals(m.getStoreId()))
-                .filter(m -> kind == null || m.getKind().name().equalsIgnoreCase(kind)).limit(300).map(m -> movementView(m, im, sm, true)).toList();
+                .filter(m -> kind == null || m.getKind().name().equalsIgnoreCase(kind)).map(m -> movementView(m, im, sm, true)).toList();
     }
 
-    private InventoryViews.MovementView movementView(StockMovement m, Map<String, StockItem> im, Map<String, Store> sm, boolean money) {
+    InventoryViews.MovementView movementView(StockMovement m, Map<String, StockItem> im, Map<String, Store> sm, boolean money) {
         StockItem i = im.get(m.getItemId());
         Store s = sm.get(m.getStoreId());
         BigDecimal c = m.getUnitCost() != null ? m.getUnitCost() : i == null ? BigDecimal.ZERO : cost(i);
@@ -523,14 +524,14 @@ public class InventoryService {
                 .map(r -> requestView(r, im, sm)).toList();
     }
 
-    private static boolean matchesStatus(StockRequest.Status s, String wanted) {
+    static boolean matchesStatus(StockRequest.Status s, String wanted) {
         if ("OPEN".equalsIgnoreCase(wanted)) {
             return s == StockRequest.Status.REQUESTED || s == StockRequest.Status.PART_ISSUED;
         }
         return s.name().equalsIgnoreCase(wanted);
     }
 
-    private InventoryViews.RequestView requestView(StockRequest r, Map<String, StockItem> im, Map<String, Store> sm) {
+    InventoryViews.RequestView requestView(StockRequest r, Map<String, StockItem> im, Map<String, Store> sm) {
         Store s = r.getStoreId() == null ? null : sm.get(r.getStoreId());
         return new InventoryViews.RequestView(r.getId(), r.getFromTeam(), r.getStoreId(), s == null ? null : s.getName(), requestLines(r, im),
                 r.getNote(), r.getStatus().name(), r.getRequestedBy(), r.getRequestedByName(), r.getIssuedByName(), r.getIssuedAt(), r.getReason(),
@@ -858,7 +859,7 @@ public class InventoryService {
         return orderView(po, supplierMap(), sm, im, ds, null);
     }
 
-    private InventoryViews.OrderView orderView(PurchaseOrder p, Map<String, Supplier> sup, Map<String, Store> sm, Map<String, StockItem> im,
+    InventoryViews.OrderView orderView(PurchaseOrder p, Map<String, Supplier> sup, Map<String, Store> sm, Map<String, StockItem> im,
                                                List<InventoryViews.DeliveryView> ds, List<Delivery> sent) {
         Supplier s = sup.get(p.getSupplierId());
         Store st = p.getStoreId() == null ? null : sm.get(p.getStoreId());
@@ -1072,14 +1073,17 @@ public class InventoryService {
     @Transactional(readOnly = true)
     public List<InventoryViews.DeliveryView> deliveries() {
         String hotel = TenantContext.requireHotel();
-        Map<String, PurchaseOrder> pos = orders.findByHotelIdOrderByCreatedAtDesc(hotel).stream()
-                .collect(Collectors.toMap(PurchaseOrder::getId, Function.identity()));
+        List<com.hospio.inventory.entity.Delivery> rows = deliveries.findByHotelIdOrderByCreatedAtDesc(hotel);
+        // Only the orders these deliveries point at, for their numbers.
+        Set<String> poIds = rows.stream().map(com.hospio.inventory.entity.Delivery::getPurchaseOrderId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<String, PurchaseOrder> pos = poIds.isEmpty() ? Map.of()
+                : orders.findAllById(poIds).stream().collect(Collectors.toMap(PurchaseOrder::getId, Function.identity()));
         Map<String, Store> sm = storeMap();
         Map<String, StockItem> im = itemMap();
-        return deliveries.findByHotelIdOrderByCreatedAtDesc(hotel).stream().map(d -> deliveryView(d, pos, sm, im)).toList();
+        return rows.stream().map(d -> deliveryView(d, pos, sm, im)).toList();
     }
 
-    private InventoryViews.DeliveryView deliveryView(com.hospio.inventory.entity.Delivery d, Map<String, PurchaseOrder> pos, Map<String, Store> sm,
+    InventoryViews.DeliveryView deliveryView(com.hospio.inventory.entity.Delivery d, Map<String, PurchaseOrder> pos, Map<String, Store> sm,
                                                      Map<String, StockItem> im) {
         PurchaseOrder po = d.getPurchaseOrderId() == null ? null : pos.get(d.getPurchaseOrderId());
         Store st = sm.get(d.getStoreId());
@@ -1223,7 +1227,7 @@ public class InventoryService {
                 .map(c -> countView(c, sm)).toList();
     }
 
-    private InventoryViews.CountView countView(StockCount c, Map<String, Store> sm) {
+    InventoryViews.CountView countView(StockCount c, Map<String, Store> sm) {
         Store s = sm.get(c.getStoreId());
         return new InventoryViews.CountView(c.getId(), c.getStoreId(), s == null ? "Store" : s.getName(), c.getStatus().name(),
                 read(c.getLines(), CountLine.class), c.getVarianceValue(), c.getNote(), c.getStartedByName(), c.getCountedByName(),
@@ -1484,15 +1488,15 @@ public class InventoryService {
         return counts.findById(id).orElseThrow(() -> new ResourceNotFoundException("Count not found"));
     }
 
-    private Map<String, Store> storeMap() {
+    Map<String, Store> storeMap() {
         return stores.findByHotelIdOrderByName(TenantContext.requireHotel()).stream().collect(Collectors.toMap(Store::getId, Function.identity()));
     }
 
-    private Map<String, StockItem> itemMap() {
+    Map<String, StockItem> itemMap() {
         return items.findByHotelIdOrderByCategoryAscNameAsc(TenantContext.requireHotel()).stream().collect(Collectors.toMap(StockItem::getId, Function.identity()));
     }
 
-    private Map<String, Supplier> supplierMap() {
+    Map<String, Supplier> supplierMap() {
         return suppliers.findByHotelIdOrderByName(TenantContext.requireHotel()).stream().collect(Collectors.toMap(Supplier::getId, Function.identity()));
     }
 

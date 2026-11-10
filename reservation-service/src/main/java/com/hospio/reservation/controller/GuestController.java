@@ -1,11 +1,13 @@
 package com.hospio.reservation.controller;
 
+import com.hospio.common.paging.Paging;
 import com.hospio.common.response.ApiResponse;
 import com.hospio.reservation.dto.BookingResponse;
 import com.hospio.reservation.dto.GuestRequest;
 import com.hospio.reservation.entity.Guest;
 import com.hospio.reservation.service.BookingService;
 import com.hospio.reservation.service.GuestService;
+import com.hospio.reservation.service.ReservationListService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -27,10 +29,21 @@ public class GuestController {
 
     private final GuestService guests;
     private final BookingService bookings;
+    private final ReservationListService lists;
 
+    /**
+     * Without {@code page} or {@code size}: every guest matching {@code q} by name, as before (scripts, other callers). With either: one
+     * page (docs/pagination.md), newest profile first, searched by name, phone or email, with {@code view} (all, in-house, repeat,
+     * blacklisted) and its counts.
+     */
     @GetMapping
-    public ApiResponse<List<Guest>> search(@RequestParam(required = false) String q) {
-        return ApiResponse.ok(guests.search(q));
+    public ApiResponse<?> search(@RequestParam(required = false) String q, @RequestParam(required = false) Integer page,
+                                 @RequestParam(required = false) Integer size, @RequestParam(required = false) String sort,
+                                 @RequestParam(required = false) String view) {
+        if (!Paging.requested(page, size)) {
+            return ApiResponse.ok(guests.search(q));
+        }
+        return ApiResponse.ok(lists.guests(page, size, sort, q, view));
     }
 
     @GetMapping("/{id}")

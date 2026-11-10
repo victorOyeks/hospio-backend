@@ -1,5 +1,6 @@
 package com.hospio.payment.controller;
 
+import com.hospio.common.paging.Paging;
 import com.hospio.common.response.ApiResponse;
 import com.hospio.payment.dto.DisputeRequest;
 import com.hospio.payment.dto.PaymentRequestDto;
@@ -8,18 +9,21 @@ import com.hospio.payment.dto.RefundRequestDto;
 import com.hospio.payment.dto.ResolveDisputeRequest;
 import com.hospio.payment.entity.Dispute;
 import com.hospio.payment.entity.Refund;
+import com.hospio.payment.service.PaymentListService;
 import com.hospio.payment.service.PaymentService;
 import com.hospio.payment.service.ReceiptService;
 import com.hospio.payment.service.RefundService;
 import jakarta.validation.Valid;
-import java.util.List;
+import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Taking payment (8.x), My payments & Verify (9.x), and Manager · Payments. */
@@ -31,10 +35,26 @@ public class PaymentController {
     private final PaymentService payments;
     private final RefundService refunds;
     private final ReceiptService receipts;
+    private final PaymentListService lists;
 
+    /**
+     * Payments the caller may see, newest first. With {@code page} or {@code size}: one page (docs/pagination.md) with tab counts and the
+     * money above the list, filtered by {@code q, status (comma separated), method, role, from, to (Lagos days; from defaults to 90 days
+     * ago), mine, today} and, for the owner without X-Hotel-Id, {@code hotelId}. Without either: every payment, as before (scripts).
+     */
     @GetMapping
-    public ApiResponse<List<PaymentResponse>> mine() {
-        return ApiResponse.ok(payments.mine());
+    public ApiResponse<?> mine(@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
+                               @RequestParam(required = false) String sort, @RequestParam(required = false) String q,
+                               @RequestParam(required = false) String status, @RequestParam(required = false) String method,
+                               @RequestParam(required = false) String role,
+                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                               @RequestParam(required = false) Boolean mine, @RequestParam(required = false) String hotelId,
+                               @RequestParam(required = false) Boolean today) {
+        if (!Paging.requested(page, size)) {
+            return ApiResponse.ok(payments.mine());
+        }
+        return ApiResponse.ok(lists.payments(new PaymentListService.Params(page, size, sort, q, status, method, role, from, to, mine, hotelId, today)));
     }
 
     @GetMapping("/{id}")
@@ -78,8 +98,12 @@ public class PaymentController {
 
     @GetMapping("/refunds")
     @PreAuthorize("@access.manager()")
-    public ApiResponse<List<Refund>> refunds() {
-        return ApiResponse.ok(refunds.list());
+    public ApiResponse<?> refunds(@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
+                                  @RequestParam(required = false) String status) {
+        if (!Paging.requested(page, size)) {
+            return ApiResponse.ok(lists.allRefunds());
+        }
+        return ApiResponse.ok(lists.refunds(page, size, status));
     }
 
     @PostMapping("/refunds/{refundId}/approve")
@@ -96,8 +120,12 @@ public class PaymentController {
 
     @GetMapping("/disputes")
     @PreAuthorize("@access.manager()")
-    public ApiResponse<List<Dispute>> disputes() {
-        return ApiResponse.ok(refunds.disputes());
+    public ApiResponse<?> disputes(@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
+                                   @RequestParam(required = false) String status) {
+        if (!Paging.requested(page, size)) {
+            return ApiResponse.ok(lists.allDisputes());
+        }
+        return ApiResponse.ok(lists.disputes(page, size, status));
     }
 
     @PostMapping("/{id}/disputes")

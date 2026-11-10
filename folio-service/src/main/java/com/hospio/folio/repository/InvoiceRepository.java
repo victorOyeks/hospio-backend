@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface InvoiceRepository extends JpaRepository<Invoice, String> {
+public interface InvoiceRepository extends JpaRepository<Invoice, String>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<Invoice> {
     List<Invoice> findByOrganizationIdOrderByDueDateDesc(String organizationId);
 
     long countByHotelId(String hotelId);
