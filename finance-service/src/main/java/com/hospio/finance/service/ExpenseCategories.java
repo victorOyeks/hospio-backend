@@ -95,7 +95,11 @@ public class ExpenseCategories {
         if (code.isEmpty()) {
             return Optional.empty();
         }
-        return all(hotelId).stream().filter(c -> c.getCode().equals(code)).findFirst();
+        String label = codeOrLabel.trim();
+        List<ExpenseCategory> list = all(hotelId);
+        // The code first; then the label as it reads now (a renamed category keeps its old code).
+        return list.stream().filter(c -> c.getCode().equals(code)).findFirst()
+                .or(() -> list.stream().filter(c -> c.getLabel().equalsIgnoreCase(label) || codeOf(c.getLabel()).equals(code)).findFirst());
     }
 
     /** What an expense stores: the hotel's code when the value names one of its categories, otherwise the value as given. */
