@@ -47,6 +47,7 @@ public class StaffAccountService {
     private final RefreshTokenRepository refreshTokens;
     private final EventPublisher events;
     private final UserService userService;
+    private final SharedDeviceService devices;
 
     @Transactional
     public UserResponse updateDetails(String userId, StaffAccountRequests.Details request) {
@@ -156,6 +157,27 @@ public class StaffAccountService {
         publish(user, "REINSTATED", null, caller.getFullName());
         notice(List.of(user.getId()), null, null, "You can sign in again", "Reinstated by " + caller.getFullName());
         tellManagers(user, caller, user.getFullName() + " can sign in again", "Reinstated by " + caller.getFullName());
+        return userService.get(user.getId());
+    }
+
+    /**
+     * A manager clears a person's PIN (forgotten, or seen by someone): it stops working on every shared device and its wrong-try
+     * lock is lifted. The person sets a new one from their profile after a normal sign-in.
+     */
+    @Transactional
+    public UserResponse resetPin(String userId) {
+        HospioUserDetails caller = CurrentUser.require();
+        UserAccount user = target(caller, userId, "reset the PIN of");
+        if (user.getPinHash() == null && user.getLockedUntil() == null) {
+            throw new BadRequestException(user.getFullName() + " has no PIN to reset");
+        }
+        user.setPinHash(null);
+        user.setFailedPinAttempts(0);
+        user.setLockedUntil(null);
+        users.save(user);
+        devices.audit(null, "PIN_RESET", user, null);
+        notice(List.of(user.getId()), user.getBusinessId(), null, "Your PIN was reset",
+                "By " + caller.getFullName() + ". Sign in with email and set a new PIN from your profile");
         return userService.get(user.getId());
     }
 

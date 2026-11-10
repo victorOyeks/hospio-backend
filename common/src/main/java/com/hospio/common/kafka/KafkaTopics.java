@@ -15,6 +15,8 @@ public final class KafkaTopics {
     public static final String USER_SIGNED_IN = PREFIX + "user-signed-in";
     public static final String ROLE_GRANTED = PREFIX + "role-granted";
     public static final String ACCESS_CHANGED = PREFIX + "access-changed";
+    /** Shared devices and PINs: set up, changed, removed, PIN set or reset, wrong PINs, PIN locks and device locks (activity log only). */
+    public static final String SHARED_DEVICE = PREFIX + "shared-device";
 
     // Tenant & Onboarding
     public static final String BUSINESS_CREATED = PREFIX + "business-created";
@@ -101,7 +103,7 @@ public final class KafkaTopics {
 
     /** Every topic; platform-service's activity log and the live Departments board subscribe to all of them. */
     public static final List<String> ALL = List.of(
-            USER_CREATED, USER_SIGNED_IN, ROLE_GRANTED, ACCESS_CHANGED,
+            USER_CREATED, USER_SIGNED_IN, ROLE_GRANTED, ACCESS_CHANGED, SHARED_DEVICE,
             BUSINESS_CREATED, HOTEL_CREATED, BUSINESS_STAGE_CHANGED, HANDOVER_SENT, HANDOVER_ACCEPTED,
             SETTING_CHANGED,
             ROOM_OUT_OF_ORDER, ROOM_BACK_IN_SERVICE,

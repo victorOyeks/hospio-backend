@@ -51,7 +51,7 @@ class StaffAccountServiceTest {
     private final RefreshTokenRepository refresh = mock(RefreshTokenRepository.class);
     private final EventPublisher events = mock(EventPublisher.class);
     private final UserService userService = mock(UserService.class);
-    private final StaffAccountService service = new StaffAccountService(users, grants, refresh, events, userService);
+    private final StaffAccountService service = new StaffAccountService(users, grants, refresh, events, userService, mock(SharedDeviceService.class));
 
     private final List<RoleGrant> adaGrants = new ArrayList<>();
     private UserAccount ada;
@@ -237,5 +237,25 @@ class StaffAccountServiceTest {
         assertThat(ada.getFullName()).isEqualTo("Ada N. Okeke");
         assertThat(ada.getJobTitle()).isEqualTo("Night auditor");
         assertThat(ada.getEmail()).isEqualTo("ada@x.ng");
+    }
+
+    @Test
+    void aManagerResetsAStaffPinWhichClearsItAndItsLock() {
+        signInAs("tunde", "b1", Role.MANAGER, "h1");
+        ada.setPinHash("hash");
+        ada.setFailedPinAttempts(3);
+        ada.setLockedUntil(Instant.now().plusSeconds(600));
+        service.resetPin("ada");
+        assertThat(ada.getPinHash()).isNull();
+        assertThat(ada.getFailedPinAttempts()).isZero();
+        assertThat(ada.getLockedUntil()).isNull();
+        assertThatThrownBy(() -> service.resetPin("ada")).isInstanceOf(BadRequestException.class).hasMessageContaining("no PIN");
+    }
+
+    @Test
+    void staffCannotResetPins() {
+        signInAs("segun", "b1", Role.BAR, "h1");
+        ada.setPinHash("hash");
+        assertThatThrownBy(() -> service.resetPin("ada")).isInstanceOf(ForbiddenException.class);
     }
 }

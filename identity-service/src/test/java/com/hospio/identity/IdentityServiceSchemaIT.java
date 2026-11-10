@@ -42,5 +42,11 @@ class IdentityServiceSchemaIT {
         assertThat(tables).isGreaterThanOrEqualTo(4);
         Boolean rls = jdbc.queryForObject("select relrowsecurity from pg_class where oid = 'identity.user_accounts'::regclass", Boolean.class);
         assertThat(rls).isTrue();
+        // Shared devices are scoped like their neighbours: forced row-level security with the business-and-hotel policy.
+        Boolean devices = jdbc.queryForObject("select relrowsecurity and relforcerowsecurity from pg_class where oid = 'identity.shared_devices'::regclass",
+                Boolean.class);
+        assertThat(devices).isTrue();
+        String policy = jdbc.queryForObject("select qual from pg_policies where schemaname = 'identity' and tablename = 'shared_devices'", String.class);
+        assertThat(policy).contains("can_see((business_id)::text, (hotel_id)::text)");
     }
 }

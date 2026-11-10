@@ -41,7 +41,31 @@ public class TokenIssuer {
     private long refreshDays;
 
     public AuthResponse issue(UserAccount user) {
-        List<RoleGrant> grants = roleGrants.findByUserId(user.getId()).stream().filter(RoleGrant::isActive).toList();
+        return issue(user, null, null);
+    }
+
+    /**
+     * A session opened with a PIN on a shared device: only the person's roles at the device's hotel, that hotel alone, and a
+     * refresh token that names the device (docs/shared-devices.md). Roles and levels are otherwise exactly as for a sign-in.
+     */
+    public AuthResponse issueOnDevice(UserAccount user, String hotelId, String deviceId) {
+        return issue(user, hotelId, deviceId);
+    }
+
+    /** The person's active roles at one hotel (or everywhere when {@code hotelId} is null), highest level per role. */
+    public Map<Role, AccessLevel> rolesAt(String userId, String hotelId) {
+        Map<Role, AccessLevel> roles = new EnumMap<>(Role.class);
+        for (RoleGrant g : roleGrants.findByUserId(userId)) {
+            if (g.isActive() && (hotelId == null || hotelId.equals(g.getHotelId()))) {
+                roles.merge(g.getRole(), g.getLevel(), (a, b) -> a.atLeast(b) ? a : b);
+            }
+        }
+        return roles;
+    }
+
+    private AuthResponse issue(UserAccount user, String onlyHotel, String deviceId) {
+        List<RoleGrant> grants = roleGrants.findByUserId(user.getId()).stream().filter(RoleGrant::isActive)
+                .filter(g -> onlyHotel == null || onlyHotel.equals(g.getHotelId())).toList();
         Map<Role, AccessLevel> roles = new EnumMap<>(Role.class);
         Set<String> hotels = new LinkedHashSet<>();
         for (RoleGrant g : grants) {
@@ -51,7 +75,7 @@ public class TokenIssuer {
             }
         }
         String scope = scopeFor(user, roles);
-        if (JwtUtil.SCOPE_BUSINESS.equals(scope)) {
+        if (onlyHotel == null && JwtUtil.SCOPE_BUSINESS.equals(scope)) {
             tenantClient.hotelIds(user.getBusinessId()).ifPresent(hotels::addAll);
         }
         String access = jwtUtil.generateToken(user.getId(), user.getEmail(), user.getFullName(), user.getBusinessId(),
@@ -62,6 +86,7 @@ public class TokenIssuer {
                 .userId(user.getId())
                 .tokenHash(Hashing.sha256(raw))
                 .expiresAt(Instant.now().plus(refreshDays, ChronoUnit.DAYS))
+                .deviceId(deviceId)
                 .build());
 
         return new AuthResponse(access, raw, jwtUtil.getExpirationMs() / 1000,

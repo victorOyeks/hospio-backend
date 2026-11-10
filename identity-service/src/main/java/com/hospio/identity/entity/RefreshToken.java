@@ -32,6 +32,10 @@ public class RefreshToken extends BaseEntity {
     @Column(name = "revoked_at")
     private Instant revokedAt;
 
+    /** Set when the session was opened with a PIN on a shared device: locking or removing the device ends it. */
+    @Column(name = "device_id", length = 36)
+    private String deviceId;
+
     public boolean isUsable() {
         return revokedAt == null && expiresAt.isAfter(Instant.now());
     }

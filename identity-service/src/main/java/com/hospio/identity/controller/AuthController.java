@@ -12,11 +12,13 @@ import com.hospio.identity.dto.PhoneCodeResponse;
 import com.hospio.identity.dto.PinLoginRequest;
 import com.hospio.identity.dto.RefreshTokenRequest;
 import com.hospio.identity.dto.SetPinRequest;
+import com.hospio.identity.dto.SharedDeviceDtos;
 import com.hospio.identity.dto.SignUpRequest;
 import com.hospio.identity.dto.VerifyPhoneRequest;
 import com.hospio.identity.service.AuthService;
 import com.hospio.identity.service.InviteService;
 import com.hospio.identity.service.PhoneVerificationService;
+import com.hospio.identity.service.SharedDeviceService;
 import com.hospio.identity.service.SignUpService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
@@ -25,6 +27,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -37,6 +40,9 @@ public class AuthController {
     private final SignUpService signUpService;
     private final PhoneVerificationService phoneVerification;
     private final InviteService invites;
+    private final SharedDeviceService devices;
+
+    public static final String DEVICE_HEADER = "X-Device-Token";
 
     /** Owners, managers and admins: email and password. */
     @PostMapping("/sign-in")
@@ -44,10 +50,25 @@ public class AuthController {
         return ApiResponse.ok("Signed in", authService.signIn(request));
     }
 
-    /** Staff on the shared tablet: phone or email plus PIN. */
+    /** Unlock a shared device with a PIN: the device token in X-Device-Token, the person tapped and their PIN (docs/shared-devices.md). */
     @PostMapping("/pin-sign-in")
-    public ApiResponse<AuthResponse> pinSignIn(@Valid @RequestBody PinLoginRequest request) {
-        return ApiResponse.ok("Signed in", authService.signInWithPin(request));
+    public ApiResponse<AuthResponse> pinSignIn(@RequestHeader(value = DEVICE_HEADER, required = false) String deviceToken,
+                                               @Valid @RequestBody PinLoginRequest request) {
+        return ApiResponse.ok("Signed in", authService.signInWithPin(deviceToken, request));
+    }
+
+    @Operation(summary = "The lock screen of a shared device: its hotel, name, auto-lock and the people who can unlock it; 401 once removed")
+    @GetMapping("/device")
+    public ApiResponse<SharedDeviceDtos.LockScreen> device(@RequestHeader(value = DEVICE_HEADER, required = false) String deviceToken) {
+        return ApiResponse.ok(devices.lockScreen(deviceToken));
+    }
+
+    @Operation(summary = "Lock a shared device: the session's refresh token ends (reason button or idle, for the activity log)")
+    @PostMapping("/device/lock")
+    public ApiResponse<Void> lockDevice(@RequestHeader(value = DEVICE_HEADER, required = false) String deviceToken,
+                                        @RequestBody SharedDeviceDtos.Lock request) {
+        authService.lockDevice(deviceToken, request.refreshToken(), request.reason());
+        return ApiResponse.ok("Locked", null);
     }
 
     @Operation(summary = "Self-serve sign-up: creates the business and its owner, then signs the owner in")
@@ -73,7 +94,7 @@ public class AuthController {
         return ApiResponse.ok("Password changed. Sign in again", null);
     }
 
-    /** First sign-in on the tablet: choose a PIN. Also used by Me → Change PIN. */
+    /** Set or change one's own PIN with the password (4-6 digits, not trivial, not the PIN before). Owners have none. */
     @PostMapping("/set-pin")
     public ApiResponse<Void> setPin(@Valid @RequestBody SetPinRequest request) {
         authService.setPin(CurrentUser.require().getUserId(), request);
