@@ -89,8 +89,9 @@ public class MaintenanceService {
         List<Repair> rows = switch (s) {
             case "mine" -> repairs.findByHotelIdAndStatusInOrderByCreatedAtDesc(hotel, WorkOrderRules.OPEN).stream()
                     .filter(r -> u.getUserId().equals(r.getAssignedTo())).toList();
-            case "done" -> repairs.findTop300ByHotelIdOrderByCreatedAtDesc(hotel).stream().filter(r -> !r.isOpen()).toList();
-            case "all" -> repairs.findTop300ByHotelIdOrderByCreatedAtDesc(hotel);
+            // No cap (docs/pagination.md): screens page done and all through RepairLists; this unpaged form is for internal callers.
+            case "done" -> repairs.findByHotelIdAndStatusInOrderByCreatedAtDesc(hotel, java.util.EnumSet.complementOf(java.util.EnumSet.copyOf(WorkOrderRules.OPEN)));
+            case "all" -> repairs.findByHotelIdOrderByCreatedAtDesc(hotel);
             case "open" -> repairs.findByHotelIdAndStatusInOrderByCreatedAtDesc(hotel, WorkOrderRules.OPEN);
             default -> throw new BadRequestException("Pick a list: mine, open, done or all");
         };
@@ -811,7 +812,7 @@ public class MaintenanceService {
         return r.getRoomNumber() != null ? "Room " + r.getRoomNumber() : nz(r.getArea(), "Hotel");
     }
 
-    private Map<String, Asset> assetMap(String hotel) {
+    Map<String, Asset> assetMap(String hotel) {
         return hotel == null ? Map.of() : assets.findByHotelIdOrderByName(hotel).stream().collect(Collectors.toMap(Asset::getId, Function.identity()));
     }
 
@@ -835,7 +836,7 @@ public class MaintenanceService {
         }
     }
 
-    private MaintenanceViews.RepairView view(Repair r, Map<String, Asset> am, List<MaintenanceViews.UpdateView> ups, Instant now) {
+    MaintenanceViews.RepairView view(Repair r, Map<String, Asset> am, List<MaintenanceViews.UpdateView> ups, Instant now) {
         Asset a = r.getAssetId() == null ? null : am.get(r.getAssetId());
         BigDecimal parts = z(r.getPartsCost());
         BigDecimal vendor = z(r.getVendorCost());

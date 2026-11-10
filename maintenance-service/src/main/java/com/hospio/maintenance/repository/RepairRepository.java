@@ -9,10 +9,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface RepairRepository extends JpaRepository<Repair, String> {
+public interface RepairRepository extends JpaRepository<Repair, String>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<Repair> {
     List<Repair> findByHotelIdAndStatusInOrderByCreatedAtDesc(String hotelId, Collection<Repair.Status> statuses);
 
-    List<Repair> findTop300ByHotelIdOrderByCreatedAtDesc(String hotelId);
+    List<Repair> findByHotelIdOrderByCreatedAtDesc(String hotelId);
 
     List<Repair> findByHotelIdAndRoomIdAndStatusIn(String hotelId, String roomId, Collection<Repair.Status> statuses);
 

@@ -5,6 +5,7 @@ import com.hospio.maintenance.dto.MaintenanceRequests;
 import com.hospio.maintenance.dto.MaintenanceViews;
 import com.hospio.maintenance.entity.ScheduledJobRun;
 import com.hospio.maintenance.service.MaintenanceService;
+import com.hospio.maintenance.service.RepairLists;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.util.List;
@@ -39,11 +40,21 @@ public class MaintenanceController {
     static final String MONEY = "@access.managerView() or @access.has('FINANCE') or @access.atLeast('MAINTENANCE','FULL')";
 
     private final MaintenanceService service;
+    private final RepairLists lists;
 
     @GetMapping("/repairs")
     @PreAuthorize(READ)
-    public ApiResponse<List<MaintenanceViews.RepairView>> list(@RequestParam(required = false) String scope, @RequestParam(required = false) String roomId) {
-        return ApiResponse.ok(service.list(scope, roomId));
+    public ApiResponse<?> list(@RequestParam(required = false) String scope, @RequestParam(required = false) String roomId,
+                               @RequestParam(required = false) String q,
+                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                               @RequestParam(required = false) String sort, @RequestParam(required = false) Integer page,
+                               @RequestParam(required = false) Integer size) {
+        if (!com.hospio.common.paging.Paging.requested(page, size)) {
+            // Unpaged (internal callers, scripts and the open board, which is bounded by nature): every match, no cap.
+            return ApiResponse.ok(service.list(scope, roomId));
+        }
+        return ApiResponse.ok(lists.page(new RepairLists.Query(scope, roomId, q, from, to, sort, page, size)));
     }
 
     @GetMapping("/repairs/summary")
