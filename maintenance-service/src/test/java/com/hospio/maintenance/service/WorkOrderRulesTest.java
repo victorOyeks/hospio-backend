@@ -162,12 +162,13 @@ class WorkOrderRulesTest {
     }
 
     @Test
-    void theFrontOfficeHearsOfUrgentOrOutOfOrderRoomsOnly() {
+    void theFrontOfficeHearsOfAnUrgentRoomProblemOnceOnly() {
         assertThat(WorkOrderRules.reportedProblemRoles(true, false, "r1")).containsExactly("FRONT_OFFICE");
-        assertThat(WorkOrderRules.reportedProblemRoles(true, true, "r1")).containsExactly("FRONT_OFFICE");
-        assertThat(WorkOrderRules.reportedProblemRoles(false, true, "r1")).containsExactly("FRONT_OFFICE", "MANAGER");
+        // out of order: property-service's own notice tells the front office, housekeeping and managers
+        assertThat(WorkOrderRules.reportedProblemRoles(true, true, "r1")).isEmpty();
+        assertThat(WorkOrderRules.reportedProblemRoles(false, true, "r1")).isEmpty();
         assertThat(WorkOrderRules.reportedProblemRoles(false, false, "r1")).isEmpty();
-        assertThat(WorkOrderRules.reportedProblemRoles(true, true, null)).isEmpty();
+        assertThat(WorkOrderRules.reportedProblemRoles(true, false, null)).isEmpty();
     }
 
     @Test

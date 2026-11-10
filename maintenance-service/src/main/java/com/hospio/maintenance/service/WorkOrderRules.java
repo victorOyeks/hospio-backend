@@ -80,14 +80,15 @@ public final class WorkOrderRules {
     }
 
     /**
-     * Who hears about a problem reported in a room that is urgent or put the room out of order: the front office (so nobody is
-     * checked in there) and the managers, who already hear of every urgent work order when it is opened.
+     * Who maintenance tells about a problem reported in a room: an urgent one goes to the front office (managers already hear of every
+     * urgent work order). A room taken out of order is told by property-service's own "Room … out of order" notice (front office,
+     * housekeeping, managers), so nothing more is sent for it here.
      */
     public static java.util.List<String> reportedProblemRoles(boolean urgent, boolean outOfOrder, String roomId) {
-        if (roomId == null || (!urgent && !outOfOrder)) {
+        if (roomId == null || !urgent || outOfOrder) {
             return java.util.List.of();
         }
-        return urgent ? java.util.List.of("FRONT_OFFICE") : java.util.List.of("FRONT_OFFICE", "MANAGER");
+        return java.util.List.of("FRONT_OFFICE");
     }
 
     /** Where a reopened work order goes: back to whoever had it, else onto the board. */
