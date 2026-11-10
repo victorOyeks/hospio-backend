@@ -14,8 +14,8 @@ import org.springframework.stereotype.Component;
  * The one way a service sends an email, SMS or WhatsApp (docs/email.md). Publishes every delivery as a
  * {@link DeliveryRequestedEvent} on {@code hospio-delivery-requested} after the surrounding transaction commits;
  * messaging-service records it and sends the emails through SMTP. When {@code hospio.deliveries.echo} is on (env
- * {@code DELIVERIES_ECHO}, true on staging) the same list comes back, each with its {@code status} (email sent, test
- * address, not connected), so the controller can put it in the response under {@code deliveries} and the web app shows
+ * {@code DELIVERIES_ECHO}, true on staging) the same list comes back, each with its {@code status} (email sent or not
+ * connected), so the controller can put it in the response under {@code deliveries} and the web app shows
  * it on screen. Production runs with echo off and gets an empty list. Never throws: a delivery never fails the action.
  */
 @Slf4j
@@ -40,7 +40,7 @@ public class DeliveryService {
         return policy;
     }
 
-    /** The delivery with the status the echo shows (email sent, test address, not connected). */
+    /** The delivery with the status the echo shows (email sent, not connected). */
     public Delivery marked(Delivery d) {
         return d.withStatus(policy.statusFor(d));
     }

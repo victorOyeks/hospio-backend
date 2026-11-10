@@ -9,9 +9,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * messaging-service (the one sender: email goes out through SMTP there, SMS and WhatsApp are not connected yet) and, on
  * environments with the echo on, returns them in the API response so the web app can show them on screen.
  *
- * <p>{@code status} is filled by {@link DeliveryService} for the echo: {@code EMAIL_SENT} (an email to a real address, on
- * its way), {@code TEST_ADDRESS} (a reserved or seed domain, never sent), {@code NOT_CONNECTED} (SMS and WhatsApp, or
- * email switched off). {@code hotelId} / {@code businessId} name the hotel the message is from when the caller's own
+ * <p>{@code status} is filled by {@link DeliveryService} for the echo: {@code EMAIL_SENT} (an email, on its way to the
+ * address whatever the domain) or {@code NOT_CONNECTED} (SMS and WhatsApp, or email switched off). {@code hotelId} / {@code businessId} name the hotel the message is from when the caller's own
  * context does not (an invite made business-wide by the owner); the From name is that hotel's name. See docs/email.md.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -27,7 +26,6 @@ public record Delivery(Channel channel, String to, String subject, String text, 
 
     /** The echo's status values (see the class comment). */
     public static final String EMAIL_SENT = "EMAIL_SENT";
-    public static final String TEST_ADDRESS = "TEST_ADDRESS";
     public static final String NOT_CONNECTED = "NOT_CONNECTED";
 
     public Delivery(Channel channel, String to, String subject, String text, Kind kind, String ref) {

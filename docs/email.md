@@ -17,7 +17,6 @@ Values live in `/opt/hospio-staging/.env.staging` (systemd `EnvironmentFile`), n
 | `MAIL_FROM_ADDRESS` | `hospio.mail.from-address` | The From address of every email |
 | `MAIL_FROM_NAME_DEFAULT` | `hospio.mail.from-name-default` | From name for platform mail (no hotel, no business) |
 | `MAIL_ENABLED` | `hospio.mail.enabled` | `true` sends real email; anything else records and echoes only (default false) |
-| `MAIL_BLOCKED_DOMAINS` | `hospio.mail.blocked-domains` | Comma list; replaces the defaults below when set |
 | `DELIVERIES_ECHO` | `hospio.deliveries.echo` | Echo every delivery in the API response (`deliveries`), on for staging |
 
 ## Who it is from
@@ -29,15 +28,12 @@ Values live in `/opt/hospio-staging/.env.staging` (systemd `EnvironmentFile`), n
 - **Reply-To**: the hotel's email (Hotel setup / tenant hotel `email`) when it has one, else the business's email, else none.
 - A sender may override both with the event's `fromName` / `replyTo`.
 
-## Blocked domains (staging safety)
+## Every address gets its email
 
-Never sent, recorded as `SKIPPED_TEST_ADDRESS` and echoed as "Not sent (test address)":
-
-`*.test`, `*.example`, `*.invalid`, `*.localhost`, `example.com`, `example.org`, `example.net`, `hospio-qa.test`, the seed
-hotel's `royalsuites.ng` (it may be a real domain someone else owns), and the other made-up domains in the seed data and
-QA scripts: `x.ng`, `y.ng`, `supplier.ng`, `savannahlodge.ng`, `lagosfreshfoods.ng`, `ikejadrinks.ng`, `bluelagoon.ng`,
-`qasupplies.ng`, `adaqa.ng`, `simpashotels.com`. A domain also blocks its subdomains. Anything that is not an address is
-treated the same way. Real addresses (a QA gmail sign-up) get a real email.
+No address is excluded, whatever the domain (`*.test`, `example.*`, the seed hotel's `royalsuites.ng` included): every
+email goes to the saved address and whatever Brevo answers is recorded. An address that cannot be delivered (a `.test`
+domain) is either refused by Brevo at once (`FAILED` with Brevo's error) or accepted and bounced later (`SENT`; the bounce
+is in Brevo's log, not in Hospio). The business action succeeds either way.
 
 ## The on-screen echo
 
@@ -45,14 +41,13 @@ With `DELIVERIES_ECHO=true` every delivery still comes back in the response unde
 
 | `status` | Screen says |
 |---|---|
-| `EMAIL_SENT` | "Email sent to …" (handed to the sender; the outcome is in the delivery record) |
-| `TEST_ADDRESS` | "Not sent (test address)" |
+| `EMAIL_SENT` | "Email sent to …" (handed to the sender; Brevo's answer is in the delivery record) |
 | `NOT_CONNECTED` | SMS / WhatsApp: "Not sent · SMS (WhatsApp) coming soon"; email with `MAIL_ENABLED` off: "Not sent · email is off" |
 
 ## The delivery record (`messaging.deliveries`)
 
 One row per delivery: `channel`, `to_address`, `subject`, `kind`, `ref`, `from_name`, `reply_to`, `status`
-(`QUEUED` → `SENT`, `FAILED`, `SKIPPED_TEST_ADDRESS`, `NOT_CONNECTED`, `DISABLED`), `attempts`, `provider_message_id`
+(`QUEUED` → `SENT`, `FAILED`, `NOT_CONNECTED` for SMS and WhatsApp, `DISABLED` when `MAIL_ENABLED` is off), `attempts`, `provider_message_id`
 (the SMTP Message-ID Brevo accepted), `error` (one line, never a credential), `sent_at`, `created_at`, `event_id` (unique:
 a redelivered event is not sent twice), `business_id`, `hotel_id`. Forced row-level security like its neighbours; platform
 mail (no business) is visible to H.M.S only.
@@ -94,7 +89,7 @@ return response.withDeliveries(echoed);          // put it under "deliveries" so
 - Services that cannot depend on common may publish `DeliveryRequestedEvent` on `hospio-delivery-requested` themselves
   with `channel`, `to`, `subject`, `text`, `kind`, `ref` (and optionally `hotelId`, `businessId`, `fromName`, `replyTo`, `html`).
 
-Never put an address on a blocked domain into a test expecting `SENT`; use a blocked domain to check `SKIPPED_TEST_ADDRESS`.
+Tests send real email to whatever address they use; keep the volume sensible (no loops of hundreds).
 
 ## Per-user email preferences
 
