@@ -8,4 +8,6 @@ public interface RoomTypeRepository extends JpaRepository<RoomType, String> {
     List<RoomType> findByHotelIdOrderByName(String hotelId);
 
     long countByHotelIdAndActiveTrue(String hotelId);
+
+    java.util.Optional<RoomType> findByPriceApprovalId(String priceApprovalId);
 }

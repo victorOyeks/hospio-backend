@@ -60,8 +60,8 @@ public final class SetupCatalogue {
         s.put(TAXES_CURRENCY, section("currency", t("NGN"), "vatPct", d("7.5"), "serviceChargePct", n(0), "consumptionTaxPct", n(0),
                 "pricesIncludeTax", b(true)));
         s.put(APPROVAL_LIMITS, section("managerExpenseLimit", n(200000), "ownerExpenseLimit", n(0), "discountPct", n(10),
-                "refundsNeedOwner", b(false), "rateChangesNeedOwner", b(true)));
-        s.put(HOUSEKEEPING, section("inspectDepartures", b(true), "minibarToFolio", b(true)));
+                "refundsNeedOwner", b(false), "rateChangesNeedOwner", b(true), "rateChangeOwnerPct", n(0)));
+        s.put(HOUSEKEEPING, section("inspectDepartures", b(true), "minibarToFolio", b(true), "lostFoundHoldDays", n(90)));
         s.put(OUTLETS, section("roomCharge", b(true), "tabs", b(true), "tabLimit", n(50000)));
         s.put(MESSAGING, section("whatsappNumber", t(""), "sendConfirmation", b(true), "arrivalMessage", b(true), "sendReceipts", b(true)));
         s.put(STAFF, section("lateMinutes", n(15)));

@@ -6,6 +6,9 @@ import com.hospio.common.exception.ExternalServiceException;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.kafka.EventPublisher;
 import com.hospio.common.kafka.KafkaTopics;
+import com.hospio.common.kafka.events.ApprovalRequestedEvent;
+import com.hospio.common.util.Money;
+import java.util.UUID;
 import com.hospio.common.kafka.events.RoomBackInServiceEvent;
 import com.hospio.common.kafka.events.RoomOutOfOrderEvent;
 import com.hospio.common.tenancy.Tenant;
@@ -57,6 +60,7 @@ public class PropertyService {
     private final SpecialPriceRepository specialPrices;
     private final TenantClient tenantClient;
     private final EventPublisher events;
+    private final com.hospio.property.client.HotelConfigClient hotelConfig;
 
     @Transactional(readOnly = true)
     public List<RoomTypeResponse> roomTypes(String hotelId) {
@@ -73,9 +77,35 @@ public class PropertyService {
         String hotelId = TenantContext.requireHotel();
         return withHotelTenant(hotelId, () -> {
             RoomType type = id == null ? RoomType.builder().hotelId(hotelId).build() : findType(id);
+            type.setPriceSentToOwner(false);
+            if (request.basePrice().signum() <= 0) {
+                throw new BadRequestException("Enter a base price above zero");
+            }
+            BigDecimal price = Money.of(request.basePrice());
+            BigDecimal toOwner = null;
+            if (id != null && type.getBasePrice() != null && price.compareTo(type.getBasePrice()) != 0) {
+                com.hospio.common.security.HospioUserDetails user = com.hospio.common.security.CurrentUser.get().orElse(null);
+                boolean ownerSets = user == null || user.isPlatform() || user.has(com.hospio.common.enums.Role.OWNER);
+                if (!ownerSets && RoomPriceRule.toOwner(hotelConfig.roomPricePolicy(hotelId), type.getBasePrice(), price)) {
+                    // Over the owner's threshold: everything else is saved now, the price waits for the owner (as folio's credit limits).
+                    if (type.getPriceApprovalId() != null && type.getRequestedBasePrice() != null) {
+                        if (type.getRequestedBasePrice().compareTo(price) != 0) {
+                            throw new BadRequestException("A price of " + naira(type.getRequestedBasePrice()) + " for " + type.getName()
+                                    + " is already waiting for the owner. Wait for their answer first");
+                        }
+                    } else {
+                        toOwner = price;
+                    }
+                    price = type.getBasePrice();
+                } else if (ownerSets && type.getPriceApprovalId() != null) {
+                    // The owner set the price themselves: the waiting request is answered by that.
+                    clearPriceRequest(type);
+                }
+            }
+            BigDecimal oldPrice = type.getBasePrice();
             type.setName(request.name());
             type.setDescription(request.description());
-            type.setBasePrice(request.basePrice());
+            type.setBasePrice(price);
             if (request.capacityAdults() != null) {
                 type.setCapacityAdults(request.capacityAdults());
             }
@@ -86,8 +116,61 @@ public class PropertyService {
             if (request.active() != null) {
                 type.setActive(request.active());
             }
-            return toResponse(roomTypes.save(type));
+            RoomType saved = roomTypes.save(type);
+            if (toOwner != null) {
+                com.hospio.common.security.HospioUserDetails user = com.hospio.common.security.CurrentUser.require();
+                String approvalId = UUID.randomUUID().toString();
+                saved.setRequestedBasePrice(toOwner);
+                saved.setPriceApprovalId(approvalId);
+                saved.setPriceRequestedByName(user.getFullName());
+                saved.setPriceRequestedAt(java.time.Instant.now());
+                saved = roomTypes.save(saved);
+                BigDecimal pct = toOwner.subtract(oldPrice).multiply(BigDecimal.valueOf(100)).divide(oldPrice, 1, java.math.RoundingMode.HALF_UP);
+                events.publish(KafkaTopics.APPROVAL_REQUESTED, ApprovalRequestedEvent.builder()
+                        .approvalId(approvalId).sourceModule(PROPERTY).sourceRef(saved.getId()).kind(ROOM_PRICE).amount(toOwner)
+                        .requesterId(user.getUserId()).requesterName(user.getFullName()).approverLevel("OWNER")
+                        .description(saved.getName() + " · base price " + naira(oldPrice) + " → " + naira(toOwner) + " ("
+                                + (pct.signum() > 0 ? "+" : "") + pct.stripTrailingZeros().toPlainString() + "%)").build());
+                saved.setPriceSentToOwner(true);
+            }
+            return toResponse(saved);
         });
+    }
+
+    public static final String PROPERTY = "PROPERTY";
+    public static final String ROOM_PRICE = "ROOM_PRICE";
+
+    /**
+     * The owner's answer to a room price request (APPROVAL_DECIDED from platform-service): approved, the requested price becomes the
+     * base price; declined, the old one stays. A question leaves it waiting. Answers to a request that was replaced or settled are ignored.
+     */
+    @Transactional
+    public void applyPriceDecision(String approvalId, String decision) {
+        roomTypes.findByPriceApprovalId(approvalId)
+                .filter(t -> approvalId.equals(t.getPriceApprovalId()) && t.getRequestedBasePrice() != null).ifPresent(type -> {
+            if ("APPROVED".equals(decision)) {
+                type.setBasePrice(Money.of(type.getRequestedBasePrice()));
+                clearPriceRequest(type);
+            } else if ("DECLINED".equals(decision)) {
+                clearPriceRequest(type);
+            } else {
+                return;
+            }
+            roomTypes.save(type);
+        });
+    }
+
+    private static void clearPriceRequest(RoomType type) {
+        type.setRequestedBasePrice(null);
+        type.setPriceApprovalId(null);
+        type.setPriceRequestedByName(null);
+        type.setPriceRequestedAt(null);
+    }
+
+    static String naira(BigDecimal amount) {
+        java.text.NumberFormat f = java.text.NumberFormat.getNumberInstance(java.util.Locale.ENGLISH);
+        f.setMaximumFractionDigits(amount != null && amount.stripTrailingZeros().scale() > 0 ? 2 : 0);
+        return "₦" + f.format(amount == null ? BigDecimal.ZERO : amount);
     }
 
     /** Hides a room type nobody uses; one with rooms is refused (409) until they are moved. */
@@ -263,7 +346,8 @@ public class PropertyService {
         return new RoomTypeResponse(t.getId(), t.getHotelId(), t.getName(), t.getDescription(), t.getBasePrice(), t.getCapacityAdults(),
                 t.getCapacityChildren(), t.getFacilities(), t.isActive(),
                 rooms.findByHotelIdAndRoomTypeIdOrderByNumber(t.getHotelId(), t.getId()).size(),
-                specialPrices.findByRoomTypeIdOrderByFromDate(t.getId()));
+                specialPrices.findByRoomTypeIdOrderByFromDate(t.getId()), t.getRequestedBasePrice(), t.getPriceRequestedByName(),
+                t.getPriceRequestedAt(), t.isPriceSentToOwner());
     }
 
     private static RoomResponse toResponse(Room r, RoomType t) {

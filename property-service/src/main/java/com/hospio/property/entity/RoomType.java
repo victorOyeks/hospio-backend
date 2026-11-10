@@ -44,4 +44,21 @@ public class RoomType extends TenantEntity {
     @Column(nullable = false)
     @lombok.Builder.Default
     private boolean active = true;
+
+    /** A manager's new base price waiting for the owner (Hotel setup → Approval limits), with its approval. */
+    @Column(name = "requested_base_price")
+    private BigDecimal requestedBasePrice;
+
+    @Column(name = "price_approval_id", length = 36)
+    private String priceApprovalId;
+
+    @Column(name = "price_requested_by_name", length = 150)
+    private String priceRequestedByName;
+
+    @Column(name = "price_requested_at")
+    private java.time.Instant priceRequestedAt;
+
+    /** Not stored: true on the save that sent the price to the owner. */
+    @jakarta.persistence.Transient
+    private boolean priceSentToOwner;
 }
