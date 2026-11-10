@@ -39,6 +39,11 @@ public class MaintenanceClient {
             if (priority != null) {
                 request.put("priority", priority);
             }
+            if ((roomId == null || roomId.isBlank()) && roomNumber != null && !roomNumber.isBlank()) {
+                // A public area ("Lobby", "Floor 2 corridor"): maintenance needs it as the place, not as a room number.
+                request.put("area", roomNumber.length() > 100 ? roomNumber.substring(0, 100) : roomNumber);
+                request.put("roomNumber", "");
+            }
             JsonNode body = restClient.post().uri("/internal/repairs?outOfOrder={o}", outOfOrder)
                     .body(request)
                     .retrieve().body(JsonNode.class);
