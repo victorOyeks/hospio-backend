@@ -62,4 +62,14 @@ public class PlatformChange extends TenantEntity {
     public boolean isUndone() {
         return undoneAt != null;
     }
+
+    /** The owner asked H.M.S to undo it (a support ticket, undo_ticket_id); support puts it back and marks it undone. */
+    @Column(name = "undo_requested_at")
+    private Instant undoRequestedAt;
+
+    @Column(name = "undo_requested_by_name", length = 150)
+    private String undoRequestedByName;
+
+    @Column(name = "undo_ticket_id", length = 36)
+    private String undoTicketId;
 }

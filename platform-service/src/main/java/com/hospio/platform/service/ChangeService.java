@@ -42,6 +42,7 @@ public class ChangeService {
     private final PlatformChangeRepository changes;
     private final BusinessNames businessNames;
     private final EventPublisher events;
+    private final org.springframework.beans.factory.ObjectProvider<SupportService> support;
 
     @Transactional(readOnly = true)
     public PagedResponse<ChangeRow> search(String businessId, String madeBy, LocalDate from, LocalDate to, int page, int size) {
@@ -96,14 +97,19 @@ public class ChangeService {
         return c;
     }
 
-    /** Undo within 7 days: the business's owner, or the platform. The area's service applies before_json. */
+    /**
+     * Undo within 7 days, by H.M.S: support puts the setting back and marks the change undone here; an owner's request
+     * for it (its ticket) is resolved at the same time. Owners ask through {@link OwnerRequestService#requestUndo}.
+     */
     @Transactional
     public PlatformChange undo(String id) {
         HospioUserDetails user = CurrentUser.require();
         PlatformChange c = changes.findById(id).orElseThrow(() -> new ResourceNotFoundException("Change not found"));
-        boolean owner = user.has(Role.OWNER) && c.getBusinessId().equals(user.getBusinessId());
-        if (!user.isPlatform() && !owner) {
-            throw new ForbiddenException("Only the owner or H.M.S can undo a change by H.M.S");
+        if (!user.isPlatform()) {
+            // H.M.S puts the setting back; the owner asks for it (POST /changes/{id}/request-undo), which opens a ticket.
+            throw new ForbiddenException(user.has(Role.OWNER) && c.getBusinessId().equals(user.getBusinessId())
+                    ? "Ask Hospio support to undo it: they put the setting back and tell you"
+                    : "Only H.M.S can undo a change by H.M.S");
         }
         if (c.getUndoneAt() != null) {
             throw new BadRequestException("Already undone");
@@ -113,7 +119,17 @@ public class ChangeService {
         }
         c.setUndoneAt(Instant.now());
         c.setUndoneBy(user.getUserId());
-        return changes.save(c);
+        PlatformChange saved = changes.save(c);
+        if (c.getUndoTicketId() != null) {
+            // The owner asked for it: their ticket is answered by this.
+            try {
+                support.getObject().resolve(c.getUndoTicketId(), new PlatformRequests.ResolveTicketRequest(
+                        "The change \"" + c.getDescription() + "\" was undone by " + user.getFullName() + "."));
+            } catch (RuntimeException e) {
+                org.slf4j.LoggerFactory.getLogger(ChangeService.class).warn("Could not resolve undo ticket {}: {}", c.getUndoTicketId(), e.getMessage());
+            }
+        }
+        return saved;
     }
 
     private ChangeRow row(PlatformChange c) {

@@ -11,5 +11,6 @@
 
     <include file="db/changelog/common/000-app-functions.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/001-initial-schema.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/002-staff-threads.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

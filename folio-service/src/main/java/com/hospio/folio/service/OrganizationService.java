@@ -5,6 +5,7 @@ import com.hospio.common.exception.ForbiddenException;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.kafka.EventPublisher;
 import com.hospio.common.kafka.KafkaTopics;
+import com.hospio.common.kafka.events.ApprovalRequestedEvent;
 import com.hospio.common.kafka.events.InvoiceIssuedEvent;
 import com.hospio.common.security.CurrentUser;
 import com.hospio.common.security.HospioUserDetails;
@@ -30,6 +31,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,9 +63,27 @@ public class OrganizationService {
     public Organization save(String id, OrganizationRequest request) {
         HospioUserDetails user = CurrentUser.require();
         Organization org = id == null ? new Organization() : get(id);
-        BigDecimal credit = Money.of(request.creditLimit() == null ? org.getCreditLimit() : request.creditLimit());
-        if (credit.compareTo(limits.getOrgCreditOwnerLimit()) > 0 && !user.has(com.hospio.common.enums.Role.OWNER) && !user.isPlatform()) {
-            throw new ForbiddenException("Credit over " + limits.getOrgCreditOwnerLimit() + " is set by the owner");
+        BigDecimal current = Money.of(org.getCreditLimit() == null ? BigDecimal.ZERO : org.getCreditLimit());
+        BigDecimal credit = Money.of(request.creditLimit() == null ? current : request.creditLimit());
+        if (credit.signum() < 0) {
+            throw new BadRequestException("A credit limit can't be negative");
+        }
+        boolean ownerSets = user.has(com.hospio.common.enums.Role.OWNER) || user.isPlatform();
+        BigDecimal toOwner = null;
+        if (credit.compareTo(current) != 0 && credit.compareTo(limits.getOrgCreditOwnerLimit()) > 0 && !ownerSets) {
+            // Above the owner's threshold: everything else is saved now, the limit waits for the owner.
+            if (org.getCreditApprovalId() != null && org.getRequestedCreditLimit() != null) {
+                if (org.getRequestedCreditLimit().compareTo(credit) != 0) {
+                    throw new BadRequestException("A credit limit of " + naira(org.getRequestedCreditLimit()) + " for " + org.getName()
+                            + " is already waiting for the owner. Wait for their answer first");
+                }
+            } else {
+                toOwner = credit;
+            }
+            credit = current;
+        } else if (ownerSets && org.getCreditApprovalId() != null && credit.compareTo(current) != 0) {
+            // The owner set the limit themselves: the waiting request is answered by that.
+            clearRequest(org);
         }
         org.setName(request.name());
         org.setContactName(request.contactName());
@@ -79,7 +99,56 @@ public class OrganizationService {
             org.setPaymentTermsDays(request.paymentTermsDays());
         }
         org.setAgreementNotes(request.agreementNotes());
-        return organizations.save(org);
+        Organization saved = organizations.save(org);
+        if (toOwner != null) {
+            String approvalId = UUID.randomUUID().toString();
+            saved.setRequestedCreditLimit(toOwner);
+            saved.setCreditApprovalId(approvalId);
+            saved.setCreditRequestedByName(user.getFullName());
+            saved.setCreditRequestedAt(java.time.Instant.now());
+            saved = organizations.save(saved);
+            events.publish(KafkaTopics.APPROVAL_REQUESTED, ApprovalRequestedEvent.builder()
+                    .approvalId(approvalId).sourceModule("FOLIO").sourceRef(saved.getId()).kind(CREDIT_LIMIT).amount(toOwner)
+                    .requesterId(user.getUserId()).requesterName(user.getFullName()).approverLevel("OWNER")
+                    .description(saved.getName() + " · credit limit " + naira(saved.getCreditLimit()) + " → " + naira(toOwner)).build());
+            saved.setCreditSentToOwner(true);
+        }
+        return saved;
+    }
+
+    public static final String CREDIT_LIMIT = "CREDIT_LIMIT";
+
+    /**
+     * The owner's answer to a credit limit request (APPROVAL_DECIDED from platform-service): approved, the requested
+     * limit becomes the limit; declined, the old one stays. A question leaves it waiting. Answers to a request that was
+     * replaced or already settled are ignored.
+     */
+    @Transactional
+    public void applyCreditDecision(String approvalId, String decision) {
+        organizations.findByCreditApprovalId(approvalId).ifPresent(org -> {
+            if ("APPROVED".equals(decision)) {
+                org.setCreditLimit(Money.of(org.getRequestedCreditLimit()));
+                clearRequest(org);
+            } else if ("DECLINED".equals(decision)) {
+                clearRequest(org);
+            } else {
+                return;
+            }
+            organizations.save(org);
+        });
+    }
+
+    private static void clearRequest(Organization org) {
+        org.setRequestedCreditLimit(null);
+        org.setCreditApprovalId(null);
+        org.setCreditRequestedByName(null);
+        org.setCreditRequestedAt(null);
+    }
+
+    static String naira(BigDecimal amount) {
+        java.text.NumberFormat f = java.text.NumberFormat.getNumberInstance(java.util.Locale.ENGLISH);
+        f.setMaximumFractionDigits(amount != null && amount.stripTrailingZeros().scale() > 0 ? 2 : 0);
+        return "₦" + f.format(amount == null ? BigDecimal.ZERO : amount);
     }
 
     @Transactional(readOnly = true)

@@ -66,4 +66,8 @@ public class SupportTicket extends TenantEntity {
     public boolean isOpen() {
         return "OPEN".equals(status) || "IN_PROGRESS".equals(status);
     }
+
+    /** What the ticket is for when the app opened it: OWNERSHIP_TRANSFER, CHANGE_UNDO; null for an ordinary ticket. */
+    @Column(length = 30)
+    private String category;
 }

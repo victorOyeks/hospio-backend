@@ -60,4 +60,13 @@ class DeliveryComposerTest {
         assertThat(code.kind()).isEqualTo(Delivery.Kind.PHONE_CODE);
         assertThat(code.text()).contains("123456");
     }
+
+    @Test
+    void aResetGoesBySmsTooWhenThereIsAPhone() {
+        List<Delivery> reset = composer.forPasswordReset(user("+2348010000001"), Set.of(Role.FRONT_OFFICE), "Newpass1", Instant.now().plusSeconds(60));
+        assertThat(reset).extracting(Delivery::channel).containsExactly(Delivery.Channel.EMAIL, Delivery.Channel.SMS);
+        assertThat(reset.get(1).to()).isEqualTo("+2348010000001");
+        assertThat(reset.get(1).text()).contains("Temporary password: Newpass1");
+        assertThat(reset).allSatisfy(d -> assertThat(d.kind()).isEqualTo(Delivery.Kind.PASSWORD_RESET));
+    }
 }

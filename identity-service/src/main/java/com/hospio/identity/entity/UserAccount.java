@@ -95,6 +95,28 @@ public class UserAccount extends BaseEntity {
     @Column(name = "phone_code_expires_at")
     private Instant phoneCodeExpiresAt;
 
+    /** A pause ends by itself at this instant (Lagos midnight after the last paused day); null while it lasts until resumed. */
+    @Column(name = "paused_until")
+    private Instant pausedUntil;
+
+    /** Why the account was suspended or paused, kept until it is active again. */
+    @Column(name = "status_reason", length = 500)
+    private String statusReason;
+
+    @Column(name = "status_changed_by", length = 150)
+    private String statusChangedBy;
+
+    @Column(name = "status_changed_at")
+    private Instant statusChangedAt;
+
+    @Column(name = "job_title", length = 100)
+    private String jobTitle;
+
+    /** A pause whose end has passed: the account counts as active (the hourly job also sets it back). */
+    public boolean pauseHasEnded(Instant now) {
+        return status == Status.PAUSED && pausedUntil != null && !pausedUntil.isAfter(now);
+    }
+
     public boolean isLocked() {
         return lockedUntil != null && lockedUntil.isAfter(Instant.now());
     }

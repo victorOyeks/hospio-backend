@@ -60,4 +60,21 @@ public class Organization extends TenantEntity {
     @Column(nullable = false, length = 20)
     @lombok.Builder.Default
     private String status = "ACTIVE";
+
+    /** A credit limit above the owner's threshold that a manager asked for, waiting for the owner. */
+    @Column(name = "requested_credit_limit", precision = 14, scale = 2)
+    private BigDecimal requestedCreditLimit;
+
+    @Column(name = "credit_approval_id", length = 36)
+    private String creditApprovalId;
+
+    @Column(name = "credit_requested_by_name", length = 150)
+    private String creditRequestedByName;
+
+    @Column(name = "credit_requested_at")
+    private java.time.Instant creditRequestedAt;
+
+    /** Set on the save that sent a credit limit to the owner, so the answer can say so; never stored. */
+    @jakarta.persistence.Transient
+    private boolean creditSentToOwner;
 }

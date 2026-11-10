@@ -19,6 +19,9 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, String
 
     List<UserAccount> findByBusinessIdOrderByFullName(String businessId);
 
+    /** Timed pauses that have run out (Owner portal · Staff, pause for N days). */
+    List<UserAccount> findByStatusAndPausedUntilLessThanEqual(UserAccount.Status status, java.time.Instant now);
+
     /** Platform staff and marketers: the accounts with no business. */
     List<UserAccount> findByBusinessIdIsNullOrderByFullName();
 }

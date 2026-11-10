@@ -30,6 +30,11 @@ public class AccessChangedEvent extends HospioEvent {
             case "EXPIRED" -> "ended (temporary access ran out)";
             case "PAUSED_ALL" -> "all access paused";
             case "RESUMED_ALL" -> "all access resumed";
+            case "SUSPENDED" -> "suspended";
+            case "REINSTATED" -> "reinstated";
+            case "PAUSED_UNTIL" -> "paused until the day given";
+            case "RESUMED" -> "pause ended";
+            case "DETAILS_CHANGED" -> "details changed";
             default -> "access " + change;
         };
         return userName + ": " + (role == null ? "" : role + " ") + what + (detail == null || detail.isBlank() ? "" : " (" + detail + ")");

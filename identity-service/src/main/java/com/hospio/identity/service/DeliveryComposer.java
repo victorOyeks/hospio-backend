@@ -74,15 +74,23 @@ public class DeliveryComposer {
         return out;
     }
 
-    /** A password reset: the temporary password only, no invite. */
+    /** A password reset: the temporary password by email and, with a phone, by SMS; no invite. */
     public List<Delivery> forPasswordReset(UserAccount user, Collection<Role> roles, String temporaryPassword, Instant expiresAt) {
-        return List.of(Delivery.email(user.getEmail(), "Your Hospio360 password was reset",
+        List<Delivery> out = new ArrayList<>();
+        out.add(Delivery.email(user.getEmail(), "Your Hospio360 password was reset",
                 "Hello " + user.getFullName() + ",\n\n"
                         + "Your password was reset. Sign in with this temporary password and choose a new one:\n\n"
                         + "Temporary password: " + temporaryPassword + "\n"
                         + (expiresAt == null ? "" : "It works until " + WHEN.format(expiresAt) + ".\n")
                         + "\nSign in at " + appUrl(roles) + "\n",
                 Delivery.Kind.PASSWORD_RESET, user.getId()));
+        if (StringUtils.hasText(user.getPhone())) {
+            out.add(Delivery.sms(user.getPhone(),
+                    "Hospio360: your password was reset. Temporary password: " + temporaryPassword
+                            + (expiresAt == null ? "" : " (until " + WHEN.format(expiresAt) + ")") + ". Sign in at " + appUrl(roles),
+                    Delivery.Kind.PASSWORD_RESET, user.getId()));
+        }
+        return out;
     }
 
     public Delivery forPhoneCode(UserAccount user, String code, Instant expiresAt) {
