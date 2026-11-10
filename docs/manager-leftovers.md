@@ -82,4 +82,18 @@ The receipt page is `/receipt?payment=|sale=|folio=[&paper=80mm]` (outside the d
 - [x] housekeeping: lost & found (photo, notice, return, dispose), inspection notice and guards, tests
 - [x] payment: receipts read and email, tests
 - [x] web: activity log, reports, room types, hotel setup, financials (manager, owner, finance), lost & found, inspect, receipts
-- [ ] staging deploy, API sweep, browser sweep, QA script
+- [x] staging deploy (backend 92d01bf, finance e5245ed; web c9ba0e4)
+- [x] API sweep, browser sweep, print previews, regressions
+- [x] QA script `docs/qa/manager-housekeeping-receipts.md` (hotel-internal-system-admin-FE)
+
+## Verification (2026-11-10, staging)
+
+- Unit tests: platform ActivityLogFilterTest 4; payment ReceiptViewsTest 5; property PropertyServiceTest 10 (7 new);
+  housekeeping InspectAndLostFoundTest 9; finance ExpenseCategoriesTest 5, BudgetMathTest 4, BillServiceTest 7, ExpensePagingTest
+  (Testcontainers) +1. Module suites green (finance 47, platform 25, payment 30, property 10, housekeeping 25).
+- API sweep (`mlapi.ts`): 130 checks, all pass: activity (paging, 200 cap, filters, guards, isolation), Email me, room price
+  approve/decline/second request/owner direct, categories, budget = sum of expenses per category and in total, bill paid =
+  expense of the same amount and category plus the next bill, lost & found (photo, notice, return, hold days, guards,
+  isolation), inspection (reason, notice, ready), receipts (numbers unique and stable, sale receipts total = sale, email).
+- Browser sweep (`mlui.ts`) at 1512 and 1280 (housekeeping also 390), print previews A4 and 80 mm as PDF and print-media
+  screenshots; regressions shapi, rbmoney, lmapi, ownapi, pgapi.
