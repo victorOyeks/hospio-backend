@@ -114,7 +114,9 @@ payment components take an optional `hotelId` through `HotelScope` so the owner 
 - **Financials** — Organizations: credit limit requests waiting for the owner, approve or decline (approvals).
 - **Payments & payouts** — every hotel's payments; settlements by day and provider with what is still to be paid out.
 - **Messaging** — my staff threads across hotels; new message to one manager or a hotel's managers; message all
-  managers; reply. Everyone else reads and replies in **Inbox** (`/dashboard/inbox`, any role).
+  managers; reply. Everyone else reads and replies in **Inbox** (`/dashboard/inbox`, any role; notices link there).
+- **Dashboard** — hotels with money, approvals and activity across the business; approval descriptions read as words
+  and naira.
 - **Operations** — hotels now (on shift, open repairs, occupancy, last action), departments (live board per hotel),
   activity log (business-wide or one hotel), changes by H.M.S with "Ask support to undo".
 - **Reports** — six reports built from live data for a period and a hotel (or all), downloaded as CSV; schedule
@@ -125,11 +127,31 @@ payment components take an optional `hotelId` through `HotelScope` so the owner 
 ## Limits
 
 - Reports are CSV, built in the browser from the live data; no PDF or Excel. Scheduled reports arrive as an in-app
-  notice and an email link (echoed on staging), not as attachments.
-- A change by H.M.S is put back by support, not by the owner's click: the owner asks, support undoes and marks it.
+  notice and an email link (echoed on staging; the job has no screen to show it on, "Send now" shows it), not as
+  attachments. "This month" runs from the 1st to today; future bookings are not in a guest list for it.
+- A change by H.M.S is put back by support, not by the owner's click: the owner asks (a HIGH ticket), support edits
+  the setting back and marks the change undone (the admin portal's Undo), which resolves the ticket. The platform
+  does not re-apply `before_json` by itself.
 - Ownership transfer is done by H.M.S support from the ticket; there is no self-serve accept flow.
-- Staff (non-managers) read and reply to owner messages in Inbox; WhatsApp replies do not come back into the thread.
-- Payroll, budgets and branch P&L on Financials stay "Not connected yet" (no payroll service).
+- Staff (non-managers) read and reply to owner and manager messages in Inbox; WhatsApp replies do not come back into
+  the thread. Inbox is reached from the notification (no menu item yet).
+- Payments the owner takes from Bookings are recorded under the OWNER role (the owner holds no desk role).
+- Financials: payroll, bills and budgets stay "Not connected yet" (no payroll service); transactions and expenses
+  are the sidebar's hotel. Settlements are per business and provider, so the hotel filter does not split them.
+- Settings → Taxes and Approval limits edit the sidebar's hotel (they are per hotel and say so).
+- The owner credit threshold is the property `hospio.approvals.org-credit-owner-limit` (₦1,000,000), not a Hotel
+  setup field yet.
+
+## Verification (2026-11-10, staging)
+
+- Unit tests: identity StaffAccountServiceTest 11, DeliveryComposerTest +1; messaging StaffThreadServiceTest 7; folio
+  OrganizationCreditTest 5; platform OwnerPortalRulesTest 5; reservation GuestNoticesTest 2. Module suites green.
+- API sweep (owner A Royal Suites): 80 checks (staff accounts, threads, guest echo, credit limits, reports, transfer,
+  settlements, booking dates, changes by H.M.S), all pass after the echo fix. Cross-tenant and multi-hotel (owner A vs
+  a fresh owner B with two hotels): 24 checks, all pass.
+- Browser: every owner screen for both owners at 1512px and 1280px (384 checks), owner B actions (88), owner A and
+  manager regressions (34), check-in at another hotel and the folio (8); front desk regression (fo3, 47) and the
+  manager / front office / finance screen sweep (33 screens).
 
 ## Progress
 
@@ -140,9 +162,9 @@ payment components take an optional `hotelId` through `HotelScope` so the owner 
 - [x] platform: undo request, ownership transfer, report schedules + job, tests
 - [x] reservation: guest told when dates change, tests
 - [x] payment: owner settlements
-- [ ] web: data seam + hotel scope
-- [ ] web: bookings, staff, financials, hotels, messaging + inbox, operations, reports, settings, payments
-- [ ] staging deploy (backend, web)
-- [ ] API sweep (positive, negative, cross-tenant, money)
-- [ ] browser sweep (1512 / 1280, all hotels vs one)
-- [ ] QA script `docs/qa/owner-portal.md` (hotel-internal-system-admin-FE)
+- [x] web: data seam (`data.owner`) + hotel scope (`atHotel`, `HotelScope`)
+- [x] web: bookings, staff, financials, hotels, messaging + inbox, operations, reports, settings, payments
+- [x] staging deploy (backend, web)
+- [x] API sweep (positive, negative, cross-tenant, money)
+- [x] browser sweep (1512 / 1280, all hotels vs one)
+- [x] QA script `docs/qa/owner-portal.md` (hotel-internal-system-admin-FE)
