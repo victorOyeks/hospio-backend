@@ -42,6 +42,19 @@ class ExpenseCategoriesTest {
     }
 
     @Test
+    void aRenamedCategoryIsFoundByItsNewLabel() {
+        com.hospio.finance.repository.ExpenseCategoryRepository repo = org.mockito.Mockito.mock(com.hospio.finance.repository.ExpenseCategoryRepository.class);
+        com.hospio.finance.entity.ExpenseCategory gen = com.hospio.finance.entity.ExpenseCategory.builder().code("GENERATOR").label("Generator diesel")
+                .sortOrder(1).build();
+        org.mockito.Mockito.when(repo.findByHotelIdOrderBySortOrderAscLabelAsc("h1")).thenReturn(java.util.List.of(gen));
+        ExpenseCategories cats = new ExpenseCategories(repo);
+        assertThat(cats.normalise("h1", "Generator diesel")).isEqualTo("GENERATOR");
+        assertThat(cats.normalise("h1", "generator DIESEL")).isEqualTo("GENERATOR");
+        assertThat(cats.normalise("h1", "GENERATOR")).isEqualTo("GENERATOR");
+        assertThat(cats.normalise("h1", "REPAIRS")).isEqualTo("REPAIRS");
+    }
+
+    @Test
     void aNameIsNeeded() {
         assertThatThrownBy(() -> ExpenseCategories.cleanLabel("   ")).isInstanceOf(BadRequestException.class).hasMessage("Give the category a name");
         assertThatThrownBy(() -> ExpenseCategories.cleanLabel("!!")).isInstanceOf(BadRequestException.class).hasMessage("Give the category a name");

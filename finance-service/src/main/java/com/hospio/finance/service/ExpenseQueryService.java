@@ -145,8 +145,12 @@ public class ExpenseQueryService {
         if (!StringUtils.hasText(category)) {
             return null;
         }
-        String code = ExpenseCategories.codeOf(category);
-        List<String> out = new ArrayList<>(expenses.distinctCategories(TenantContext.requireHotel()).stream()
+        String hotel = TenantContext.requireHotel();
+        // A renamed category keeps its code: the label on screen names it, so look the label up first.
+        String code = em.createQuery("select c.code from ExpenseCategory c where c.hotelId = :h and lower(c.label) = :l", String.class)
+                .setParameter("h", hotel).setParameter("l", category.trim().toLowerCase(Locale.ROOT)).getResultStream().findFirst()
+                .orElse(ExpenseCategories.codeOf(category));
+        List<String> out = new ArrayList<>(expenses.distinctCategories(hotel).stream()
                 .filter(c -> ExpenseCategories.codeOf(c).equals(code)).toList());
         out.add(category.trim());
         return out;
