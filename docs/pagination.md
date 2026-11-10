@@ -62,8 +62,61 @@ with the same filters and writes one CSV, so its row count equals `totalElements
 
 ## Converted endpoints
 
-(Filled in as each list is converted.)
+Every endpoint below takes `page`, `size` (1 to 100, else 400) and `sort`, filters in the database and keeps
+the counts and totals the same on every page. "Legacy" means the plain list still answers when neither `page`
+nor `size` is sent (internal callers and operations scripts; no caps on it any more).
+
+| Service | Endpoint | Filters | Answer | Legacy |
+|---|---|---|---|---|
+| payment | `GET /payment/payments` | `q`, `status` (list), `method`, `role`, `from`/`to` (90-day default), `mine`, `today`, `hotelId` (owner without `X-Hotel-Id` reads the business) | PageWithCounts: per status, all, toVerify, attention, today, mine; approved money today, this month and over the range, per method | yes |
+| payment | `GET /payment/payments/refunds`, `/disputes` | `status` | PageWithCounts; rows carry guestName, amount, method, reference (no lookup of every payment) | yes |
+| reservation | `GET /reservation/bookings` | `q` (guest name, phone, email, reference), `status`, `view` (arrivals, departures, in-house, upcoming, past, all), `from`/`to`, `arrivingFrom`/`arrivingTo`, `guestId`, `hotelId` (owner) | PageWithCounts: per view and status; booked, unpaid, paid this month, in-house owing; rows carry guestPhone, guestEmail | yes (7 days back to 30 ahead, as before) |
+| reservation | `GET /reservation/guests` | `q`, `view` (all, in-house, repeat, blacklisted) | PageWithCounts per view; rows carry inHouse, lastStay | yes |
+| messaging | `GET /messaging/notifications` | `unread`, `kind`, `q`, `from`/`to` (90-day default) | PageWithCounts: all, unread | yes |
+| messaging | `GET /messaging/notifications/unread-count` (new) | — | `{count}` for the bell | — |
+| messaging | `GET /messaging/threads` | `q` | PagedResponse, newest message first | yes |
+| platform | `GET /platform/approvals/all` | `tab` (waiting, owner, decided, open), `status`, `kind`, `q`, `from`/`to` (90-day default; open ones always shown) | PageWithCounts: per tab, questions; money waiting and with the owner. Names filled for the page only | yes |
+| platform | `GET /platform/approvals/{id}` (new) | — | one approval (a link to one off the page) | — |
+| finance | `GET /finance/expenses` | `tab` (approval, questions, paid, requests), `status`, `category`, `q`, `from`/`to` (90-day default; waiting ones always shown) | PageWithCounts per tab; totals all, recorded, requests, matching. Newest date first, then newest recorded | yes |
+| finance | `GET /finance/night-audit/past` | `status`, `from`/`to` | PagedResponse, newest business day first | yes |
+| inventory | `GET /inventory/requests` | `team`, `status` (list, OPEN), `q` (incl. item names), `from`/`to` | PageWithCounts per status | yes |
+| inventory | `GET /inventory/purchase-orders` | `status` (list, OPEN, DONE), `supplierId`, `q`, `from`/`to` | PageWithCounts per status | yes |
+| inventory | `GET /inventory/deliveries` | `purchaseOrderId`, `storeId`, `q`, `from`/`to` | PageWithCounts; totals.value. Reads only the orders on the page | yes |
+| inventory | `GET /inventory/counts` | `storeId`, `status` (ACTIVE alias), `q`, `from`/`to` | PageWithCounts per status | yes |
+| inventory | `GET /inventory/movements` | `itemId`, `storeId`, `kind`, `q` (incl. item name), `from` (90-day default), `to` | PagedResponse (the cap of 300 is gone) | yes |
+| maintenance | `GET /maintenance/repairs` | `scope` (open, mine, raised, overdue, held, unassigned, done, all), `q`, `roomId`, `from`/`to` | PageWithCounts per scope (Top300 gone) | yes |
+| housekeeping | `GET /housekeeping/laundry/orders` | `status` (OPEN), `q`, `roomId`, `bookingId`, `from`/`to` | PageWithCounts per status; totals.value (Top300 gone) | yes |
+| housekeeping | `GET /housekeeping/laundry/linen-batches` | `status` (OPEN, DONE), `q`, `from`/`to` | PageWithCounts per status; condemned, lost, writtenOff (Top200 gone) | yes |
+| housekeeping | `GET /housekeeping/lost-found` | `status`, `q`, `from`/`to` | PageWithCounts per status | yes |
+| folio | `GET /folio/organizations` | `q`, `status` | PageWithCounts; each account's figures in grouped queries (no calls per account) | yes |
+| folio | `GET /folio/organizations/overview`, `/{id}/summary` (new) | — | the cards; one account's figures | — |
+| folio | `GET /folio/organizations/invoices` (new), `/{id}/invoices` | `organizationId`, `q`, `status` (OVERDUE worked out in the query) | PageWithCounts per status; amount, paid, left | `/{id}/invoices` yes |
+| folio | `GET /folio/organizations/{id}/stays` | `status` (OPEN, CLOSED), `from`/`to`, `q` | PageWithCounts; balance, charges | yes |
+| identity | `GET /identity/users` | `hotelId`, `role`, `status`, `q` | PageWithCounts per status, managers, invites | yes (pickers, rotas, Roles & permissions) |
+| tenant | `GET /tenant/businesses` | `stage`, `q` | PageWithCounts per stage, hotels, rooms (size over 100 is a 400; it used to be cut to 100 quietly) | was paged |
+| tenant | `GET /tenant/onboarding` | `status` | PageWithCounts per status | yes |
+| platform | `GET /platform/admin/referrals`, `/admin/commissions`, `/marketer/referrals`, `/marketer/commissions` | as before | PageWithCounts (stages; DUE, WAITING, PAID with gross, wht, net) | marketer ones yes |
+| fnb | `GET /fnb/sales/history` | (reference, built before this work) | totals over the range | — |
+
+Left unpaged on purpose (bounded): open folios, tills (today's and open), till entries (one shift), closed
+tills (7 days), the FnB board, the rota, transfers (30 days), the open work-order board, the open laundry board
+(plus 14 days), open linen batches, booking buckets (checked in plus stays touching today), and the short setup
+lists (room types, rooms, areas, roles, outlets, stores, menu, price lists, suppliers, terminals, assets,
+schedules). The people lists (manager and owner Staff, Roles & permissions, pickers) read the whole users list:
+it is bounded by headcount and the paged form is ready.
 
 ## Progress
 
-- [x] Contract, `Paging`, `PageWithCounts`, web kit
+- [x] Contract, `Paging`, `PageWithCounts`, web kit (DataTable server mode, ServerPager, useListParams)
+- [x] Payments, refunds, disputes (manager, front desk, bar, kitchen, laundry, owner)
+- [x] Guests, bookings (front desk, manager, owner), buckets bounded
+- [x] Notifications + unread count, staff threads (Inbox, owner Messaging)
+- [x] Approvals (manager, dashboards, departments)
+- [x] Expenses (finance, manager financials), night audits
+- [x] Store requests, purchase orders, deliveries, stock counts, stock movements
+- [x] Work orders, laundry orders, linen batches, lost & found
+- [x] Organizations with stays and invoices
+- [x] Admin businesses (the 100 cap bug), onboarding, marketer referrals and commissions; admin fees read every page
+- [x] Owner users
+- [ ] Manager and owner Staff, Roles & permissions as server tables (bounded today; endpoint ready)
+- [ ] Single-item reads for a store request, lost & found item and expense opened by link off the current page

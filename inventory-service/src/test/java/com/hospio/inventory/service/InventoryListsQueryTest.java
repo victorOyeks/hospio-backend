@@ -160,4 +160,25 @@ class InventoryListsQueryTest {
         assertThat(lists.deliveries(null, null, page("PO-1000", null, 0, 25)).totalElements()).isEqualTo(1);
         assertThat(lists.deliveries(null, null, page("freshfarm", null, 0, 25)).totals().get("value")).isEqualByComparingTo("900");
     }
+
+    @Autowired
+    com.hospio.inventory.repository.StockItemRepository items;
+    @Autowired
+    com.hospio.inventory.repository.StockMovementRepository movements;
+
+    @Test
+    void movementsAreFoundByTheItemsName() {
+        as(Role.INVENTORY, AccessLevel.FULL);
+        var saffron = items.save(com.hospio.inventory.entity.StockItem.builder().businessId("biz-1").hotelId(HOTEL).name("Saffron threads").build());
+        var rice = items.save(com.hospio.inventory.entity.StockItem.builder().businessId("biz-1").hotelId(HOTEL).name("Rice").build());
+        for (int i = 0; i < 30; i++) {
+            movements.save(com.hospio.inventory.entity.StockMovement.builder().businessId("biz-1").hotelId(HOTEL).storeId("main")
+                    .itemId(i == 3 ? saffron.getId() : rice.getId()).kind(com.hospio.inventory.entity.StockMovement.Kind.RECEIVED)
+                    .quantity(BigDecimal.ONE).build());
+        }
+        movements.flush();
+        assertThat(lists.movements(null, null, null, page(null, null, 0, 25)).totalElements()).isEqualTo(30);
+        assertThat(lists.movements(null, null, null, page("SAFFRON", null, 0, 25)).totalElements()).isEqualTo(1);
+        assertThat(lists.movements(null, null, null, page("rice", null, 1, 25)).content()).hasSize(4);
+    }
 }

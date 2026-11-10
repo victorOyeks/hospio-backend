@@ -216,7 +216,9 @@ public class InventoryLists {
         }
         base.add(statusIn(StockMovement.Kind.class, kind, Map.of(), "kind"));
         base.add(between(Paging.windowFrom(query.from()), query.to()));
-        base.add(like(query.q(), "reference", "note", "byName", "team"));
+        if (StringUtils.hasText(query.q())) {
+            base.add(InventoryLists.<StockMovement>like(query.q(), "reference", "note", "byName", "team").or(itemNamed(query.q())));
+        }
         Sort sort = Paging.sort(query.sort(), Map.of("createdAt", "createdAt", "quantity", "quantity"), NEWEST);
         Page<StockMovement> page = movements.findAll(Specification.allOf(base), Paging.of(query.page(), query.size(), sort));
         Map<String, StockItem> im = inventory.itemMap();
@@ -245,6 +247,16 @@ public class InventoryLists {
                 ps.add(cb.lessThan(r.get("createdAt"), to.plusDays(1).atStartOfDay(Paging.LAGOS).toInstant()));
             }
             return cb.and(ps.toArray(new Predicate[0]));
+        };
+    }
+
+    /** Movements of an item whose name contains {@code q} (the list shows the item, so the search finds it by name). */
+    static Specification<StockMovement> itemNamed(String q) {
+        return (r, query, cb) -> {
+            jakarta.persistence.criteria.Subquery<String> sq = query.subquery(String.class);
+            jakarta.persistence.criteria.Root<StockItem> i = sq.from(StockItem.class);
+            sq.select(i.get("id")).where(cb.like(cb.lower(i.get("name")), Paging.like(q), '\\'));
+            return r.get("itemId").in(sq);
         };
     }
 
