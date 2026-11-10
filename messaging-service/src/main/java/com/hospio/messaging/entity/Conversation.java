@@ -61,4 +61,34 @@ public class Conversation extends TenantEntity {
 
     @Column(name = "last_message_at")
     private Instant lastMessageAt;
+
+    /** Staff threads: who started it (the owner, a manager). */
+    @Column(name = "created_by", length = 36)
+    private String createdBy;
+
+    @Column(name = "created_by_name", length = 150)
+    private String createdByName;
+
+    /** The person (audience PERSON, id in assigned_to) or "Managers" (audience MANAGERS: the hotel's managers). */
+    @Column(name = "recipient_name", length = 150)
+    private String recipientName;
+
+    @Column(length = 20)
+    private String audience;
+
+    @Column(name = "broadcast_id", length = 36)
+    private String broadcastId;
+
+    @Column(name = "last_preview", length = 300)
+    private String lastPreview;
+
+    @Column(name = "creator_read_at")
+    private Instant creatorReadAt;
+
+    @Column(name = "recipient_read_at")
+    private Instant recipientReadAt;
+
+    /** What would have gone to the guest (email, SMS, WhatsApp), echoed on staging; never stored. */
+    @jakarta.persistence.Transient
+    private java.util.List<com.hospio.common.delivery.Delivery> deliveries;
 }

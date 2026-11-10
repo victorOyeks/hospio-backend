@@ -419,7 +419,12 @@ public class UserService {
         if (paused && user.getId().equals(caller.getUserId())) {
             throw new BadRequestException("You cannot pause your own access");
         }
-        user.setStatus(paused ? UserAccount.Status.PAUSED : UserAccount.Status.ACTIVE);
+        if (paused) {
+            user.setStatus(UserAccount.Status.PAUSED);
+            user.setPausedUntil(null);
+        } else {
+            StaffAccountService.markActive(user);
+        }
         users.save(user);
         events.publish(KafkaTopics.ACCESS_CHANGED, AccessChangedEvent.builder()
                 .businessId(user.getBusinessId()).userId(userId).userName(user.getFullName())
@@ -638,6 +643,6 @@ public class UserService {
         return new UserResponse(user.getId(), user.getFullName(), user.getEmail(), user.getPhone(), user.getBusinessId(),
                 user.getStatus().name(), user.isMustChangePassword(), user.isTwoStepEnabled(), user.getPinHash() != null,
                 user.isPhoneVerified(), user.getLanguage(), user.getLastSignInAt(), user.getCreatedAt(), gs,
-                inviteStatus == null ? UserResponse.InviteStatus.NONE : inviteStatus);
+                inviteStatus == null ? UserResponse.InviteStatus.NONE : inviteStatus).withAccount(user);
     }
 }

@@ -10,7 +10,7 @@ public record Delivery(Channel channel, String to, String subject, String text, 
 
     public enum Channel { EMAIL, SMS, WHATSAPP }
 
-    public enum Kind { TEMP_PASSWORD, INVITE, PHONE_CODE, HANDOVER_PACK, PASSWORD_RESET, FEE_STATEMENT, TICKET_UPDATE, DAILY_REPORT, DECISION, TILL_VARIANCE, RECEIPT, FOLIO, STATEMENT, PAYMENT_REMINDER, PURCHASE_ORDER }
+    public enum Kind { TEMP_PASSWORD, INVITE, PHONE_CODE, HANDOVER_PACK, PASSWORD_RESET, FEE_STATEMENT, TICKET_UPDATE, DAILY_REPORT, DECISION, TILL_VARIANCE, RECEIPT, FOLIO, STATEMENT, PAYMENT_REMINDER, PURCHASE_ORDER, MESSAGE }
 
     public static Delivery email(String to, String subject, String text, Kind kind, String ref) {
         return new Delivery(Channel.EMAIL, to, subject, text, kind, ref);

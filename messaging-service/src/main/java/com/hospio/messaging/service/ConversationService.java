@@ -29,6 +29,7 @@ public class ConversationService {
     private final TemplateRepository templates;
     private final OutboundService outbound;
     private final NotificationService notifications;
+    private final com.hospio.common.delivery.DeliveryService deliveries;
 
     @Transactional(readOnly = true)
     public List<Conversation> inbox(Conversation.Kind kind) {
@@ -49,7 +50,23 @@ public class ConversationService {
                         .guestName(request.guestName()).guestContact(request.guestContact()).channel(request.channel()).subject(request.subject())
                         .assignedTo(user.getUserId()).assignedToName(user.getFullName()).build()));
         send(c, user, request.body());
+        c.setDeliveries(echo(c, request.body()));
         return c;
+    }
+
+    /** The guest message as the provider would send it, for the staging echo; empty in production. */
+    private java.util.List<com.hospio.common.delivery.Delivery> echo(Conversation c, String body) {
+        com.hospio.common.delivery.Delivery.Channel channel = switch (c.getChannel()) {
+            case EMAIL -> com.hospio.common.delivery.Delivery.Channel.EMAIL;
+            case SMS -> com.hospio.common.delivery.Delivery.Channel.SMS;
+            case WHATSAPP -> com.hospio.common.delivery.Delivery.Channel.WHATSAPP;
+            default -> null;
+        };
+        if (channel == null || !deliveries.echoes()) {
+            return java.util.List.of();
+        }
+        return java.util.List.of(new com.hospio.common.delivery.Delivery(channel, c.getGuestContact(), c.getSubject(), body.trim(),
+                com.hospio.common.delivery.Delivery.Kind.MESSAGE, c.getId()));
     }
 
     @Transactional

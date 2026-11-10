@@ -182,6 +182,16 @@ public class AuthService {
     }
 
     private void assertActive(UserAccount user) {
+        if (user.pauseHasEnded(Instant.now())) {
+            // A timed pause that has run out: active again now, before the hourly job gets to it.
+            StaffAccountService.markActive(user);
+            users.save(user);
+            return;
+        }
+        if (user.getStatus() == UserAccount.Status.PAUSED && user.getPausedUntil() != null) {
+            throw new ForbiddenException("This account is paused until " + AccessDates.day(AccessDates.lastDay(user.getPausedUntil()))
+                    + ". Talk to your manager");
+        }
         if (user.getStatus() != UserAccount.Status.ACTIVE) {
             throw new ForbiddenException("This account is " + user.getStatus().name().toLowerCase() + ". Talk to your manager");
         }

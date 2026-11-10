@@ -15,6 +15,7 @@ import com.hospio.folio.entity.PendingDiscount;
 import com.hospio.folio.repository.FolioRepository;
 import com.hospio.folio.repository.PendingDiscountRepository;
 import com.hospio.folio.service.FolioService;
+import com.hospio.folio.service.OrganizationService;
 import java.math.BigDecimal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class FolioEventListener {
 
     private final FolioService folioService;
+    private final OrganizationService organizationService;
     private final FolioRepository folios;
     private final PaymentClient paymentClient;
     private final PendingDiscountRepository pendingDiscounts;
@@ -139,6 +141,10 @@ public class FolioEventListener {
         }
         tenant.bind(e);
         try {
+            if (OrganizationService.CREDIT_LIMIT.equals(e.getKind())) {
+                organizationService.applyCreditDecision(e.getApprovalId(), e.getDecision());
+                return;
+            }
             PendingDiscount pending = pendingDiscounts.findByApprovalId(e.getApprovalId()).orElse(null);
             if (pending == null || !"PENDING".equals(pending.getStatus())) {
                 return;

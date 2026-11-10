@@ -34,6 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class BookingController {
 
     private final BookingService service;
+    private final com.hospio.reservation.service.GuestNotices notices;
 
     @GetMapping("/today")
     public ApiResponse<TodayResponse> today() {
@@ -68,7 +69,9 @@ public class BookingController {
     @PutMapping("/{id}")
     @PreAuthorize("@access.atLeast('FRONT_OFFICE','EDIT')")
     public ApiResponse<BookingResponse> change(@PathVariable String id, @RequestBody ChangeBookingRequest request) {
-        return ApiResponse.ok("Booking changed", service.change(id, request));
+        BookingResponse before = service.get(id);
+        BookingResponse after = service.change(id, request);
+        return ApiResponse.ok("Booking changed", after.withDeliveries(notices.datesChanged(before, after)));
     }
 
     @PostMapping("/{id}/check-in")

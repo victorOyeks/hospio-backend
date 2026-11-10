@@ -19,4 +19,6 @@ public interface SettlementRepository extends JpaRepository<Settlement, String>,
     List<Settlement> findByPayoutBatchIdOrderByBusinessNameAsc(String payoutBatchId);
 
     List<Settlement> findByBusinessIdOrderByPeriodDateDesc(String businessId);
+
+    List<Settlement> findByBusinessIdAndPeriodDateBetweenOrderByPeriodDateDesc(String businessId, java.time.LocalDate from, java.time.LocalDate to);
 }

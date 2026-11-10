@@ -75,13 +75,15 @@ public class OrganizationController {
     @PostMapping
     @PreAuthorize("@access.manager()")
     public ApiResponse<Organization> create(@Valid @RequestBody OrganizationRequest request) {
-        return ApiResponse.ok("Organization added", service.save(null, request));
+        Organization org = service.save(null, request);
+        return ApiResponse.ok(org.isCreditSentToOwner() ? "Organization added · the credit limit is waiting for the owner" : "Organization added", org);
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("@access.manager()")
     public ApiResponse<Organization> update(@PathVariable String id, @Valid @RequestBody OrganizationRequest request) {
-        return ApiResponse.ok("Saved", service.save(id, request));
+        Organization org = service.save(id, request);
+        return ApiResponse.ok(org.isCreditSentToOwner() ? "Saved · the new credit limit is waiting for the owner" : "Saved", org);
     }
 
     @GetMapping("/{id}/members")
