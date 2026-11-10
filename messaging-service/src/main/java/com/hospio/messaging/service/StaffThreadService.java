@@ -130,6 +130,17 @@ public class StaffThreadService {
         return conversations.threadsFor(me.getUserId(), managed).stream().map(c -> row(c, me)).toList();
     }
 
+    /** {@link #mine} a page at a time (newest message first), searched by {@code q} in the subject, the last message and the names. */
+    @Transactional(readOnly = true)
+    public com.hospio.common.response.PagedResponse<ThreadDtos.ThreadRow> page(String q, Integer page, Integer size) {
+        HospioUserDetails me = CurrentUser.require();
+        List<String> managed = me.has(Role.MANAGER) && !me.getHotelIds().isEmpty() ? me.getHotelIds() : List.of("-");
+        org.springframework.data.domain.Sort sort = org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "lastMessageAt")
+                .and(org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "id"));
+        return com.hospio.common.response.PagedResponse.of(conversations.threadsPage(me.getUserId(), managed,
+                StringUtils.hasText(q) ? com.hospio.common.paging.Paging.like(q) : "%", com.hospio.common.paging.Paging.of(page, size, sort)), c -> row(c, me));
+    }
+
     /** One thread with its messages; opening it marks it read for the caller's side. */
     @Transactional
     public ThreadDtos.ThreadDetail open(String id) {

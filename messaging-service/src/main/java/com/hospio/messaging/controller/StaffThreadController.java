@@ -25,8 +25,14 @@ public class StaffThreadController {
 
     @Operation(summary = "The caller's staff threads, newest first (whole business without X-Hotel-Id)")
     @GetMapping
-    public ApiResponse<List<ThreadDtos.ThreadRow>> mine() {
-        return ApiResponse.ok(threads.mine());
+    public ApiResponse<?> mine(@org.springframework.web.bind.annotation.RequestParam(required = false) String q,
+                               @org.springframework.web.bind.annotation.RequestParam(required = false) Integer page,
+                               @org.springframework.web.bind.annotation.RequestParam(required = false) Integer size) {
+        // Without page or size: the whole list, as the operations scripts read it.
+        if (!com.hospio.common.paging.Paging.requested(page, size)) {
+            return ApiResponse.ok(threads.mine());
+        }
+        return ApiResponse.ok(threads.page(q, page, size));
     }
 
     @Operation(summary = "Start a thread at the X-Hotel-Id hotel: to one person, or (owner) to the hotel's managers")
