@@ -55,6 +55,14 @@ public class StaffAccountController {
         return ApiResponse.ok("PIN reset", staff.resetPin(userId));
     }
 
+    @Operation(summary = "Remind a person with no PIN yet to set one: an in-app notice (a manager never sets someone else's PIN)")
+    @PostMapping("/{userId}/remind-pin")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<Void> remindPin(@PathVariable String userId) {
+        staff.remindPin(userId);
+        return ApiResponse.ok("Reminder sent", null);
+    }
+
     @Operation(summary = "Lift a suspension or end a pause now")
     @PostMapping("/{userId}/reinstate")
     @PreAuthorize("@access.manager()")

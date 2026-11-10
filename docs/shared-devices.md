@@ -15,9 +15,18 @@ Web: `hotel-internal-system-admin-FE` (hotel app), QA script `docs/qa/shared-dev
   its SHA-256 is stored. The person who set it up is then locked out of the device (only their session on this device ends).
 - **The token grants nothing by itself.** With it a device can read its lock screen (`GET /auth/device`) and unlock with a
   PIN. Every other call needs the person's own access token.
-- **Lock screen.** Hotel name, device name and a tile per person who has a PIN, an active account, and an active (not paused,
-  not ended) role at the device's hotel that the device is for. Owners never appear. A tile shows when that person's PIN is
-  locked. The search box filters the tiles on the device.
+- **Lock screen.** Hotel name, device name and a tile per person with an active account and an active (not paused, not
+  ended) role at the device's hotel that the device is for. Owners never appear. A tile shows when that person's PIN is
+  locked. People with **no PIN yet** are tiles too, marked "No PIN yet": tapping one opens the normal sign-in page with their
+  email filled in (`/auth?email=…&shared=1`); there is no second sign-in page. The search box filters the tiles on the device.
+- **The PIN prompt.** After a normal sign-in on a shared device, a person with no PIN is asked "Set a PIN so you can switch in
+  quickly on this device" (4-6 digits, the same rules) with "Not now". "Not now" carries on as normal and the prompt comes
+  back at their next sign-in on a shared device. New staff whose role uses a shared desk (front office, bar, kitchen,
+  housekeeping, laundry, maintenance, inventory) get the same skippable prompt after accepting their invite and at their
+  first sign-in, on any device. A **first** PIN set within 15 minutes of signing in with the password (or accepting the
+  invite) needs no second password; changing a PIN always asks for it.
+- **Managers never set a PIN for someone else** and there are no default PINs. Staff rows show "No PIN yet"; a manager can
+  **Remind** (an in-app notice opening the person's Security tab) or **Reset** (clear) a PIN.
 - **Unlock.** `POST /auth/pin-sign-in` with the device token. The person must belong to the device's business, hold a fitting
   role at the device's hotel, and be active: a paused or suspended person is refused exactly as at sign-in (403 with the same
   sentence). The session is a normal one: an access token with the person's roles and levels **at that hotel only** (the
@@ -62,10 +71,11 @@ Behind the gateway (`https://api-staging.hospio360.com`). `X-Device-Token` is th
 | GET | `/identity/devices?hotelId=` | manager, owner | the hotel's devices (X-Hotel-Id hotel when no `hotelId`): `id, name, hotelId, hotelName, roles, autoLockMinutes, lastUsedAt, lastUserName, createdByName, createdAt` |
 | PUT | `/identity/devices/{id}` | manager, owner | `{name?, roles?, autoLockMinutes?}` |
 | POST | `/identity/devices/{id}/revoke` | manager, owner | removes the device and ends its sessions |
-| GET | `/identity/auth/device` | device token | lock screen `{deviceId, name, hotelId, hotelName, roles, autoLockMinutes, people[{userId, fullName, jobTitle, roles, lockedUntil}]}`; 401 unknown or removed |
+| GET | `/identity/auth/device` | device token | lock screen `{deviceId, name, hotelId, hotelName, roles, autoLockMinutes, people[{userId, fullName, jobTitle, roles, lockedUntil, hasPin, email (only when no PIN)}]}`; 401 unknown or removed |
 | POST | `/identity/auth/pin-sign-in` | device token | `{identifier (user id; phone or email work), pin}` → the usual `AuthResponse`. 401 wrong PIN / locked / unknown device, 403 paused, suspended, owner or no fitting role |
 | POST | `/identity/auth/device/lock` | device token | `{refreshToken, reason: button or idle}` ends that session |
-| POST | `/identity/auth/set-pin` | signed in | `{pin, password}`; 400 with the reason for a refused PIN or a wrong password, 403 owner or H.M.S |
+| POST | `/identity/auth/set-pin` | signed in | `{pin, password?}`; password may be left out only for a first PIN within 15 min of a sign-in; 400 with the reason for a refused PIN or a wrong or missing password, 403 owner or H.M.S |
+| POST | `/identity/users/{id}/remind-pin` | manager, owner | in-app notice to someone with no PIN yet; 400 when they have one |
 | POST | `/identity/users/{id}/reset-pin` | manager, owner | clears the PIN and its lock; 400 when there is none |
 | GET | `/identity/users/me` | signed in | now also `hasPin` |
 
@@ -86,6 +96,7 @@ on a device a manager or Full-access person set up at the person's hotel.
 - [x] Device setup, list, change, revoke (`SharedDeviceController`, `SharedDeviceService`)
 - [x] Lock screen, PIN unlock bound to the device, device lock, device-aware refresh (`AuthService`)
 - [x] PIN rules (`PinRules`), set with password, not the old PIN; manager reset (`StaffAccountService.resetPin`)
+- [x] No-PIN tiles (email for the sign-in page), first PIN without a second password after a sign-in, manager Remind
 - [x] Wrong-PIN lock with tries left and the managers' notice
 - [x] Activity log events (`SharedDeviceEvent`, topic `hospio-shared-device`)
 - [x] Unit tests: `AuthServiceTest`, `PinRulesTest`, `SharedDeviceServiceTest`, `StaffAccountServiceTest`; schema IT checks the policy

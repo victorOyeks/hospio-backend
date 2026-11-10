@@ -259,4 +259,22 @@ class AuthServiceTest {
         assertThatThrownBy(() -> service.signIn(new LoginRequest("tunde@x.ng", "Temp123456")))
                 .isInstanceOf(UnauthorizedException.class).hasMessageContaining("temporary password has expired");
     }
+
+    @Test
+    void aFirstPinRightAfterSigningInNeedsNoPasswordButAChangeDoes() {
+        grace.setPinHash(null);
+        grace.setLastSignInAt(Instant.now().minusSeconds(60));
+        service.setPin("grace", new SetPinRequest("2470", null));
+        assertThat(encoder.matches("2470", grace.getPinHash())).isTrue();
+        // Changing it needs the password, however fresh the sign-in.
+        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("3691", ""))).isInstanceOf(BadRequestException.class)
+                .hasMessage("Enter your password to change your PIN");
+        // A first PIN long after the sign-in needs it too, and the trivial-PIN rules still apply without it.
+        grace.setPinHash(null);
+        grace.setLastSignInAt(Instant.now().minusSeconds(3600));
+        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("3691", null))).isInstanceOf(BadRequestException.class)
+                .hasMessage("Enter your password to set a PIN");
+        grace.setLastSignInAt(Instant.now());
+        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("1111", null))).isInstanceOf(BadRequestException.class);
+    }
 }

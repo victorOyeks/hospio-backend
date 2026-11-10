@@ -258,4 +258,16 @@ class StaffAccountServiceTest {
         ada.setPinHash("hash");
         assertThatThrownBy(() -> service.resetPin("ada")).isInstanceOf(ForbiddenException.class);
     }
+
+    @Test
+    void aManagerRemindsSomeoneWithNoPinByNotice() {
+        signInAs("tunde", "b1", Role.MANAGER, "h1");
+        service.remindPin("ada");
+        ArgumentCaptor<NoticeEvent> sent = ArgumentCaptor.forClass(NoticeEvent.class);
+        verify(events).publish(eq(KafkaTopics.NOTICE), sent.capture());
+        assertThat(sent.getValue().getUserIds()).containsExactly("ada");
+        assertThat(sent.getValue().getLink()).isEqualTo("/profile?tab=security");
+        ada.setPinHash("hash");
+        assertThatThrownBy(() -> service.remindPin("ada")).isInstanceOf(BadRequestException.class);
+    }
 }
