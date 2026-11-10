@@ -10,7 +10,14 @@ import org.springframework.data.repository.query.Param;
 public interface UserAccountRepository extends JpaRepository<UserAccount, String>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<UserAccount> {
     Optional<UserAccount> findByEmailIgnoreCase(String email);
 
+    /** The person's row, locked until the transaction ends: refreshes and sign-outs of one person take turns (docs/profile.md). */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from UserAccount u where u.id = :id")
+    Optional<UserAccount> lockById(@Param("id") String id);
+
     Optional<UserAccount> findByPhone(String phone);
+
+    Optional<UserAccount> findByTwoStepChallengeHash(String hash);
 
     /** Accounts whose phone ends in these ten digits, however it was typed (see Phones.key). */
     @Query(value = "select count(*) from identity.user_accounts where phone is not null and right(regexp_replace(phone, '[^0-9]', '', 'g'), 10) = :key",

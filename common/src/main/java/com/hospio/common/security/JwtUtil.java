@@ -60,11 +60,25 @@ public class JwtUtil {
     }
 
     /**
+     * A person's session token: {@code sid} names the sign-in it belongs to (identity's refresh-token session), so identity
+     * can tell which of the person's sessions is calling (docs/profile.md). Other services ignore it.
+     */
+    public String generateSessionToken(String userId, String email, String fullName, String businessId, List<String> hotelIds,
+                                       Map<Role, AccessLevel> roles, String scope, String sessionId) {
+        return generateToken(userId, email, fullName, businessId, hotelIds, roles, scope, null, expirationMs, sessionId);
+    }
+
+    /**
      * A token with its own lifetime and, for support access, the {@code act} claim naming the platform admin
      * acting as the business's owner. Everything else is the normal token; every service reads it the same way.
      */
     public String generateToken(String userId, String email, String fullName, String businessId, List<String> hotelIds,
                                 Map<Role, AccessLevel> roles, String scope, String actedBy, long ttlMs) {
+        return generateToken(userId, email, fullName, businessId, hotelIds, roles, scope, actedBy, ttlMs, null);
+    }
+
+    private String generateToken(String userId, String email, String fullName, String businessId, List<String> hotelIds,
+                                 Map<Role, AccessLevel> roles, String scope, String actedBy, long ttlMs, String sessionId) {
         List<String> roleClaims = roles.entrySet().stream().map(e -> e.getKey().name() + ":" + e.getValue().name()).toList();
         var builder = Jwts.builder()
                 .subject(userId)
@@ -80,6 +94,9 @@ public class JwtUtil {
         }
         if (actedBy != null) {
             builder.claim("act", actedBy);
+        }
+        if (sessionId != null) {
+            builder.claim("sid", sessionId);
         }
         return builder.signWith(signingKey()).compact();
     }

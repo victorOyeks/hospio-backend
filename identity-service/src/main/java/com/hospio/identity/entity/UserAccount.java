@@ -76,8 +76,41 @@ public class UserAccount extends BaseEntity {
     @lombok.Builder.Default
     private boolean twoStepEnabled = false;
 
+    /** AES-GCM encrypted (TwoStepSecrets); the authenticator app's secret once 2-step is on. */
     @Column(name = "two_step_secret")
     private String twoStepSecret;
+
+    /** The secret shown at setup, until the first code confirms it. */
+    @Column(name = "two_step_pending_secret")
+    private String twoStepPendingSecret;
+
+    @Column(name = "two_step_enabled_at")
+    private Instant twoStepEnabledAt;
+
+    /** The last 30-second step a code was accepted for, so a code works once. */
+    @Column(name = "two_step_last_step")
+    private Long twoStepLastStep;
+
+    /** SHA-256 of the token that carries a password sign-in to the code step, and when it runs out. */
+    @Column(name = "two_step_challenge_hash", length = 128)
+    private String twoStepChallengeHash;
+
+    @Column(name = "two_step_challenge_expires_at")
+    private Instant twoStepChallengeExpiresAt;
+
+    @Column(name = "photo_key")
+    private String photoKey;
+
+    /** Changes with every new photo (epoch millis); null without one. */
+    @Column(name = "photo_version")
+    private Long photoVersion;
+
+    @Column(name = "password_changed_at")
+    private Instant passwordChangedAt;
+
+    /** Email categories turned off, comma separated (NotificationPreferences). */
+    @Column(name = "email_off", length = 200)
+    private String emailOff;
 
     private String language;
 

@@ -35,6 +35,7 @@ public class AccessChangedEvent extends HospioEvent {
             case "PAUSED_UNTIL" -> "paused until the day given";
             case "RESUMED" -> "pause ended";
             case "DETAILS_CHANGED" -> "details changed";
+            case "SESSIONS_ENDED" -> "signed out elsewhere";
             default -> "access " + change;
         };
         return userName + ": " + (role == null ? "" : role + " ") + what + (detail == null || detail.isBlank() ? "" : " (" + detail + ")");

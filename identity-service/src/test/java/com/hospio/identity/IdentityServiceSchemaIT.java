@@ -48,5 +48,11 @@ class IdentityServiceSchemaIT {
         assertThat(devices).isTrue();
         String policy = jdbc.queryForObject("select qual from pg_policies where schemaname = 'identity' and tablename = 'shared_devices'", String.class);
         assertThat(policy).contains("can_see((business_id)::text, (hotel_id)::text)");
+        // 2-step recovery codes (docs/profile.md) are platform-only like refresh tokens, with forced row-level security.
+        Boolean codes = jdbc.queryForObject("select relrowsecurity and relforcerowsecurity from pg_class where oid = 'identity.recovery_codes'::regclass",
+                Boolean.class);
+        assertThat(codes).isTrue();
+        String codesPolicy = jdbc.queryForObject("select qual from pg_policies where schemaname = 'identity' and tablename = 'recovery_codes'", String.class);
+        assertThat(codesPolicy).contains("is_platform()");
     }
 }

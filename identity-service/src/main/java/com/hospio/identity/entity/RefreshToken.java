@@ -36,6 +36,23 @@ public class RefreshToken extends BaseEntity {
     @Column(name = "device_id", length = 36)
     private String deviceId;
 
+    /** One sign-in: kept by every rotated token, carried in the access token as {@code sid}. */
+    @Column(name = "session_id", length = 36)
+    private String sessionId;
+
+    @Column(name = "user_agent", length = 300)
+    private String userAgent;
+
+    @Column(name = "location", length = 100)
+    private String location;
+
+    @Column(name = "signed_in_at")
+    private Instant signedInAt;
+
+    /** Set when the session was signed out (as opposed to a token rotated by a refresh). */
+    @Column(name = "ended_at")
+    private Instant endedAt;
+
     public boolean isUsable() {
         return revokedAt == null && expiresAt.isAfter(Instant.now());
     }

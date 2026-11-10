@@ -19,7 +19,9 @@ import com.hospio.identity.service.AuthService;
 import com.hospio.identity.service.InviteService;
 import com.hospio.identity.service.PhoneVerificationService;
 import com.hospio.identity.service.SharedDeviceService;
+import com.hospio.identity.service.SessionService;
 import com.hospio.identity.service.SignUpService;
+import com.hospio.identity.dto.ProfileDtos;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +43,7 @@ public class AuthController {
     private final PhoneVerificationService phoneVerification;
     private final InviteService invites;
     private final SharedDeviceService devices;
+    private final SessionService sessions;
 
     public static final String DEVICE_HEADER = "X-Device-Token";
 
@@ -48,6 +51,12 @@ public class AuthController {
     @PostMapping("/sign-in")
     public ApiResponse<AuthResponse> signIn(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.ok("Signed in", authService.signIn(request));
+    }
+
+    /** The code step of a sign-in with 2-step on: the token from the password step and an app or recovery code (docs/profile.md). */
+    @PostMapping("/sign-in/two-step")
+    public ApiResponse<AuthResponse> signInTwoStep(@Valid @RequestBody ProfileDtos.TwoStepSignIn request) {
+        return ApiResponse.ok("Signed in", authService.signInWithCode(request.twoStepToken(), request.code()));
     }
 
     /** Unlock a shared device with a PIN: the device token in X-Device-Token, the person tapped and their PIN (docs/shared-devices.md). */
@@ -88,10 +97,17 @@ public class AuthController {
         return ApiResponse.ok("Signed out", null);
     }
 
+    /**
+     * Change the password with the current one. Every other session ends; this one carries on with the fresh tokens that
+     * come back (docs/profile.md).
+     */
     @PostMapping("/change-password")
-    public ApiResponse<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
-        authService.changePassword(CurrentUser.require().getUserId(), request);
-        return ApiResponse.ok("Password changed. Sign in again", null);
+    public ApiResponse<AuthResponse> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        String userId = CurrentUser.require().getUserId();
+        String current = sessions.currentSessionId().orElse(null);
+        authService.changePassword(userId, request, current);
+        // After that commit, so the new access token is not older than the access-changed record.
+        return ApiResponse.ok("Password changed", sessions.reissue(userId, current));
     }
 
     /** Set or change one's own PIN with the password (4-6 digits, not trivial, not the PIN before). Owners have none. */

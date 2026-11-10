@@ -47,6 +47,11 @@ public class AuthService {
     private final EventPublisher events;
     private final RoleGrantRepository grants;
     private final SharedDeviceService devices;
+    private final TwoStepService twoStep;
+    private final SessionService sessions;
+
+    /** How long the code step waits after the right password. */
+    static final long TWO_STEP_CHALLENGE_MINUTES = 5;
 
     /** A first PIN may be set without the password this long after signing in with it (docs/shared-devices.md). */
     static final long FIRST_PIN_WINDOW_MINUTES = 15;
@@ -95,7 +100,9 @@ public class AuthService {
                                 + signInLockMinutes + " minutes"
                         : "Email or password is wrong");
             }
-            if (user.getFailedSignInAttempts() > 0 || user.getSignInLockedUntil() != null) {
+            // With 2-step on, the counter is only cleared once the code is right too: a right password must not reset the
+            // count of wrong codes (docs/profile.md).
+            if (!user.isTwoStepEnabled() && (user.getFailedSignInAttempts() > 0 || user.getSignInLockedUntil() != null)) {
                 user.setFailedSignInAttempts(0);
                 user.setSignInLockedUntil(null);
                 users.save(user);
@@ -104,7 +111,50 @@ public class AuthService {
                 throw new UnauthorizedException("Your temporary password has expired. Ask your manager for a new one");
             }
             assertActive(user);
+            if (user.isTwoStepEnabled()) {
+                String challenge = Hashing.randomToken();
+                user.setTwoStepChallengeHash(Hashing.sha256(challenge));
+                user.setTwoStepChallengeExpiresAt(now.plus(TWO_STEP_CHALLENGE_MINUTES, ChronoUnit.MINUTES));
+                users.save(user);
+                return AuthResponse.codeNeeded(challenge);
+            }
             return finishSignIn(user, "password");
+        });
+    }
+
+    /**
+     * The code step of a sign-in with 2-step on: the token from the password step and a code from the authenticator app or a
+     * recovery code. Wrong codes count with wrong passwords; the fifth locks sign-in. The token works until it runs out or a
+     * new password sign-in replaces it, and is used up by the right code.
+     */
+    @Transactional(noRollbackFor = UnauthorizedException.class)
+    public AuthResponse signInWithCode(String twoStepToken, String code) {
+        return TenantContext.runWith(Tenant.system("sign-in-two-step"), () -> {
+            UserAccount user = users.findByTwoStepChallengeHash(Hashing.sha256(twoStepToken))
+                    .orElseThrow(() -> new UnauthorizedException("This sign-in has expired. Enter your email and password again"));
+            Instant now = Instant.now();
+            if (user.getTwoStepChallengeExpiresAt() == null || user.getTwoStepChallengeExpiresAt().isBefore(now) || !user.isTwoStepEnabled()) {
+                throw new UnauthorizedException("This sign-in has expired. Enter your email and password again");
+            }
+            if (user.getSignInLockedUntil() != null && user.getSignInLockedUntil().isAfter(now)) {
+                throw new UnauthorizedException(lockedMessage(user.getSignInLockedUntil(), now));
+            }
+            if (!twoStep.accept(user, code, true)) {
+                String message = twoStep.wrong(user, "That code is wrong");
+                if (user.getSignInLockedUntil() != null && user.getSignInLockedUntil().isAfter(now)) {
+                    // Locked: this sign-in is over; the next one starts with the password again.
+                    user.setTwoStepChallengeHash(null);
+                    user.setTwoStepChallengeExpiresAt(null);
+                    users.save(user);
+                }
+                throw new UnauthorizedException(message);
+            }
+            TwoStepService.clearFailures(user);
+            user.setTwoStepChallengeHash(null);
+            user.setTwoStepChallengeExpiresAt(null);
+            users.save(user);
+            assertActive(user);
+            return finishSignIn(user, "password and 2-step code");
         });
     }
 
@@ -186,6 +236,7 @@ public class AuthService {
                 boolean wasOpen = token.getRevokedAt() == null;
                 if (wasOpen) {
                     token.setRevokedAt(Instant.now());
+                    token.setEndedAt(Instant.now());
                     refreshTokens.save(token);
                 }
                 if (wasOpen && device != null && !device.isRevoked()) {
@@ -215,9 +266,13 @@ public class AuthService {
             if (!token.isUsable()) {
                 throw new UnauthorizedException("Session expired. Sign in again");
             }
+            // Take turns with a sign-out of this person, then look again: a session signed out meanwhile stays out.
+            UserAccount user = users.lockById(token.getUserId()).orElseThrow(() -> new UnauthorizedException("Account not found"));
+            if (token.getSessionId() != null && refreshTokens.sessionEnded(token.getSessionId())) {
+                throw new UnauthorizedException("Session expired. Sign in again");
+            }
             token.setRevokedAt(Instant.now());
             refreshTokens.save(token);
-            UserAccount user = users.findById(token.getUserId()).orElseThrow(() -> new UnauthorizedException("Account not found"));
             assertActive(user);
             if (token.getDeviceId() != null) {
                 // A PIN session: only while the device is still set up and the person still has a role that fits it.
@@ -226,9 +281,9 @@ public class AuthService {
                 if (!devices.fitsDevice(user.getId(), device)) {
                     throw new UnauthorizedException("You no longer have a role on " + device.getName() + ". Ask your manager");
                 }
-                return tokenIssuer.issueOnDevice(user, device.getHotelId(), device.getId());
+                return tokenIssuer.continueSession(user, token, device.getHotelId());
             }
-            return tokenIssuer.issue(user);
+            return tokenIssuer.continueSession(user, token, null);
         });
     }
 
@@ -236,15 +291,21 @@ public class AuthService {
     public void signOut(String userId) {
         TenantContext.runWith(Tenant.system("sign-out"), () -> {
             Instant now = Instant.now();
+            users.lockById(userId);
             refreshTokens.findByUserIdAndRevokedAtIsNull(userId).forEach(t -> {
                 t.setRevokedAt(now);
+                t.setEndedAt(now);
                 refreshTokens.save(t);
             });
         });
     }
 
+    /**
+     * Changes the password with the current one and ends every other session of the person ({@code keepSessionId}, the
+     * caller's own, stays; the controller then issues it fresh tokens). docs/profile.md.
+     */
     @Transactional
-    public void changePassword(String userId, ChangePasswordRequest request) {
+    public void changePassword(String userId, ChangePasswordRequest request, String keepSessionId) {
         TenantContext.runWith(Tenant.system("change-password"), () -> {
             UserAccount user = users.findById(userId).orElseThrow(() -> new UnauthorizedException("Account not found"));
             if (user.getPasswordHash() != null && !passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
@@ -253,8 +314,9 @@ public class AuthService {
             user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
             user.setMustChangePassword(false);
             user.setTemporaryPasswordExpiresAt(null);
+            user.setPasswordChangedAt(Instant.now());
             users.save(user);
-            signOut(userId);
+            sessions.endOthers(userId, keepSessionId, "password changed");
         });
     }
 
