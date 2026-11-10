@@ -93,7 +93,7 @@ public class IdentityClient {
                     try {
                         deliveries.add(new Delivery(Delivery.Channel.valueOf(n.path("channel").asText("EMAIL")), n.path("to").asText(null),
                                 n.path("subject").asText(null), n.path("text").asText(null), Delivery.Kind.valueOf(n.path("kind").asText("INVITE")),
-                                n.path("ref").asText(null)));
+                                n.path("ref").asText(null), n.path("status").asText(null), null, null));
                     } catch (IllegalArgumentException ignored) {
                         // a channel or kind this build does not know; the message is still published by identity
                     }

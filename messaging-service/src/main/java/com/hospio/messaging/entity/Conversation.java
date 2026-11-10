@@ -88,6 +88,41 @@ public class Conversation extends TenantEntity {
     @Column(name = "recipient_read_at")
     private Instant recipientReadAt;
 
+    /** Guest conversations: the booking they are about, and the stay's details the templates fill in. */
+    @Column(name = "booking_id", length = 36)
+    private String bookingId;
+
+    @Column(name = "booking_ref", length = 40)
+    private String bookingRef;
+
+    @Column(name = "room_number", length = 20)
+    private String roomNumber;
+
+    @Column(name = "room_type", length = 100)
+    private String roomType;
+
+    @Column(name = "check_in")
+    private java.time.LocalDate checkIn;
+
+    @Column(name = "check_out")
+    private java.time.LocalDate checkOut;
+
+    @Column(name = "guest_email")
+    private String guestEmail;
+
+    @Column(name = "guest_phone", length = 40)
+    private String guestPhone;
+
+    /** IN when the guest wrote last (waiting for an answer), OUT when the hotel did. */
+    @Column(name = "last_direction", length = 10)
+    private String lastDirection;
+
+    @Column(name = "done_at")
+    private Instant doneAt;
+
+    @Column(name = "done_by_name", length = 150)
+    private String doneByName;
+
     /** What would have gone to the guest (email, SMS, WhatsApp), echoed on staging; never stored. */
     @jakarta.persistence.Transient
     private java.util.List<com.hospio.common.delivery.Delivery> deliveries;

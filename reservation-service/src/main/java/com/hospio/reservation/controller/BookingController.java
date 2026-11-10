@@ -83,7 +83,8 @@ public class BookingController {
     @PostMapping
     @PreAuthorize("@access.atLeast('FRONT_OFFICE','EDIT')")
     public ApiResponse<BookingResponse> create(@Valid @RequestBody CreateBookingRequest request) {
-        return ApiResponse.ok("Booking created", service.create(request));
+        BookingResponse created = service.create(request);
+        return ApiResponse.ok("Booking created", created.withDeliveries(notices.confirmed(created)));
     }
 
     @PutMapping("/{id}")
@@ -116,6 +117,7 @@ public class BookingController {
     @PostMapping("/{id}/cancel")
     @PreAuthorize("@access.atLeast('FRONT_OFFICE','FULL')")
     public ApiResponse<BookingResponse> cancel(@PathVariable String id, @Valid @RequestBody CancelBookingRequest request) {
-        return ApiResponse.ok("Booking cancelled", service.cancel(id, request));
+        BookingResponse cancelled = service.cancel(id, request);
+        return ApiResponse.ok("Booking cancelled", cancelled.withDeliveries(notices.cancelled(cancelled)));
     }
 }

@@ -37,8 +37,11 @@ public class OutboundService {
     private final TemplateRepository templates;
     private final Map<NotificationChannel, MessageChannel> channels;
     private final EventPublisher events;
+    private final com.hospio.messaging.mail.MailDispatcher mail;
 
-    public OutboundService(OutboundMessageRepository outbound, TemplateRepository templates, List<MessageChannel> channels, EventPublisher events) {
+    public OutboundService(OutboundMessageRepository outbound, TemplateRepository templates, List<MessageChannel> channels, EventPublisher events,
+                           com.hospio.messaging.mail.MailDispatcher mail) {
+        this.mail = mail;
         this.outbound = outbound;
         this.templates = templates;
         this.channels = channels.stream().collect(Collectors.toMap(MessageChannel::kind, Function.identity(), (a, b) -> a));
@@ -80,10 +83,17 @@ public class OutboundService {
                 MessageChannel channel = channels.get(m.getChannel());
                 m.setAttempts(m.getAttempts() + 1);
                 try {
-                    if (channel == null) {
+                    if (m.getChannel() == NotificationChannel.EMAIL) {
+                        // Email has one sender (docs/email.md): it records the delivery and sends through SMTP after this commits.
+                        var record = mail.accept(com.hospio.common.kafka.events.DeliveryRequestedEvent.builder().eventId(m.getId())
+                                .businessId(m.getBusinessId()).hotelId(m.getHotelId()).channel("EMAIL").to(m.getRecipient())
+                                .subject(m.getSubject()).text(m.getBody()).kind(m.getKind()).ref(m.getReference()).build());
+                        m.setProviderRef(record == null ? null : "delivery:" + record.getId());
+                    } else if (channel == null) {
                         throw new IllegalStateException("No adapter for " + m.getChannel());
+                    } else {
+                        m.setProviderRef(channel.send(m.getRecipient(), m.getSubject(), m.getBody()));
                     }
-                    m.setProviderRef(channel.send(m.getRecipient(), m.getSubject(), m.getBody()));
                     m.setStatus(OutboundMessage.Status.SENT);
                     m.setSentAt(Instant.now());
                     events.publish(KafkaTopics.MESSAGE_SENT, MessageSentEvent.builder().messageId(m.getId()).channel(m.getChannel().name())

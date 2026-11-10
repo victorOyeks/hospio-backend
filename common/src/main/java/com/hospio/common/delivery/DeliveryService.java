@@ -3,6 +3,7 @@ package com.hospio.common.delivery;
 import com.hospio.common.kafka.EventPublisher;
 import com.hospio.common.kafka.KafkaTopics;
 import com.hospio.common.kafka.events.DeliveryRequestedEvent;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -10,20 +11,24 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Publishes every delivery as a {@link DeliveryRequestedEvent} and, when {@code hospio.deliveries.echo} is on
- * (env {@code DELIVERIES_ECHO}, true on staging), returns the same list so the controller can put it in the
- * response under {@code deliveries}. The web apps show those on screen with a note that email and SMS are
- * not connected. Production runs with echo off and returns an empty list.
+ * The one way a service sends an email, SMS or WhatsApp (docs/email.md). Publishes every delivery as a
+ * {@link DeliveryRequestedEvent} on {@code hospio-delivery-requested} after the surrounding transaction commits;
+ * messaging-service records it and sends the emails through SMTP. When {@code hospio.deliveries.echo} is on (env
+ * {@code DELIVERIES_ECHO}, true on staging) the same list comes back, each with its {@code status} (email sent or not
+ * connected), so the controller can put it in the response under {@code deliveries} and the web app shows
+ * it on screen. Production runs with echo off and gets an empty list. Never throws: a delivery never fails the action.
  */
 @Slf4j
 @Component
 public class DeliveryService {
 
     private final ObjectProvider<EventPublisher> publisher;
+    private final MailPolicy policy;
     private final boolean echo;
 
-    public DeliveryService(ObjectProvider<EventPublisher> publisher, @Value("${hospio.deliveries.echo:false}") boolean echo) {
+    public DeliveryService(ObjectProvider<EventPublisher> publisher, MailPolicy policy, @Value("${hospio.deliveries.echo:false}") boolean echo) {
         this.publisher = publisher;
+        this.policy = policy;
         this.echo = echo;
     }
 
@@ -31,28 +36,44 @@ public class DeliveryService {
         return echo;
     }
 
-    /** Publishes the deliveries; returns them when echo is on, otherwise an empty list. Never throws. */
+    public MailPolicy policy() {
+        return policy;
+    }
+
+    /** The delivery with the status the echo shows (email sent, not connected). */
+    public Delivery marked(Delivery d) {
+        return d.withStatus(policy.statusFor(d));
+    }
+
+    /** Publishes the deliveries; returns them (marked) when echo is on, otherwise an empty list. Never throws. */
     public List<Delivery> send(List<Delivery> deliveries) {
         if (deliveries == null || deliveries.isEmpty()) {
             return List.of();
         }
         EventPublisher events = publisher.getIfAvailable();
-        for (Delivery d : deliveries) {
+        List<Delivery> out = new ArrayList<>();
+        for (Delivery raw : deliveries) {
+            if (raw == null) {
+                continue;
+            }
+            Delivery d = marked(raw);
+            out.add(d);
             try {
                 if (events != null) {
                     events.publish(KafkaTopics.DELIVERY_REQUESTED, DeliveryRequestedEvent.builder()
+                            .businessId(d.businessId()).hotelId(d.hotelId())
                             .channel(d.channel().name()).to(d.to()).subject(d.subject()).text(d.text())
                             .kind(d.kind().name()).ref(d.ref()).build());
                 }
-                log.info("Delivery {} to {} via {}{}", d.kind(), d.to(), d.channel(), echo ? " (echoed in the response)" : "");
+                log.info("Delivery {} to {} via {} ({}){}", d.kind(), d.to(), d.channel(), d.status(), echo ? " echoed in the response" : "");
             } catch (RuntimeException e) {
                 log.warn("Delivery {} to {} not published: {}", d.kind(), d.to(), e.getMessage());
             }
         }
-        return echo ? List.copyOf(deliveries) : List.of();
+        return echo ? List.copyOf(out) : List.of();
     }
 
     public List<Delivery> send(Delivery delivery) {
-        return send(List.of(delivery));
+        return send(delivery == null ? List.of() : List.of(delivery));
     }
 }

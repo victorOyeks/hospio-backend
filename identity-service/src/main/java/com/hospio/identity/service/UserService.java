@@ -210,7 +210,8 @@ public class UserService {
         InviteService.Issued invite = invites.issue(user, caller.getUserId());
         events.publish(KafkaTopics.USER_CREATED, UserCreatedEvent.builder()
                 .businessId(user.getBusinessId()).hotelId(hotelId).userId(user.getId()).fullName(user.getFullName()).email(user.getEmail()).build());
-        List<Delivery> sent = deliveryService.send(deliveries.forLogin(user, Set.of(role), temporary, expires, invite.token(), invite.expiresAt()));
+        List<Delivery> sent = deliveryService.send(deliveries.forLogin(user, Set.of(role), temporary, expires, invite.token(), invite.expiresAt())
+                .stream().map(d -> d.from(businessId, hotelId)).toList());
         return new UserCreatedResponse(user.getId(), temporary, expires, invite.token(), invite.expiresAt(), sent);
     }
 
@@ -230,7 +231,7 @@ public class UserService {
         user.setTemporaryPasswordExpiresAt(expires);
         users.save(user);
         InviteService.Issued invite = invites.issue(user, caller.getUserId());
-        List<Delivery> sent = deliveryService.send(deliveries.forLogin(user, rolesOf(user), temporary, expires, invite.token(), invite.expiresAt()));
+        List<Delivery> sent = deliveryService.send(fromTheirHotel(user, deliveries.forLogin(user, rolesOf(user), temporary, expires, invite.token(), invite.expiresAt())));
         return new UserCreatedResponse(user.getId(), temporary, expires, invite.token(), invite.expiresAt(), sent);
     }
 
@@ -446,8 +447,19 @@ public class UserService {
         user.setMustChangePassword(true);
         user.setTemporaryPasswordExpiresAt(expires);
         users.save(user);
-        List<Delivery> sent = deliveryService.send(deliveries.forPasswordReset(user, rolesOf(user), temporary, expires));
+        List<Delivery> sent = deliveryService.send(fromTheirHotel(user, deliveries.forPasswordReset(user, rolesOf(user), temporary, expires)));
         return new UserCreatedResponse(user.getId(), temporary, expires, null, null, sent);
+    }
+
+    /** Emails to a person come from the hotel they work at (its name is the From name); platform people get the platform's. */
+    private List<Delivery> fromTheirHotel(UserAccount user, List<Delivery> out) {
+        String hotel = TenantContext.current().map(t -> t.hotelId()).orElse(null);
+        if (hotel == null) {
+            hotel = grants.findByUserId(user.getId()).stream().filter(RoleGrant::isActive).map(RoleGrant::getHotelId)
+                    .filter(java.util.Objects::nonNull).findFirst().orElse(null);
+        }
+        String h = hotel;
+        return out.stream().map(d -> d.from(user.getBusinessId(), h)).toList();
     }
 
     @Transactional(readOnly = true)
