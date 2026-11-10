@@ -5,7 +5,9 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface ConversationRepository extends JpaRepository<Conversation, String> {
+public interface ConversationRepository extends JpaRepository<Conversation, String>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<Conversation> {
+    Optional<Conversation> findFirstByHotelIdAndKindAndBookingIdOrderByLastMessageAtDesc(String hotelId, Conversation.Kind kind, String bookingId);
+
     List<Conversation> findByHotelIdAndKindAndStatusOrderByLastMessageAtDesc(String hotelId, Conversation.Kind kind, Conversation.Status status);
 
     /**

@@ -51,6 +51,13 @@ public class MessagingEventListener {
     private final NotificationService notifications;
     private final OutboundService outbound;
     private final TenantBinder tenant;
+    private final com.hospio.messaging.mail.MailDispatcher mail;
+
+    /** Every email, SMS and WhatsApp any service asked for (docs/email.md): recorded here, emails sent through SMTP. */
+    @KafkaListener(topics = KafkaTopics.DELIVERY_REQUESTED)
+    public void onDeliveryRequested(com.hospio.common.kafka.events.DeliveryRequestedEvent e) {
+        mail.accept(e);
+    }
 
     @Transactional
     @KafkaListener(topics = KafkaTopics.PAYMENT_APPROVED)

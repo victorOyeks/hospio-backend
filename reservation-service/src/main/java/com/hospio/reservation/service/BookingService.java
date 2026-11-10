@@ -82,7 +82,17 @@ public class BookingService {
 
     @Transactional(readOnly = true)
     public BookingResponse get(String id) {
-        return BookingResponse.of(find(id));
+        Booking b = find(id);
+        BookingResponse r = BookingResponse.of(b);
+        if (b.getGuestId() == null) {
+            return r;
+        }
+        try {
+            var g = guestService.get(b.getGuestId());
+            return r.withGuest(g.getPhone(), g.getEmail());
+        } catch (RuntimeException e) {
+            return r;
+        }
     }
 
     @Transactional(readOnly = true)

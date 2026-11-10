@@ -47,4 +47,12 @@ public class Message extends TenantEntity {
 
     @Column(name = "provider_ref", length = 100)
     private String providerRef;
+
+    /** How it went out: EMAIL (sent for real), WHATSAPP or SMS (not connected yet), IN_APP; null on older rows. */
+    @Column(length = 20)
+    private String channel;
+
+    /** Why the email failed, when it did. */
+    @Column(length = 500)
+    private String error;
 }

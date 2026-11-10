@@ -34,8 +34,17 @@ public class Template extends TenantEntity {
     @Column(length = 200)
     private String subject;
 
-    @Column(nullable = false, length = 2000)
+    @Column(nullable = false, length = 4000)
     private String body;
+
+    /** The name staff pick it by (purpose MESSAGE). */
+    @Column(length = 100)
+    private String name;
+
+    /** MESSAGE: staff use it when writing to a guest; AUTO: sent by an event (RECEIPT, STAY_SUMMARY). */
+    @Column(nullable = false, length = 20)
+    @lombok.Builder.Default
+    private String purpose = "AUTO";
 
     @Column(nullable = false)
     @lombok.Builder.Default

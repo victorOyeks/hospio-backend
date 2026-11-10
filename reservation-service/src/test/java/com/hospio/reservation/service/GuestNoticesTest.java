@@ -35,7 +35,7 @@ class GuestNoticesTest {
     void newDatesGoToTheGuestOnWhatsApp() {
         Guest g = Guest.builder().fullName("Ada Okeke").phone("+2348030000001").build();
         when(guests.get("g1")).thenReturn(g);
-        when(deliveries.send(any(Delivery.class))).thenAnswer(i -> List.of((Delivery) i.getArgument(0)));
+        when(deliveries.send(org.mockito.ArgumentMatchers.<List<Delivery>>any())).thenAnswer(i -> i.getArgument(0));
 
         List<Delivery> sent = notices.datesChanged(booking(LocalDate.of(2026, 11, 20), LocalDate.of(2026, 11, 22)),
                 booking(LocalDate.of(2026, 11, 21), LocalDate.of(2026, 11, 24)));
@@ -52,6 +52,18 @@ class GuestNoticesTest {
         assertThat(notices.datesChanged(same, same)).isEmpty();
         when(guests.get("g1")).thenReturn(Guest.builder().fullName("Ada").build());
         assertThat(notices.datesChanged(same, booking(LocalDate.of(2026, 11, 21), LocalDate.of(2026, 11, 22)))).isEmpty();
-        verify(deliveries, never()).send(any(Delivery.class));
+        verify(deliveries, never()).send(org.mockito.ArgumentMatchers.<List<Delivery>>any());
+    }
+
+    @Test
+    void aGuestWithAnEmailGetsTheEmailToo() {
+        when(guests.get("g1")).thenReturn(Guest.builder().fullName("Ada Okeke").phone("+2348030000001").email("ada@guest.test").build());
+        when(deliveries.send(org.mockito.ArgumentMatchers.<List<Delivery>>any())).thenAnswer(i -> i.getArgument(0));
+        List<Delivery> sent = notices.confirmed(booking(LocalDate.of(2026, 11, 20), LocalDate.of(2026, 11, 22)));
+        assertThat(sent).extracting(Delivery::channel).containsExactly(Delivery.Channel.EMAIL, Delivery.Channel.WHATSAPP);
+        assertThat(sent.get(0).kind()).isEqualTo(Delivery.Kind.BOOKING_CONFIRMATION);
+        assertThat(sent.get(0).subject()).isEqualTo("Your booking BK-1001 is confirmed");
+        assertThat(sent.get(0).text()).contains("Reference: BK-1001").contains("Fri 20 Nov to Sun 22 Nov");
+        assertThat(notices.cancelled(booking(LocalDate.of(2026, 11, 20), LocalDate.of(2026, 11, 22))).get(0).subject()).isEqualTo("Your booking BK-1001 is cancelled");
     }
 }
