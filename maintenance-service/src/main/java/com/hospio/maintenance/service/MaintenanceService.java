@@ -156,7 +156,8 @@ public class MaintenanceService {
     /**
      * Housekeeping's "Report a problem" (service to service, the reporter's token forwarded): the work order is opened with the
      * reporter's priority and, with {@code outOfOrder}, the room goes out of order at once. A room with a guest checked in is refused
-     * before anything is opened. An urgent problem or an out-of-order room is told to the front office and the managers.
+     * before anything is opened. An urgent problem in a room is told to the front office; a room taken out of order is told by
+     * property-service's own notice (front office, housekeeping, managers).
      */
     @Transactional
     public MaintenanceViews.RepairView openReported(MaintenanceRequests.RepairRequest request, boolean outOfOrder) {
