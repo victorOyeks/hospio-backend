@@ -1,7 +1,7 @@
 package com.hospio.platform.controller;
 
 import com.hospio.common.response.ApiResponse;
-import com.hospio.common.response.PagedResponse;
+import com.hospio.common.response.PageWithCounts;
 import com.hospio.platform.dto.AdminResponses.CommissionRow;
 import com.hospio.platform.dto.AdminResponses.MarketerDetail;
 import com.hospio.platform.dto.AdminResponses.MarketerInvited;
@@ -61,11 +61,11 @@ public class AdminMarketerController {
         return ApiResponse.ok("Updated", marketers.update(id, request));
     }
 
-    @Operation(summary = "Referrals, paged, by marketer profile and stage")
+    @Operation(summary = "Referrals, paged (page from 0, size 1 to 100, 25 by default), newest first, by marketer profile and stage, with counts per stage")
     @GetMapping("/referrals")
     @PreAuthorize("@access.platform()")
-    public ApiResponse<PagedResponse<Referral>> referrals(@RequestParam(required = false) String profileId, @RequestParam(required = false) String stage,
-                                                          @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "25") int size) {
+    public ApiResponse<PageWithCounts<Referral>> referrals(@RequestParam(required = false) String profileId, @RequestParam(required = false) String stage,
+                                                           @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
         return ApiResponse.ok(marketers.referrals(profileId, stage, page, size));
     }
 
@@ -76,12 +76,13 @@ public class AdminMarketerController {
         return ApiResponse.ok("Updated", marketers.setReferralStage(id, request));
     }
 
-    @Operation(summary = "Commissions, paged, by marketer profile, status and month, with marketer and business names")
+    @Operation(summary = "Commissions, paged (page from 0, size 1 to 100, 25 by default), by marketer profile, status and month, with marketer and "
+            + "business names, counts per status and gross, wht, net, due and paid over the filtered range")
     @GetMapping("/commissions")
     @PreAuthorize(AdminFeesController.MONEY)
-    public ApiResponse<PagedResponse<CommissionRow>> commissions(@RequestParam(required = false) String profileId, @RequestParam(required = false) String status,
-                                                                 @RequestParam(required = false) String month,
-                                                                 @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "25") int size) {
+    public ApiResponse<PageWithCounts<CommissionRow>> commissions(@RequestParam(required = false) String profileId, @RequestParam(required = false) String status,
+                                                                  @RequestParam(required = false) String month,
+                                                                  @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
         return ApiResponse.ok(marketers.commissions(profileId, status, month, page, size));
     }
 

@@ -1,5 +1,6 @@
 package com.hospio.platform.controller;
 
+import com.hospio.common.paging.Paging;
 import com.hospio.common.response.ApiResponse;
 import com.hospio.platform.dto.AdminResponses.CommissionRow;
 import com.hospio.platform.dto.AdminResponses.CommissionStatement;
@@ -43,9 +44,14 @@ public class MarketerPortalController {
         return ApiResponse.ok("Bank details saved", marketers.updateBank(request));
     }
 
-    @Operation(summary = "My referrals, newest first")
+    @Operation(summary = "My referrals, newest first. With page or size (page from 0, size 1 to 100, 25 by default): one page, by stage, with "
+            + "counts per stage; without either, every referral as before")
     @GetMapping("/referrals")
-    public ApiResponse<List<Referral>> referrals() {
+    public ApiResponse<?> referrals(@RequestParam(required = false) String stage, @RequestParam(required = false) Integer page,
+                                    @RequestParam(required = false) Integer size) {
+        if (Paging.requested(page, size)) {
+            return ApiResponse.ok(marketers.myReferrals(stage, page, size));
+        }
         return ApiResponse.ok(marketers.myReferrals());
     }
 
@@ -61,9 +67,14 @@ public class MarketerPortalController {
         return ApiResponse.ok(marketers.myBusinesses());
     }
 
-    @Operation(summary = "My commissions, optionally for one month (yyyy-MM)")
+    @Operation(summary = "My commissions, optionally for one month (yyyy-MM). With page or size: one page (latest month first), by status "
+            + "(DUE, PAID), with counts and gross, wht, net, due and paid over the filtered range; without either, every line as before")
     @GetMapping("/commissions")
-    public ApiResponse<List<CommissionRow>> commissions(@RequestParam(required = false) String month) {
+    public ApiResponse<?> commissions(@RequestParam(required = false) String month, @RequestParam(required = false) String status,
+                                      @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        if (Paging.requested(page, size)) {
+            return ApiResponse.ok(marketers.myCommissions(month, status, page, size));
+        }
         return ApiResponse.ok(marketers.myCommissions(month));
     }
 
