@@ -49,7 +49,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 /**
- * Guest conversations at the X-Hotel-Id hotel (docs/email.md, docs/guest-messaging.md): per booking (or guest contact),
+ * Guest conversations at the X-Hotel-Id hotel (docs/email.md): per booking (or guest contact),
  * messages out and in with their channel, assignment to a person, open or done. Email is sent for real through the one
  * sender; WhatsApp and SMS are recorded and shown on screen (not connected yet). Front office (Edit), managers and the
  * owner write; front office (View) reads. Templates are per hotel with placeholders; "everyone on shift" is an in-app notice

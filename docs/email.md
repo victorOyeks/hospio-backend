@@ -18,6 +18,8 @@ Values live in `/opt/hospio-staging/.env.staging` (systemd `EnvironmentFile`), n
 | `MAIL_FROM_NAME_DEFAULT` | `hospio.mail.from-name-default` | From name for platform mail (no hotel, no business) |
 | `MAIL_ENABLED` | `hospio.mail.enabled` | `true` sends real email; anything else records and echoes only (default false) |
 | `DELIVERIES_ECHO` | `hospio.deliveries.echo` | Echo every delivery in the API response (`deliveries`), on for staging |
+| `MAIL_MAX_EVENT_AGE_MINUTES` | `hospio.mail.max-event-age-minutes` | A delivery event older than this (default 30) is never sent: a replayed topic must not re-send old passwords and links |
+| `MAIL_RETRY_DELAY_MS` | `hospio.mail.retry-delay-ms` | Wait before the one retry (default 5000) |
 
 ## Who it is from
 
@@ -91,6 +93,37 @@ return response.withDeliveries(echoed);          // put it under "deliveries" so
 
 Tests send real email to whatever address they use; keep the volume sensible (no loops of hundreds).
 
+## Guest messaging (messaging-service)
+
+Guest conversations are per booking (or, without one, per guest contact) at the `X-Hotel-Id` hotel. Front office (Edit),
+managers and the owner write; front office (View) reads; other roles get 403. Another hotel's conversation is 404.
+
+| Method | Path | Who | What |
+|---|---|---|---|
+| GET | `/messaging/conversations?page&size&tab&q&channel` | front office, manager, owner | `PageWithCounts`, newest message first; `tab` waiting (the guest wrote last), open (default), mine, done, all; `counts` per tab over the search |
+| GET | `/messaging/conversations/{id}` | same | the conversation and its messages (each with channel and status) |
+| POST | `/messaging/conversations/guest` | front office (Edit), manager, owner | `{bookingId?, guestName?, guestEmail?, guestPhone?, channel, subject?, body}`; the booking's conversation (reopened if done) or a new one; answers `{conversation, message, deliveries}` and "Email sent to …" or "Saved · WhatsApp is coming soon …" |
+| POST | `/messaging/conversations/{id}/reply` | same | `{body, channel?, subject?}`; replying assigns an unassigned conversation to you |
+| POST | `/messaging/conversations/{id}/guest-reply` | same | `{body}`: what the guest said by phone, WhatsApp or at the desk (no inbound email or WhatsApp yet) |
+| PUT | `/messaging/conversations/{id}/assign` | manager, owner | `{userId}`: an active front office person or manager of the business; they get an in-app notice |
+| POST | `/messaging/conversations/{id}/close` · `/reopen` | front office (Edit), manager, owner | done / open again |
+| GET | `/messaging/templates/messages` | front office, manager, owner | the hotel's templates (purpose MESSAGE) |
+| POST · PUT · DELETE | `/messaging/templates/messages[/{id}]` | manager, owner | `{name, subject?, body}`; names unique per hotel (409); only the placeholders below (400) |
+| POST | `/messaging/templates/{id}/fill` | front office, manager, owner | `{conversationId?}` or `{bookingId?}` → `{subject, body, missing}` |
+| GET | `/messaging/shift-notice/recipients` | manager, owner | today's rota at the hotel (finance workforce) |
+| POST | `/messaging/shift-notice` | manager, owner | `{body}`: an in-app notice to everyone on today's rota but the sender (400 when nobody else is on) |
+| GET | `/messaging/deliveries` | manager, owner, H.M.S | the delivery log (above) |
+
+Placeholders: `{{guest}}`, `{{first_name}}`, `{{hotel}}`, `{{room}}`, `{{room_type}}`, `{{check_in}}`, `{{check_out}}`,
+`{{nights}}`, `{{reference}}` (the older `{guest}` form still fills). One the booking has no value for stays as written
+and is listed in `missing`.
+
+A message's status: `QUEUED` → `SENT` or `FAILED` (email, following its delivery), `NOT_CONNECTED` (WhatsApp, SMS),
+`DISABLED` (email switched off), `LOGGED` (a guest reply typed in by staff).
+
+Bookings also tell the guest: a confirmation on create (`BOOKING_CONFIRMATION`), the new dates on a change, and a
+cancellation, each by email when the guest has one and as a WhatsApp copy (not sent) when they have a phone.
+
 ## Per-user email preferences
 
 Profile → Notification settings keeps email on or off per category for each person: `bookings`, `approvals`, `money`,
@@ -100,6 +133,10 @@ before building the delivery; messaging-service does not filter by person. Passw
 sent. Full contract: docs/profile.md, "Notification preferences".
 
 ## Limits
+- **First start replayed the topic (2026-11-10).** `hospio-delivery-requested` had no consumer before; the first start of
+  the sender read it from the beginning and sent 329 old deliveries (invites, temporary passwords, receipts) within a
+  minute, 8 of them to gmail addresses. The consumer group's offset is now committed and any event older than
+  `MAIL_MAX_EVENT_AGE_MINUTES` is skipped, so it cannot happen again.
 
 - No attachments, no open or bounce tracking, no inbound email (guest replies by email do not come back into the
   conversation; staff log a reply by hand).
