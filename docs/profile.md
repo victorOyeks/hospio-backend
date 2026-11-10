@@ -122,3 +122,14 @@ A missing map or category means "send". Account emails (invites, temporary passw
 Profile, photo and preference changes are not logged. Ending sessions and changing the password publish
 `AccessChangedEvent` with `change` `SESSIONS_ENDED` (detail "password changed", "signed out other devices" or "signed out one
 device"). Turning 2-step on or off is not logged (it would also make every live token of the person stale).
+
+## Limits
+
+- No location: no IP is stored and there is no geo lookup (a `CF-IPCountry` header would be shown if a proxy ever adds one).
+- `lastUsedAt` moves on sign-in and refresh (about hourly while the app is open), not on every request.
+- `POST /auth/logout` still ends every session of the person (the web's Sign out); ending only this device is the lock on a
+  shared device.
+- The body log masks `code`, `password`, `twoStepToken`, `secret`, `qrSvg` and `otpauthUri`; the web's staging API log
+  (`NEXT_PUBLIC_API_LOG`) records whole responses, so it must stay off in production.
+- 2-step is never required yet (`hospio.auth.two-step.required-roles` is reported only). No SMS or WhatsApp codes.
+- Photos are stored once per version; replacing or removing one deletes the old file. A JPEG or PNG only (no HEIC/WebP).
