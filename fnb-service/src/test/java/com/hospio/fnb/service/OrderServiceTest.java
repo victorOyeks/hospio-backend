@@ -410,4 +410,92 @@ class OrderServiceTest {
         paid.setPaid(true);
         assertThatThrownBy(() -> service.cancel("order-1", "oops")).isInstanceOf(BadRequestException.class).hasMessageContaining("settled");
     }
+
+    // ---- sales history: part pay, who settled, guards ----------------------------------------------------------
+
+    @Test
+    void aPartPaidSaleChargedToARoomPutsOnlyTheBalanceOnTheFolioWithItsShareOfTax() {
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+        Order o = savedOrder(Order.Kind.TAKEAWAY, "4300.00");
+        o.setSubtotal(new BigDecimal("4000.00"));
+        o.setTax(new BigDecimal("300.00"));
+        o.setDiscount(BigDecimal.ZERO);
+        line(OrderLine.Status.NEW);
+        service.applyPayment("order-1", "pay-1", "CASH", new BigDecimal("2150.00"));
+        assertThat(o.isSettled()).isFalse();
+        when(reservations.findActiveStay("room-1")).thenReturn(Optional.of(new ReservationClient.ActiveStay("bk-1", "Ada", "A107", null, null)));
+        when(folios.hasOpenFolio("bk-1")).thenReturn(true);
+
+        service.chargeToRoom("order-1", "room-1");
+
+        ArgumentCaptor<com.hospio.common.kafka.events.ChargePostedEvent> posted = ArgumentCaptor.forClass(com.hospio.common.kafka.events.ChargePostedEvent.class);
+        verify(events).publish(eq(KafkaTopics.CHARGE_POSTED), posted.capture());
+        assertThat(posted.getValue().getAmount().add(posted.getValue().getTaxAmount())).isEqualByComparingTo("2150.00");
+        assertThat(posted.getValue().getTaxAmount()).isEqualByComparingTo("150.00");
+        assertThat(posted.getValue().getDescription()).endsWith("(balance)");
+        assertThat(o.getSettledByName()).isEqualTo("Segun");
+        assertThat(o.getSettledByUser()).isEqualTo("u1");
+    }
+
+    @Test
+    void aFullChargeToARoomPostsTheWholeTotal() {
+        Order o = Order.builder().total(new BigDecimal("4300.00")).subtotal(new BigDecimal("4000.00")).tax(new BigDecimal("300.00"))
+                .discount(BigDecimal.ZERO).build();
+        OrderService.RoomCharge c = OrderService.roomCharge(o);
+        assertThat(c.amount()).isEqualByComparingTo("4000.00");
+        assertThat(c.tax()).isEqualByComparingTo("300.00");
+        assertThat(c.partPaid()).isFalse();
+    }
+
+    @Test
+    void aPaymentKeepsItsReferenceAndWhoTookIt() {
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+        Order o = savedOrder(Order.Kind.TAKEAWAY, "3000.00");
+        line(OrderLine.Status.NEW);
+
+        service.applyPayment("order-1", "pay-1", "card", new BigDecimal("3000.00"), "RRN-12345");
+
+        assertThat(storedPayments.get(0).getReference()).isEqualTo("RRN-12345");
+        assertThat(storedPayments.get(0).getTakenByName()).isEqualTo("Segun");
+        assertThat(storedPayments.get(0).getMethod()).isEqualTo("CARD");
+        assertThat(o.getSettledByName()).isEqualTo("Segun");
+    }
+
+    @Test
+    void aPaymentApprovedByTheSystemLeavesTheTakerBlank() {
+        TenantContext.set(Tenant.systemFor("b1", "h1", null, null));
+        savedOrder(Order.Kind.TAKEAWAY, "3000.00");
+        line(OrderLine.Status.NEW);
+
+        service.applyPayment("order-1", "pay-1", "CARD", new BigDecimal("3000.00"), null);
+
+        assertThat(storedPayments.get(0).getTakenByName()).isNull();
+        assertThat(storedPayments.get(0).getReference()).isNull();
+    }
+
+    @Test
+    void aPartPaidSaleCannotBeCancelledNorLoseALineBelowWhatWasPaid() {
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+        Order o = savedOrder(Order.Kind.TAKEAWAY, "3000.00");
+        o.setSubtotal(new BigDecimal("3000.00"));
+        OrderLine first = line(OrderLine.Status.NEW);
+        line(OrderLine.Status.NEW);
+        service.applyPayment("order-1", "pay-1", "CASH", new BigDecimal("2000.00"));
+
+        assertThatThrownBy(() -> service.cancel("order-1", "walked out")).isInstanceOf(BadRequestException.class).hasMessageContaining("already paid");
+        assertThatThrownBy(() -> service.cancelLine("order-1", first.getId(), "wrong")).isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("already paid");
+    }
+
+    @Test
+    void aLineCancelledRecordsWhoCancelledIt() {
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+        savedOrder(Order.Kind.TAKEAWAY, "3000.00");
+        OrderLine l = line(OrderLine.Status.NEW);
+        line(OrderLine.Status.NEW);
+
+        service.cancelLine("order-1", l.getId(), "guest changed mind");
+
+        assertThat(l.getCancelledByName()).isEqualTo("Segun");
+    }
 }

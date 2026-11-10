@@ -33,4 +33,15 @@ public class OrderPayment extends TenantEntity {
 
     @Column(nullable = false)
     private BigDecimal amount;
+
+    /** The terminal's or bank's reference, when payment-service had one. */
+    @Column(length = 100)
+    private String reference;
+
+    /** Who took it (the payment event's actor). */
+    @Column(name = "taken_by", length = 36)
+    private String takenBy;
+
+    @Column(name = "taken_by_name", length = 150)
+    private String takenByName;
 }

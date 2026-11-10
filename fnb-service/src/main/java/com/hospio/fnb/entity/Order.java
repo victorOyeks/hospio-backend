@@ -118,6 +118,13 @@ public class Order extends TenantEntity {
     @Column(name = "settled_at")
     private Instant settledAt;
 
+    /** Who settled it: took the last payment, charged the room or closed it as complimentary. */
+    @Column(name = "settled_by_user", length = 36)
+    private String settledByUser;
+
+    @Column(name = "settled_by_name", length = 150)
+    private String settledByName;
+
     @Column(name = "cancel_reason", length = 300)
     private String cancelReason;
 

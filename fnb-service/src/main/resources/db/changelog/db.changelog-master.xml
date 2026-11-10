@@ -12,5 +12,6 @@
     <include file="db/changelog/common/000-app-functions.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/001-initial-schema.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/002-restaurant-bar.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/003-sales-history.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

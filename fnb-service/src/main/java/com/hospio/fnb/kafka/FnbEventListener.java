@@ -44,7 +44,7 @@ public class FnbEventListener {
         }
         tenant.bind(e);
         try {
-            orderService.applyPayment(e.getOrderId(), e.getPaymentId(), e.getMethod(), e.getAmount());
+            orderService.applyPayment(e.getOrderId(), e.getPaymentId(), e.getMethod(), e.getAmount(), e.getProviderRef());
         } finally {
             TenantContext.clear();
         }

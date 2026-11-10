@@ -63,7 +63,10 @@ public record SalesSummary(LocalDate date, List<OutletSales> outlets, Totals tot
                 count++;
                 sales = sales.add(o.getTotal());
                 if ("ROOM".equals(o.getSettledBy())) {
-                    rooms = rooms.add(o.getTotal());
+                    // Part paid before the rest went on the room: only the rest is on the room.
+                    BigDecimal before = o.getPaidAmount() == null ? BigDecimal.ZERO : o.getPaidAmount().max(BigDecimal.ZERO).min(o.getTotal());
+                    rooms = rooms.add(o.getTotal().subtract(before));
+                    paid = paid.add(before);
                 } else if ("PAYMENT".equals(o.getSettledBy())) {
                     paid = paid.add(o.getTotal());
                 }
