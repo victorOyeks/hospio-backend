@@ -90,13 +90,18 @@ public class BookingListQuery {
         MapSqlParameterSource p = new MapSqlParameterSource();
         String where = where(f.scopeOnly(), p, true);
         p.addValue("today", f.today());
+        p.addValue("ms", f.today().withDayOfMonth(1)).addValue("me", f.today().withDayOfMonth(f.today().lengthOfMonth()));
         String live = "status not in ('CANCELLED', 'NO_SHOW')";
+        String owes = "payment_plan <> 'ORGANIZATION' and total_amount - amount_paid > 0";
         String sql = "select coalesce(sum(total_amount) filter (where " + live + " and price_kind <> 'COMPLIMENTARY'), 0) \"booked\", "
                 + "count(*) filter (where " + live + ") \"bookedCount\", "
                 + "coalesce(sum(greatest(total_amount - amount_paid, 0)) filter (where " + live + " and payment_plan <> 'ORGANIZATION'), 0) \"unpaid\", "
                 + "count(*) filter (where " + live + " and payment_plan <> 'ORGANIZATION' and total_amount - amount_paid > 0) \"unpaidCount\", "
                 + "count(*) filter (where " + view("arrivals") + " and status = 'CHECKED_IN') \"arrivalsCheckedIn\", "
-                + "count(*) filter (where " + view("arrivals") + " and status = 'BOOKED') \"arrivalsToCome\" from bookings b" + where;
+                + "count(*) filter (where " + view("arrivals") + " and status = 'BOOKED') \"arrivalsToCome\", "
+                + "coalesce(sum(amount_paid) filter (where status <> 'CANCELLED' and check_in_date <= :me and check_out_date >= :ms), 0) \"paidThisMonth\", "
+                + "coalesce(sum(total_amount - amount_paid) filter (where status = 'CHECKED_IN' and " + owes + "), 0) \"inHouseUnpaid\", "
+                + "count(*) filter (where status = 'CHECKED_IN' and " + owes + ") \"inHouseUnpaidCount\" from bookings b" + where;
         Map<String, BigDecimal> out = new LinkedHashMap<>();
         jdbc.query(sql, p, rs -> {
             var md = rs.getMetaData();

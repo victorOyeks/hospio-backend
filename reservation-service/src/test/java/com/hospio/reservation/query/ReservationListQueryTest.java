@@ -151,6 +151,10 @@ class ReservationListQueryTest {
         assertThat(t1.get("unpaid")).isEqualByComparingTo("85000");
         assertThat(t1.get("arrivalsCheckedIn")).isEqualByComparingTo("1");
         assertThat(t1.get("arrivalsToCome")).isEqualByComparingTo("2");
+        // In house owing at h1: d1 owes 10000 (d2 is a company stay, a3 is paid).
+        assertThat(t1.get("inHouseUnpaid")).isEqualByComparingTo("10000");
+        assertThat(t1.get("inHouseUnpaidCount")).isEqualByComparingTo("1");
+        assertThat(t1.get("paidThisMonth")).isPositive();
         // The complimentary stay at h2 is not booked value.
         assertThat(t2.get("booked")).isEqualByComparingTo("7000");
         assertThat(bookings.count(all)).isEqualTo(53);

@@ -52,7 +52,7 @@ public class PaymentListService {
 
     /** The payments list's query string. Dates are Lagos days, both inclusive; {@code status} may list several (comma separated). */
     public record Params(Integer page, Integer size, String sort, String q, String status, String method, String role, LocalDate from,
-                         LocalDate to, Boolean mine, String hotelId) {
+                         LocalDate to, Boolean mine, String hotelId, Boolean today) {
     }
 
     private static final Set<String> TO_VERIFY = Set.of("PENDING", "PROCESSING", "NO_RESPONSE");
@@ -69,27 +69,33 @@ public class PaymentListService {
         int size = Paging.size(p.size());
         Sort.Order order = order(p.sort());
         String column = PaymentListQuery.SORTS.get(order.getProperty());
-        PaymentListQuery.Filter scope = scope(user, p.hotelId(), p.role(), Boolean.TRUE.equals(p.mine()));
+        PaymentListQuery.Filter scope = scope(user, p.hotelId(), p.role(), false);
         LocalDate fromDay = Paging.windowFrom(p.from());
         if (p.to() != null && p.to().isBefore(fromDay)) {
             throw new BadRequestException("from is after to");
         }
-        PaymentListQuery.Filter f = new PaymentListQuery.Filter(scope.businessId(), scope.hotelId(), scope.requestedBy(), blank(p.q()),
-                statuses(p.status()), method(p.method()), scope.role(), start(fromDay), p.to() == null ? null : start(p.to().plusDays(1)));
+        LocalDate today = LocalDate.now(Paging.LAGOS);
+        PaymentListQuery.Window todayWindow = new PaymentListQuery.Window(start(today), start(today.plusDays(1)));
+        // The base: scope, search, method and dates. The tabs (status, mine, today) narrow the rows but not the counts.
+        PaymentListQuery.Filter base = new PaymentListQuery.Filter(scope.businessId(), scope.hotelId(), scope.requestedBy(), blank(p.q()),
+                null, method(p.method()), scope.role(), start(fromDay), p.to() == null ? null : start(p.to().plusDays(1)));
+        boolean onlyToday = Boolean.TRUE.equals(p.today());
+        PaymentListQuery.Filter f = new PaymentListQuery.Filter(base.businessId(), base.hotelId(),
+                Boolean.TRUE.equals(p.mine()) ? user.getUserId() : base.requestedBy(), base.q(), statuses(p.status()), base.method(), base.role(),
+                onlyToday ? later(base.from(), todayWindow.from()) : base.from(), onlyToday ? earlier(base.to(), todayWindow.to()) : base.to());
 
         long total = query.count(f);
         List<String> ids = query.ids(f, column, order.isAscending(), page, size);
         Map<String, PaymentRequest> byId = payments.findAllById(ids).stream().collect(Collectors.toMap(PaymentRequest::getId, Function.identity()));
         List<PaymentResponse> content = ids.stream().map(byId::get).filter(java.util.Objects::nonNull).map(PaymentResponse::of).toList();
 
-        Map<String, Long> counts = new LinkedHashMap<>(query.countsByStatus(f));
+        Map<String, Long> counts = new LinkedHashMap<>(query.countsByStatus(base));
         counts.put("toVerify", TO_VERIFY.stream().mapToLong(s -> counts.getOrDefault(s, 0L)).sum());
         counts.put("attention", counts.getOrDefault("DECLINED", 0L) + counts.getOrDefault("NO_RESPONSE", 0L) + counts.getOrDefault("PROCESSING", 0L));
-        LocalDate today = LocalDate.now(Paging.LAGOS);
-        PaymentListQuery.Window todayWindow = new PaymentListQuery.Window(start(today), start(today.plusDays(1)));
-        counts.put("today", query.countWhere(f, todayWindow, null));
-        counts.put("mine", query.countWhere(f, null, user.getUserId()));
-        Map<String, BigDecimal> totals = new LinkedHashMap<>(query.approved(f));
+        counts.put("today", query.countWhere(base, new PaymentListQuery.Window(later(base.from(), todayWindow.from()),
+                earlier(base.to(), todayWindow.to())), null));
+        counts.put("mine", query.countWhere(base, null, user.getUserId()));
+        Map<String, BigDecimal> totals = new LinkedHashMap<>(query.approved(base));
         totals.putAll(query.period(scope, todayWindow, new PaymentListQuery.Window(start(today.withDayOfMonth(1)), start(today.plusDays(1)))));
 
         int pages = (int) Math.ceil(total / (double) size);
@@ -212,6 +218,14 @@ public class PaymentListService {
             throw new BadRequestException("Unknown " + type.getSimpleName().replaceAll("([a-z])([A-Z])", "$1 $2").toLowerCase(Locale.ROOT)
                     + ": " + value);
         }
+    }
+
+    private static Instant later(Instant a, Instant b) {
+        return a == null ? b : b == null ? a : a.isAfter(b) ? a : b;
+    }
+
+    private static Instant earlier(Instant a, Instant b) {
+        return a == null ? b : b == null ? a : a.isBefore(b) ? a : b;
     }
 
     private static Instant start(LocalDate day) {

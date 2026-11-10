@@ -42,16 +42,16 @@ class PaymentListServiceTest {
     }
 
     static PaymentListService.Params size(Integer size) {
-        return new PaymentListService.Params(0, size, null, null, null, null, null, null, null, null, null);
+        return new PaymentListService.Params(0, size, null, null, null, null, null, null, null, null, null, null);
     }
 
     @Test
     void sizeOver100IsABadRequest() {
         as("m1", Map.of(Role.MANAGER, AccessLevel.FULL), "h1");
         assertThatThrownBy(() -> service.payments(size(101))).isInstanceOf(BadRequestException.class).hasMessage("size is 1 to 100");
-        assertThatThrownBy(() -> service.payments(new PaymentListService.Params(0, 25, "password", null, null, null, null, null, null, null, null)))
+        assertThatThrownBy(() -> service.payments(new PaymentListService.Params(0, 25, "password", null, null, null, null, null, null, null, null, null)))
                 .isInstanceOf(BadRequestException.class);
-        assertThatThrownBy(() -> service.payments(new PaymentListService.Params(0, 25, null, null, "LOST", null, null, null, null, null, null)))
+        assertThatThrownBy(() -> service.payments(new PaymentListService.Params(0, 25, null, null, "LOST", null, null, null, null, null, null, null)))
                 .isInstanceOf(BadRequestException.class).hasMessageContaining("payment status");
     }
 
