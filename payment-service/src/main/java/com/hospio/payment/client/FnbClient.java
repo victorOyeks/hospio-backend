@@ -17,7 +17,8 @@ import org.springframework.web.client.RestClient;
 public class FnbClient {
 
     /** {@code status} null when fnb-service couldn't be reached (callers let the payment through). */
-    public record OrderDue(String hotelId, String number, String status, boolean settled, BigDecimal due) {
+    /** {@code desk} is the desk whose income the order is: BAR for a bar outlet, KITCHEN for a kitchen or restaurant. */
+    public record OrderDue(String hotelId, String number, String status, boolean settled, BigDecimal due, String desk) {
     }
 
     private final RestClient restClient;
@@ -35,12 +36,13 @@ public class FnbClient {
                 return Optional.empty();
             }
             return Optional.of(new OrderDue(d.path("hotelId").asText(null), d.path("number").asText(null), d.path("status").asText(null),
-                    d.path("settled").asBoolean(false), d.path("due").isNumber() ? d.path("due").decimalValue() : null));
+                    d.path("settled").asBoolean(false), d.path("due").isNumber() ? d.path("due").decimalValue() : null,
+                    d.path("desk").asText(null)));
         } catch (HttpClientErrorException.NotFound e) {
             return Optional.empty();
         } catch (Exception e) {
             log.warn("Could not read order {} from fnb-service: {}", orderId, e.getMessage());
-            return Optional.of(new OrderDue(null, null, null, false, null));
+            return Optional.of(new OrderDue(null, null, null, false, null, null));
         }
     }
 }

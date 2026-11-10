@@ -76,6 +76,24 @@ Out of scope: inventory's own purchasing flow (requests, purchase orders, delive
 - Manager: Hotel setup "Restaurants & tables" (outlets: name, kind, store, open/closed; tables per outlet), menus for every outlet, price-change approvals through the existing approvals screen; manager and owner financials and dashboard show outlet sales.
 - The shared payment flow used by kitchen and bar is the real one (no timers or simulated declines).
 
+## Income by desk (small fixes 1)
+
+Money for a kitchen or bar order is that outlet's income, whoever takes it. A manager collecting a bar sale from
+Sales history is Bar income; front office taking a room-service payment is Kitchen income. Anything that isn't an
+order (rooms, folios, laundry) stays the income of the desk that took it.
+
+- fnb `GET /internal/orders/{id}/due` adds `desk`: BAR for a bar outlet, KITCHEN for a kitchen or restaurant.
+- payment-service keeps it on the payment (`payment_requests.desk`, filled when the order is checked; a retry
+  copies it) and `PaymentApprovedEvent` carries `desk` next to `role`. `role` stays the payer's desk.
+- finance-service stores `order_id` and `desk` on `revenue_entries`. Today's money (`byRole`), `GET /income`
+  and the night audit's `revenueByRole` group by the income desk (`desk`, else `role`).
+- The till: cash still lands in the payer's own open till (the existing till rule), and a manager or owner has no
+  till, so their cash is "unattached" as before. Close shift and Sales history already count by outlet.
+- Migrations fill `desk` for older order payments from fnb (guarded: skipped when the fnb or payment tables
+  aren't there). When fnb can't be reached as the payment is taken, `desk` is empty and the payer's desk is used.
+- So for every day "Bar income by desk" equals the Bar's "paid at the outlet", except when an order is paid in
+  parts on different days (income is by payment day, outlet sales by the day the order settled).
+
 ## Sales history
 
 Every bar and kitchen sale over a range of days, with filters, the money and one sale in detail, so an unpaid quick sale from any shift can be found and collected. fnb-service (`/fnb`).

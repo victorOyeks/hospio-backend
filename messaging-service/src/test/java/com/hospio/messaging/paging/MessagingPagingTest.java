@@ -67,12 +67,19 @@ class MessagingPagingTest {
     StaffThreadService threads;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    com.hospio.messaging.repository.DeliveryRecordRepository deliveries;
+    @Autowired
+    com.hospio.messaging.repository.MessageRepository messages;
+    @Autowired
+    com.hospio.messaging.service.GuestInboxService inbox;
 
     @BeforeEach
     void signIn() {
         jdbc.update("delete from messaging.notifications");
         jdbc.update("delete from messaging.messages");
         jdbc.update("delete from messaging.conversations");
+        jdbc.update("delete from messaging.deliveries");
         HospioUserDetails u = new HospioUserDetails("u1", "u1@x.ng", "Femi", "b1", List.of("h1"), Map.of(Role.FINANCE, AccessLevel.FULL),
                 JwtUtil.SCOPE_HOTEL);
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(u, null, u.getAuthorities()));
@@ -143,5 +150,54 @@ class MessagingPagingTest {
         assertThat(p1.content()).extracting(ThreadDtos.ThreadRow::subject).containsExactly("Diesel 26", "Diesel 27");
         assertThat(threads.page("tunde", 0, 25).content()).extracting(ThreadDtos.ThreadRow::subject).containsExactly("Diesel 7");
         assertThat(threads.page("100%", 0, 25).totalElements()).isZero();
+    }
+
+    @Test
+    void theDeliveryLogIsSearchedByAddressAndSubjectWithWildcardsTakenLiterally() {
+        HospioUserDetails mgr = new HospioUserDetails("m1", "m@x.ng", "Tunde", "b1", List.of("h1"), Map.of(Role.MANAGER, AccessLevel.FULL),
+                JwtUtil.SCOPE_HOTEL);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(mgr, null, mgr.getAuthorities()));
+        deliveries.saveAndFlush(com.hospio.messaging.entity.DeliveryRecord.builder().businessId("b1").hotelId("h1").channel("EMAIL")
+                .toAddress("qa.em.z2k0g@hospio-qa.test").subject("Your booking").kind("GUEST").status(com.hospio.messaging.entity.DeliveryRecord.Status.SENT).build());
+        deliveries.saveAndFlush(com.hospio.messaging.entity.DeliveryRecord.builder().businessId("b1").hotelId("h1").channel("EMAIL")
+                .toAddress("ade@x.ng").subject("100% off_today").kind("GUEST").status(com.hospio.messaging.entity.DeliveryRecord.Status.FAILED).build());
+        deliveries.saveAndFlush(com.hospio.messaging.entity.DeliveryRecord.builder().businessId("b1").hotelId("h1").channel("EMAIL")
+                .toAddress("bo@x.ng").subject(null).kind("GUEST").status(com.hospio.messaging.entity.DeliveryRecord.Status.SENT).build());
+        deliveries.saveAndFlush(com.hospio.messaging.entity.DeliveryRecord.builder().businessId("b1").hotelId("h2").channel("EMAIL")
+                .toAddress("qa.em.other@hospio-qa.test").subject("Other hotel").kind("GUEST").status(com.hospio.messaging.entity.DeliveryRecord.Status.SENT).build());
+
+        assertThat(inbox.deliveryLog(null, null, "QA.EM.Z2K0G@hospio-qa.test", 0, 20).content()).extracting(com.hospio.messaging.entity.DeliveryRecord::getToAddress)
+                .containsExactly("qa.em.z2k0g@hospio-qa.test");
+        assertThat(inbox.deliveryLog(null, null, "100%", 0, 20).content()).hasSize(1);
+        assertThat(inbox.deliveryLog(null, null, "off_t", 0, 20).content()).hasSize(1);
+        assertThat(inbox.deliveryLog(null, null, "o%f", 0, 20).content()).isEmpty();
+        assertThat(inbox.deliveryLog(null, null, "a\\b'", 0, 20).content()).isEmpty();
+        assertThat(inbox.deliveryLog("failed", null, "x.ng", 0, 20).content()).extracting(com.hospio.messaging.entity.DeliveryRecord::getToAddress)
+                .containsExactly("ade@x.ng");
+        PageWithCounts<com.hospio.messaging.entity.DeliveryRecord> all = inbox.deliveryLog(null, null, "x.ng", 0, 20);
+        assertThat(all.counts()).containsEntry("all", 2L).containsEntry("sent", 1L).containsEntry("failed", 1L);
+    }
+
+    @Test
+    void theInboxBadgeCountsUnreadMessagesFromTheOtherSideOverTheCallersThreads() {
+        // Femi (u1, signed in) has two threads from the owner and one from someone else to another person.
+        Conversation a = conversations.saveAndFlush(Conversation.builder().businessId("b1").hotelId("h1").kind(Conversation.Kind.STAFF)
+                .channel(com.hospio.common.enums.NotificationChannel.IN_APP).subject("Diesel").createdBy("own").createdByName("Godwin")
+                .audience("PERSON").assignedTo("u1").recipientName("Femi").lastMessageAt(Instant.now()).build());
+        Conversation b = conversations.saveAndFlush(Conversation.builder().businessId("b1").hotelId("h1").kind(Conversation.Kind.STAFF)
+                .channel(com.hospio.common.enums.NotificationChannel.IN_APP).subject("Float").createdBy("own").createdByName("Godwin")
+                .audience("PERSON").assignedTo("u1").recipientName("Femi").recipientReadAt(Instant.now().plusSeconds(60))
+                .lastMessageAt(Instant.now()).build());
+        Conversation other = conversations.saveAndFlush(Conversation.builder().businessId("b1").hotelId("h1").kind(Conversation.Kind.STAFF)
+                .channel(com.hospio.common.enums.NotificationChannel.IN_APP).subject("Not mine").createdBy("own").createdByName("Godwin")
+                .audience("PERSON").assignedTo("u9").recipientName("Grace").lastMessageAt(Instant.now()).build());
+        for (Conversation c : List.of(a, a, b, other)) {
+            messages.saveAndFlush(com.hospio.messaging.entity.Message.builder().businessId("b1").hotelId("h1").conversationId(c.getId())
+                    .direction(com.hospio.messaging.entity.Message.Direction.OUT).senderId("own").senderName("Godwin").body("Hi").build());
+        }
+        messages.saveAndFlush(com.hospio.messaging.entity.Message.builder().businessId("b1").hotelId("h1").conversationId(a.getId())
+                .direction(com.hospio.messaging.entity.Message.Direction.OUT).senderId("u1").senderName("Femi").body("My own reply").build());
+        // a: two from the owner, unread; b: read after they came; other: not Femi's; Femi's own reply never counts.
+        assertThat(threads.unreadCount()).isEqualTo(2);
     }
 }

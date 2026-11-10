@@ -130,6 +130,14 @@ public class StaffThreadService {
         return conversations.threadsFor(me.getUserId(), managed).stream().map(c -> row(c, me)).toList();
     }
 
+    /** Unread messages over all the caller's threads (the Inbox badge in every role's sidebar). */
+    @Transactional(readOnly = true)
+    public long unreadCount() {
+        HospioUserDetails me = CurrentUser.require();
+        List<String> managed = me.has(Role.MANAGER) && !me.getHotelIds().isEmpty() ? me.getHotelIds() : List.of("-");
+        return messages.unreadInThreads(me.getUserId(), managed, Instant.EPOCH);
+    }
+
     /** {@link #mine} a page at a time (newest message first), searched by {@code q} in the subject, the last message and the names. */
     @Transactional(readOnly = true)
     public com.hospio.common.response.PagedResponse<ThreadDtos.ThreadRow> page(String q, Integer page, Integer size) {

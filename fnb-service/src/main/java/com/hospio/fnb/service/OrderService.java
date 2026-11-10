@@ -500,6 +500,8 @@ public class OrderService {
         m.put("total", o.getTotal());
         m.put("paidAmount", o.getPaidAmount());
         m.put("due", Money.of(o.getTotal().subtract(o.getPaidAmount()).max(BigDecimal.ZERO)));
+        // The desk whose income this order is (BAR for a bar, KITCHEN for a kitchen or restaurant), whoever takes the money.
+        outlets.findById(o.getOutletId()).ifPresent(outlet -> m.put("desk", OutletAccess.roleFor(outlet).name()));
         return m;
     }
 

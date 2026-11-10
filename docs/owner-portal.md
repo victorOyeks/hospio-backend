@@ -126,6 +126,20 @@ payment components take an optional `hotelId` through `HotelScope` so the owner 
 - **Settings** — company details, taxes, approval limits (existing); transfer ownership sends the request to H.M.S
   support and shows its state.
 
+### Small fixes 1
+
+- Inbox for every hotel role: an **Inbox** link in each staff role's sidebar (the owner's threads stay on
+  Messaging) with the unread count from `GET /messaging/threads/unread-count` (messages from the other side
+  since the person last opened each thread, over all their threads; any signed-in staff member).
+- Owner · Staff pages in identity (`staffOnly`, `hotelId`, `status` HELD/INVITED/WORKING; docs/pagination.md)
+  and has Remind and Reset PIN (docs/shared-devices.md).
+- The web never calls an organization route without an id (`/folio/organizations/undefined`); folio answers
+  404 "Organization not found" for an id that isn't there.
+- The gateway answers **503** "This part of Hospio is restarting. Try again in a minute." (with `Retry-After`)
+  when a service refuses the connection (a restart during a deploy), instead of a 500. The 500s seen on
+  `/folio/organizations/undefined` and `/messaging/deliveries?q=` were this: folio and messaging were
+  restarting. Searching the delivery log escapes `%` and `_` (`Paging.like`) and has a test.
+
 ## Limits
 
 - Reports are CSV, built in the browser from the live data; no PDF or Excel. Scheduled reports arrive as an in-app

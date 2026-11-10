@@ -35,7 +35,13 @@ public class StaffThreadController {
         return ApiResponse.ok(threads.page(q, page, size));
     }
 
-    @Operation(summary = "Start a thread at the X-Hotel-Id hotel: to one person, or (owner) to the hotel's managers")
+    @Operation(summary = "Unread messages over the caller's staff threads (the Inbox badge); any signed-in staff member")
+    @GetMapping("/unread-count")
+    public ApiResponse<Long> unreadCount() {
+        return ApiResponse.ok(threads.unreadCount());
+    }
+
+        @Operation(summary = "Start a thread at the X-Hotel-Id hotel: to one person, or (owner) to the hotel's managers")
     @PostMapping
     @PreAuthorize("@access.manager()")
     public ApiResponse<ThreadDtos.ThreadSent> start(@Valid @RequestBody ThreadDtos.NewThread request) {

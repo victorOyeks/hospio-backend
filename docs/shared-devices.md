@@ -82,6 +82,13 @@ Behind the gateway (`https://api-staging.hospio360.com`). `X-Device-Token` is th
 `/auth/pin-sign-in` existed before (phone or email plus PIN, anywhere): it now needs a device token, so a PIN only ever works
 on a device a manager or Full-access person set up at the person's hotel.
 
+### Owner's Staff screen (small fixes 1)
+
+Hotel Owner · Staff has the same PIN actions as the manager's: the "No PIN yet" pill on the row, **Remind** (no
+PIN) and **Reset PIN** (has one, with a confirm) on the row menu and in the profile. They call
+`/users/{id}/remind-pin` and `/reset-pin` business-wide (no X-Hotel-Id), like the owner's other account changes;
+identity checks the person works for the owner and refuses the owner's own account.
+
 ## Limits
 
 - An access token lives an hour. Removing a device ends its refresh tokens at once; an access token already issued on it

@@ -13,5 +13,6 @@
     <include file="db/changelog/001-initial-schema.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/002-operating-day.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/003-manager-leftovers.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/004-income-desk.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>
