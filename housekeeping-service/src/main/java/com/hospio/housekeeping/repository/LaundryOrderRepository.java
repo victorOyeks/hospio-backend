@@ -8,10 +8,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface LaundryOrderRepository extends JpaRepository<LaundryOrder, String> {
+public interface LaundryOrderRepository extends JpaRepository<LaundryOrder, String>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<LaundryOrder> {
     List<LaundryOrder> findByHotelIdAndStatusInOrderByCreatedAt(String hotelId, Collection<LaundryOrder.Status> statuses);
 
-    List<LaundryOrder> findTop300ByHotelIdOrderByCreatedAtDesc(String hotelId);
+    List<LaundryOrder> findByHotelIdOrderByCreatedAtDesc(String hotelId);
 
     List<LaundryOrder> findByHotelIdAndCreatedAtBetween(String hotelId, Instant from, Instant to);
 

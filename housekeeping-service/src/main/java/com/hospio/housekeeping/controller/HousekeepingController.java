@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class HousekeepingController {
 
     private final HousekeepingService service;
+    private final com.hospio.housekeeping.service.HousekeepingLists lists;
 
     @GetMapping("/tasks")
     public ApiResponse<List<CleaningTask>> myRooms(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
@@ -120,8 +121,13 @@ public class HousekeepingController {
     }
 
     @GetMapping("/lost-found")
-    public ApiResponse<List<LostFoundItem>> lostFound() {
-        return ApiResponse.ok(service.lostAndFound());
+    public ApiResponse<?> lostFound(@RequestParam(required = false) String status, @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from, @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to,
+                                    @RequestParam(required = false) String q, @RequestParam(required = false) String sort,
+                                 @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        if (!com.hospio.common.paging.Paging.requested(page, size)) {
+            return ApiResponse.ok(service.lostAndFound());
+        }
+        return ApiResponse.ok(lists.lostAndFound(new com.hospio.housekeeping.service.HousekeepingLists.Query(q, status, from, to, sort, page, size)));
     }
 
     @PostMapping("/lost-found")

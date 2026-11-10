@@ -7,8 +7,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface LinenBatchRepository extends JpaRepository<LinenBatch, String> {
-    List<LinenBatch> findTop200ByHotelIdOrderByCreatedAtDesc(String hotelId);
+public interface LinenBatchRepository extends JpaRepository<LinenBatch, String>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<LinenBatch> {
+    List<LinenBatch> findByHotelIdOrderByCreatedAtDesc(String hotelId);
 
     List<LinenBatch> findByHotelIdAndUpdatedAtBetween(String hotelId, Instant from, Instant to);
 

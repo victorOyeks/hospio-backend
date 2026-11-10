@@ -110,7 +110,7 @@ public class LaundryService {
     @Transactional(readOnly = true)
     public List<LaundryDtos.OrderView> orders(String status) {
         String hotel = TenantContext.requireHotel();
-        List<LaundryOrder> rows = "all".equalsIgnoreCase(status) ? orders.findTop300ByHotelIdOrderByCreatedAtDesc(hotel)
+        List<LaundryOrder> rows = "all".equalsIgnoreCase(status) ? orders.findByHotelIdOrderByCreatedAtDesc(hotel) // no cap: screens page "all" (HousekeepingLists)
                 : orders.findByHotelIdAndStatusInOrderByCreatedAt(hotel, EnumSet.of(LaundryOrder.Status.RECEIVED, LaundryOrder.Status.IN_PROGRESS,
                 LaundryOrder.Status.READY));
         return rows.stream().map(this::orderView).toList();
@@ -280,7 +280,8 @@ public class LaundryService {
 
     @Transactional(readOnly = true)
     public List<LaundryDtos.BatchView> batches(String status) {
-        return batches.findTop200ByHotelIdOrderByCreatedAtDesc(TenantContext.requireHotel()).stream()
+        // No cap (docs/pagination.md): screens page this list through HousekeepingLists.
+        return batches.findByHotelIdOrderByCreatedAtDesc(TenantContext.requireHotel()).stream()
                 .filter(b -> !"open".equalsIgnoreCase(status) || b.getStatus() == LinenBatch.Status.SENT || b.getStatus() == LinenBatch.Status.RECEIVED
                         || b.getStatus() == LinenBatch.Status.PART_RETURNED)
                 .map(this::batchView).toList();
@@ -602,14 +603,14 @@ public class LaundryService {
         }
     }
 
-    private LaundryDtos.OrderView orderView(LaundryOrder o) {
+    LaundryDtos.OrderView orderView(LaundryOrder o) {
         return new LaundryDtos.OrderView(o.getId(), o.getNumber(), o.getBookingId(), o.getGuestName(), o.getRoomId(), o.getRoomNumber(), orderLines(o),
                 o.isExpress(), o.getTotal(), o.getStatus().name(), o.isChargedToRoom() ? "ROOM" : o.isPaid() ? "PAID" : null, o.isChargedToRoom(), o.isPaid(),
                 o.getChargedAt(), o.getPaidAt(), o.getPaidAmount(), o.getPaymentId(), o.getPaymentMethod(), o.getPromisedAt(), o.getNote(), o.getPocketNote(),
                 o.getCancelReason(), o.getReceivedByName(), o.getCreatedAt(), o.getDeliveredAt());
     }
 
-    private LaundryDtos.BatchView batchView(LinenBatch b) {
+    LaundryDtos.BatchView batchView(LinenBatch b) {
         List<LaundryRules.BatchLine> lines = lines(b);
         List<LaundryDtos.BatchLineView> views = lines.stream().map(l -> new LaundryDtos.BatchLineView(l.itemId(), l.name(), l.unit(), l.sent(), l.received(),
                 l.returned(), l.condemned(), l.lost(), l.missing(), l.outstanding(), l.unitCost())).toList();
