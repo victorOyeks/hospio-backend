@@ -112,7 +112,8 @@ public class ExpenseCategories {
     @Transactional
     public Map<String, String> labels(String hotelId) {
         Map<String, String> out = new LinkedHashMap<>();
-        all(hotelId).forEach(c -> out.put(c.getCode(), c.getLabel()));
+        // Read only (no seeding here): callers in read-only transactions use it; an unseeded hotel's codes read as words.
+        categories.findByHotelIdOrderBySortOrderAscLabelAsc(hotelId).forEach(c -> out.put(c.getCode(), c.getLabel()));
         return out;
     }
 

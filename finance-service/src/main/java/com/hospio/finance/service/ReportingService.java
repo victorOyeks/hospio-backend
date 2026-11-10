@@ -42,6 +42,7 @@ public class ReportingService {
     private final BankDepositRepository deposits;
     private final TillEntryRepository tillEntries;
     private final PeerServices peers;
+    private final ExpenseCategories categories;
 
     /** What the restaurant and bar sold on a day, by outlet, as fnb-service reports it (room charges included). */
     public JsonNode outletSales(LocalDate date) {
@@ -123,9 +124,10 @@ public class ReportingService {
         }
         List<Expense> paid = new ArrayList<>(expenses.findByHotelIdAndPaidAtBetween(hotelId, from, to));
         expenses.findByHotelIdAndExpenseDateBetween(hotelId, d, d).stream().filter(e -> e.getStatus() == Expense.Status.PAID && e.getPaidAt() == null).forEach(paid::add);
+        Map<String, String> labels = paid.isEmpty() ? Map.of() : categories.labels(hotelId);
         for (Expense e : paid) {
             Instant at = e.getPaidAt() != null ? e.getPaidAt() : from;
-            list.add(new Transaction(at, "EXPENSE", e.getCategory() + " · " + e.getDescription(), Money.of(e.getAmount()).negate(), e.getPaidFrom(),
+            list.add(new Transaction(at, "EXPENSE", ExpenseCategories.labelOf(labels, e.getCategory()) + " · " + e.getDescription(), Money.of(e.getAmount()).negate(), e.getPaidFrom(),
                     e.getPaidByName() != null ? e.getPaidByName() : e.getRequestedByName()));
         }
         for (BankDeposit b : deposits.findByHotelIdAndBankedAtBetween(hotelId, from, to)) {
