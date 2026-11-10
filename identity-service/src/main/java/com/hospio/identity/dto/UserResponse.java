@@ -14,13 +14,14 @@ import java.util.List;
 public record UserResponse(String id, String fullName, String email, String phone, String businessId, String status,
                            boolean mustChangePassword, boolean twoStepEnabled, boolean hasPin, boolean phoneVerified, String language,
                            Instant lastSignInAt, Instant createdAt, List<Grant> grants, InviteStatus inviteStatus,
-                           Instant pausedUntil, String statusReason, String statusChangedBy, Instant statusChangedAt, String jobTitle) {
+                           Instant pausedUntil, String statusReason, String statusChangedBy, Instant statusChangedAt, String jobTitle,
+                           Long photoVersion) {
 
     public UserResponse(String id, String fullName, String email, String phone, String businessId, String status,
                         boolean mustChangePassword, boolean twoStepEnabled, boolean hasPin, boolean phoneVerified, String language,
                         Instant lastSignInAt, Instant createdAt, List<Grant> grants, InviteStatus inviteStatus) {
         this(id, fullName, email, phone, businessId, status, mustChangePassword, twoStepEnabled, hasPin, phoneVerified, language,
-                lastSignInAt, createdAt, grants, inviteStatus, null, null, null, null, null);
+                lastSignInAt, createdAt, grants, inviteStatus, null, null, null, null, null, null);
     }
 
     /** The account's pause, suspension and job title; a pause whose end has passed reads as active. */
@@ -30,7 +31,7 @@ public record UserResponse(String id, String fullName, String email, String phon
         return new UserResponse(id, fullName, email, phone, businessId, ended ? UserAccount.Status.ACTIVE.name() : status,
                 mustChangePassword, twoStepEnabled, hasPin, phoneVerified, language, lastSignInAt, createdAt, grants, inviteStatus,
                 held ? user.getPausedUntil() : null, held ? user.getStatusReason() : null, held ? user.getStatusChangedBy() : null,
-                held ? user.getStatusChangedAt() : null, user.getJobTitle());
+                held ? user.getStatusChangedAt() : null, user.getJobTitle(), user.getPhotoVersion());
     }
 
     /** {@code until} is the last day a temporary role works (Lagos), from {@code expiresAt}; null when it has no end. */

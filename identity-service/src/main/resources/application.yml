@@ -9,6 +9,11 @@ spring:
     import: optional:file:.env[.properties]
   application:
     name: identity-service
+  servlet:
+    # Profile photos (docs/profile.md): 2 MB is checked in the service; the limit here only keeps bigger bodies out.
+    multipart:
+      max-file-size: 3MB
+      max-request-size: 4MB
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:hospio}?currentSchema=identity
     username: ${DB_USERNAME:hospio}
@@ -64,6 +69,15 @@ hospio:
     otp-dev-code: ${OTP_DEV_CODE:}
     # A support-access token ("view as owner") never lives longer than this, whatever the grant says.
     support-token-max-minutes: 60
+    # 2-step secrets are AES-GCM encrypted with this key (env TWO_STEP_KEY); derived from JWT_SECRET when unset.
+    two-step-key: ${TWO_STEP_KEY:}
+    two-step:
+      # Roles that will have to use 2-step (e.g. OWNER,MANAGER). Reported on GET /users/me/two-step, not enforced yet.
+      required-roles: ${TWO_STEP_REQUIRED_ROLES:}
+  storage:
+    # Profile photos, as maintenance work-order photos (STORAGE_TYPE / STORAGE_DIR).
+    type: ${STORAGE_TYPE:local}
+    local-dir: ${STORAGE_DIR:./storage}
 
 services:
   tenant:

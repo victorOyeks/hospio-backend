@@ -93,9 +93,11 @@ Tests send real email to whatever address they use; keep the volume sensible (no
 
 ## Per-user email preferences
 
-None yet. If the Profile screen's notification settings (Agent C) add an email opt-out, it is a flag identity returns and
-the producer checks before building the delivery; messaging-service does not filter by person. Password, invite and
-reset emails are always sent.
+Profile → Notification settings keeps email on or off per category for each person: `bookings`, `approvals`, `money`,
+`stock`, `maintenance`, `staff`, `reports` (all on by default). Identity's internal contact lookups carry them as
+`emailPreferences` (`{ "bookings": true, "money": false, … }`; a missing map or key means send). The producer checks it
+before building the delivery; messaging-service does not filter by person. Password, invite and reset emails are always
+sent. Full contract: docs/profile.md, "Notification preferences".
 
 ## Limits
 

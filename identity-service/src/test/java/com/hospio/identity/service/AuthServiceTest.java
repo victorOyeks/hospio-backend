@@ -58,7 +58,9 @@ class AuthServiceTest {
     private final SharedDeviceRepository deviceRepo = mock(SharedDeviceRepository.class);
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(4);
     private final SharedDeviceService devices = new SharedDeviceService(deviceRepo, users, grants, refreshTokens, mock(TenantClient.class), events);
-    private final AuthService service = new AuthService(users, refreshTokens, encoder, tokenIssuer, events, grants, devices);
+    private final TwoStepService twoStep = mock(TwoStepService.class);
+    private final SessionService sessions = mock(SessionService.class);
+    private final AuthService service = new AuthService(users, refreshTokens, encoder, tokenIssuer, events, grants, devices, twoStep, sessions);
 
     private final List<RoleGrant> graceGrants = new ArrayList<>();
     private SharedDevice bar;
@@ -73,6 +75,8 @@ class AuthServiceTest {
         when(deviceRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(tokenIssuer.issue(any())).thenReturn(new AuthResponse("a", "r", 3600, List.of("FRONT_OFFICE"), false, false));
         when(tokenIssuer.issueOnDevice(any(), anyString(), anyString())).thenReturn(new AuthResponse("pin", "r", 3600, List.of("BAR"), false, false));
+        when(tokenIssuer.continueSession(any(), any(), anyString())).thenReturn(new AuthResponse("pin", "r", 3600, List.of("BAR"), false, false));
+        when(users.lockById(anyString())).thenAnswer(inv -> users.findById(inv.getArgument(0)));
     }
 
     @BeforeEach
@@ -204,7 +208,7 @@ class AuthServiceTest {
                 .expiresAt(Instant.now().plusSeconds(3600)).build();
         when(refreshTokens.findByTokenHash(Hashing.sha256("rt"))).thenReturn(Optional.of(token));
         assertThat(service.refresh(new RefreshTokenRequest("rt")).accessToken()).isEqualTo("pin");
-        verify(tokenIssuer).issueOnDevice(grace, "h1", "d1");
+        verify(tokenIssuer).continueSession(grace, token, "h1");
 
         token.setRevokedAt(null);
         graceGrants.clear();

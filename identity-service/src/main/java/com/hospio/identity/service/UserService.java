@@ -88,7 +88,8 @@ public class UserService {
                 active.stream().map(g -> new MeResponse.RoleLevel(g.getRole().name(), g.getLevel().name(), g.getHotelId())).toList(),
                 user.isPhoneVerified(), !user.isMustChangePassword(), user.isTwoStepEnabled(),
                 List.copyOf(hotelIds),
-                user.getCreatedAt(), user.getPinHash() != null);
+                user.getCreatedAt(), user.getPinHash() != null,
+                user.getLanguage(), user.getPhotoVersion(), user.getPasswordChangedAt(), user.getJobTitle());
     }
 
     /**
@@ -466,7 +467,8 @@ public class UserService {
     public UserContactResponse contact(String userId) {
         UserAccount user = find(userId);
         return new UserContactResponse(user.getId(), user.getFullName(), user.getEmail(), user.getPhone(), user.getBusinessId(),
-                user.getStatus().name(), grants.findByUserId(userId).stream().filter(RoleGrant::isActive).map(g -> g.getRole().name()).distinct().toList());
+                user.getStatus().name(), grants.findByUserId(userId).stream().filter(RoleGrant::isActive).map(g -> g.getRole().name()).distinct().toList(),
+                NotificationPrefs.email(user.getEmailOff()));
     }
 
     @Transactional(readOnly = true)

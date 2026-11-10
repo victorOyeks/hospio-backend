@@ -9,6 +9,10 @@ public interface ObjectStorage {
 
     Optional<byte[]> get(String key);
 
+    /** Removes a file (a profile photo taken down or replaced); nothing when it is not there. */
+    default void delete(String key) {
+    }
+
     /** A URL a browser can open for a short while, or null when the service has to proxy the bytes. */
     String url(String key);
 }

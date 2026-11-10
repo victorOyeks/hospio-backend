@@ -43,6 +43,18 @@ public class LocalObjectStorage implements ObjectStorage {
     }
 
     @Override
+    public void delete(String key) {
+        try {
+            Path target = root.resolve(key).normalize();
+            if (target.startsWith(root)) {
+                Files.deleteIfExists(target);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    @Override
     public String url(String key) {
         return null;
     }

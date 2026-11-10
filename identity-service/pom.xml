@@ -16,6 +16,12 @@
     <description>Identity &amp; Access: logins, PINs, 2-step, sessions, roles &amp; levels, temporary passwords, support access</description>
 
     <dependencies>
+        <!-- QR code for 2-step setup (docs/profile.md); core only, drawn as SVG. -->
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>core</artifactId>
+            <version>3.4.0</version>
+        </dependency>
         <dependency>
             <groupId>com.hospio</groupId>
             <artifactId>common</artifactId>

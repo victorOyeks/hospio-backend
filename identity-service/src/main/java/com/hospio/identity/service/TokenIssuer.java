@@ -17,6 +17,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -40,8 +41,17 @@ public class TokenIssuer {
     @Value("${hospio.auth.refresh-days:30}")
     private long refreshDays;
 
+    /** A new session (a sign-in, accepted invite or sign-up) for everything the person holds. */
     public AuthResponse issue(UserAccount user) {
-        return issue(user, null, null);
+        return issue(user, null, null, null);
+    }
+
+    /**
+     * The next tokens of an existing session (a refresh, or the caller's own session after a password change): the same
+     * session id, device and the browser it was opened from (docs/profile.md).
+     */
+    public AuthResponse continueSession(UserAccount user, RefreshToken previous, String onlyHotel) {
+        return issue(user, onlyHotel, previous.getDeviceId(), previous);
     }
 
     /**
@@ -49,7 +59,7 @@ public class TokenIssuer {
      * refresh token that names the device (docs/shared-devices.md). Roles and levels are otherwise exactly as for a sign-in.
      */
     public AuthResponse issueOnDevice(UserAccount user, String hotelId, String deviceId) {
-        return issue(user, hotelId, deviceId);
+        return issue(user, hotelId, deviceId, null);
     }
 
     /** The person's active roles at one hotel (or everywhere when {@code hotelId} is null), highest level per role. */
@@ -63,7 +73,7 @@ public class TokenIssuer {
         return roles;
     }
 
-    private AuthResponse issue(UserAccount user, String onlyHotel, String deviceId) {
+    private AuthResponse issue(UserAccount user, String onlyHotel, String deviceId, RefreshToken previous) {
         List<RoleGrant> grants = roleGrants.findByUserId(user.getId()).stream().filter(RoleGrant::isActive)
                 .filter(g -> onlyHotel == null || onlyHotel.equals(g.getHotelId())).toList();
         Map<Role, AccessLevel> roles = new EnumMap<>(Role.class);
@@ -78,19 +88,27 @@ public class TokenIssuer {
         if (onlyHotel == null && JwtUtil.SCOPE_BUSINESS.equals(scope)) {
             tenantClient.hotelIds(user.getBusinessId()).ifPresent(hotels::addAll);
         }
-        String access = jwtUtil.generateToken(user.getId(), user.getEmail(), user.getFullName(), user.getBusinessId(),
-                List.copyOf(hotels), roles, scope);
+        String sessionId = previous != null && previous.getSessionId() != null ? previous.getSessionId() : UUID.randomUUID().toString();
+        String access = jwtUtil.generateSessionToken(user.getId(), user.getEmail(), user.getFullName(), user.getBusinessId(),
+                List.copyOf(hotels), roles, scope, sessionId);
 
+        ClientInfo client = previous == null ? ClientInfo.current() : new ClientInfo(previous.getUserAgent(), previous.getLocation());
+        Instant now = Instant.now();
         String raw = Hashing.randomToken();
         refreshTokens.save(RefreshToken.builder()
                 .userId(user.getId())
                 .tokenHash(Hashing.sha256(raw))
-                .expiresAt(Instant.now().plus(refreshDays, ChronoUnit.DAYS))
+                .expiresAt(now.plus(refreshDays, ChronoUnit.DAYS))
                 .deviceId(deviceId)
+                .sessionId(sessionId)
+                .userAgent(client.userAgent())
+                .location(client.location())
+                .signedInAt(previous != null && previous.getSignedInAt() != null ? previous.getSignedInAt() : now)
                 .build());
 
+        // Tokens are issued only once any 2-step code has been given, so nothing more is owed here.
         return new AuthResponse(access, raw, jwtUtil.getExpirationMs() / 1000,
-                roles.keySet().stream().map(Enum::name).toList(), user.isMustChangePassword(), user.isTwoStepEnabled());
+                roles.keySet().stream().map(Enum::name).toList(), user.isMustChangePassword(), false);
     }
 
     static String scopeFor(UserAccount user, Map<Role, AccessLevel> roles) {
