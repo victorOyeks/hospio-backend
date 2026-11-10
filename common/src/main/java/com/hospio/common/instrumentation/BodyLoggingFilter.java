@@ -30,7 +30,7 @@ public class BodyLoggingFilter extends OncePerRequestFilter {
 
     private static final int MAX = 2048;
     private static final Pattern SECRETS = Pattern.compile(
-            "(\"(?:password|newPassword|currentPassword|pin|refreshToken|accessToken|token|secret|apiKey|cardNumber|cvv|otp|code)\"\\s*:\\s*\")[^\"]*(\")",
+            "(\"(?:password|newPassword|currentPassword|pin|refreshToken|accessToken|token|twoStepToken|secret|qrSvg|otpauthUri|apiKey|cardNumber|cvv|otp|code)\"\\s*:\\s*\")[^\"]*(\")",
             Pattern.CASE_INSENSITIVE);
 
     @Override

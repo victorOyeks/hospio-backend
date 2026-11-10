@@ -69,8 +69,13 @@ public class AuthService {
     private long signInLockMinutes;
 
     private static String lockedMessage(Instant until, Instant now) {
+        return lockedMessage(until, now, false);
+    }
+
+    /** With 2-step on, wrong codes count too, so the sentence says so. */
+    private static String lockedMessage(Instant until, Instant now, boolean codes) {
         long minutes = Math.max(1, (long) Math.ceil(java.time.Duration.between(now, until).getSeconds() / 60.0));
-        return "Too many wrong passwords. Sign-in is locked for " + minutes + (minutes == 1 ? " minute" : " minutes")
+        return "Too many wrong " + (codes ? "passwords or codes" : "passwords") + ". Sign-in is locked for " + minutes + (minutes == 1 ? " minute" : " minutes")
                 + ". Try again then, or reset your password";
     }
 
@@ -82,7 +87,7 @@ public class AuthService {
                     .orElseThrow(() -> new UnauthorizedException("Email or password is wrong"));
             Instant now = Instant.now();
             if (user.getSignInLockedUntil() != null && user.getSignInLockedUntil().isAfter(now)) {
-                throw new UnauthorizedException(lockedMessage(user.getSignInLockedUntil(), now));
+                throw new UnauthorizedException(lockedMessage(user.getSignInLockedUntil(), now, user.isTwoStepEnabled()));
             }
             if (user.getPasswordHash() == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
                 int failures = user.getFailedSignInAttempts() + 1;
@@ -137,7 +142,7 @@ public class AuthService {
                 throw new UnauthorizedException("This sign-in has expired. Enter your email and password again");
             }
             if (user.getSignInLockedUntil() != null && user.getSignInLockedUntil().isAfter(now)) {
-                throw new UnauthorizedException(lockedMessage(user.getSignInLockedUntil(), now));
+                throw new UnauthorizedException(lockedMessage(user.getSignInLockedUntil(), now, true));
             }
             if (!twoStep.accept(user, code, true)) {
                 String message = twoStep.wrong(user, "That code is wrong");
