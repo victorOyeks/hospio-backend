@@ -11,6 +11,7 @@ import com.hospio.finance.entity.NightAudit;
 import com.hospio.finance.entity.RevenueEntry;
 import com.hospio.finance.entity.Till;
 import com.hospio.finance.entity.TillEntry;
+import com.hospio.finance.service.ExpenseQueryService;
 import com.hospio.finance.service.MoneyService;
 import com.hospio.finance.service.NightAuditService;
 import com.hospio.finance.service.ReportingService;
@@ -44,6 +45,7 @@ public class FinanceController {
     private final MoneyService service;
     private final NightAuditService nightAudit;
     private final ReportingService reporting;
+    private final ExpenseQueryService expenseQuery;
 
     @GetMapping("/today")
     @PreAuthorize(READ)
@@ -104,10 +106,17 @@ public class FinanceController {
 
     @GetMapping("/expenses")
     @PreAuthorize(READ)
-    public ApiResponse<List<Expense>> expenses(@RequestParam(required = false) String status,
-                                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-                                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return ApiResponse.ok(service.expenses(status, from, to));
+    public ApiResponse<?> expenses(@RequestParam(required = false) String status,
+                                   @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                   @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                   @RequestParam(required = false) String tab, @RequestParam(required = false) String category,
+                                   @RequestParam(required = false) String q, @RequestParam(required = false) String sort,
+                                   @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        // With page or size: a page with tab counts and totals (docs/pagination.md). Without: the old full list, for scripts and reports.
+        if (!com.hospio.common.paging.Paging.requested(page, size)) {
+            return ApiResponse.ok(service.expenses(status, from, to));
+        }
+        return ApiResponse.ok(expenseQuery.page(new ExpenseQueryService.Filter(tab, status, category, q, from, to), page, size, sort));
     }
 
     @PostMapping("/expenses")
@@ -204,8 +213,15 @@ public class FinanceController {
 
     @GetMapping("/night-audit/past")
     @PreAuthorize(READ)
-    public ApiResponse<List<NightAudit>> pastAudits() {
-        return ApiResponse.ok(nightAudit.past());
+    public ApiResponse<?> pastAudits(@RequestParam(required = false) String status,
+                                     @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                     @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                     @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        // With page or size: a page, newest business day first. Without: the old full list, for scripts.
+        if (!com.hospio.common.paging.Paging.requested(page, size)) {
+            return ApiResponse.ok(nightAudit.past());
+        }
+        return ApiResponse.ok(expenseQuery.audits(status, from, to, page, size));
     }
 
     @PutMapping("/night-audit/checklist")

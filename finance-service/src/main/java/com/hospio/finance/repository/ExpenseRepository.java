@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface ExpenseRepository extends JpaRepository<Expense, String> {
+public interface ExpenseRepository extends JpaRepository<Expense, String>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<Expense> {
     List<Expense> findByHotelIdOrderByExpenseDateDesc(String hotelId);
 
     List<Expense> findByHotelIdAndExpenseDateBetween(String hotelId, java.time.LocalDate from, java.time.LocalDate to);
