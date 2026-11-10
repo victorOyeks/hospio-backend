@@ -39,6 +39,7 @@ public class MailDispatcher {
     private final String fromAddress;
     private final String defaultName;
     private final long retryDelayMs;
+    private final long maxEventAgeMinutes;
     private Executor executor = Executors.newFixedThreadPool(2, r -> {
         Thread t = new Thread(r, "mail-sender");
         t.setDaemon(true);
@@ -50,7 +51,9 @@ public class MailDispatcher {
                           @Value("${hospio.mail.enabled:false}") boolean enabled,
                           @Value("${hospio.mail.from-address:no-reply@hospio360.com}") String fromAddress,
                           @Value("${hospio.mail.from-name-default:Hospio360}") String defaultName,
-                          @Value("${hospio.mail.retry-delay-ms:5000}") long retryDelayMs) {
+                          @Value("${hospio.mail.retry-delay-ms:5000}") long retryDelayMs,
+                          @Value("${hospio.mail.max-event-age-minutes:30}") long maxEventAgeMinutes) {
+        this.maxEventAgeMinutes = maxEventAgeMinutes;
         this.records = records;
         this.messages = messages;
         this.tenants = tenants;
@@ -88,6 +91,12 @@ public class MailDispatcher {
 
     /** Records the delivery and, for an email, sends it on the worker after the record commits. Never throws. */
     public DeliveryRecord accept(DeliveryRequestedEvent e) {
+        // A delivery asked for long ago (a replayed topic, a new consumer group reading from the start) is never sent:
+        // the temporary password or link in it is stale, and the person already saw the action's answer at the time.
+        if (e.getOccurredAt() != null && e.getOccurredAt().isBefore(Instant.now().minus(maxEventAgeMinutes, ChronoUnit.MINUTES))) {
+            log.info("Delivery {} to {} from {} is older than {} minutes; not sent", e.getKind(), e.getTo(), e.getOccurredAt(), maxEventAgeMinutes);
+            return null;
+        }
         try {
             String channel = e.getChannel() == null ? "EMAIL" : e.getChannel().toUpperCase();
             boolean email = "EMAIL".equals(channel);

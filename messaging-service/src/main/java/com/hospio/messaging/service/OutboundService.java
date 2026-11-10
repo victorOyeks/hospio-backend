@@ -85,7 +85,7 @@ public class OutboundService {
                 try {
                     if (m.getChannel() == NotificationChannel.EMAIL) {
                         // Email has one sender (docs/email.md): it records the delivery and sends through SMTP after this commits.
-                        var record = mail.accept(com.hospio.common.kafka.events.DeliveryRequestedEvent.builder().eventId(m.getId())
+                        var record = mail.accept(com.hospio.common.kafka.events.DeliveryRequestedEvent.builder().eventId(m.getId()).occurredAt(m.getCreatedAt())
                                 .businessId(m.getBusinessId()).hotelId(m.getHotelId()).channel("EMAIL").to(m.getRecipient())
                                 .subject(m.getSubject()).text(m.getBody()).kind(m.getKind()).ref(m.getReference()).build());
                         m.setProviderRef(record == null ? null : "delivery:" + record.getId());

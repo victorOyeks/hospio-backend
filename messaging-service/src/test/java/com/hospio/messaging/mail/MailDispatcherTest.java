@@ -55,7 +55,7 @@ class MailDispatcherTest {
 
     private MailDispatcher dispatcher(boolean enabled) {
         MailDispatcher d = new MailDispatcher(records, messages, tenants, new EmailTemplates(), smtp,
-                new TransactionTemplate(mock(PlatformTransactionManager.class)), enabled, "no-reply@sender.example", "Hospio360", 1);
+                new TransactionTemplate(mock(PlatformTransactionManager.class)), enabled, "no-reply@sender.example", "Hospio360", 1, 30);
         d.runInline();
         return d;
     }
@@ -187,5 +187,14 @@ class MailDispatcherTest {
                 .to("guest@nowhere.test").subject("Hello").text("Hi").kind("MESSAGE").ref("msg-1").build());
         assertThat(m.getStatus()).isEqualTo("FAILED");
         assertThat(m.getError()).contains("550");
+    }
+
+    @Test
+    void anOldEventIsNeverSent() {
+        DeliveryRequestedEvent e = email("b-royal", "h-royal", "ada@gmail.example");
+        e.setOccurredAt(java.time.Instant.now().minus(java.time.Duration.ofHours(3)));
+        assertThat(dispatcher.accept(e)).isNull();
+        verify(smtp, never()).send(any());
+        assertThat(rows).isEmpty();
     }
 }

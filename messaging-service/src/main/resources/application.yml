@@ -65,6 +65,8 @@ hospio:
     from-name-default: ${MAIL_FROM_NAME_DEFAULT:Hospio360}
     # Wait before the one retry of a transient failure.
     retry-delay-ms: ${MAIL_RETRY_DELAY_MS:5000}
+    # A delivery event older than this is not sent (a replayed topic must never re-send old passwords and links).
+    max-event-age-minutes: ${MAIL_MAX_EVENT_AGE_MINUTES:30}
   logging:
     # Log request bodies and error responses (secrets masked). On for dev/staging via HOSPIO_LOG_BODIES.
     bodies: ${HOSPIO_LOG_BODIES:false}
