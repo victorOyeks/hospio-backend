@@ -1,6 +1,12 @@
 package com.hospio.folio.controller;
 
+import com.hospio.common.paging.Paging;
 import com.hospio.common.response.ApiResponse;
+import com.hospio.common.response.PageWithCounts;
+import com.hospio.folio.dto.OrganizationViews;
+import com.hospio.folio.service.OrganizationQueryService;
+import java.time.LocalDate;
+import org.springframework.format.annotation.DateTimeFormat;
 import com.hospio.folio.dto.InvoiceRequest;
 import com.hospio.folio.dto.MemberRequest;
 import com.hospio.folio.dto.OrgPaymentRequest;
@@ -33,6 +39,7 @@ public class OrganizationController {
 
     private final OrganizationService service;
     private final OutboundService outbound;
+    private final OrganizationQueryService query;
 
     /** Put on hold or back to active: {@code ?status=ON_HOLD|ACTIVE}. */
     @PutMapping("/{id}/status")
@@ -62,9 +69,46 @@ public class OrganizationController {
         return ApiResponse.ok("Reminder sent to " + s.to(), s);
     }
 
+    /**
+     * The hotel's accounts. With {@code page} or {@code size} (page from 0, size 1 to 100, 25 by default): one page of accounts with
+     * their figures, searched ({@code q}: name or contact) and filtered ({@code status} ACTIVE or ON_HOLD), A to Z unless {@code sort}
+     * (name|createdAt|creditLimit|status[,asc|desc]), with counts per status and the outstanding total. Without either: every account,
+     * as before (operations scripts read it).
+     */
     @GetMapping
-    public ApiResponse<List<Organization>> list() {
+    public ApiResponse<?> list(@RequestParam(required = false) String q, @RequestParam(required = false) String status,
+                               @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
+                               @RequestParam(required = false) String sort) {
+        if (Paging.requested(page, size)) {
+            return ApiResponse.ok(query.page(q, status, page, size, sort));
+        }
         return ApiResponse.ok(service.list());
+    }
+
+    /** The hotel's accounts at a glance: accounts, staff who can book, stays this month, owed, open and overdue invoices, on hold. */
+    @GetMapping("/overview")
+    public ApiResponse<OrganizationViews.OrganizationsOverview> overview() {
+        return ApiResponse.ok(query.overview());
+    }
+
+    /**
+     * Every invoice of the hotel, one page at a time (page, size, sort dueDate|number|amount|createdAt), latest due first, filtered by
+     * {@code organizationId}, {@code status} (OPEN, OVERDUE, SENT, PART_PAID, PAID, DRAFT) and {@code q} (number or account name).
+     */
+    @GetMapping("/invoices")
+    public ApiResponse<PageWithCounts<OrganizationViews.InvoiceView>> allInvoices(@RequestParam(required = false) String organizationId,
+                                                                                @RequestParam(required = false) String status,
+                                                                                @RequestParam(required = false) String q,
+                                                                                @RequestParam(required = false) Integer page,
+                                                                                @RequestParam(required = false) Integer size,
+                                                                                @RequestParam(required = false) String sort) {
+        return ApiResponse.ok(query.invoices(organizationId, status, q, page, size, sort));
+    }
+
+    /** One account with its figures (owed, staff, stays, invoices, the latest overdue one). */
+    @GetMapping("/{id}/summary")
+    public ApiResponse<OrganizationViews.OrganizationSummary> summary(@PathVariable String id) {
+        return ApiResponse.ok(query.one(id));
     }
 
     @GetMapping("/{id}")
@@ -103,8 +147,21 @@ public class OrganizationController {
         return ApiResponse.ok(rows.size() + " staff imported", service.importMembers(id, rows));
     }
 
+    /**
+     * The account's stays (folios), latest opened first. With {@code page} or {@code size}: one page filtered by {@code status} (OPEN,
+     * CLOSED), {@code from}/{@code to} (Lagos days opened) and {@code q} (guest or room), with counts and the balance and charges over
+     * the range. Without either: every stay, as before.
+     */
     @GetMapping("/{id}/stays")
-    public ApiResponse<List<Folio>> stays(@PathVariable String id) {
+    public ApiResponse<?> stays(@PathVariable String id, @RequestParam(required = false) String status,
+                                @RequestParam(required = false) String q,
+                                @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
+                                @RequestParam(required = false) String sort) {
+        if (Paging.requested(page, size)) {
+            return ApiResponse.ok(query.stays(id, status, q, from, to, page, size, sort));
+        }
         return ApiResponse.ok(service.stays(id));
     }
 
@@ -113,8 +170,14 @@ public class OrganizationController {
         return ApiResponse.ok(service.outstanding(id));
     }
 
+    /** The account's invoices, latest due first: with {@code page} or {@code size} one page as {@code /invoices} answers; without, all. */
     @GetMapping("/{id}/invoices")
-    public ApiResponse<List<Invoice>> invoices(@PathVariable String id) {
+    public ApiResponse<?> invoices(@PathVariable String id, @RequestParam(required = false) String status,
+                                   @RequestParam(required = false) String q, @RequestParam(required = false) Integer page,
+                                   @RequestParam(required = false) Integer size, @RequestParam(required = false) String sort) {
+        if (Paging.requested(page, size)) {
+            return ApiResponse.ok(query.invoices(id, status, q, page, size, sort));
+        }
         return ApiResponse.ok(service.invoices(id));
     }
 
