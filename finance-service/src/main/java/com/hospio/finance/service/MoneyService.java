@@ -74,8 +74,13 @@ public class MoneyService {
 
     // ---- revenue from PaymentApproved ---------------------------------------------------------------
 
+    /**
+     * {@code role} is the payer's desk: cash goes into that desk's open till. {@code desk} (for an order) is whose income it is:
+     * Today's money, income by desk and the night audit count an outlet sale as that outlet's income, whoever took it.
+     */
     @Transactional
-    public void recordPayment(String paymentId, BigDecimal amount, String method, String role, String folioId, Instant at, String guestName) {
+    public void recordPayment(String paymentId, BigDecimal amount, String method, String role, String folioId, Instant at, String guestName,
+                              String orderId, String desk) {
         if (revenue.findByPaymentId(paymentId).isPresent()) {
             return;
         }
@@ -83,7 +88,7 @@ public class MoneyService {
         boolean cash = PaymentMethod.CASH.name().equals(method);
         Optional<Till> till = cash && role != null ? openTill(TenantContext.requireHotel(), role) : Optional.empty();
         revenue.save(RevenueEntry.builder().paymentId(paymentId).businessDate(date).amount(Money.of(amount)).method(method).role(role).folioId(folioId)
-                .unattachedCash(cash && till.isEmpty()).build());
+                .orderId(orderId).desk(desk == null || desk.isBlank() ? null : desk).unattachedCash(cash && till.isEmpty()).build());
         till.ifPresent(t -> {
             if (tillEntries.findByPaymentId(paymentId).isEmpty()) {
                 addEntry(t, TillEntry.Kind.PAYMENT, Money.of(amount), method, guestName == null || guestName.isBlank() ? "Cash payment" : "Cash payment · " + guestName, null, paymentId);
@@ -116,7 +121,7 @@ public class MoneyService {
         for (RevenueEntry e : entries) {
             total = total.add(e.getAmount());
             byMethod.merge(e.getMethod(), e.getAmount(), BigDecimal::add);
-            byRole.merge(e.getRole() == null ? "OTHER" : e.getRole(), e.getAmount(), BigDecimal::add);
+            byRole.merge(e.incomeDesk(), e.getAmount(), BigDecimal::add);
             if (e.isUnattachedCash()) {
                 unattached = unattached.add(e.getAmount());
                 unattachedCount++;

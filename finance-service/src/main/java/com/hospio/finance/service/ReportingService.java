@@ -90,7 +90,7 @@ public class ReportingService {
         range(from, to);
         Map<String, BigDecimal> by = new LinkedHashMap<>();
         revenue.findByHotelIdAndBusinessDateBetween(TenantContext.requireHotel(), from, to)
-                .forEach(r -> by.merge(sourceOf(r.getRole()), r.getAmount(), BigDecimal::add));
+                .forEach(r -> by.merge(sourceOf(r.incomeDesk()), r.getAmount(), BigDecimal::add));
         BigDecimal total = by.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
         return by.entrySet().stream().sorted((a, b) -> b.getValue().compareTo(a.getValue()))
                 .map(e -> new IncomeSource(e.getKey(), Money.of(e.getValue()),
@@ -98,7 +98,7 @@ public class ReportingService {
                 .toList();
     }
 
-    private static String sourceOf(String role) {
+    static String sourceOf(String role) {
         if (role == null) {
             return "Other";
         }

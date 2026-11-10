@@ -9,7 +9,8 @@ import java.util.Map;
  * {@code inHouse} come from reservation-service and are null when it can't be reached; {@code unattachedCash} is cash taken
  * while no till was open, which the manager has to account for; {@code pendingApprovals} are the approvals waiting at the hotel.
  * {@code outletSales} is what the restaurant and bar sold today (fnb-service's day summary: {@code date, outlets, totals}), counting room charges,
- * next to {@code byRole} which is money received; null when fnb-service can't be reached.
+ * next to {@code byRole} which is money received; null when fnb-service can't be reached. {@code byRole} is income by desk: money
+ * for a bar or kitchen order is that outlet's (BAR or KITCHEN) whoever took it, anything else the desk that took it.
  */
 public record MoneyToday(BigDecimal revenue, Map<String, BigDecimal> byMethod, Map<String, BigDecimal> byRole, BigDecimal expenses,
                          BigDecimal cashInTills, int openTills, int paymentsCount, Double occupancyPct, Integer arrivals, Integer departures,

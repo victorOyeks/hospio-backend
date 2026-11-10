@@ -148,4 +148,24 @@ class UserPagingIT {
         assertThat(page.totalElements()).isEqualTo(service.list(null, null, null, null).size());
         assertThat(page.totalElements()).isEqualTo(8);
     }
+
+    @Test
+    void theOwnersStaffTabsAndTheRoleCardsAreCountedInTheDatabase() {
+        signInAs(Role.OWNER);
+        // Staff only: the owner is left out. Tabs: held (suspended), invited (invite not accepted, not held), working (the rest).
+        PageWithCounts<UserResponse> all = service.page(null, null, null, null, null, 0, 25, null, true, false);
+        assertThat(all.totalElements()).isEqualTo(48);
+        assertThat(all.counts()).containsEntry("all", 48L).containsEntry("HELD", 5L).containsEntry("INVITED", 3L).containsEntry("WORKING", 40L);
+        assertThat(service.page(null, null, null, "invited", null, 0, 25, null, true, false).content()).extracting(UserResponse::fullName)
+                .containsExactly("QA PG 01", "QA PG 02", "QA PG 03");
+        assertThat(service.page(null, null, null, "held", null, 0, 25, null, true, false).totalElements()).isEqualTo(5);
+        assertThat(service.page(null, "h2", null, "working", null, 0, 25, null, true, false).totalElements()).isEqualTo(8);
+        // A role with a hotel is the role held there.
+        assertThat(service.page(null, "h2", Role.FRONT_OFFICE, null, null, 0, 25, null).totalElements()).isZero();
+        assertThat(service.page(null, "h1", Role.FRONT_OFFICE, null, null, 0, 25, null).totalElements()).isEqualTo(36);
+        PageWithCounts<UserResponse> roles = service.page(null, "h1", null, null, null, 0, 25, null, false, true);
+        assertThat(roles.counts()).containsEntry("ROLE_FRONT_OFFICE", 36L).containsEntry("ROLE_MANAGER", 4L).containsEntry("ROLE_OWNER", 1L)
+                .containsEntry("ROLE_BAR", 0L);
+        assertThat(service.page(null, null, null, null, null, 0, 25, null).counts()).doesNotContainKey("ROLE_BAR");
+    }
 }

@@ -37,6 +37,10 @@ public class PaymentRequest extends TenantEntity {
     @Column(name = "order_id", length = 36)
     private String orderId;
 
+    /** For an order: the desk whose income it is (BAR or KITCHEN, from the order's outlet), whoever took the money. {@code role} stays the payer's desk (their till). */
+    @Column(name = "desk", length = 30)
+    private String desk;
+
     @Column(name = "guest_name", length = 150)
     private String guestName;
 

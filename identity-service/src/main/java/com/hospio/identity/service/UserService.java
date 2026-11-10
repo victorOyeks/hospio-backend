@@ -674,6 +674,18 @@ public class UserService {
     @Transactional(readOnly = true)
     public com.hospio.common.response.PageWithCounts<UserResponse> page(String businessId, String hotelId, Role role, String status, String q,
                                                                         Integer page, Integer size, String sort) {
+        return page(businessId, hotelId, role, status, q, page, size, sort, false, false);
+    }
+
+    /** Statuses a page can ask for besides the account's own: HELD (paused or suspended), INVITED (invite not accepted, not held), WORKING (neither). */
+    static final Set<String> PAGE_STATUSES = Set.of("ACTIVE", "PAUSED", "SUSPENDED", "HELD", "INVITED", "WORKING");
+
+    /**
+     * {@code staffOnly} leaves out the owner (the owner's Staff screen); {@code roleCounts} adds {@code ROLE_<ROLE>}: people holding the role,
+     * not paused, at {@code hotelId} or business-wide (Roles & permissions' role cards), over the same search.
+     */
+    public com.hospio.common.response.PageWithCounts<UserResponse> page(String businessId, String hotelId, Role role, String status, String q,
+                                                                        Integer page, Integer size, String sort, boolean staffOnly, boolean roleCounts) {
         HospioUserDetails caller = CurrentUser.require();
         String business;
         if (caller.isPlatform()) {
@@ -685,24 +697,33 @@ public class UserService {
             business = TenantContext.requireBusiness();
         }
         String st = StringUtils.hasText(status) ? status.trim().toUpperCase(Locale.ROOT) : null;
-        if (st != null && !Set.of("ACTIVE", "PAUSED", "SUSPENDED").contains(st)) {
-            throw new BadRequestException("status is ACTIVE, PAUSED or SUSPENDED");
+        if (st != null && !PAGE_STATUSES.contains(st)) {
+            throw new BadRequestException("status is ACTIVE, PAUSED, SUSPENDED, HELD, INVITED or WORKING");
         }
         boolean managerOnly = !caller.isPlatform() && !caller.has(Role.OWNER);
         Set<String> callerHotels = Set.copyOf(caller.getHotelIds());
         org.springframework.data.domain.Sort order = com.hospio.common.paging.Paging.sort(sort, USER_SORTS,
                 org.springframework.data.domain.Sort.by("fullName").and(org.springframework.data.domain.Sort.by("id")));
+        org.springframework.data.jpa.domain.Specification<UserAccount> staff = staffOnly ? notOwner(business) : null;
+        java.util.function.Function<org.springframework.data.jpa.domain.Specification<UserAccount>, org.springframework.data.jpa.domain.Specification<UserAccount>> scoped =
+                spec -> staff == null ? spec : spec.and(staff);
         org.springframework.data.domain.Page<UserAccount> result = users.findAll(
-                userSpec(business, managerOnly, callerHotels, hotelId, role, st, q, null),
+                scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, st, q, null)),
                 com.hospio.common.paging.Paging.of(page, size, order));
         Map<String, Long> counts = new java.util.LinkedHashMap<>();
-        counts.put("all", users.count(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, null)));
-        for (String s : List.of("ACTIVE", "PAUSED", "SUSPENDED")) {
-            counts.put(s, users.count(userSpec(business, managerOnly, callerHotels, hotelId, role, s, q, null)));
+        counts.put("all", users.count(scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, null))));
+        for (String s : List.of("ACTIVE", "PAUSED", "SUSPENDED", "HELD", "INVITED", "WORKING")) {
+            counts.put(s, users.count(scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, s, q, null))));
         }
-        counts.put("MANAGER", users.count(userSpec(business, managerOnly, callerHotels, hotelId, Role.MANAGER, null, q, null)));
-        counts.put("INVITE_PENDING", users.count(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, UserResponse.InviteStatus.PENDING)));
-        counts.put("INVITE_EXPIRED", users.count(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, UserResponse.InviteStatus.EXPIRED)));
+        counts.put("MANAGER", users.count(scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, Role.MANAGER, null, q, null))));
+        counts.put("INVITE_PENDING", users.count(scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, UserResponse.InviteStatus.PENDING))));
+        counts.put("INVITE_EXPIRED", users.count(scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, UserResponse.InviteStatus.EXPIRED))));
+        if (roleCounts) {
+            for (Role r : Role.values()) {
+                counts.put("ROLE_" + r.name(), users.count(scoped.apply(userSpec(business, managerOnly, callerHotels, null, null, null, q, null))
+                        .and(holding(business, r, hotelId))));
+            }
+        }
         List<String> ids = result.getContent().stream().map(UserAccount::getId).toList();
         Map<String, List<RoleGrant>> byUser = ids.isEmpty() ? Map.of()
                 : grants.findByUserIdIn(ids).stream().filter(g -> business.equals(g.getBusinessId())).collect(Collectors.groupingBy(RoleGrant::getUserId));
@@ -725,15 +746,22 @@ public class UserService {
                 ps.add(cb.exists(grant(root, query, cb, business, g -> cb.or(cb.isNull(g.get("hotelId")), cb.equal(g.get("hotelId"), hotelId)))));
             }
             if (role != null) {
-                ps.add(cb.exists(grant(root, query, cb, business, g -> cb.equal(g.get("role"), role))));
+                // With a hotel too, the role must be held there (or business-wide), not at another hotel.
+                ps.add(cb.exists(grant(root, query, cb, business, g -> StringUtils.hasText(hotelId)
+                        ? cb.and(cb.equal(g.get("role"), role), cb.or(cb.isNull(g.get("hotelId")), cb.equal(g.get("hotelId"), hotelId)))
+                        : cb.equal(g.get("role"), role))));
             }
             Instant now = Instant.now();
             if (status != null) {
                 jakarta.persistence.criteria.Predicate pauseOver = cb.and(cb.equal(root.get("status"), UserAccount.Status.PAUSED),
                         cb.isNotNull(root.get("pausedUntil")), cb.lessThanOrEqualTo(root.get("pausedUntil"), now));
+                jakarta.persistence.criteria.Predicate active = cb.or(cb.equal(root.get("status"), UserAccount.Status.ACTIVE), pauseOver);
                 switch (status) {
-                    case "ACTIVE" -> ps.add(cb.or(cb.equal(root.get("status"), UserAccount.Status.ACTIVE), pauseOver));
+                    case "ACTIVE" -> ps.add(active);
                     case "PAUSED" -> ps.add(cb.and(cb.equal(root.get("status"), UserAccount.Status.PAUSED), cb.not(pauseOver)));
+                    case "HELD" -> ps.add(cb.not(active));
+                    case "INVITED" -> ps.add(cb.and(active, invitedNotAccepted(root, query, cb)));
+                    case "WORKING" -> ps.add(cb.and(active, cb.not(invitedNotAccepted(root, query, cb))));
                     default -> ps.add(cb.equal(root.get("status"), UserAccount.Status.SUSPENDED));
                 }
             }
@@ -763,6 +791,32 @@ public class UserService {
             }
             return cb.and(ps.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };
+    }
+
+    /** Has an invite and none accepted: the invite is pending or expired (the screens' "Invited"). */
+    private static jakarta.persistence.criteria.Predicate invitedNotAccepted(jakarta.persistence.criteria.Root<UserAccount> root,
+                                                                              jakarta.persistence.criteria.CriteriaQuery<?> query,
+                                                                              jakarta.persistence.criteria.CriteriaBuilder cb) {
+        jakarta.persistence.criteria.Subquery<String> accepted = query.subquery(String.class);
+        var a = accepted.from(com.hospio.identity.entity.Invite.class);
+        accepted.select(a.get("userId")).where(cb.equal(a.get("userId"), root.get("id")), cb.isNotNull(a.get("acceptedAt")));
+        jakarta.persistence.criteria.Subquery<String> any = query.subquery(String.class);
+        var x = any.from(com.hospio.identity.entity.Invite.class);
+        any.select(x.get("userId")).where(cb.equal(x.get("userId"), root.get("id")));
+        return cb.and(cb.exists(any), cb.not(cb.exists(accepted)));
+    }
+
+    /** No OWNER grant in the business (the owner's Staff screen lists the people who work for them). */
+    static org.springframework.data.jpa.domain.Specification<UserAccount> notOwner(String business) {
+        return (root, query, cb) -> cb.not(cb.exists(grant(root, query, cb, business, g -> cb.equal(g.get("role"), Role.OWNER))));
+    }
+
+    /** Holds {@code role}, not paused, at {@code hotelId} or business-wide (any hotel when none is given). */
+    static org.springframework.data.jpa.domain.Specification<UserAccount> holding(String business, Role role, String hotelId) {
+        return (root, query, cb) -> cb.exists(grant(root, query, cb, business, g -> {
+            jakarta.persistence.criteria.Predicate p = cb.and(cb.equal(g.get("role"), role), cb.isFalse(g.get("paused")));
+            return StringUtils.hasText(hotelId) ? cb.and(p, cb.or(cb.isNull(g.get("hotelId")), cb.equal(g.get("hotelId"), hotelId))) : p;
+        }));
     }
 
     private static jakarta.persistence.criteria.Subquery<String> grant(jakarta.persistence.criteria.Root<UserAccount> user,

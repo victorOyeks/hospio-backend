@@ -25,6 +25,11 @@ public class PaymentApprovedEvent extends HospioEvent {
     private String receiptPreference;
     /** The kitchen or bar order this payment settles, when it is for one. */
     private String orderId;
+    /**
+     * For an order: the desk whose income it is (BAR or KITCHEN, from the order's outlet), whoever took the money. Income by desk
+     * uses this; {@code role} stays the payer's desk, whose till cash lands in. Null for anything that isn't an order.
+     */
+    private String desk;
 
     @Override
     public String summary() {

@@ -4,7 +4,7 @@ One tablet at the front desk, the bar or the kitchen, used by several people in 
 only sign-in page (also when the web app is wrapped as a tablet app). A PIN is only a quick way to switch person on a device
 that someone already set up through a normal sign-in, and every action is recorded under the person who unlocked.
 
-Web: `hotel-internal-system-admin-FE` (hotel app), QA script `docs/qa/shared-devices.md` there.
+Web: `hotel-internal-system-admin-FE` (hotel app), QA script `docs/qa/06-shared-devices.md` there.
 
 ## Rules
 
@@ -82,6 +82,13 @@ Behind the gateway (`https://api-staging.hospio360.com`). `X-Device-Token` is th
 `/auth/pin-sign-in` existed before (phone or email plus PIN, anywhere): it now needs a device token, so a PIN only ever works
 on a device a manager or Full-access person set up at the person's hotel.
 
+### Owner's Staff screen (small fixes 1)
+
+Hotel Owner · Staff has the same PIN actions as the manager's: the "No PIN yet" pill on the row, **Remind** (no
+PIN) and **Reset PIN** (has one, with a confirm) on the row menu and in the profile. They call
+`/users/{id}/remind-pin` and `/reset-pin` business-wide (no X-Hotel-Id), like the owner's other account changes;
+identity checks the person works for the owner and refuses the owner's own account.
+
 ## Limits
 
 - An access token lives an hour. Removing a device ends its refresh tokens at once; an access token already issued on it
@@ -101,4 +108,4 @@ on a device a manager or Full-access person set up at the person's hotel.
 - [x] Activity log events (`SharedDeviceEvent`, topic `hospio-shared-device`)
 - [x] Unit tests: `AuthServiceTest`, `PinRulesTest`, `SharedDeviceServiceTest`, `StaffAccountServiceTest`; schema IT checks the policy
 - [x] Web: setup from the account menu, lock screen and PIN pad, Lock button, idle lock with warning, PIN in profile, reset in Staff, Hotel setup → Shared devices
-- [x] Staging API and browser sweep (`docs/qa/shared-devices.md` in the web repo)
+- [x] Staging API and browser sweep (`docs/qa/06-shared-devices.md` in the web repo)

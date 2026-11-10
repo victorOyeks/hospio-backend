@@ -48,14 +48,16 @@ public class UserController {
                                @RequestParam(required = false) String status,
                                @RequestParam(required = false) Integer page,
                                @RequestParam(required = false) Integer size,
-                               @RequestParam(required = false) String sort) {
+                               @RequestParam(required = false) String sort,
+                               @RequestParam(required = false, defaultValue = "false") boolean staffOnly,
+                               @RequestParam(required = false, defaultValue = "false") boolean roleCounts) {
         if ("platform".equalsIgnoreCase(scope)) {
             return ApiResponse.ok(userService.listPlatform(q));
         }
         // With page or size: one page filtered and counted in the database (docs/pagination.md); without, the whole list as before
         // (pickers, rotas and the roles screen read every person of a hotel).
         if (com.hospio.common.paging.Paging.requested(page, size)) {
-            return ApiResponse.ok(userService.page(businessId, hotelId, role, status, q, page, size, sort));
+            return ApiResponse.ok(userService.page(businessId, hotelId, role, status, q, page, size, sort, staffOnly, roleCounts));
         }
         return ApiResponse.ok(userService.list(businessId, hotelId, role, q));
     }

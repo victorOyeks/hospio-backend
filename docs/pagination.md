@@ -93,7 +93,7 @@ nor `size` is sent (internal callers and operations scripts; no caps on it any m
 | folio | `GET /folio/organizations/overview`, `/{id}/summary` (new) | — | the cards; one account's figures | — |
 | folio | `GET /folio/organizations/invoices` (new), `/{id}/invoices` | `organizationId`, `q`, `status` (OVERDUE worked out in the query) | PageWithCounts per status; amount, paid, left | `/{id}/invoices` yes |
 | folio | `GET /folio/organizations/{id}/stays` | `status` (OPEN, CLOSED), `from`/`to`, `q` | PageWithCounts; balance, charges | yes |
-| identity | `GET /identity/users` | `hotelId`, `role`, `status`, `q` | PageWithCounts per status, managers, invites | yes (pickers, rotas, Roles & permissions) |
+| identity | `GET /identity/users` | `hotelId`, `role` (with `hotelId`: held at that hotel or business-wide), `status` (ACTIVE, PAUSED, SUSPENDED, HELD, INVITED, WORKING), `q`, `staffOnly`, `roleCounts` | PageWithCounts per status (HELD, INVITED, WORKING too), managers, invites; `ROLE_<ROLE>` with `roleCounts` | yes (pickers, rotas) |
 | tenant | `GET /tenant/businesses` | `stage`, `q` | PageWithCounts per stage, hotels, rooms (size over 100 is a 400; it used to be cut to 100 quietly) | was paged |
 | tenant | `GET /tenant/onboarding` | `status` | PageWithCounts per status | yes |
 | platform | `GET /platform/admin/referrals`, `/admin/commissions`, `/marketer/referrals`, `/marketer/commissions` | as before | PageWithCounts (stages; DUE, WAITING, PAID with gross, wht, net) | marketer ones yes |
@@ -103,8 +103,24 @@ Left unpaged on purpose (bounded): open folios, tills (today's and open), till e
 tills (7 days), the FnB board, the rota, transfers (30 days), the open work-order board, the open laundry board
 (plus 14 days), open linen batches, booking buckets (checked in plus stays touching today), and the short setup
 lists (room types, rooms, areas, roles, outlets, stores, menu, price lists, suppliers, terminals, assets,
-schedules). The people lists (manager and owner Staff, Roles & permissions, pickers) read the whole users list:
-it is bounded by headcount and the paged form is ready.
+schedules). The staff pickers (housekeeping assignment, rota and cover, till handover, lost & found, departments,
+messaging, the owner's hotel detail and Messaging) still read the hotel's whole users list: it is bounded by headcount,
+and they filter it by role on the screen. The lists themselves are paged (below).
+
+### People lists (small fixes 1)
+
+- Manager · Staff, Hotel Owner · Staff and Roles & permissions · Staff access read `GET /identity/users?page=&size=`
+  with the search (`q`: name, email or phone), filters and sort in the service. Only the Staff rota tab still reads
+  everyone at the hotel (the grid, find cover, swap and auto-fill).
+- `status` takes the screens' tabs: `HELD` (paused or suspended), `INVITED` (an invite and none accepted, not held),
+  `WORKING` (active, not invited). Counts carry all three next to ACTIVE, PAUSED and SUSPENDED.
+- `staffOnly=true` leaves out anyone with an OWNER grant (the owner's Staff screen).
+- `roleCounts=true` adds `ROLE_<ROLE>`: people holding the role, not paused, at `hotelId` or business-wide, over
+  the same search (the role cards on Roles & permissions).
+- With `hotelId`, `role` matches a grant held at that hotel (or business-wide), not the role at another hotel.
+- The owner's Staff is one row per person and hotel, so a page of 25 people can show a few more rows; `total`
+  and the counts are people.
+- "Give a role" finds people with the same endpoint (`q`, `size=10`) instead of listing the whole hotel.
 
 ## Progress
 

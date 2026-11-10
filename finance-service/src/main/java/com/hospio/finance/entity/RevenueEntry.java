@@ -44,6 +44,14 @@ public class RevenueEntry extends TenantEntity {
     @Column(name = "folio_id", length = 36)
     private String folioId;
 
+    /** The kitchen or bar order this payment settles, when it is for one. */
+    @Column(name = "order_id", length = 36)
+    private String orderId;
+
+    /** For an order: the desk whose income it is (BAR or KITCHEN, from the order's outlet), whoever took it. {@code role} is the payer's desk (their till). */
+    @Column(length = 30)
+    private String desk;
+
     @Column(nullable = false)
     @lombok.Builder.Default
     private boolean matched = true;
@@ -52,4 +60,19 @@ public class RevenueEntry extends TenantEntity {
     @Column(name = "unattached_cash", nullable = false)
     @lombok.Builder.Default
     private boolean unattachedCash = false;
+
+    /**
+     * The desk this money counts as income for: an outlet sale is that outlet's income whoever took the payment (a manager
+     * collecting a bar sale is Bar income); anything else is the desk that took it. Cash still lands in the payer's till.
+     */
+    public String incomeDesk() {
+        return incomeDesk(desk, role);
+    }
+
+    public static String incomeDesk(String desk, String role) {
+        if (desk != null && !desk.isBlank()) {
+            return desk;
+        }
+        return role == null ? "OTHER" : role;
+    }
 }
