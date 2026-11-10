@@ -121,6 +121,8 @@ payment components take an optional `hotelId` through `HotelScope` so the owner 
   activity log (business-wide or one hotel), changes by H.M.S with "Ask support to undo".
 - **Reports** — six reports built from live data for a period and a hotel (or all), downloaded as CSV; schedule
   (daily, weekly, monthly), stop, send now.
+- **Manager · Reports** — the same live reports for the manager's hotels and their own schedules (no all hotels, no
+  send-to-managers); runs the owner sends to the managers open there.
 - **Settings** — company details, taxes, approval limits (existing); transfer ownership sends the request to H.M.S
   support and shows its state.
 
