@@ -181,6 +181,19 @@ public class StaffAccountService {
         return userService.get(user.getId());
     }
 
+    /** A manager nudges someone with no PIN yet: an in-app notice that opens their profile's security tab. */
+    @Transactional(readOnly = true)
+    public void remindPin(String userId) {
+        HospioUserDetails caller = CurrentUser.require();
+        UserAccount user = target(caller, userId, "remind");
+        if (user.getPinHash() != null) {
+            throw new BadRequestException(user.getFullName() + " already has a PIN");
+        }
+        notice(List.of(user.getId()), user.getBusinessId(), null, "Set a PIN for the shared devices",
+                caller.getFullName() + " asks you to set a PIN so you can switch in quickly on the hotel's shared tablets. "
+                        + "Open My profile & security, Security");
+    }
+
     /** Timed pauses whose last day has passed: active again, logged and the person told. Runs as the system. */
     @Transactional
     public int resumeDuePauses() {
@@ -275,7 +288,8 @@ public class StaffAccountService {
     }
 
     private void notice(List<String> userIds, String businessId, String hotelId, String title, String body) {
-        events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().kind("ACCOUNT").title(title).body(body).link("/profile")
+        events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().kind("ACCOUNT").title(title).body(body)
+                .link(title.contains("PIN") ? "/profile?tab=security" : "/profile")
                 .businessId(businessId).hotelId(hotelId).userIds(userIds).build());
     }
 

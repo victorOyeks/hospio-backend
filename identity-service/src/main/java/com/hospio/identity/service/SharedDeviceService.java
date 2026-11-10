@@ -197,12 +197,12 @@ public class SharedDeviceService {
             Instant now = Instant.now();
             List<SharedDeviceDtos.Person> people = users.findAllById(byUser.keySet()).stream()
                     .filter(u -> device.getBusinessId().equals(u.getBusinessId()) && !owners.contains(u.getId()))
-                    .filter(u -> u.getPinHash() != null)
                     .filter(u -> u.getStatus() == UserAccount.Status.ACTIVE || u.pauseHasEnded(now))
                     .sorted(Comparator.comparing(UserAccount::getFullName, String.CASE_INSENSITIVE_ORDER))
                     .map(u -> new SharedDeviceDtos.Person(u.getId(), u.getFullName(), u.getJobTitle(),
                             byUser.get(u.getId()).stream().map(Enum::name).toList(),
-                            u.getLockedUntil() != null && u.getLockedUntil().isAfter(now) ? u.getLockedUntil() : null))
+                            u.getLockedUntil() != null && u.getLockedUntil().isAfter(now) ? u.getLockedUntil() : null,
+                            u.getPinHash() != null, u.getPinHash() == null ? u.getEmail() : null))
                     .toList();
             return new SharedDeviceDtos.LockScreen(device.getId(), device.getName(), device.getHotelId(), device.getHotelName(),
                     device.roleSet().stream().map(Enum::name).toList(), device.getAutoLockMinutes(), people);

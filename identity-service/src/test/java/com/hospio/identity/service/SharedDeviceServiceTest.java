@@ -151,7 +151,12 @@ class SharedDeviceServiceTest {
 
         SharedDeviceDtos.LockScreen screen = service.lockScreen("tok");
         assertThat(screen.hotelName()).isEqualTo("Simpas Ikeja");
-        assertThat(screen.people()).extracting(SharedDeviceDtos.Person::fullName).containsExactly("Segun");
+        // People with no PIN yet are tiles too: they open the normal sign-in with their email filled in.
+        assertThat(screen.people()).extracting(SharedDeviceDtos.Person::fullName).containsExactly("No Pin", "Segun");
+        assertThat(screen.people().get(0).hasPin()).isFalse();
+        assertThat(screen.people().get(0).email()).isEqualTo("nopin@x.ng");
+        assertThat(screen.people().get(1).hasPin()).isTrue();
+        assertThat(screen.people().get(1).email()).isNull();
     }
 
     @Test

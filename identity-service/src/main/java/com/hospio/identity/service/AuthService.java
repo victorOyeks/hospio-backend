@@ -48,6 +48,9 @@ public class AuthService {
     private final RoleGrantRepository grants;
     private final SharedDeviceService devices;
 
+    /** A first PIN may be set without the password this long after signing in with it (docs/shared-devices.md). */
+    static final long FIRST_PIN_WINDOW_MINUTES = 15;
+
     @Value("${hospio.auth.pin-max-attempts:5}")
     private int pinMaxAttempts;
 
@@ -132,7 +135,7 @@ public class AuthService {
                 throw new UnauthorizedException(pinLockedMessage(user.getLockedUntil(), now));
             }
             if (user.getPinHash() == null) {
-                throw new BadRequestException("No PIN set yet. Sign in with email, then set a PIN from your profile");
+                throw new BadRequestException("No PIN yet. Sign in with email and set one when asked");
             }
             if (!passwordEncoder.matches(request.pin(), user.getPinHash())) {
                 int failures = user.getFailedPinAttempts() + 1;
@@ -266,7 +269,15 @@ public class AuthService {
             if (!pinAllowed(user)) {
                 throw new ForbiddenException("Owners and H.M.S staff sign in with email and password. PINs are for staff on shared devices");
             }
-            if (user.getPasswordHash() == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            boolean noPassword = request.password() == null || request.password().isBlank();
+            if (noPassword) {
+                // Only a first PIN, straight after a sign-in with the password (or an accepted invite).
+                boolean fresh = user.getLastSignInAt() != null
+                        && user.getLastSignInAt().isAfter(Instant.now().minus(FIRST_PIN_WINDOW_MINUTES, ChronoUnit.MINUTES));
+                if (user.getPinHash() != null || !fresh) {
+                    throw new BadRequestException("Enter your password to " + (user.getPinHash() != null ? "change your PIN" : "set a PIN"));
+                }
+            } else if (user.getPasswordHash() == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
                 throw new BadRequestException("Your password is wrong");
             }
             PinRules.check(request.pin(), user.getPhone());

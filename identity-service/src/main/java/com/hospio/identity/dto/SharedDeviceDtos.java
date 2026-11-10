@@ -43,8 +43,12 @@ public final class SharedDeviceDtos {
                              List<Person> people) {
     }
 
-    /** One tile: {@code lockedUntil} is set while their PIN is locked after wrong tries. */
-    public record Person(String userId, String fullName, String jobTitle, List<String> roles, Instant lockedUntil) {
+    /**
+     * One tile: {@code lockedUntil} is set while their PIN is locked after wrong tries. Without a PIN ({@code hasPin} false) the
+     * tile opens the normal sign-in page with {@code email} filled in.
+     */
+    public record Person(String userId, String fullName, String jobTitle, List<String> roles, Instant lockedUntil, boolean hasPin,
+                         String email) {
     }
 
     /** Lock the device: the session's refresh token ends; {@code reason} is "button" or "idle". */
