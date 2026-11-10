@@ -347,8 +347,13 @@ public class OrderService {
         l.setStatus(OrderLine.Status.CANCELLED);
         l.setCancelReason(reason.trim());
         l.setCancelledBy(user.getUserId());
+        l.setCancelledByName(user.getFullName());
         lines.save(l);
         recalc(o, settings.get(o.getHotelId()));
+        if (o.getPaidAmount().compareTo(o.getTotal()) > 0) {
+            // Rolled back: the money already taken would be more than the order is worth.
+            throw new BadRequestException(naira(o.getPaidAmount()) + " is already paid on " + o.getNumber() + ". A manager refunds before taking items off");
+        }
         Order.Status before = o.getStatus();
         o.setStatus(LineStatus.rollup(before, statuses(all)));
         orders.save(o);
@@ -365,6 +370,9 @@ public class OrderService {
         requireLive(o);
         if (o.isSettled()) {
             throw new BadRequestException("This order is already settled. It can't be cancelled");
+        }
+        if (Money.isPositive(o.getPaidAmount())) {
+            throw new BadRequestException(naira(o.getPaidAmount()) + " is already paid on " + o.getNumber() + ". Collect the rest, or a manager refunds it first");
         }
         boolean untouched = o.getStatus() == Order.Status.OPEN && lines.findByOrderIdOrderByCreatedAt(orderId).stream()
                 .noneMatch(l -> l.getStatus() != OrderLine.Status.NEW && l.getStatus() != OrderLine.Status.CANCELLED);
@@ -402,7 +410,7 @@ public class OrderService {
         if (o.isSettled()) {
             throw new BadRequestException("This order is already settled");
         }
-        if (!Money.isPositive(o.getTotal())) {
+        if (!Money.isPositive(o.getTotal()) || !Money.isPositive(o.getTotal().subtract(o.getPaidAmount()))) {
             throw new BadRequestException("There is nothing to charge");
         }
         String room = roomId == null ? o.getRoomId() : roomId;
@@ -432,16 +440,24 @@ public class OrderService {
             close(o);
         }
         orders.save(o);
+        // A part-paid order puts only what is left on the room; the tax goes with it in proportion.
+        RoomCharge charge = roomCharge(o);
         events.publish(KafkaTopics.CHARGE_POSTED, ChargePostedEvent.builder().bookingId(stay.bookingId()).roomId(room)
                 .roomNumber(stay.roomNumber()).sourceModule(outlet.getKind().name()).sourceRef("ORDER-" + o.getId())
-                .description(outlet.getName() + " · " + o.getNumber()).amount(o.getSubtotal().subtract(o.getDiscount())).taxAmount(o.getTax())
-                .category(outlet.getKind() == Outlet.Kind.BAR ? "BAR" : "FOOD").build());
+                .description(outlet.getName() + " · " + o.getNumber() + (charge.partPaid() ? " (balance)" : "")).amount(charge.amount())
+                .taxAmount(charge.tax()).category(outlet.getKind() == Outlet.Kind.BAR ? "BAR" : "FOOD").build());
         return view(o);
     }
 
     /** A payment payment-service approved for this order (PAYMENT_APPROVED with the order id). Once per payment id; closes the order when paid in full. */
     @Transactional
     public void applyPayment(String orderId, String paymentId, String method, BigDecimal amount) {
+        applyPayment(orderId, paymentId, method, amount, null);
+    }
+
+    /** As above, keeping the terminal's or bank's {@code reference}; the taker is the event's actor (the tenant bound for it). */
+    @Transactional
+    public void applyPayment(String orderId, String paymentId, String method, BigDecimal amount, String reference) {
         if (orderPayments.existsByPaymentId(paymentId)) {
             return;
         }
@@ -450,8 +466,11 @@ public class OrderService {
             log.warn("Payment {} is for order {} which this hotel doesn't have", paymentId, orderId);
             return;
         }
+        Tenant actor = TenantContext.current().orElse(null);
+        boolean person = actor != null && actor.actorId() != null && !"system".equals(actor.actorId());
         orderPayments.save(OrderPayment.builder().orderId(orderId).paymentId(paymentId).method(method == null ? "CASH" : method.toUpperCase(Locale.ROOT))
-                .amount(Money.of(amount)).build());
+                .amount(Money.of(amount)).reference(reference == null || reference.isBlank() ? null : reference.trim())
+                .takenBy(person ? actor.actorId() : null).takenByName(person ? actor.actorName() : null).build());
         o.setPaidAmount(Money.of(o.getPaidAmount().add(amount)));
         o.setPaymentId(paymentId);
         if (o.getStatus() == Order.Status.CANCELLED || o.isSettled()) {
@@ -592,6 +611,11 @@ public class OrderService {
     private void settle(Order o, Outlet outlet, String by, List<OrderLine> all) {
         o.setSettledBy(by);
         o.setSettledAt(Instant.now());
+        Tenant t = TenantContext.current().orElse(null);
+        if (t != null) {
+            o.setSettledByUser(t.actorId());
+            o.setSettledByName(t.actorName());
+        }
         Map<String, MenuItem> menu = new HashMap<>();
         List<OrderSettledEvent.Line> sold = new ArrayList<>();
         for (OrderLine l : all) {
@@ -605,6 +629,21 @@ public class OrderService {
         }
         events.publish(KafkaTopics.ORDER_SETTLED, OrderSettledEvent.builder().orderId(o.getId()).orderNumber(o.getNumber()).outletId(outlet.getId())
                 .storeId(outlet.getStoreId()).settledBy(by).lines(sold).build());
+    }
+
+    /** What a charge to the room posts: the balance (total less what was paid), split into the part without tax and its tax. */
+    record RoomCharge(BigDecimal amount, BigDecimal tax, boolean partPaid) {
+    }
+
+    static RoomCharge roomCharge(Order o) {
+        BigDecimal net = o.getSubtotal().subtract(o.getDiscount());
+        if (!Money.isPositive(o.getPaidAmount())) {
+            return new RoomCharge(Money.of(net), Money.of(o.getTax()), false);
+        }
+        BigDecimal balance = Money.of(o.getTotal().subtract(o.getPaidAmount()).max(BigDecimal.ZERO));
+        BigDecimal tax = o.getTotal().signum() == 0 ? BigDecimal.ZERO
+                : o.getTax().multiply(balance).divide(o.getTotal(), 2, java.math.RoundingMode.HALF_UP);
+        return new RoomCharge(Money.of(balance.subtract(tax)), Money.of(tax), true);
     }
 
     private void close(Order o) {

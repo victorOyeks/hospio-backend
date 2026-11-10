@@ -66,6 +66,9 @@ public class OrderLine extends TenantEntity {
     @Column(name = "cancelled_by", length = 36)
     private String cancelledBy;
 
+    @Column(name = "cancelled_by_name", length = 150)
+    private String cancelledByName;
+
     /** Price times quantity, before any discount. */
     public BigDecimal lineTotal() {
         return unitPrice.multiply(BigDecimal.valueOf(quantity));

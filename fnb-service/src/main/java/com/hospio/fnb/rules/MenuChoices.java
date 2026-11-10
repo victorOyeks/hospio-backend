@@ -50,6 +50,27 @@ public final class MenuChoices {
         return extra;
     }
 
+    /** The chosen choices that are on the item's structured list, with what each adds per portion (no required-group check). */
+    public static java.util.List<java.util.Map.Entry<String, BigDecimal>> chosenWithExtra(String optionsJson, String chosen) {
+        JsonNode groups = groups(optionsJson);
+        if (groups == null || chosen == null || chosen.isBlank()) {
+            return java.util.List.of();
+        }
+        Set<String> picked = Arrays.stream(chosen.split(",")).map(s -> s.trim().toLowerCase(Locale.ROOT)).filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+        java.util.List<java.util.Map.Entry<String, BigDecimal>> out = new java.util.ArrayList<>();
+        Set<String> counted = new HashSet<>();
+        for (JsonNode g : groups) {
+            for (JsonNode c : g.path("choices")) {
+                String name = c.path("name").asText("").trim();
+                if (!name.isEmpty() && picked.contains(name.toLowerCase(Locale.ROOT)) && counted.add(name.toLowerCase(Locale.ROOT))) {
+                    out.add(java.util.Map.entry(name, c.path("priceDelta").isNumber() ? c.path("priceDelta").decimalValue() : BigDecimal.ZERO));
+                }
+            }
+        }
+        return out;
+    }
+
     private static JsonNode groups(String json) {
         if (json == null || json.isBlank() || !json.trim().startsWith("[")) {
             return null;
