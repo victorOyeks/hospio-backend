@@ -26,6 +26,12 @@ public class SecurityBeans {
         return (request, response, authException) -> {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            if (Boolean.TRUE.equals(request.getAttribute(com.hospio.common.security.filter.JwtFilter.ACCESS_CHANGED_ATTRIBUTE))) {
+                // The apps refresh the token on this header and try again with the person's current roles.
+                response.setHeader("X-Access-Changed", "true");
+                response.getWriter().write(objectMapper.writeValueAsString(ApiResponse.error("Your access has changed. Sign in again to continue")));
+                return;
+            }
             response.getWriter().write(objectMapper.writeValueAsString(ApiResponse.error("Unauthorized: " + authException.getMessage())));
         };
     }

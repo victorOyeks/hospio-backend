@@ -1,5 +1,6 @@
 package com.hospio.common.security.filter;
 
+import com.hospio.common.security.AccessRevocations;
 import com.hospio.common.security.HospioUserDetails;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.tenancy.Tenant;
@@ -19,7 +20,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Authenticates a Bearer token and binds the {@link TenantContext} for the request from the token
- * plus the {@code X-Hotel-Id} header. A hotel the token does not grant is answered with 403.
+ * plus the {@code X-Hotel-Id} header. A hotel the token does not grant is answered with 403. A token issued
+ * before the person's access last changed ({@link AccessRevocations}) does not authenticate: protected paths
+ * answer 401 "Your access has changed" and the app fetches a token with the current roles.
  */
 @Slf4j
 @Component
@@ -27,10 +30,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class JwtFilter extends OncePerRequestFilter {
 
     public static final String HOTEL_HEADER = "X-Hotel-Id";
+    /** Set on the request when the token predates a change to the person's access; the entry point says so. */
+    public static final String ACCESS_CHANGED_ATTRIBUTE = "hospio.accessChanged";
     private static final String AUTH_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtUtil jwtUtil;
+    private final AccessRevocations revocations;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -39,6 +45,12 @@ public class JwtFilter extends OncePerRequestFilter {
         try {
             if (StringUtils.hasText(token) && jwtUtil.isTokenValid(token)) {
                 HospioUserDetails user = jwtUtil.extractUserDetails(token);
+                java.util.Date issued = jwtUtil.extractAllClaims(token).getIssuedAt();
+                if (user.getActedBy() == null && issued != null && revocations.isStale(user.getUserId(), issued.toInstant())) {
+                    request.setAttribute(ACCESS_CHANGED_ATTRIBUTE, Boolean.TRUE);
+                    filterChain.doFilter(request, response);
+                    return;
+                }
                 String hotelHeader = request.getHeader(HOTEL_HEADER);
                 if (StringUtils.hasText(hotelHeader) && !user.isPlatform() && !user.getHotelIds().contains(hotelHeader)) {
                     response.sendError(HttpServletResponse.SC_FORBIDDEN, "That hotel is not granted to this user");

@@ -30,6 +30,12 @@ public class InternalUserController {
 
     private final UserService userService;
 
+    /** Run the temporary-access expiry now (the hourly job's work); for operations and the staging QA scripts. */
+    @PostMapping("/grants/expire")
+    public ApiResponse<Integer> expireGrants() {
+        return ApiResponse.ok("Expired roles ended", userService.endExpiredGrants());
+    }
+
     @GetMapping("/{userId}/contact")
     public ApiResponse<UserContactResponse> contact(@PathVariable String userId) {
         return ApiResponse.ok(userService.contact(userId));

@@ -91,6 +91,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<Void>> unreadable(HttpMessageNotReadableException e, HttpServletRequest request) {
         log.warn("{} {} -> 400 unreadable body: {}", request.getMethod(), request.getRequestURI(), e.getMostSpecificCause().getMessage());
+        // A value outside a fixed list (a role, a level) names the field and the values that would work.
+        if (e.getCause() instanceof com.fasterxml.jackson.databind.exc.InvalidFormatException f && f.getTargetType() != null
+                && f.getTargetType().isEnum() && !f.getPath().isEmpty()) {
+            String field = f.getPath().get(f.getPath().size() - 1).getFieldName();
+            String allowed = java.util.Arrays.stream(f.getTargetType().getEnumConstants()).map(Object::toString)
+                    .collect(java.util.stream.Collectors.joining(", "));
+            return ResponseEntity.badRequest().body(ApiResponse.error("\"" + f.getValue() + "\" is not a valid " + field + ". Use one of: " + allowed));
+        }
         return ResponseEntity.badRequest().body(ApiResponse.error("Request body could not be read"));
     }
 

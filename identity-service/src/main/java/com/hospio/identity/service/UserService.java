@@ -12,6 +12,7 @@ import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.kafka.EventPublisher;
 import com.hospio.common.kafka.KafkaTopics;
 import com.hospio.common.kafka.events.AccessChangedEvent;
+import com.hospio.common.kafka.events.NoticeEvent;
 import com.hospio.common.kafka.events.RoleGrantedEvent;
 import com.hospio.common.kafka.events.UserCreatedEvent;
 import com.hospio.common.security.CurrentUser;
@@ -233,11 +234,21 @@ public class UserService {
         return new UserCreatedResponse(user.getId(), temporary, expires, invite.token(), invite.expiresAt(), sent);
     }
 
+    /**
+     * Another role for a person (Roles &amp; permissions · Give a role). A manager or the owner, never on themselves;
+     * the owner role and the H.M.S roles are not theirs to give; a manager gives roles at their own hotels only
+     * (MANAGER included, as invites allow). A role the person already holds at that hotel is changed, not given
+     * again. The person gets an in-app notice and their next request carries the new role (AccessRevocations).
+     */
     @Transactional
     public UserResponse grantRole(String userId, GrantRoleRequest request) {
         HospioUserDetails caller = CurrentUser.require();
         if (!caller.isPlatform() && !caller.isManagerOrOwner()) {
             throw new ForbiddenException("Only a manager or the owner can change access");
+        }
+        assertNotSelf(caller, userId);
+        if (request.role() == Role.SYSTEM) {
+            throw new BadRequestException("SYSTEM is not a role a person can hold");
         }
         if (request.role() == Role.OWNER && !caller.isPlatform()) {
             throw new ForbiddenException("The owner role is given by H.M.S or by transferring ownership");
@@ -250,43 +261,151 @@ public class UserService {
         }
         UserAccount user = find(userId);
         assertCanManage(caller, user);
-        grant(user, request.role(), request.level() == null ? AccessLevel.FULL : request.level(), request.hotelId(),
-                request.expiresAt(), caller.getUserId());
+        boolean businessWide = businessWide(request.role());
+        String hotelId = businessWide ? null : resolveHotel(caller, user.getBusinessId(), request.hotelId());
+        Instant expiresAt = request.until() != null ? AccessDates.endOf(request.until()) : request.expiresAt();
+        if (expiresAt != null && !expiresAt.isAfter(Instant.now())) {
+            throw new BadRequestException("The last day must be today or later");
+        }
+        AccessLevel level = request.level() == null ? AccessLevel.FULL : request.level();
+        RoleGrant existing = businessWide ? null : grants.findByUserIdAndHotelIdAndRole(userId, hotelId, request.role()).orElse(null);
+        if (existing != null && (existing.getExpiresAt() == null || existing.getExpiresAt().isAfter(Instant.now()))) {
+            String label = AccessDates.roleLabel(request.role());
+            throw new ConflictException(existing.isPaused()
+                    ? user.getFullName() + " already has " + label + " here, paused. Resume it instead"
+                    : user.getFullName() + " already has " + label + " here (" + AccessDates.levelLabel(existing.getLevel())
+                            + "). Change the level instead");
+        }
+        grant(user, request.role(), level, hotelId, expiresAt, caller.getUserId());
+        notice(user, hotelId, "You now have " + AccessDates.roleLabel(request.role()) + " · " + AccessDates.levelLabel(level),
+                "Given by " + caller.getFullName() + (expiresAt == null ? "" : ", until " + AccessDates.day(AccessDates.lastDay(expiresAt)))
+                        + ". Switch to it from your profile menu");
         return toResponse(user);
     }
 
+    /**
+     * Change one role: its level, pause or resume it, set or clear its last day, or remove it. A manager or the
+     * owner, never on their own roles; a manager only touches roles at their own hotels and never the owner's.
+     * A person's only active role is not removed (pause it, or give another first) unless the caller says the
+     * person is leaving ({@code allowLastRole}).
+     */
     @Transactional
     public UserResponse changeAccess(String userId, String grantId, AccessChangeRequest request) {
         HospioUserDetails caller = CurrentUser.require();
         if (!caller.isPlatform() && !caller.isManagerOrOwner()) {
             throw new ForbiddenException("Only a manager or the owner can change access");
         }
+        assertNotSelf(caller, userId);
         UserAccount user = find(userId);
         assertCanManage(caller, user);
         RoleGrant grant = grants.findById(grantId).filter(g -> g.getUserId().equals(userId))
-                .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("That role is no longer on " + user.getFullName() + "'s access. Refresh the list"));
+        if (!caller.isPlatform()) {
+            if (grant.getRole() == Role.OWNER) {
+                throw new ForbiddenException("Only H.M.S can change the owner's access");
+            }
+            if (!caller.has(Role.OWNER) && (grant.getHotelId() == null || !caller.getHotelIds().contains(grant.getHotelId()))) {
+                throw new ForbiddenException("That role is at a hotel you don't manage");
+            }
+        }
+        String label = AccessDates.roleLabel(grant.getRole());
+        String detail = null;
+        String title;
+        String body = "Changed by " + caller.getFullName();
         switch (request.change()) {
             case CHANGE_LEVEL -> {
                 if (request.level() == null) {
                     throw new BadRequestException("Choose a level");
                 }
+                if (request.level() == grant.getLevel()) {
+                    throw new BadRequestException(label + " is already " + AccessDates.levelLabel(grant.getLevel()) + " for " + user.getFullName());
+                }
                 grant.setLevel(request.level());
                 grants.save(grant);
+                detail = request.level().name();
+                title = "Your " + label + " access is now " + AccessDates.levelLabel(request.level());
             }
             case PAUSE -> {
+                if (grant.isPaused()) {
+                    throw new BadRequestException(user.getFullName() + "'s " + label + " is already paused");
+                }
                 grant.setPaused(true);
                 grants.save(grant);
+                detail = blankToNull(request.reason());
+                title = "Your " + label + " access is paused";
+                if (detail != null) {
+                    body = detail + " · " + body;
+                }
             }
             case RESUME -> {
+                if (!grant.isPaused()) {
+                    throw new BadRequestException(user.getFullName() + "'s " + label + " is not paused");
+                }
                 grant.setPaused(false);
                 grants.save(grant);
+                title = "Your " + label + " access is back";
             }
-            case REMOVE -> grants.delete(grant);
+            case SET_UNTIL -> {
+                if (request.until() == null) {
+                    if (grant.getExpiresAt() == null) {
+                        throw new BadRequestException(user.getFullName() + "'s " + label + " has no end date");
+                    }
+                    grant.setExpiresAt(null);
+                    title = "Your " + label + " access no longer has an end date";
+                } else {
+                    Instant ends = AccessDates.endOf(request.until());
+                    if (!ends.isAfter(Instant.now())) {
+                        throw new BadRequestException("The last day must be today or later");
+                    }
+                    grant.setExpiresAt(ends);
+                    detail = request.until().toString();
+                    title = "Your " + label + " access ends after " + AccessDates.day(request.until());
+                }
+                grants.save(grant);
+            }
+            case REMOVE -> {
+                boolean othersActive = grants.findByUserId(userId).stream().anyMatch(g -> !g.getId().equals(grantId) && g.isActive());
+                if (grant.isActive() && !othersActive && !Boolean.TRUE.equals(request.allowLastRole())) {
+                    throw new BadRequestException(label + " is " + user.getFullName()
+                            + "'s only active role. Give them another role first, or pause this one instead");
+                }
+                grants.delete(grant);
+                detail = blankToNull(request.reason());
+                title = label + " was removed from your access";
+            }
+            default -> throw new BadRequestException("Unknown change");
         }
         events.publish(KafkaTopics.ACCESS_CHANGED, AccessChangedEvent.builder()
                 .businessId(user.getBusinessId()).hotelId(grant.getHotelId())
-                .userId(userId).userName(user.getFullName()).change(request.change().name()).role(grant.getRole().name()).build());
+                .userId(userId).userName(user.getFullName()).change(request.change().name()).role(grant.getRole().name()).detail(detail).build());
+        notice(user, grant.getHotelId(), title, body);
         return toResponse(user);
+    }
+
+    /**
+     * Temporary roles whose last day has passed are ended: deleted, logged as EXPIRED and the person told.
+     * Runs as the system across every business (the role grants table is row-level scoped). Returns how many.
+     */
+    @Transactional
+    public int endExpiredGrants() {
+        return TenantContext.runWith(Tenant.system("grant-expiry"), () -> {
+            List<RoleGrant> ended = grants.findByExpiresAtBefore(Instant.now());
+            for (RoleGrant g : ended) {
+                UserAccount user = users.findById(g.getUserId()).orElse(null);
+                grants.delete(g);
+                if (user == null) {
+                    continue;
+                }
+                String label = AccessDates.roleLabel(g.getRole());
+                events.publish(KafkaTopics.ACCESS_CHANGED, AccessChangedEvent.builder()
+                        .businessId(g.getBusinessId()).hotelId(g.getHotelId()).actorName("Hospio")
+                        .userId(user.getId()).userName(user.getFullName()).change("EXPIRED").role(g.getRole().name())
+                        .detail(AccessDates.lastDay(g.getExpiresAt()).toString()).build());
+                notice(user, g.getHotelId(), "Your " + label + " access has ended",
+                        "It was given until " + AccessDates.day(AccessDates.lastDay(g.getExpiresAt())) + ". Ask your manager if you still need it");
+            }
+            return ended.size();
+        });
     }
 
     @Transactional
@@ -446,7 +565,7 @@ public class UserService {
     }
 
     private void grant(UserAccount user, Role role, AccessLevel level, String hotelId, Instant expiresAt, String grantedBy) {
-        boolean businessWide = role == Role.OWNER || role.isPlatform() || role == Role.MARKETER;
+        boolean businessWide = businessWide(role);
         String hotel = businessWide ? null : hotelId;
         if (hotel == null && !businessWide) {
             hotel = TenantContext.current().map(Tenant::hotelId).orElse(null);
@@ -478,6 +597,27 @@ public class UserService {
         return grants.findByUserId(user.getId()).stream().map(RoleGrant::getRole).collect(Collectors.toSet());
     }
 
+    /** No one changes their own roles: another manager or the owner does it, so every change has a second person. */
+    private static void assertNotSelf(HospioUserDetails caller, String userId) {
+        if (userId.equals(caller.getUserId())) {
+            throw new ForbiddenException("You can't change your own access. Ask the owner or another manager");
+        }
+    }
+
+    private static boolean businessWide(Role role) {
+        return role == Role.OWNER || role.isPlatform() || role == Role.MARKETER;
+    }
+
+    private static String blankToNull(String s) {
+        return StringUtils.hasText(s) ? s.trim() : null;
+    }
+
+    /** An in-app notice to the person whose access changed (messaging-service, NOTICE topic). */
+    private void notice(UserAccount user, String hotelId, String title, String body) {
+        events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().kind("ACCESS").title(title).body(body).link("/profile")
+                .businessId(user.getBusinessId()).hotelId(hotelId).userIds(List.of(user.getId())).build());
+    }
+
     private UserAccount find(String userId) {
         return users.findById(userId).orElseThrow(() -> new ResourceNotFoundException("User not found"));
     }
@@ -492,7 +632,8 @@ public class UserService {
 
     private static UserResponse toResponse(UserAccount user, List<RoleGrant> userGrants, UserResponse.InviteStatus inviteStatus) {
         List<UserResponse.Grant> gs = userGrants.stream()
-                .map(g -> new UserResponse.Grant(g.getId(), g.getRole(), g.getLevel(), g.getHotelId(), g.isPaused(), g.getExpiresAt()))
+                .map(g -> new UserResponse.Grant(g.getId(), g.getRole(), g.getLevel(), g.getHotelId(), g.isPaused(), g.getExpiresAt(),
+                        g.getExpiresAt() == null ? null : AccessDates.lastDay(g.getExpiresAt()), g.getGrantedBy()))
                 .toList();
         return new UserResponse(user.getId(), user.getFullName(), user.getEmail(), user.getPhone(), user.getBusinessId(),
                 user.getStatus().name(), user.isMustChangePassword(), user.isTwoStepEnabled(), user.getPinHash() != null,
