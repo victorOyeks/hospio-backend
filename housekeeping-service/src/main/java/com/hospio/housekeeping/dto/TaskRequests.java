@@ -42,10 +42,20 @@ public final class TaskRequests {
     public record MinibarRequest(@NotBlank String roomId, @NotBlank String items, @NotNull BigDecimal total) {
     }
 
-    public record LostFoundRequest(@NotBlank String description, String foundWhere, String roomId, String photoKey) {
+    /**
+     * Log a found item: what (required), where (a public area's name, or a room by id and number), who found it (the caller unless named)
+     * and whether the front office is told now (default yes). Checks and their sentences are in LostFoundService.
+     */
+    public record LostFoundRequest(String description, String details, String roomId, String roomNumber, String foundWhere, String photoKey,
+                                   String foundById, String foundByName, Boolean tellFrontOffice) {
     }
 
-    public record ReturnItemRequest(@NotBlank String returnedTo) {
+    /** Back to its owner: who (required), the ID they showed and how it went back (in person, courier, collected by a friend). */
+    public record ReturnItemRequest(String returnedTo, String idNote, String how) {
+    }
+
+    /** Disposed of after the hold period, with the reason. */
+    public record DisposeItemRequest(String reason) {
     }
 
     public record LaundryOrderRequest(String roomId, String guestName, @NotBlank String items, @NotNull BigDecimal total, Boolean chargeToRoom) {

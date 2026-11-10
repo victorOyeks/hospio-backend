@@ -8,6 +8,15 @@ import com.hospio.housekeeping.entity.LostFoundItem;
 import com.hospio.housekeeping.entity.MinibarRestock;
 import com.hospio.housekeeping.entity.ProblemReport;
 import com.hospio.housekeeping.service.HousekeepingService;
+import com.hospio.housekeeping.service.LostFoundService;
+import com.hospio.housekeeping.dto.LostFoundView;
+import com.hospio.common.exception.ForbiddenException;
+import com.hospio.common.security.AccessChecker;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.multipart.MultipartFile;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.util.List;
@@ -29,6 +38,10 @@ public class HousekeepingController {
 
     private final HousekeepingService service;
     private final com.hospio.housekeeping.service.HousekeepingLists lists;
+    private final LostFoundService lostFoundService;
+    private final AccessChecker access;
+
+    private static final String SUPERVISOR = "Only a housekeeping supervisor can do this";
 
     @GetMapping("/tasks")
     public ApiResponse<List<CleaningTask>> myRooms(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
@@ -57,6 +70,7 @@ public class HousekeepingController {
 
     @GetMapping("/tasks/to-inspect")
     public ApiResponse<List<CleaningTask>> toInspect() {
+        guard(access.manager() || access.atLeast("HOUSEKEEPING", "FULL"), SUPERVISOR);
         return ApiResponse.ok(service.toInspect());
     }
 
@@ -92,6 +106,7 @@ public class HousekeepingController {
 
     @PostMapping("/tasks/{id}/inspect")
     public ApiResponse<CleaningTask> inspect(@PathVariable String id, @Valid @RequestBody TaskRequests.InspectRequest request) {
+        guard(access.manager() || access.atLeast("HOUSEKEEPING", "FULL"), SUPERVISOR);
         return ApiResponse.ok(request.passed() ? "Inspected" : "Sent back", service.inspect(id, request));
     }
 
@@ -120,23 +135,80 @@ public class HousekeepingController {
         return ApiResponse.ok("Minibar charged to the room", service.minibar(request));
     }
 
+    /**
+     * Lost & found, a page at a time (docs/pagination.md): {@code status} (FOUND, RETURNED, DISPOSED), {@code q} (item, details, where,
+     * room, who found it, who it went back to), {@code from}/{@code to} on the day found. Counts FOUND, RETURNED, DISPOSED and all.
+     * Without page or size: the plain list, as before (scripts).
+     */
     @GetMapping("/lost-found")
-    public ApiResponse<?> lostFound(@RequestParam(required = false) String status, @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from, @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to,
+    public ApiResponse<?> lostFound(@RequestParam(required = false) String status, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                    @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
                                     @RequestParam(required = false) String q, @RequestParam(required = false) String sort,
-                                 @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+                                    @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        guard(seeLostFound(), "Only housekeeping, the front office and managers can see lost & found");
         if (!com.hospio.common.paging.Paging.requested(page, size)) {
             return ApiResponse.ok(service.lostAndFound());
         }
         return ApiResponse.ok(lists.lostAndFound(new com.hospio.housekeeping.service.HousekeepingLists.Query(q, status, from, to, sort, page, size)));
     }
 
+    @GetMapping("/lost-found/{id}")
+    public ApiResponse<LostFoundView> lostFoundItem(@PathVariable String id) {
+        guard(seeLostFound(), "Only housekeeping, the front office and managers can see lost & found");
+        return ApiResponse.ok(lostFoundService.get(id));
+    }
+
     @PostMapping("/lost-found")
-    public ApiResponse<LostFoundItem> logFound(@Valid @RequestBody TaskRequests.LostFoundRequest request) {
-        return ApiResponse.ok("Item logged", service.logFound(request));
+    public ApiResponse<LostFoundView> logFound(@RequestBody TaskRequests.LostFoundRequest request) {
+        guard(handleLostFound(), "Only housekeeping, the front office or a manager can log a found item");
+        LostFoundView v = lostFoundService.log(request);
+        return ApiResponse.ok(v.frontOfficeToldAt() != null ? "Item logged · front office told" : "Item logged", v);
+    }
+
+    @PostMapping("/lost-found/{id}/tell-front-office")
+    public ApiResponse<LostFoundView> tellFrontOffice(@PathVariable String id) {
+        guard(handleLostFound(), "Only housekeeping, the front office or a manager can tell the front office");
+        return ApiResponse.ok("Front office told", lostFoundService.tellFrontOffice(id));
+    }
+
+    @PostMapping(value = "/lost-found/{id}/photo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<LostFoundView> lostFoundPhoto(@PathVariable String id, @RequestPart(name = "file", required = false) MultipartFile file) {
+        guard(handleLostFound(), "Only housekeeping, the front office or a manager can add a photo");
+        return ApiResponse.ok("Photo added", lostFoundService.photo(id, file));
+    }
+
+    @GetMapping("/lost-found/{id}/photo")
+    public ResponseEntity<byte[]> lostFoundPhoto(@PathVariable String id) {
+        guard(seeLostFound(), "Only housekeeping, the front office and managers can see lost & found");
+        LostFoundService.Photo p = lostFoundService.photo(id);
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType(p.contentType())).cacheControl(CacheControl.noStore()).body(p.bytes());
     }
 
     @PostMapping("/lost-found/{id}/return")
-    public ApiResponse<LostFoundItem> handBack(@PathVariable String id, @Valid @RequestBody TaskRequests.ReturnItemRequest request) {
-        return ApiResponse.ok("Item handed back", service.handBack(id, request));
+    public ApiResponse<LostFoundView> handBack(@PathVariable String id, @RequestBody TaskRequests.ReturnItemRequest request) {
+        guard(handleLostFound(), "Only housekeeping, the front office or a manager can return an item");
+        LostFoundView v = lostFoundService.returnToOwner(id, request);
+        return ApiResponse.ok("Returned to " + v.returnedTo(), v);
+    }
+
+    @PostMapping("/lost-found/{id}/dispose")
+    public ApiResponse<LostFoundView> dispose(@PathVariable String id, @RequestBody(required = false) TaskRequests.DisposeItemRequest request) {
+        guard(access.manager() || access.atLeast("HOUSEKEEPING", "FULL"), "Only a supervisor or manager can dispose of an item");
+        return ApiResponse.ok("Disposed of", lostFoundService.dispose(id, request));
+    }
+
+    private boolean seeLostFound() {
+        return access.managerView() || access.atLeast("HOUSEKEEPING", "VIEW") || access.atLeast("FRONT_OFFICE", "VIEW");
+    }
+
+    private boolean handleLostFound() {
+        return access.manager() || access.atLeast("HOUSEKEEPING", "EDIT") || access.atLeast("FRONT_OFFICE", "EDIT");
+    }
+
+    /** A refusal the screen shows as it is (a bare @PreAuthorize would only say "You don't have access to do that"). */
+    private static void guard(boolean allowed, String refusal) {
+        if (!allowed) {
+            throw new ForbiddenException(refusal);
+        }
     }
 }

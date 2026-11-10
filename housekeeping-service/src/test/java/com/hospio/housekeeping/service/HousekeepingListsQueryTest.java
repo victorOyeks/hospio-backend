@@ -66,11 +66,14 @@ class HousekeepingListsQueryTest {
     JdbcTemplate jdbc;
     @MockBean
     LaundryService laundry;
+    @MockBean
+    com.hospio.housekeeping.client.HotelConfigClient hotelConfig;
 
     @BeforeEach
     void tenant() {
         TenantContext.set(Tenant.systemFor("biz-1", HOTEL, "u1", "Tester"));
         when(laundry.orderView(any())).thenAnswer(a -> Mockito.mock(LaundryDtos.OrderView.class));
+        when(hotelConfig.lostFoundHoldDays(any())).thenReturn(90);
     }
 
     @AfterEach
@@ -90,23 +93,23 @@ class HousekeepingListsQueryTest {
                 .status(LostFoundItem.Status.FOUND).build());
         lostFound.flush();
 
-        PageWithCounts<LostFoundItem> p0 = lists.lostAndFound(new HousekeepingLists.Query(null, null, null, null, null, 0, 25));
-        PageWithCounts<LostFoundItem> p1 = lists.lostAndFound(new HousekeepingLists.Query(null, null, null, null, null, 1, 25));
+        PageWithCounts<com.hospio.housekeeping.dto.LostFoundView> p0 = lists.lostAndFound(new HousekeepingLists.Query(null, null, null, null, null, 0, 25));
+        PageWithCounts<com.hospio.housekeeping.dto.LostFoundView> p1 = lists.lostAndFound(new HousekeepingLists.Query(null, null, null, null, null, 1, 25));
         assertThat(p0.totalElements()).isEqualTo(48);
         assertThat(p0.totalPages()).isEqualTo(2);
         assertThat(p0.content()).hasSize(25);
         assertThat(p1.content()).hasSize(23);
         Set<String> ids = new HashSet<>();
-        p0.content().forEach(x -> ids.add(x.getId()));
-        p1.content().forEach(x -> ids.add(x.getId()));
+        p0.content().forEach(x -> ids.add(x.id()));
+        p1.content().forEach(x -> ids.add(x.id()));
         assertThat(ids).hasSize(48);
         // Newest first: the first row of page 2 is the 26th newest.
-        assertThat(p1.content().get(0).getDescription()).endsWith(" 25");
-        assertThat(p0.counts()).containsEntry("all", 48L).containsEntry("FOUND", 38L).containsEntry("RETURNED", 10L);
+        assertThat(p1.content().get(0).description()).endsWith(" 25");
+        assertThat(p0.counts()).containsEntry("all", 48L).containsEntry("FOUND", 38L).containsEntry("RETURNED", 10L).containsEntry("DISPOSED", 0L);
         assertThat(p1.counts()).isEqualTo(p0.counts());
 
-        PageWithCounts<LostFoundItem> found = lists.lostAndFound(new HousekeepingLists.Query("watch", "FOUND", null, null, null, 0, 25));
-        assertThat(found.content()).allMatch(x -> x.getDescription().startsWith("Watch") && x.getStatus() == LostFoundItem.Status.FOUND);
+        PageWithCounts<com.hospio.housekeeping.dto.LostFoundView> found = lists.lostAndFound(new HousekeepingLists.Query("watch", "FOUND", null, null, null, 0, 25));
+        assertThat(found.content()).allMatch(x -> x.description().startsWith("Watch") && x.status().equals("FOUND") && x.holdDays() == 90);
         assertThat(found.totalElements()).isEqualTo(19);
         // Counts keep every filter but the status.
         assertThat(found.counts()).containsEntry("all", 24L);
