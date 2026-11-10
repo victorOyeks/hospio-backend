@@ -153,6 +153,53 @@ public class MaintenanceService {
         return view(r, Map.of(), null, now);
     }
 
+    /**
+     * Housekeeping's "Report a problem" (service to service, the reporter's token forwarded): the work order is opened with the
+     * reporter's priority and, with {@code outOfOrder}, the room goes out of order at once. A room with a guest checked in is refused
+     * before anything is opened. An urgent problem or an out-of-order room is told to the front office and the managers.
+     */
+    @Transactional
+    public MaintenanceViews.RepairView openReported(MaintenanceRequests.RepairRequest request, boolean outOfOrder) {
+        HospioUserDetails u = CurrentUser.get().orElse(null);
+        String roomId = blank(request.roomId());
+        if (outOfOrder) {
+            if (roomId == null) {
+                throw new BadRequestException("Only a room can go out of order · pick the room");
+            }
+            if (u != null && !WorkOrderAccess.canReportOutOfOrder(u)) {
+                throw new ForbiddenException("Taking a room out of order is for housekeeping, maintenance or a manager");
+            }
+            Optional<String> guest = reservations.guestIn(roomId);
+            if (guest.isPresent()) {
+                String number = blank(request.roomNumber());
+                if (number == null) {
+                    number = property.room(roomId).number();
+                }
+                throw new BadRequestException(WorkOrderRules.guestInRefusal(number, guest.get()));
+            }
+        }
+        MaintenanceViews.RepairView opened = open(request, true);
+        Repair r = find(opened.id());
+        if (outOfOrder) {
+            String reason = r.getNumber() + " · " + r.getTitle();
+            property.outOfOrder(r.getRoomId(), reason, null);
+            r.setRoomOutOfOrder(true);
+            r.setOooUntil(null);
+            repairs.save(r);
+            if (u != null) {
+                log(r, u, "Room " + r.getRoomNumber() + " out of order · reported by housekeeping");
+            }
+        }
+        List<String> roles = WorkOrderRules.reportedProblemRoles(r.getPriority() == Repair.Priority.URGENT, outOfOrder, r.getRoomId());
+        if (!roles.isEmpty()) {
+            String title = outOfOrder ? "Room " + r.getRoomNumber() + " is out of order" : "Urgent problem in room " + r.getRoomNumber();
+            String body = r.getTitle() + " · " + r.getNumber() + (outOfOrder ? " · don't check anyone in there until maintenance clears it" : "");
+            events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().kind("REPAIR").title(title).body(body).link("/dashboard/rooms")
+                    .roles(roles).build());
+        }
+        return outOfOrder ? detail(r.getId()) : opened;
+    }
+
     // ---- running -------------------------------------------------------------------------------------
 
     @Transactional

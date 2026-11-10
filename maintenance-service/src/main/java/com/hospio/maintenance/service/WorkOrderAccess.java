@@ -59,6 +59,14 @@ public final class WorkOrderAccess {
         return manager(u) || technician(u);
     }
 
+    /**
+     * Housekeeping "Report a problem → Now" may take the reported room out of order with the report (Edit or Full housekeeping), as
+     * may anyone who can take a room out of order anyway.
+     */
+    public static boolean canReportOutOfOrder(HospioUserDetails u) {
+        return !u.isReadOnly() && (canTakeOutOfOrder(u) || u.has(Role.HOUSEKEEPING, com.hospio.common.enums.AccessLevel.EDIT));
+    }
+
     /** The role a work order was raised as, e.g. FRONT_OFFICE; SYSTEM for the platform. */
     public static String raiserRole(HospioUserDetails u) {
         return RAISERS.stream().filter(u::has).map(Role::name).findFirst().orElse(u.isPlatform() ? "SYSTEM" : null);

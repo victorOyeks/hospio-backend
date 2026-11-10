@@ -212,7 +212,35 @@ public class HousekeepingService {
         CleaningTask t = task(taskId);
         t.setStatus(CleaningTask.Status.SKIPPED);
         t.setSkipReason(request.reason());
+        t.setRetryAt(request.retryAt() == null || request.retryAt().isBlank() ? null : request.retryAt().trim());
         return tasks.save(t);
+    }
+
+    /**
+     * My rooms → "Note for the supervisor": kept on the task and shown on Inspect. The attendant whose room it is, a supervisor
+     * (Full) or a manager may write it; a blank note clears it.
+     */
+    @Transactional
+    public CleaningTask note(String taskId, TaskRequests.NoteRequest request) {
+        HospioUserDetails user = CurrentUser.require();
+        CleaningTask t = task(taskId);
+        if (!canWriteNote(user, t)) {
+            throw new ForbiddenException("Room " + t.getRoomNumber() + " is on someone else's list");
+        }
+        String note = request == null || request.note() == null ? null : request.note().trim();
+        if (note != null && note.length() > 500) {
+            throw new BadRequestException("Keep the note under 500 characters");
+        }
+        t.setAttendantNote(note == null || note.isEmpty() ? null : note);
+        return tasks.save(t);
+    }
+
+    static boolean canWriteNote(HospioUserDetails user, CleaningTask t) {
+        if (user.isReadOnly()) {
+            return false;
+        }
+        return user.isManagerOrOwner() || user.has(com.hospio.common.enums.Role.HOUSEKEEPING, com.hospio.common.enums.AccessLevel.FULL)
+                || user.getUserId().equals(t.getAssignedTo());
     }
 
     @Transactional
@@ -248,22 +276,48 @@ public class HousekeepingService {
         return tasks.save(t);
     }
 
+    /**
+     * Report a problem: a work order in maintenance with the reporter's urgency (LOW "Can wait", NORMAL "Today", URGENT "Now"). With
+     * {@code outOfOrder} the room goes out of order at once (maintenance refuses it while a guest is checked in, and then nothing is
+     * opened); maintenance tells the front office about an urgent problem in a room.
+     */
     @Transactional
     public ProblemReport reportProblem(TaskRequests.ProblemRequest request) {
         HospioUserDetails user = CurrentUser.require();
-        String repairId = maintenance.openRepair(request.roomId(), request.roomNumber(), request.description(), request.photoKey());
+        String priority = problemPriority(request.priority());
+        boolean outOfOrder = Boolean.TRUE.equals(request.outOfOrder());
+        if (outOfOrder && (request.roomId() == null || request.roomId().isBlank())) {
+            throw new BadRequestException("Only a room can go out of order · pick the room");
+        }
+        String repairId = maintenance.openRepair(request.roomId(), request.roomNumber(), request.description(), request.photoKey(), priority, outOfOrder);
+        if (outOfOrder && repairId == null) {
+            throw new BadRequestException("Maintenance can't be reached right now, so the room is still in service · try again");
+        }
         ProblemReport report = problems.save(ProblemReport.builder().roomId(request.roomId()).roomNumber(request.roomNumber())
                 .description(request.description()).photoKey(request.photoKey()).repairId(repairId).reportedBy(user.getUserId())
-                .status(repairId == null ? "PENDING" : "SENT").build());
+                .priority(priority).outOfOrder(outOfOrder).status(repairId == null ? "PENDING" : "SENT").build());
         events.publish(KafkaTopics.PROBLEM_REPORTED, ProblemReportedEvent.builder().reportId(report.getId()).roomId(request.roomId())
                 .roomNumber(request.roomNumber()).description(request.description()).repairId(repairId).build());
         return report;
     }
 
+    /** LOW, NORMAL or URGENT; missing means NORMAL. */
+    static String problemPriority(String priority) {
+        if (priority == null || priority.isBlank()) {
+            return "NORMAL";
+        }
+        String p = priority.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!List.of("LOW", "NORMAL", "URGENT").contains(p)) {
+            throw new BadRequestException("Pick how urgent it is: can wait, today or now");
+        }
+        return p;
+    }
+
     @Transactional
     public LinenRequest askForLinen(TaskRequests.LinenRequestDto request) {
+        HospioUserDetails user = CurrentUser.require();
         LinenRequest r = linenRequests.save(LinenRequest.builder().roomId(request.roomId()).roomNumber(request.roomNumber())
-                .items(request.items()).requestedBy(CurrentUser.require().getUserId()).build());
+                .items(request.items()).requestedBy(user.getUserId()).requestedByName(user.getFullName()).build());
         events.publish(KafkaTopics.LINEN_REQUESTED, LinenRequestedEvent.builder().requestId(r.getId()).roomId(r.getRoomId())
                 .roomNumber(r.getRoomNumber()).items(r.getItems()).build());
         return r;
@@ -274,11 +328,33 @@ public class HousekeepingService {
         return linenRequests.findByHotelIdAndStatusOrderByCreatedAt(TenantContext.requireHotel(), "REQUESTED");
     }
 
+    /** Linen requests for laundry: the open ones (REQUESTED, oldest first), or SENT ones (the last 30, newest first). */
+    @Transactional(readOnly = true)
+    public List<LinenRequest> linenRequests(String status) {
+        if (status != null && "SENT".equalsIgnoreCase(status.trim())) {
+            return linenRequests.findTop30ByHotelIdAndStatusOrderBySentAtDesc(TenantContext.requireHotel(), "SENT");
+        }
+        return openLinenRequests();
+    }
+
+    /** Laundry has sent the linen: the request leaves the open list and whoever asked is told. */
     @Transactional
     public LinenRequest linenSent(String id) {
+        HospioUserDetails user = CurrentUser.require();
         LinenRequest r = linenRequests.findById(id).orElseThrow(() -> new ResourceNotFoundException("Request not found"));
+        if (!"REQUESTED".equals(r.getStatus())) {
+            throw new BadRequestException("This request was already sent" + (r.getSentByName() == null ? "" : " by " + r.getSentByName()));
+        }
         r.setStatus("SENT");
-        return linenRequests.save(r);
+        r.setSentAt(Instant.now());
+        r.setSentByName(user.getFullName());
+        linenRequests.save(r);
+        if (r.getRequestedBy() != null && !r.getRequestedBy().equals(user.getUserId())) {
+            events.publish(KafkaTopics.NOTICE, com.hospio.common.kafka.events.NoticeEvent.builder().kind("LINEN")
+                    .title("Linen on its way").body(r.getItems() + (r.getRoomNumber() == null ? "" : " · Room " + r.getRoomNumber()) + " · sent by " + user.getFullName())
+                    .link("/dashboard").userIds(List.of(r.getRequestedBy())).build());
+        }
+        return r;
     }
 
     /** Minibar restock: what was taken is charged to the guest's folio as one line. */

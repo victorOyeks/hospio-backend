@@ -99,6 +99,11 @@ public class HousekeepingController {
         return ApiResponse.ok("Room marked clean", service.done(id));
     }
 
+    @PutMapping("/tasks/{id}/note")
+    public ApiResponse<CleaningTask> note(@PathVariable String id, @Valid @RequestBody TaskRequests.NoteRequest request) {
+        return ApiResponse.ok("Note saved", service.note(id, request));
+    }
+
     @PostMapping("/tasks/{id}/skip")
     public ApiResponse<CleaningTask> skip(@PathVariable String id, @Valid @RequestBody TaskRequests.SkipRequest request) {
         return ApiResponse.ok("Skipped", service.skip(id, request));
@@ -112,22 +117,27 @@ public class HousekeepingController {
 
     @PostMapping("/problems")
     public ApiResponse<ProblemReport> reportProblem(@Valid @RequestBody TaskRequests.ProblemRequest request) {
-        return ApiResponse.ok("Sent to maintenance", service.reportProblem(request));
+        ProblemReport r = service.reportProblem(request);
+        return ApiResponse.ok(r.isOutOfOrder() ? "Sent to maintenance · room out of order · front office told" : "Sent to maintenance", r);
     }
 
     @PostMapping("/linen-requests")
     public ApiResponse<LinenRequest> askForLinen(@Valid @RequestBody TaskRequests.LinenRequestDto request) {
+        guard(access.manager() || access.atLeast("HOUSEKEEPING", "EDIT"), "Only housekeeping or a manager can ask laundry for linen");
         return ApiResponse.ok("Linen request sent", service.askForLinen(request));
     }
 
+    /** Laundry's list of linen asked for by housekeeping: open (default) or {@code status=SENT}. */
     @GetMapping("/linen-requests")
-    public ApiResponse<List<LinenRequest>> openLinenRequests() {
-        return ApiResponse.ok(service.openLinenRequests());
+    public ApiResponse<List<LinenRequest>> linenRequests(@RequestParam(required = false) String status) {
+        guard(access.managerView() || access.has("LAUNDRY") || access.has("HOUSEKEEPING"), "Only laundry, housekeeping and managers can see linen requests");
+        return ApiResponse.ok(service.linenRequests(status));
     }
 
     @PostMapping("/linen-requests/{id}/sent")
     public ApiResponse<LinenRequest> linenSent(@PathVariable String id) {
-        return ApiResponse.ok("Marked sent", service.linenSent(id));
+        guard(access.manager() || access.atLeast("LAUNDRY", "EDIT"), "Only laundry or a manager can mark linen sent");
+        return ApiResponse.ok("Marked sent · housekeeping told", service.linenSent(id));
     }
 
     @PostMapping("/minibar")

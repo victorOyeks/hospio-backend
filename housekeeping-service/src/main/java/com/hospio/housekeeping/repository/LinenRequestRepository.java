@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface LinenRequestRepository extends JpaRepository<LinenRequest, String> {
     List<LinenRequest> findByHotelIdAndStatusOrderByCreatedAt(String hotelId, String status);
+
+    List<LinenRequest> findTop30ByHotelIdAndStatusOrderBySentAtDesc(String hotelId, String status);
 }

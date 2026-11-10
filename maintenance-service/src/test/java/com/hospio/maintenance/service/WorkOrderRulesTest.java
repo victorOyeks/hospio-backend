@@ -152,4 +152,29 @@ class WorkOrderRulesTest {
         r.setCreatedAt(T0);
         return r;
     }
+
+    // ---- housekeeping "Report a problem" ------------------------------------------------------------
+
+    @Test
+    void aReportedRoomWithAGuestInIsRefusedInWords() {
+        assertThat(WorkOrderRules.guestInRefusal("104", "Ada Obi")).isEqualTo(
+                "Room 104 has a guest checked in (Ada Obi) · it can't go out of order · send the report without taking it out of order, or move the guest first");
+    }
+
+    @Test
+    void theFrontOfficeHearsOfUrgentOrOutOfOrderRoomsOnly() {
+        assertThat(WorkOrderRules.reportedProblemRoles(true, false, "r1")).containsExactly("FRONT_OFFICE");
+        assertThat(WorkOrderRules.reportedProblemRoles(true, true, "r1")).containsExactly("FRONT_OFFICE");
+        assertThat(WorkOrderRules.reportedProblemRoles(false, true, "r1")).containsExactly("FRONT_OFFICE", "MANAGER");
+        assertThat(WorkOrderRules.reportedProblemRoles(false, false, "r1")).isEmpty();
+        assertThat(WorkOrderRules.reportedProblemRoles(true, true, null)).isEmpty();
+    }
+
+    @Test
+    void housekeepingWithEditMayTakeAReportedRoomOutOfOrder() {
+        assertThat(WorkOrderAccess.canReportOutOfOrder(user("x", Map.of(Role.HOUSEKEEPING, AccessLevel.EDIT)))).isTrue();
+        assertThat(WorkOrderAccess.canReportOutOfOrder(user("x", Map.of(Role.HOUSEKEEPING, AccessLevel.VIEW)))).isFalse();
+        assertThat(WorkOrderAccess.canReportOutOfOrder(user("x", Map.of(Role.FRONT_OFFICE, AccessLevel.FULL)))).isFalse();
+        assertThat(WorkOrderAccess.canReportOutOfOrder(user("x", Map.of(Role.MAINTENANCE, AccessLevel.EDIT)))).isTrue();
+    }
 }

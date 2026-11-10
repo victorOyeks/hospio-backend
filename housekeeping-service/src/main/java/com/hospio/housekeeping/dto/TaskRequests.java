@@ -27,13 +27,30 @@ public final class TaskRequests {
     public record ChecklistRequest(String checklist) {
     }
 
-    public record SkipRequest(@NotBlank String reason) {
+    /** Can't clean: why, and optionally when to try again ("HH:mm", hotel time). */
+    public record SkipRequest(@NotBlank String reason,
+                              @jakarta.validation.constraints.Pattern(regexp = "^([01]\\d|2[0-3]):[0-5]\\d$", message = "Pick a time like 15:00") String retryAt) {
+        public SkipRequest(String reason) {
+            this(reason, null);
+        }
+    }
+
+    /** My rooms → "Note for the supervisor": blank clears it. */
+    public record NoteRequest(@jakarta.validation.constraints.Size(max = 500, message = "Keep the note under 500 characters") String note) {
     }
 
     public record InspectRequest(boolean passed, String note) {
     }
 
-    public record ProblemRequest(String roomId, String roomNumber, @NotBlank String description, String photoKey) {
+    /**
+     * Report a problem: a work order in maintenance. {@code priority} LOW, NORMAL (default) or URGENT; {@code outOfOrder} takes the room
+     * out of order with it (a room only, refused while a guest is checked in).
+     */
+    public record ProblemRequest(String roomId, String roomNumber, @NotBlank String description, String photoKey, String priority,
+                                 Boolean outOfOrder) {
+        public ProblemRequest(String roomId, String roomNumber, String description, String photoKey) {
+            this(roomId, roomNumber, description, photoKey, null, null);
+        }
     }
 
     public record LinenRequestDto(String roomId, String roomNumber, @NotBlank String items) {
