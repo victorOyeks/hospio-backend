@@ -62,7 +62,7 @@ public class ExpenseQueryService {
             throw new BadRequestException("tab is one of all, " + String.join(", ", TABS));
         }
         Expense.Status status = parseStatus(f.status());
-        Specification<Expense> base = base(f);
+        Specification<Expense> base = base(f, spellings(f.category()));
         Specification<Expense> spec = base;
         if (tab != null && !"all".equals(tab)) {
             spec = spec.and(tab(tab));
@@ -137,13 +137,28 @@ public class ExpenseQueryService {
         };
     }
 
-    private static Specification<Expense> base(Filter f) {
+    /**
+     * Every stored spelling of the category asked for: the hotel's expenses carry codes (FUEL_AND_POWER), older ones the label
+     * ("Fuel & power") or a staff screen's code, and all of them normalise to one key. Null when no category is asked for.
+     */
+    private List<String> spellings(String category) {
+        if (!StringUtils.hasText(category)) {
+            return null;
+        }
+        String code = ExpenseCategories.codeOf(category);
+        List<String> out = new ArrayList<>(expenses.distinctCategories(TenantContext.requireHotel()).stream()
+                .filter(c -> ExpenseCategories.codeOf(c).equals(code)).toList());
+        out.add(category.trim());
+        return out;
+    }
+
+    private static Specification<Expense> base(Filter f, List<String> categories) {
         String hotel = TenantContext.requireHotel();
         return (r, query, cb) -> {
             List<Predicate> ps = new ArrayList<>();
             ps.add(cb.equal(r.get("hotelId"), hotel));
-            if (StringUtils.hasText(f.category())) {
-                ps.add(cb.equal(r.get("category"), f.category().trim()));
+            if (categories != null) {
+                ps.add(r.get("category").in(categories));
             }
             if (StringUtils.hasText(f.q())) {
                 String like = Paging.like(f.q());

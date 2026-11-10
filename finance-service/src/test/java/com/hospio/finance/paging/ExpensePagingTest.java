@@ -126,6 +126,12 @@ class ExpensePagingTest {
         }
         assertThat(query.page(new ExpenseQueryService.Filter("approval", null, null, null, null, null), 0, 25, null).totalElements()).isEqualTo(2);
         assertThat(query.page(new ExpenseQueryService.Filter(null, null, "Fuel & power", null, null, null), 0, 25, null).totalElements()).isEqualTo(2);
+        // the category's code finds the expenses typed with its label, and the other way round
+        expenses.saveAndFlush(Expense.builder().businessId("b1").hotelId("h1").category("FUEL_AND_POWER").amount(BigDecimal.ONE)
+                .description("QA PG coded").paidFrom("CASH").expenseDate(LocalDate.now()).status(Expense.Status.RECORDED).build());
+        assertThat(query.page(new ExpenseQueryService.Filter(null, null, "FUEL_AND_POWER", null, null, null), 0, 25, null).totalElements()).isEqualTo(3);
+        assertThat(query.page(new ExpenseQueryService.Filter(null, null, "fuel & power", null, null, null), 0, 25, null).totalElements()).isEqualTo(3);
+        expenses.deleteAll(expenses.findAll().stream().filter(e -> "QA PG coded".equals(e.getDescription())).toList());
         PageWithCounts<Expense> searched = query.page(new ExpenseQueryService.Filter(null, null, null, "expense 2", null, null), 0, 25, null);
         assertThat(searched.totalElements()).isEqualTo(8); // 2, 20-26
         assertThat(searched.totals().get("matching")).isEqualByComparingTo("800");
