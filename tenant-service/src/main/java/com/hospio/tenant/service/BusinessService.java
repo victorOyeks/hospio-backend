@@ -9,7 +9,8 @@ import com.hospio.common.kafka.KafkaTopics;
 import com.hospio.common.kafka.events.BusinessCreatedEvent;
 import com.hospio.common.kafka.events.BusinessStageChangedEvent;
 import com.hospio.common.kafka.events.HotelCreatedEvent;
-import com.hospio.common.response.PagedResponse;
+import com.hospio.common.paging.Paging;
+import com.hospio.common.response.PageWithCounts;
 import com.hospio.common.security.CurrentUser;
 import com.hospio.common.security.HospioUserDetails;
 import com.hospio.common.tenancy.TenantContext;
@@ -37,12 +38,12 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -67,24 +68,50 @@ public class BusinessService {
 
     // ---- platform: list, read, create, edit ---------------------------------------------------------
 
+    /** The sort fields the businesses list takes; name (A to Z) by default. */
+    static final Map<String, String> SORTS = Map.of("name", "name", "createdAt", "createdAt", "stage", "stage", "city", "city");
+
+    /**
+     * Platform admin · Businesses: one page (size 1 to 100, 25 by default), filtered by stage and searched by name, owner, email or
+     * city in the database. {@code counts} has every stage (and {@code all}) for the search, without the stage filter, plus
+     * {@code hotels} and {@code rooms} across those businesses, so the tabs and the header read the same on every page.
+     */
     @Transactional(readOnly = true)
-    public PagedResponse<BusinessSummary> search(Business.Stage stage, String q, int page, int size) {
+    public PageWithCounts<BusinessSummary> search(Business.Stage stage, String q, Integer page, Integer size, String sort) {
         requirePlatform();
-        Specification<Business> spec = (root, query, cb) -> {
+        Sort order = Paging.sort(sort, SORTS, Sort.by(Sort.Direction.ASC, "name").and(Sort.by("id")));
+        Page<Business> result = businesses.findAll(spec(stage, q), Paging.of(page, size, order));
+        Map<String, Long> counts = new LinkedHashMap<>();
+        long all = 0;
+        for (Business.Stage s : Business.Stage.values()) {
+            long n = businesses.count(spec(s, q));
+            counts.put(s.name(), n);
+            all += n;
+        }
+        counts.put("all", all);
+        Object[] hr = hotels.hotelsAndRooms(StringUtils.hasText(q) ? Paging.like(q) : "").get(0);
+        counts.put("hotels", ((Number) hr[0]).longValue());
+        counts.put("rooms", ((Number) hr[1]).longValue());
+        List<String> ids = result.getContent().stream().map(Business::getId).toList();
+        Map<String, List<Hotel>> hotelsOf = ids.isEmpty() ? Map.of()
+                : hotels.findByBusinessIdIn(ids).stream().collect(java.util.stream.Collectors.groupingBy(Hotel::getBusinessId));
+        Map<String, String> managers = identityClient.names(result.getContent().stream().map(Business::getAccountManagerId).filter(id -> id != null).distinct().toList());
+        return PageWithCounts.of(result, b -> toSummary(b, hotelsOf.getOrDefault(b.getId(), List.of()), managers), counts, Map.of());
+    }
+
+    static Specification<Business> spec(Business.Stage stage, String q) {
+        return (root, query, cb) -> {
             List<Predicate> ps = new ArrayList<>();
             if (stage != null) {
                 ps.add(cb.equal(root.get("stage"), stage));
             }
             if (StringUtils.hasText(q)) {
-                String like = "%" + q.trim().toLowerCase(Locale.ROOT) + "%";
-                ps.add(cb.or(cb.like(cb.lower(root.get("name")), like), cb.like(cb.lower(root.get("ownerName")), like),
-                        cb.like(cb.lower(root.get("ownerEmail")), like), cb.like(cb.lower(root.get("city")), like)));
+                String like = Paging.like(q);
+                ps.add(cb.or(cb.like(cb.lower(root.get("name")), like, '\\'), cb.like(cb.lower(root.get("ownerName")), like, '\\'),
+                        cb.like(cb.lower(root.get("ownerEmail")), like, '\\'), cb.like(cb.lower(root.get("city")), like, '\\')));
             }
             return cb.and(ps.toArray(new Predicate[0]));
         };
-        Page<Business> result = businesses.findAll(spec, PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100), Sort.by("name")));
-        Map<String, String> managers = identityClient.names(result.getContent().stream().map(Business::getAccountManagerId).filter(id -> id != null).toList());
-        return PagedResponse.of(result, b -> toSummary(b, managers));
     }
 
     // ---- internal: what platform-service asks for ---------------------------------------------------
@@ -408,7 +435,10 @@ public class BusinessService {
 
     /** {@code lastActiveAt} stays null: activity lives in platform-service, which fills it from its own log. */
     private BusinessSummary toSummary(Business b, Map<String, String> managerNames) {
-        List<Hotel> hs = hotels.findByBusinessIdOrderByName(b.getId());
+        return toSummary(b, hotels.findByBusinessIdOrderByName(b.getId()), managerNames);
+    }
+
+    private BusinessSummary toSummary(Business b, List<Hotel> hs, Map<String, String> managerNames) {
         int rooms = hs.stream().mapToInt(Hotel::getRoomCount).sum();
         return new BusinessSummary(b.getId(), b.getName(), b.getStage(), b.getSource(), b.getCity(), hs.size(), rooms,
                 b.getOwnerName(), b.getOwnerEmail(), b.getAccountManagerId(), managerNames.get(b.getAccountManagerId()), b.getMarketerId(),

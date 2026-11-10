@@ -2,7 +2,7 @@ package com.hospio.tenant.controller;
 
 import com.hospio.common.response.ApiResponse;
 import com.hospio.common.tenancy.TenantContext;
-import com.hospio.common.response.PagedResponse;
+import com.hospio.common.response.PageWithCounts;
 import com.hospio.tenant.dto.BusinessResponse;
 import com.hospio.tenant.dto.BusinessSummary;
 import com.hospio.tenant.dto.CreateBusinessRequest;
@@ -84,14 +84,16 @@ public class BusinessController {
     }
 
     /** Platform admin C1-C4, C10, C11. */
-    @Operation(summary = "Platform: businesses, paged, filtered by stage and searched by name, owner or city")
+    @Operation(summary = "Platform: businesses, paged (page from 0, size 1 to 100, 25 by default; sort name|createdAt|stage|city[,asc|desc]), "
+            + "filtered by stage and searched by name, owner, email or city; counts per stage, hotels and rooms over the search")
     @GetMapping("/businesses")
     @PreAuthorize("@access.platform()")
-    public ApiResponse<PagedResponse<BusinessSummary>> list(@RequestParam(required = false) Business.Stage stage,
+    public ApiResponse<PageWithCounts<BusinessSummary>> list(@RequestParam(required = false) Business.Stage stage,
                                                              @RequestParam(required = false) String q,
-                                                             @RequestParam(defaultValue = "0") int page,
-                                                             @RequestParam(defaultValue = "20") int size) {
-        return ApiResponse.ok(service.search(stage, q, page, size));
+                                                             @RequestParam(required = false) Integer page,
+                                                             @RequestParam(required = false) Integer size,
+                                                             @RequestParam(required = false) String sort) {
+        return ApiResponse.ok(service.search(stage, q, page, size, sort));
     }
 
     @GetMapping("/businesses/{id}")

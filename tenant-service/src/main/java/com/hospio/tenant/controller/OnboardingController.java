@@ -1,5 +1,6 @@
 package com.hospio.tenant.controller;
 
+import com.hospio.common.paging.Paging;
 import com.hospio.common.response.ApiResponse;
 import com.hospio.tenant.dto.BusinessResponse;
 import com.hospio.tenant.dto.HandoverResponse;
@@ -29,10 +30,16 @@ public class OnboardingController {
 
     private final OnboardingService service;
 
-    @Operation(summary = "Platform: the onboarding board, every draft or those in one status")
+    @Operation(summary = "Platform: the onboarding board, every draft or those in one status, latest saved first. With page or size "
+            + "(page from 0, size 1 to 100, 25 by default) one page plus counts per status; without either, the whole list as before")
     @GetMapping("/onboarding")
     @PreAuthorize("@access.platform()")
-    public ApiResponse<List<OnboardingResponse>> list(@RequestParam(required = false) OnboardingDraft.Status status) {
+    public ApiResponse<?> list(@RequestParam(required = false) OnboardingDraft.Status status,
+                               @RequestParam(required = false) Integer page,
+                               @RequestParam(required = false) Integer size) {
+        if (Paging.requested(page, size)) {
+            return ApiResponse.ok(service.page(status, page, size));
+        }
         return ApiResponse.ok(service.list(status));
     }
 

@@ -65,6 +65,26 @@ public class OnboardingService {
         return listInternal(status);
     }
 
+    /** One page of the board (latest saved first) with counts per status (and {@code all}) for the tabs and column headers. */
+    @Transactional(readOnly = true)
+    public com.hospio.common.response.PageWithCounts<OnboardingResponse> page(OnboardingDraft.Status status, Integer page, Integer size) {
+        requirePlatform();
+        org.springframework.data.domain.Pageable pageable = com.hospio.common.paging.Paging.of(page, size,
+                org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "updatedAt").and(
+                        org.springframework.data.domain.Sort.by("id")));
+        org.springframework.data.domain.Page<OnboardingDraft> result = status == null ? drafts.findAllBy(pageable) : drafts.findByStatus(status, pageable);
+        Map<String, String> names = identityClient.names(result.getContent().stream().map(OnboardingDraft::getAssignedTo).filter(a -> a != null).distinct().toList());
+        Map<String, Long> counts = new java.util.LinkedHashMap<>();
+        long all = 0;
+        for (OnboardingDraft.Status s : OnboardingDraft.Status.values()) {
+            long n = drafts.countByStatus(s);
+            counts.put(s.name(), n);
+            all += n;
+        }
+        counts.put("all", all);
+        return com.hospio.common.response.PageWithCounts.of(result, d -> toResponse(d, names), counts, Map.of());
+    }
+
     /** The same board for platform-service (stalled-onboarding alerts); the internal key is the guard. */
     @Transactional(readOnly = true)
     public List<OnboardingResponse> listInternal(OnboardingDraft.Status status) {
