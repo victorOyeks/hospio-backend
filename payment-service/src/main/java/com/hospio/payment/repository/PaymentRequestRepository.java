@@ -22,6 +22,10 @@ public interface PaymentRequestRepository extends JpaRepository<PaymentRequest, 
     List<PaymentRequest> findByFolioIdOrderByCreatedAtDesc(String folioId);
     List<PaymentRequest> findByBookingIdOrderByCreatedAtDesc(String bookingId);
 
+    List<PaymentRequest> findByOrderIdAndStatusOrderByCreatedAtAsc(String orderId, PaymentStatus status);
+
+    List<PaymentRequest> findByFolioIdAndStatusOrderByCreatedAtAsc(String folioId, PaymentStatus status);
+
     Optional<PaymentRequest> findByProviderRef(String providerRef);
 
     List<PaymentRequest> findByHotelIdAndStatusIn(String hotelId, Collection<PaymentStatus> statuses);

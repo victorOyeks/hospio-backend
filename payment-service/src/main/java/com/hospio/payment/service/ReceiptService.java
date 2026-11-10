@@ -65,6 +65,65 @@ public class ReceiptService {
         return new Resent(receipt.getNumber(), delivery.to(), delivery.channel().name(), echoed);
     }
 
+    // ---- printable and emailed receipts ---------------------------------------------------------------
+
+    /** One payment's receipt, for the receipt page. The payment must be approved and belong to the caller's hotel. */
+    @Transactional(readOnly = true)
+    public ReceiptViews.ReceiptView view(String paymentId) {
+        PaymentRequest p = payments.findById(paymentId).orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
+        sameHotel(p);
+        if (p.getStatus() != PaymentStatus.APPROVED) {
+            throw new BadRequestException("Only an approved payment has a receipt");
+        }
+        Receipt r = receipts.findByPaymentId(p.getId()).orElseThrow(() -> new BadRequestException("This payment has no receipt yet"));
+        return ReceiptViews.ReceiptView.of(p, r);
+    }
+
+    /** Every receipt of a bar or kitchen sale (orderId) or a stay's folio (folioId), oldest first. */
+    @Transactional(readOnly = true)
+    public List<ReceiptViews.ReceiptView> forRef(String orderId, String folioId) {
+        if (blank(orderId) == blank(folioId)) {
+            throw new BadRequestException("Say whose receipts: a sale (orderId) or a folio (folioId)");
+        }
+        List<PaymentRequest> list = !blank(orderId) ? payments.findByOrderIdAndStatusOrderByCreatedAtAsc(orderId, PaymentStatus.APPROVED)
+                : payments.findByFolioIdAndStatusOrderByCreatedAtAsc(folioId, PaymentStatus.APPROVED);
+        String hotel = com.hospio.common.tenancy.TenantContext.current().map(t -> t.hotelId()).orElse(null);
+        return list.stream().filter(p -> hotel == null || hotel.equals(p.getHotelId()))
+                .flatMap(p -> receipts.findByPaymentId(p.getId()).map(r -> ReceiptViews.ReceiptView.of(p, r)).stream()).toList();
+    }
+
+    /** Email receipt: the receipt (one payment, a sale's or a folio's) goes to the address given, as the screen printed it. */
+    @Transactional
+    public ReceiptViews.Emailed email(ReceiptViews.EmailRequest request) {
+        ReceiptViews.exactlyOne(request);
+        String to = ReceiptViews.checkEmail(request.to());
+        List<ReceiptViews.ReceiptView> views = !blank(request.paymentId()) ? List.of(view(request.paymentId()))
+                : forRef(request.orderId(), request.folioId());
+        if (views.isEmpty()) {
+            throw new BadRequestException(!blank(request.orderId()) ? "This sale has no paid receipt yet" : "This folio has no payment with a receipt yet");
+        }
+        ReceiptViews.ReceiptView first = views.get(0);
+        String text = ReceiptViews.text(request.text(), views, first.guestName());
+        String numbers = String.join(",", views.stream().map(ReceiptViews.ReceiptView::number).toList());
+        List<Delivery> echoed = deliveries.send(Delivery.email(to, ReceiptViews.subject(views), text,
+                !blank(request.folioId()) ? Delivery.Kind.FOLIO : Delivery.Kind.RECEIPT, numbers.length() > 100 ? first.number() : numbers));
+        for (ReceiptViews.ReceiptView v : views) {
+            receipts.findByPaymentId(v.paymentId()).ifPresent(r -> {
+                r.setSentTo(to);
+                r.setSentVia("EMAIL");
+                receipts.save(r);
+            });
+        }
+        return new ReceiptViews.Emailed(views.stream().map(ReceiptViews.ReceiptView::number).toList(), to, echoed);
+    }
+
+    private static void sameHotel(PaymentRequest p) {
+        String hotel = com.hospio.common.tenancy.TenantContext.current().map(t -> t.hotelId()).orElse(null);
+        if (hotel != null && p.getHotelId() != null && !p.getHotelId().equals(hotel)) {
+            throw new ResourceNotFoundException("Payment not found");
+        }
+    }
+
     private static boolean blank(String s) {
         return s == null || s.isBlank();
     }

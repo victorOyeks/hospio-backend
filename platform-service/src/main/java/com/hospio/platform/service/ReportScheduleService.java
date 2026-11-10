@@ -69,6 +69,10 @@ public class ReportScheduleService {
     private final NameResolver names;
     private final BusinessNames businesses;
 
+    /** The hotel app's address, so an emailed link opens the report (blank in unit tests: links stay relative). */
+    @org.springframework.beans.factory.annotation.Value("${hospio.apps.hotel-url:}")
+    private String hotelUrl = "";
+
     public record Run(Report report, List<Delivery> deliveries) {
     }
 
@@ -180,9 +184,63 @@ public class ReportScheduleService {
         List<Delivery> out = new ArrayList<>();
         names.contact(schedule.getRequestedBy()).filter(c -> StringUtils.hasText(c.email())).ifPresent(c -> out.add(Delivery.email(c.email(), title,
                 "Hello " + c.fullName() + ",\n\nYour " + schedule.getName().toLowerCase(Locale.ROOT) + " for " + label + " is ready.\n\n"
-                        + "Open it in Hospio360: Reports → " + schedule.getName() + " (" + link(schedule, period, schedule.getHotelId()) + ").\n",
+                        + "Open it in Hospio360: Reports → " + schedule.getName() + "\n\n" + absolute(link(schedule, period, schedule.getHotelId())) + "\n",
                 Delivery.Kind.DAILY_REPORT, ready.getId())));
         return new Run(ready, deliveries.send(out));
+    }
+
+    public record Emailed(String to, List<Delivery> deliveries) {
+    }
+
+    /**
+     * "Email me" on the Reports screen: the caller gets an email with a link that opens the same report (kind, period, hotel)
+     * in the app. A manager's report is for one of their hotels; no attachment (docs/email.md), the link builds it from live data.
+     */
+    public Emailed emailMe(OwnerRequests.ReportEmail request) {
+        HospioUserDetails user = caller();
+        String kind = request.kind() == null ? "" : request.kind().trim().toUpperCase(Locale.ROOT);
+        if (!CATALOGUE.containsKey(kind)) {
+            throw new BadRequestException("Unknown report " + request.kind() + ". Pick one of: " + String.join(", ", CATALOGUE.values()));
+        }
+        LocalDate from;
+        LocalDate to;
+        try {
+            from = LocalDate.parse(request.from());
+            to = LocalDate.parse(request.to());
+        } catch (RuntimeException e) {
+            throw new BadRequestException("The period is two dates like 2026-11-01");
+        }
+        if (from.isAfter(to)) {
+            throw new BadRequestException("The start date is after the end date");
+        }
+        String hotelId = StringUtils.hasText(request.hotelId()) ? request.hotelId() : null;
+        if (hotelId != null && !user.getHotelIds().contains(hotelId)) {
+            throw new ForbiddenException("That hotel is not one of yours");
+        }
+        if (hotelId == null && !user.has(Role.OWNER)) {
+            hotelId = TenantContext.requireHotel();
+        }
+        IdentityContact me = names.contact(user.getUserId()).map(c -> new IdentityContact(c.fullName(), c.email()))
+                .filter(c -> StringUtils.hasText(c.email()))
+                .orElseThrow(() -> new BadRequestException("Your account has no email address to send the report to"));
+        String name = CATALOGUE.get(kind);
+        String label = periodLabel(from, to);
+        String link = "/reports?report=" + kind + "&from=" + from + "&to=" + to + (hotelId == null ? "" : "&hotel=" + hotelId);
+        Delivery d = Delivery.email(me.email(), name + " · " + label,
+                "Hello " + me.fullName() + ",\n\nHere is the " + name.toLowerCase(Locale.ROOT) + " for " + label + ". It opens in Hospio360, built from "
+                        + "live data, where you can read it or download it as CSV.\n\n" + absolute(link) + "\n",
+                Delivery.Kind.REPORT, kind + ":" + from + ":" + to);
+        return new Emailed(me.email(), deliveries.send(List.of(d)));
+    }
+
+    private record IdentityContact(String fullName, String email) {
+    }
+
+    String absolute(String path) {
+        if (!StringUtils.hasText(hotelUrl)) {
+            return path;
+        }
+        return hotelUrl.replaceAll("/+$", "") + "/dashboard" + path;
     }
 
     private List<String> hotelsOf(Report schedule) {

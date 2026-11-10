@@ -22,6 +22,9 @@ public final class OwnerRequests {
      * (last month, on the 1st) at {@code sendAt} Lagos time; {@code hotelId} null for every hotel; {@code managers} also
      * sends each hotel's managers their own hotel.
      */
+    public record ReportEmail(@NotBlank String kind, @NotBlank String from, @NotBlank String to, String hotelId) {
+    }
+
     public record ReportSchedule(@NotBlank String kind, @NotBlank String every, @NotBlank String sendAt, String hotelId, Boolean managers) {
     }
 }

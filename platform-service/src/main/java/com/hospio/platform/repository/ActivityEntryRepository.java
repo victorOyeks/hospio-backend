@@ -10,7 +10,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface ActivityEntryRepository extends JpaRepository<ActivityEntry, String> {
+public interface ActivityEntryRepository extends JpaRepository<ActivityEntry, String>,
+        org.springframework.data.jpa.repository.JpaSpecificationExecutor<ActivityEntry> {
     Optional<ActivityEntry> findByEventId(String eventId);
 
     Page<ActivityEntry> findByHotelIdOrderByOccurredAtDesc(String hotelId, Pageable pageable);
