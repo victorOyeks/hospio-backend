@@ -124,6 +124,16 @@ A message's status: `QUEUED` → `SENT` or `FAILED` (email, following its delive
 Bookings also tell the guest: a confirmation on create (`BOOKING_CONFIRMATION`), the new dates on a change, and a
 cancellation, each by email when the guest has one and as a WhatsApp copy (not sent) when they have a phone.
 
+## Receipts
+
+- On an approved payment (`PaymentApproved`), messaging-service sends the receipt by email when the payment carries a guest
+  email (sent for real), else a WhatsApp copy that is recorded, not sent. `receiptPreference` NONE (the screen's "Don't
+  send" / Print) or NEVER sends nothing.
+- "Email receipt again" (`POST /payment/payments/{id}/receipt/resend`) is email only: a guest with only a phone is refused
+  400 "This guest has no email · print the receipt or email it from the receipt page (WhatsApp receipts are coming soon)".
+- `POST /payment/receipts/email` sends a payment's, a sale's or a folio's receipts to the address given (the take-payment
+  screen uses it after the payment is approved).
+
 ## Per-user email preferences
 
 Profile → Notification settings keeps email on or off per category for each person: `bookings`, `approvals`, `money`,

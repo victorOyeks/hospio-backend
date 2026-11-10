@@ -107,10 +107,10 @@ For Royal Suites · Simpas Ikeja (missing rows only): "Main store" (MAIN, id `80
 - Manager and owner: Inventory is the same set of screens behind tabs, plus approving counts; purchase-order approvals arrive on Approvals.
 - Finance: the financials overview shows stock value and last-30-days stock used.
 - Kitchen store and Bar stock keep working (ask the store, use/waste, end-of-night count; their requests list shows issued/declined with the reason).
+- Housekeeping, laundry and maintenance ask the store from their own screens (Housekeeping store, Laundry store, Maintenance store), on the same `/requests` routes.
 
 ## Known limits
 - Cancelling an order that is waiting for approval leaves the approval on the approver's list; deciding it later does nothing.
 - Units are free text; there is no unit conversion (a carton is not 24 bottles).
 - A settled order's stock draw (restaurant & bar) is not reversed when the order is cancelled afterwards.
-- Housekeeping, laundry and maintenance have no ask-the-store screen yet; the API takes their requests.
 - Counts and orders stored before this release (old line format) carry no expected quantities.
