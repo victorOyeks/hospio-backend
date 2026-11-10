@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, String> {
+public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, String>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<PurchaseOrder> {
     List<PurchaseOrder> findByHotelIdOrderByCreatedAtDesc(String hotelId);
 
     Optional<PurchaseOrder> findByApprovalId(String approvalId);
