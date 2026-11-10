@@ -221,4 +221,22 @@ class SalesHistoryServiceTest {
         assertThat(SalesHistoryService.cell("say \"hi\"")).isEqualTo("\"say \"\"hi\"\"\"");
         assertThat(SalesHistoryService.cell(null)).isEmpty();
     }
+
+    @Test
+    void theListIsPagedOnTheServer25AtATimeWithTotalsOverEveryPage() {
+        signIn("m1", Map.of(Role.MANAGER, AccessLevel.FULL));
+        when(query.count(any())).thenReturn(48L);
+        SalesHistory first = service.history(params(null, null));
+        verify(query).pageIds(any(), org.mockito.ArgumentMatchers.eq(0), org.mockito.ArgumentMatchers.eq(25));
+        assertThat(first.size()).isEqualTo(25);
+        assertThat(first.matching()).isEqualTo(48);
+        service.history(new SalesHistoryService.Params(LocalDate.of(2026, 11, 9), null, null, null, null, null, null, null, null, 1, null));
+        verify(query).pageIds(any(), org.mockito.ArgumentMatchers.eq(1), org.mockito.ArgumentMatchers.eq(25));
+        // Totals and breakdowns are asked for the filter, never for a page.
+        ArgumentCaptor<SalesHistoryQuery.Filter> f = ArgumentCaptor.forClass(SalesHistoryQuery.Filter.class);
+        verify(query, org.mockito.Mockito.times(2)).totals(f.capture());
+        assertThat(f.getAllValues().get(0)).isEqualTo(f.getAllValues().get(1));
+        assertThatThrownBy(() -> service.history(new SalesHistoryService.Params(null, null, null, null, null, null, null, null, null, 0, 101)))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("size is 1 to 100");
+    }
 }

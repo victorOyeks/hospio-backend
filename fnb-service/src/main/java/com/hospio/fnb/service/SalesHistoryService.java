@@ -115,7 +115,7 @@ public class SalesHistoryService {
     public SalesHistory history(Params p) {
         Scope s = scope(p.desk());
         Resolved r = resolve(s, p, false);
-        int size = p.size() == null ? 50 : p.size();
+        int size = p.size() == null ? 25 : p.size();
         if (size < 1 || size > MAX_PAGE_SIZE) {
             throw new BadRequestException("size is 1 to " + MAX_PAGE_SIZE);
         }
