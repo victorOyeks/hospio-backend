@@ -98,8 +98,8 @@ public class DataSeeder implements ApplicationRunner {
     /** The main store with back stock of every kitchen and bar item plus housekeeping supplies, and three suppliers linked to them. */
     private int mainStoreAndSuppliers() {
         int created = store(MAIN_STORE_ID, "Main store", "MAIN");
-        created += supplier(FRESH_FOODS, "Lagos Fresh Foods", "Bisi Adeyemi", "0803 555 0101", "orders@lagosfreshfoods.ng", "7 days");
-        created += supplier(DRINKS_DEPOT, "Ikeja Drinks Depot", "Emeka Obi", "0805 555 0202", "sales@ikejadrinks.ng", "Pay on delivery");
+        created += supplier(FRESH_FOODS, "Lagos Fresh Foods", "Bisi Adeyemi", "0803 555 0101", "orders.lagosfreshfoods@hospio-qa.test", "7 days");
+        created += supplier(DRINKS_DEPOT, "Ikeja Drinks Depot", "Emeka Obi", "0805 555 0202", "sales.ikejadrinks@hospio-qa.test", "Pay on delivery");
         created += supplier(CLEANPRO, "CleanPro Supplies", "Funke Bello", "0807 555 0303", null, "14 days");
         for (Extra x : HOUSEKEEPING) {
             if (items.findById(x.id()).isEmpty()) {
