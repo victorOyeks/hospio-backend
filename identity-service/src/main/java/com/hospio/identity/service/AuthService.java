@@ -264,6 +264,8 @@ public class AuthService {
      */
     @Transactional
     public void setPin(String userId, SetPinRequest request) {
+        // The hotel the person is working in (X-Hotel-Id), so the activity line shows under it.
+        String workingHotel = TenantContext.current().map(Tenant::hotelId).orElse(null);
         TenantContext.runWith(Tenant.system("set-pin"), () -> {
             UserAccount user = users.findById(userId).orElseThrow(() -> new UnauthorizedException("Account not found"));
             if (!pinAllowed(user)) {
@@ -289,7 +291,9 @@ public class AuthService {
             user.setFailedPinAttempts(0);
             user.setLockedUntil(null);
             users.save(user);
-            devices.audit(null, "PIN_SET", user, change ? "changed" : "first PIN");
+            String hotel = workingHotel != null ? workingHotel : grants.findByUserId(user.getId()).stream()
+                    .map(com.hospio.identity.entity.RoleGrant::getHotelId).filter(java.util.Objects::nonNull).findFirst().orElse(null);
+            devices.audit(null, hotel, "PIN_SET", user, change ? "changed" : "first PIN");
         });
     }
 

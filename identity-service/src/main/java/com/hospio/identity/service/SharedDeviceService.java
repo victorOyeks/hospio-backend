@@ -226,7 +226,12 @@ public class SharedDeviceService {
 
     /** One activity log line under the device's hotel; {@code user} is the person the PIN belongs to. */
     void audit(SharedDevice device, String action, UserAccount user, String detail) {
-        SharedDeviceEvent.SharedDeviceEventBuilder<?, ?> e = SharedDeviceEvent.builder().action(action).detail(detail);
+        audit(device, null, action, user, detail);
+    }
+
+    /** {@code hotelId} places a line with no device (a PIN set) under the hotel the person works in. */
+    void audit(SharedDevice device, String hotelId, String action, UserAccount user, String detail) {
+        SharedDeviceEvent.SharedDeviceEventBuilder<?, ?> e = SharedDeviceEvent.builder().action(action).detail(detail).hotelId(hotelId);
         if (device != null) {
             e.deviceId(device.getId()).deviceName(device.getName()).businessId(device.getBusinessId()).hotelId(device.getHotelId());
         }
