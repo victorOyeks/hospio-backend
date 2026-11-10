@@ -1,5 +1,6 @@
 package com.hospio.identity.service;
 
+import com.hospio.common.enums.Role;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.exception.ForbiddenException;
 import com.hospio.common.exception.UnauthorizedException;
@@ -15,8 +16,10 @@ import com.hospio.identity.dto.PinLoginRequest;
 import com.hospio.identity.dto.RefreshTokenRequest;
 import com.hospio.identity.dto.SetPinRequest;
 import com.hospio.identity.entity.RefreshToken;
+import com.hospio.identity.entity.SharedDevice;
 import com.hospio.identity.entity.UserAccount;
 import com.hospio.identity.repository.RefreshTokenRepository;
+import com.hospio.identity.repository.RoleGrantRepository;
 import com.hospio.identity.repository.UserAccountRepository;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -28,8 +31,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Sign-in with email and password (owners, managers, admins) or with a PIN (staff on the shared
- * tablet), refresh, sign-out, and the password and PIN changes. Sign-in runs before any tenant is
+ * Sign-in with email and password (everyone) or with a PIN on a shared device set up at the person's hotel
+ * (docs/shared-devices.md), refresh, sign-out, device lock, and the password and PIN changes. Sign-in runs before any tenant is
  * known, so the lookups here are done as the platform.
  */
 @Slf4j
@@ -42,6 +45,8 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final TokenIssuer tokenIssuer;
     private final EventPublisher events;
+    private final RoleGrantRepository grants;
+    private final SharedDeviceService devices;
 
     @Value("${hospio.auth.pin-max-attempts:5}")
     private int pinMaxAttempts;
@@ -100,32 +105,103 @@ public class AuthService {
         });
     }
 
+    /**
+     * Unlock a shared device with a PIN (docs/shared-devices.md). Only on a device set up at the person's hotel, for a role they
+     * hold there; the session that comes back carries that hotel and their roles at it. Wrong PINs count against the person, not
+     * the device: the fifth locks their PIN for {@code pinLockMinutes} and tells their managers. Counted failures must survive
+     * the refusal, so these refusals don't roll the transaction back.
+     */
     @Transactional(noRollbackFor = UnauthorizedException.class)
-    public AuthResponse signInWithPin(PinLoginRequest request) {
+    public AuthResponse signInWithPin(String deviceToken, PinLoginRequest request) {
         return TenantContext.runWith(Tenant.system("pin-sign-in"), () -> {
-            UserAccount user = users.findByPhone(request.identifier())
-                    .or(() -> users.findByEmailIgnoreCase(request.identifier()))
-                    .orElseThrow(() -> new UnauthorizedException("We don't know that phone or email"));
-            if (user.isLocked()) {
-                throw new UnauthorizedException("Too many wrong PINs. Try again in a few minutes or ask your manager");
+            SharedDevice device = devices.requireDevice(deviceToken);
+            String id = request.identifier().trim();
+            UserAccount user = users.findById(id)
+                    .or(() -> users.findByPhone(id))
+                    .or(() -> users.findByEmailIgnoreCase(id))
+                    .filter(u -> device.getBusinessId().equals(u.getBusinessId()))
+                    .orElseThrow(() -> new UnauthorizedException("We don't know that person at this hotel"));
+            if (!pinAllowed(user)) {
+                throw new ForbiddenException("Owners sign in with email and password, not a PIN");
+            }
+            if (!devices.fitsDevice(user.getId(), device)) {
+                throw new ForbiddenException(user.getFullName() + " doesn't work on " + device.getName() + ". Sign in with email instead");
+            }
+            Instant now = Instant.now();
+            if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(now)) {
+                throw new UnauthorizedException(pinLockedMessage(user.getLockedUntil(), now));
             }
             if (user.getPinHash() == null) {
-                throw new BadRequestException("No PIN set yet. Sign in with your password first and set one");
+                throw new BadRequestException("No PIN set yet. Sign in with email, then set a PIN from your profile");
             }
             if (!passwordEncoder.matches(request.pin(), user.getPinHash())) {
-                user.setFailedPinAttempts(user.getFailedPinAttempts() + 1);
-                if (user.getFailedPinAttempts() >= pinMaxAttempts) {
-                    user.setLockedUntil(Instant.now().plus(pinLockMinutes, ChronoUnit.MINUTES));
+                int failures = user.getFailedPinAttempts() + 1;
+                if (failures >= pinMaxAttempts) {
                     user.setFailedPinAttempts(0);
+                    user.setLockedUntil(now.plus(pinLockMinutes, ChronoUnit.MINUTES));
+                    users.save(user);
+                    devices.audit(device, "PIN_LOCKED", user, pinMaxAttempts + " wrong tries, locked for " + pinLockMinutes + " minutes");
+                    devices.tellManagers(device, user.getFullName() + "'s PIN is locked",
+                            pinMaxAttempts + " wrong PINs on " + device.getName() + ". Their PIN works again in " + pinLockMinutes
+                                    + " minutes, or reset it from Staff");
+                    throw new UnauthorizedException("Wrong PIN. Your PIN is now locked for " + pinLockMinutes
+                            + " minutes. Sign in with email instead, or ask your manager");
                 }
+                user.setFailedPinAttempts(failures);
                 users.save(user);
-                throw new UnauthorizedException("Wrong PIN");
+                int left = pinMaxAttempts - failures;
+                devices.audit(device, "PIN_FAILED", user, failures + " of " + pinMaxAttempts);
+                throw new UnauthorizedException("Wrong PIN. " + left + (left == 1 ? " try" : " tries") + " left before your PIN is locked for "
+                        + pinLockMinutes + " minutes");
             }
-            user.setFailedPinAttempts(0);
-            user.setLockedUntil(null);
+            if (user.getFailedPinAttempts() > 0 || user.getLockedUntil() != null) {
+                user.setFailedPinAttempts(0);
+                user.setLockedUntil(null);
+                users.save(user);
+            }
             assertActive(user);
-            return finishSignIn(user, "pin");
+            user.setLastSignInAt(now);
+            users.save(user);
+            devices.used(device, user);
+            AuthResponse response = tokenIssuer.issueOnDevice(user, device.getHotelId(), device.getId());
+            events.publish(KafkaTopics.USER_SIGNED_IN, UserSignedInEvent.builder()
+                    .businessId(user.getBusinessId()).hotelId(device.getHotelId()).actorId(user.getId()).actorName(user.getFullName())
+                    .userId(user.getId()).method("PIN on " + device.getName()).build());
+            return response;
         });
+    }
+
+    /** Lock the device: the session's refresh token ends (the web drops its cookies and shows the lock screen). */
+    @Transactional
+    public void lockDevice(String deviceToken, String refreshToken, String reason) {
+        TenantContext.runWith(Tenant.system("device-lock"), () -> {
+            SharedDevice device = devices.findDevice(deviceToken).orElse(null);
+            if (refreshToken == null || refreshToken.isBlank()) {
+                return;
+            }
+            refreshTokens.findByTokenHash(Hashing.sha256(refreshToken)).ifPresent(token -> {
+                boolean wasOpen = token.getRevokedAt() == null;
+                if (wasOpen) {
+                    token.setRevokedAt(Instant.now());
+                    refreshTokens.save(token);
+                }
+                if (wasOpen && device != null && !device.isRevoked()) {
+                    users.findById(token.getUserId()).ifPresent(user -> devices.audit(device, "LOCKED", user,
+                            "idle".equalsIgnoreCase(reason) ? "idle " + device.getAutoLockMinutes() + " min" : "switch person"));
+                }
+            });
+        });
+    }
+
+    private static String pinLockedMessage(Instant until, Instant now) {
+        long minutes = Math.max(1, (long) Math.ceil(java.time.Duration.between(now, until).getSeconds() / 60.0));
+        return "Your PIN is locked for " + minutes + (minutes == 1 ? " more minute" : " more minutes")
+                + " after too many wrong tries. Sign in with email instead, or ask your manager";
+    }
+
+    /** No PINs for the owner or the platform: they sign in with email and password. */
+    boolean pinAllowed(UserAccount user) {
+        return !user.isPlatformAccount() && grants.findByUserId(user.getId()).stream().noneMatch(g -> g.getRole() == Role.OWNER);
     }
 
     @Transactional
@@ -140,6 +216,15 @@ public class AuthService {
             refreshTokens.save(token);
             UserAccount user = users.findById(token.getUserId()).orElseThrow(() -> new UnauthorizedException("Account not found"));
             assertActive(user);
+            if (token.getDeviceId() != null) {
+                // A PIN session: only while the device is still set up and the person still has a role that fits it.
+                SharedDevice device = devices.findById(token.getDeviceId()).filter(d -> !d.isRevoked())
+                        .orElseThrow(() -> new UnauthorizedException("This device is no longer a shared device. Sign in with email"));
+                if (!devices.fitsDevice(user.getId(), device)) {
+                    throw new UnauthorizedException("You no longer have a role on " + device.getName() + ". Ask your manager");
+                }
+                return tokenIssuer.issueOnDevice(user, device.getHotelId(), device.getId());
+            }
             return tokenIssuer.issue(user);
         });
     }
@@ -170,14 +255,30 @@ public class AuthService {
         });
     }
 
+    /**
+     * Set or change one's own PIN after a normal sign-in, with the password (docs/shared-devices.md): 4-6 digits, not trivial
+     * ({@link PinRules}), not the same as the PIN before, stored as a BCrypt hash. Owners and the platform have no PIN.
+     */
     @Transactional
     public void setPin(String userId, SetPinRequest request) {
         TenantContext.runWith(Tenant.system("set-pin"), () -> {
             UserAccount user = users.findById(userId).orElseThrow(() -> new UnauthorizedException("Account not found"));
+            if (!pinAllowed(user)) {
+                throw new ForbiddenException("Owners and H.M.S staff sign in with email and password. PINs are for staff on shared devices");
+            }
+            if (user.getPasswordHash() == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+                throw new BadRequestException("Your password is wrong");
+            }
+            PinRules.check(request.pin(), user.getPhone());
+            boolean change = user.getPinHash() != null;
+            if (change && passwordEncoder.matches(request.pin(), user.getPinHash())) {
+                throw new BadRequestException("That's your current PIN. Pick a new one");
+            }
             user.setPinHash(passwordEncoder.encode(request.pin()));
             user.setFailedPinAttempts(0);
             user.setLockedUntil(null);
             users.save(user);
+            devices.audit(null, "PIN_SET", user, change ? "changed" : "first PIN");
         });
     }
 

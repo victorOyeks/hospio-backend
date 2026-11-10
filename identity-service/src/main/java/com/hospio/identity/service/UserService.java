@@ -88,7 +88,7 @@ public class UserService {
                 active.stream().map(g -> new MeResponse.RoleLevel(g.getRole().name(), g.getLevel().name(), g.getHotelId())).toList(),
                 user.isPhoneVerified(), !user.isMustChangePassword(), user.isTwoStepEnabled(),
                 List.copyOf(hotelIds),
-                user.getCreatedAt());
+                user.getCreatedAt(), user.getPinHash() != null);
     }
 
     /**

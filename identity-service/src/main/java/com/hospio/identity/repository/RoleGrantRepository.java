@@ -15,6 +15,8 @@ public interface RoleGrantRepository extends JpaRepository<RoleGrant, String> {
 
     List<RoleGrant> findByBusinessId(String businessId);
 
+    List<RoleGrant> findByHotelId(String hotelId);
+
     List<RoleGrant> findByExpiresAtBefore(java.time.Instant now);
 
     Optional<RoleGrant> findByUserIdAndHotelIdAndRole(String userId, String hotelId, Role role);

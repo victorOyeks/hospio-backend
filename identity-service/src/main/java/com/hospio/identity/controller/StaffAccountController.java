@@ -48,6 +48,13 @@ public class StaffAccountController {
         return ApiResponse.ok("Paused", staff.pause(userId, request));
     }
 
+    @Operation(summary = "Clear a person's PIN (docs/shared-devices.md): they set a new one from their profile at their next sign-in")
+    @PostMapping("/{userId}/reset-pin")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<UserResponse> resetPin(@PathVariable String userId) {
+        return ApiResponse.ok("PIN reset", staff.resetPin(userId));
+    }
+
     @Operation(summary = "Lift a suspension or end a pause now")
     @PostMapping("/{userId}/reinstate")
     @PreAuthorize("@access.manager()")
