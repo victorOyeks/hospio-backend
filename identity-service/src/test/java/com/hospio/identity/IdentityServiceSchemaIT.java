@@ -31,7 +31,7 @@ class IdentityServiceSchemaIT {
 
     @Container
     @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine").withInitScript("identity-schema.sql");
 
     @Autowired
     JdbcTemplate jdbc;

@@ -40,13 +40,22 @@ public class UserController {
             + "their hotels' people. scope=platform lists the admin team instead (any platform admin; changes stay SUPER_ADMIN)")
     @GetMapping
     @PreAuthorize("@access.managerView()")
-    public ApiResponse<List<UserResponse>> list(@RequestParam(required = false) String scope,
-                                                @RequestParam(required = false) String businessId,
-                                                @RequestParam(required = false) String hotelId,
-                                                @RequestParam(required = false) Role role,
-                                                @RequestParam(required = false) String q) {
+    public ApiResponse<?> list(@RequestParam(required = false) String scope,
+                               @RequestParam(required = false) String businessId,
+                               @RequestParam(required = false) String hotelId,
+                               @RequestParam(required = false) Role role,
+                               @RequestParam(required = false) String q,
+                               @RequestParam(required = false) String status,
+                               @RequestParam(required = false) Integer page,
+                               @RequestParam(required = false) Integer size,
+                               @RequestParam(required = false) String sort) {
         if ("platform".equalsIgnoreCase(scope)) {
             return ApiResponse.ok(userService.listPlatform(q));
+        }
+        // With page or size: one page filtered and counted in the database (docs/pagination.md); without, the whole list as before
+        // (pickers, rotas and the roles screen read every person of a hotel).
+        if (com.hospio.common.paging.Paging.requested(page, size)) {
+            return ApiResponse.ok(userService.page(businessId, hotelId, role, status, q, page, size, sort));
         }
         return ApiResponse.ok(userService.list(businessId, hotelId, role, q));
     }

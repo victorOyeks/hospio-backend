@@ -645,4 +645,120 @@ public class UserService {
                 user.isPhoneVerified(), user.getLanguage(), user.getLastSignInAt(), user.getCreatedAt(), gs,
                 inviteStatus == null ? UserResponse.InviteStatus.NONE : inviteStatus).withAccount(user);
     }
+
+    // ---- paged (docs/pagination.md) -----------------------------------------------------------------------
+
+    static final Map<String, String> USER_SORTS = Map.of("fullName", "fullName", "email", "email", "createdAt", "createdAt",
+            "lastSignInAt", "lastSignInAt");
+
+    /**
+     * The Users / Staff list one page at a time, filtered in the database the same way as {@link #list}: the business (platform callers
+     * name it), managers only their hotels' people, then {@code hotelId}, {@code role}, {@code status} (ACTIVE, PAUSED, SUSPENDED; a pause
+     * that ran out reads ACTIVE) and {@code q} (name, email or phone). A to Z unless {@code sort}. {@code counts}: all, ACTIVE, PAUSED,
+     * SUSPENDED, MANAGER (people with a manager role), INVITE_PENDING and INVITE_EXPIRED, over every filter but the status.
+     */
+    @Transactional(readOnly = true)
+    public com.hospio.common.response.PageWithCounts<UserResponse> page(String businessId, String hotelId, Role role, String status, String q,
+                                                                        Integer page, Integer size, String sort) {
+        HospioUserDetails caller = CurrentUser.require();
+        String business;
+        if (caller.isPlatform()) {
+            if (!StringUtils.hasText(businessId)) {
+                throw new BadRequestException("Say which business to list (businessId)");
+            }
+            business = businessId;
+        } else {
+            business = TenantContext.requireBusiness();
+        }
+        String st = StringUtils.hasText(status) ? status.trim().toUpperCase(Locale.ROOT) : null;
+        if (st != null && !Set.of("ACTIVE", "PAUSED", "SUSPENDED").contains(st)) {
+            throw new BadRequestException("status is ACTIVE, PAUSED or SUSPENDED");
+        }
+        boolean managerOnly = !caller.isPlatform() && !caller.has(Role.OWNER);
+        Set<String> callerHotels = Set.copyOf(caller.getHotelIds());
+        org.springframework.data.domain.Sort order = com.hospio.common.paging.Paging.sort(sort, USER_SORTS,
+                org.springframework.data.domain.Sort.by("fullName").and(org.springframework.data.domain.Sort.by("id")));
+        org.springframework.data.domain.Page<UserAccount> result = users.findAll(
+                userSpec(business, managerOnly, callerHotels, hotelId, role, st, q, null),
+                com.hospio.common.paging.Paging.of(page, size, order));
+        Map<String, Long> counts = new java.util.LinkedHashMap<>();
+        counts.put("all", users.count(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, null)));
+        for (String s : List.of("ACTIVE", "PAUSED", "SUSPENDED")) {
+            counts.put(s, users.count(userSpec(business, managerOnly, callerHotels, hotelId, role, s, q, null)));
+        }
+        counts.put("MANAGER", users.count(userSpec(business, managerOnly, callerHotels, hotelId, Role.MANAGER, null, q, null)));
+        counts.put("INVITE_PENDING", users.count(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, UserResponse.InviteStatus.PENDING)));
+        counts.put("INVITE_EXPIRED", users.count(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, UserResponse.InviteStatus.EXPIRED)));
+        List<String> ids = result.getContent().stream().map(UserAccount::getId).toList();
+        Map<String, List<RoleGrant>> byUser = ids.isEmpty() ? Map.of()
+                : grants.findByUserIdIn(ids).stream().filter(g -> business.equals(g.getBusinessId())).collect(Collectors.groupingBy(RoleGrant::getUserId));
+        Map<String, UserResponse.InviteStatus> inviteStatus = invites.statusFor(ids);
+        return com.hospio.common.response.PageWithCounts.of(result,
+                u -> toResponse(u, byUser.getOrDefault(u.getId(), List.of()), inviteStatus.get(u.getId())), counts, Map.of());
+    }
+
+    /** The {@link #list} filters as a query: grants are this business's; a business-wide grant (no hotel) counts for every hotel. */
+    static org.springframework.data.jpa.domain.Specification<UserAccount> userSpec(String business, boolean managerOnly, Set<String> callerHotels,
+                                                                                   String hotelId, Role role, String status, String q,
+                                                                                   UserResponse.InviteStatus invite) {
+        return (root, query, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> ps = new java.util.ArrayList<>();
+            ps.add(cb.equal(root.get("businessId"), business));
+            if (managerOnly) {
+                ps.add(cb.exists(grant(root, query, cb, business, g -> callerHotels.isEmpty() ? cb.disjunction() : g.get("hotelId").in(callerHotels))));
+            }
+            if (StringUtils.hasText(hotelId)) {
+                ps.add(cb.exists(grant(root, query, cb, business, g -> cb.or(cb.isNull(g.get("hotelId")), cb.equal(g.get("hotelId"), hotelId)))));
+            }
+            if (role != null) {
+                ps.add(cb.exists(grant(root, query, cb, business, g -> cb.equal(g.get("role"), role))));
+            }
+            Instant now = Instant.now();
+            if (status != null) {
+                jakarta.persistence.criteria.Predicate pauseOver = cb.and(cb.equal(root.get("status"), UserAccount.Status.PAUSED),
+                        cb.isNotNull(root.get("pausedUntil")), cb.lessThanOrEqualTo(root.get("pausedUntil"), now));
+                switch (status) {
+                    case "ACTIVE" -> ps.add(cb.or(cb.equal(root.get("status"), UserAccount.Status.ACTIVE), pauseOver));
+                    case "PAUSED" -> ps.add(cb.and(cb.equal(root.get("status"), UserAccount.Status.PAUSED), cb.not(pauseOver)));
+                    default -> ps.add(cb.equal(root.get("status"), UserAccount.Status.SUSPENDED));
+                }
+            }
+            if (StringUtils.hasText(q)) {
+                String like = com.hospio.common.paging.Paging.like(q);
+                ps.add(cb.or(cb.like(cb.lower(root.get("fullName")), like, '\\'), cb.like(cb.lower(root.get("email")), like, '\\'),
+                        cb.like(cb.lower(cb.coalesce(root.get("phone"), "")), like, '\\')));
+            }
+            if (invite != null) {
+                jakarta.persistence.criteria.Subquery<String> accepted = query.subquery(String.class);
+                var a = accepted.from(com.hospio.identity.entity.Invite.class);
+                accepted.select(a.get("userId")).where(cb.equal(a.get("userId"), root.get("id")), cb.isNotNull(a.get("acceptedAt")));
+                jakarta.persistence.criteria.Subquery<String> open = query.subquery(String.class);
+                var o = open.from(com.hospio.identity.entity.Invite.class);
+                open.select(o.get("userId")).where(cb.equal(o.get("userId"), root.get("id")), cb.isNull(o.get("acceptedAt")),
+                        cb.greaterThan(o.get("expiresAt"), now));
+                ps.add(cb.not(cb.exists(accepted)));
+                if (invite == UserResponse.InviteStatus.PENDING) {
+                    ps.add(cb.exists(open));
+                } else {
+                    jakarta.persistence.criteria.Subquery<String> any = query.subquery(String.class);
+                    var x = any.from(com.hospio.identity.entity.Invite.class);
+                    any.select(x.get("userId")).where(cb.equal(x.get("userId"), root.get("id")));
+                    ps.add(cb.exists(any));
+                    ps.add(cb.not(cb.exists(open)));
+                }
+            }
+            return cb.and(ps.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+    }
+
+    private static jakarta.persistence.criteria.Subquery<String> grant(jakarta.persistence.criteria.Root<UserAccount> user,
+                                                                       jakarta.persistence.criteria.CriteriaQuery<?> query,
+                                                                       jakarta.persistence.criteria.CriteriaBuilder cb, String business,
+                                                                       java.util.function.Function<jakarta.persistence.criteria.Root<RoleGrant>,
+                                                                               jakarta.persistence.criteria.Predicate> also) {
+        jakarta.persistence.criteria.Subquery<String> sq = query.subquery(String.class);
+        jakarta.persistence.criteria.Root<RoleGrant> g = sq.from(RoleGrant.class);
+        sq.select(g.get("userId")).where(cb.equal(g.get("userId"), user.get("id")), cb.equal(g.get("businessId"), business), also.apply(g));
+        return sq;
+    }
 }
