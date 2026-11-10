@@ -7,10 +7,10 @@ Maintenance work orders end to end on maintenance-service (raised by the desk, h
 | Step | Status |
 |---|---|
 | 1 · Contract | done (2026-11-10) |
-| 2 · Backend (maintenance, housekeeping/laundry, inventory internal moves + seed, reservation check-in, messaging notices, common event) | in progress |
-| 3 · Web screens wired (maintenance, laundry, housekeeping linen + store, front desk repairs + laundry, manager/owner/finance money) | to do |
-| 4 · Staging verification (API + browser, every role) | to do |
-| 5 · QA script `hotel-internal-system-admin-FE/docs/qa/laundry-maintenance.md` | to do |
+| 2 · Backend (maintenance, housekeeping/laundry, inventory internal moves + seed, reservation check-in, messaging notices, common event) | done (2026-11-10): `0ae581b` (all services redeployed, common changed), fix `a08d1bd` (linen notice once); unit tests 14 maintenance, 10 laundry, 1 new reservation; seeded stores, items, price list, assets |
+| 3 · Web screens wired (maintenance, laundry, housekeeping linen + store, front desk repairs + laundry, manager/owner/finance money) | done: hotel-internal-system-admin-FE screens on develop/staging, `maintenance` added to staging live domains, work-order history fixes |
+| 4 · Staging verification (API + browser, every role) | done: API 165/165 (+ after-check-out negatives), browser 93/94 then front-desk section 14/14; inventory regression 56/57 (the one miss needs today's deliveries, not run) |
+| 5 · QA script `hotel-internal-system-admin-FE/docs/qa/laundry-maintenance.md` | done |
 
 ## Rules
 
