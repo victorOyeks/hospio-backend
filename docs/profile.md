@@ -5,7 +5,7 @@ password, where they are signed in, 2-step sign-in with an authenticator app, an
 acts on **the caller's own account only** (the user id comes from the access token, never from the path or body); the one
 exception is reading someone's photo, below.
 
-Web: `hotel-internal-system-admin-FE`, screen `packages/ui/src/screens/profile.tsx`, QA script `docs/qa/profile.md` there.
+Web: `hotel-internal-system-admin-FE`, screen `packages/ui/src/screens/profile.tsx`, QA script `docs/qa/12-profile.md` there.
 
 ## Details
 

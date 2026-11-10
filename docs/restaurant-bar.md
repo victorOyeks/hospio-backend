@@ -100,4 +100,4 @@ Every bar and kitchen sale over a range of days, with filters, the money and one
 ### Progress
 - [x] fnb-service: `SaleBucket`, `SalesHistoryQuery` (filters and money in SQL), `SalesHistoryService`, routes above, migration `008-sales-history`; tests: buckets, service guards, and the query against Postgres (Testcontainers, skipped without Docker).
 - [x] Order flow: settled-by name, line canceller, payment reference and taker, balance-only room charge, no cancel with money on it.
-- [x] Web: Sales screen for bar and kitchen with the unpaid count in the sidebar, sale panel from Sales and Recent sales, all-outlets view for manager, owner and finance (QA script `docs/qa/sales-history.md` in the web repo).
+- [x] Web: Sales screen for bar and kitchen with the unpaid count in the sidebar, sale panel from Sales and Recent sales, all-outlets view for manager, owner and finance (QA script `docs/qa/05-sales-history.md` in the web repo).

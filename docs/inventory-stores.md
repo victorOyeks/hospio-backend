@@ -10,7 +10,7 @@ The hotel's stores end to end on inventory-service: a main store and outlet stor
 | 2 · Backend (inventory-service, common event/delivery kind, messaging) | done (2026-11-09): `4cb03f7`, fixes `25b94ff` (approval-limit constructor), `e065eec` (count-approval message); deployed `6895387` [deploy-all]; seeded Main store, 25 items' main levels, 3 suppliers |
 | 3 · Web screens wired (inventory role, manager and owner hub, finance figure) | done: hotel-internal-system-admin-FE `6a85771`, fix `97b0de5` (empty Select values) |
 | 4 · Staging verification (API + browser, every role) | done: API 113/114 then 35/35 after the fix; browser 77/77 (INVENTORY, MANAGER, OWNER, FINANCE, KITCHEN, BAR); ORDER_SETTLED draw-down re-checked |
-| 5 · QA script `hotel-internal-system-admin-FE/docs/qa/inventory-stores.md` | done (`f8fc7be`) |
+| 5 · QA script `hotel-internal-system-admin-FE/docs/qa/08-inventory-stores.md` | done (`f8fc7be`) |
 
 ## Rules
 

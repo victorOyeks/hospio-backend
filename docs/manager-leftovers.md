@@ -84,7 +84,7 @@ The receipt page is `/receipt?payment=|sale=|folio=[&paper=80mm]` (outside the d
 - [x] web: activity log, reports, room types, hotel setup, financials (manager, owner, finance), lost & found, inspect, receipts
 - [x] staging deploy (backend 92d01bf, finance e5245ed; web c9ba0e4)
 - [x] API sweep, browser sweep, print previews, regressions
-- [x] QA script `docs/qa/manager-housekeeping-receipts.md` (hotel-internal-system-admin-FE)
+- [x] QA script `docs/qa/10-manager-housekeeping-receipts.md` (hotel-internal-system-admin-FE)
 
 ## Verification (2026-11-10, staging)
 

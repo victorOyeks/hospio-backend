@@ -162,4 +162,4 @@ Live domains `tenant`, `identity`, `hotel-config` join the staging default (`NEX
 
 ## Staging accounts
 
-Unchanged seed accounts (password `Hospio123!`): owner `godwin@royalsuites.ng`, manager `tunde@royalsuites.ng`, super admin `amoria@hospio360.com`, support `kola@hospio360.com`. Onboarding is tested by creating new businesses; the QA script `docs/qa/onboarding.md` in hospio-frontend lists the steps and the accounts it creates. Phone code on staging: `123456`.
+Unchanged seed accounts (password `Hospio123!`): owner `godwin@royalsuites.ng`, manager `tunde@royalsuites.ng`, super admin `amoria@hospio360.com`, support `kola@hospio360.com`. Onboarding is tested by creating new businesses; the QA script `docs/qa/01-onboarding.md` in hospio-frontend lists the steps and the accounts it creates. Phone code on staging: `123456`.

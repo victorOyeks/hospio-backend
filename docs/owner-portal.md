@@ -169,4 +169,4 @@ payment components take an optional `hotelId` through `HotelScope` so the owner 
 - [x] staging deploy (backend, web)
 - [x] API sweep (positive, negative, cross-tenant, money)
 - [x] browser sweep (1512 / 1280, all hotels vs one)
-- [x] QA script `docs/qa/owner-portal.md` (hotel-internal-system-admin-FE)
+- [x] QA script `docs/qa/13-owner-portal.md` (hotel-internal-system-admin-FE)

@@ -4,7 +4,7 @@ One tablet at the front desk, the bar or the kitchen, used by several people in 
 only sign-in page (also when the web app is wrapped as a tablet app). A PIN is only a quick way to switch person on a device
 that someone already set up through a normal sign-in, and every action is recorded under the person who unlocked.
 
-Web: `hotel-internal-system-admin-FE` (hotel app), QA script `docs/qa/shared-devices.md` there.
+Web: `hotel-internal-system-admin-FE` (hotel app), QA script `docs/qa/06-shared-devices.md` there.
 
 ## Rules
 
@@ -101,4 +101,4 @@ on a device a manager or Full-access person set up at the person's hotel.
 - [x] Activity log events (`SharedDeviceEvent`, topic `hospio-shared-device`)
 - [x] Unit tests: `AuthServiceTest`, `PinRulesTest`, `SharedDeviceServiceTest`, `StaffAccountServiceTest`; schema IT checks the policy
 - [x] Web: setup from the account menu, lock screen and PIN pad, Lock button, idle lock with warning, PIN in profile, reset in Staff, Hotel setup → Shared devices
-- [x] Staging API and browser sweep (`docs/qa/shared-devices.md` in the web repo)
+- [x] Staging API and browser sweep (`docs/qa/06-shared-devices.md` in the web repo)
