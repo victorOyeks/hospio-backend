@@ -55,4 +55,39 @@ public class LostFoundItem extends TenantEntity {
 
     @Column(name = "returned_at")
     private Instant returnedAt;
+
+    @Column(name = "room_number", length = 20)
+    private String roomNumber;
+
+    @Column(name = "found_by_name", length = 150)
+    private String foundByName;
+
+    /** Colour, brand, anything that helps the guest describe it. */
+    @Column(length = 500)
+    private String details;
+
+    @Column(name = "returned_by", length = 36)
+    private String returnedBy;
+
+    @Column(name = "returned_by_name", length = 150)
+    private String returnedByName;
+
+    /** The ID the owner showed (e.g. "NIN ending 4471"). */
+    @Column(name = "return_id_note", length = 200)
+    private String returnIdNote;
+
+    @Column(name = "return_how", length = 40)
+    private String returnHow;
+
+    @Column(name = "disposed_at")
+    private Instant disposedAt;
+
+    @Column(name = "disposed_by_name", length = 150)
+    private String disposedByName;
+
+    @Column(name = "dispose_reason", length = 300)
+    private String disposeReason;
+
+    @Column(name = "front_office_told_at")
+    private Instant frontOfficeToldAt;
 }

@@ -70,6 +70,7 @@ public class MoneyService {
     private final HotelSettings settings;
     private final PeerServices peers;
     private final Notifier notifier;
+    private final ExpenseCategories categories;
 
     // ---- revenue from PaymentApproved ---------------------------------------------------------------
 
@@ -188,7 +189,7 @@ public class MoneyService {
         if (!Money.isPositive(request.amount())) {
             throw new BadRequestException("Enter an amount above zero");
         }
-        Expense e = Expense.builder().category(request.category()).amount(Money.of(request.amount())).description(request.description())
+        Expense e = Expense.builder().category(categories.normalise(hotelId, request.category())).amount(Money.of(request.amount())).description(request.description())
                 .paidFrom(request.paidFrom()).receiptKey(request.receiptKey())
                 .expenseDate(request.expenseDate() == null ? LocalDate.now(LAGOS) : request.expenseDate())
                 .requestedBy(user.getUserId()).requestedByName(user.getFullName()).build();
@@ -206,7 +207,7 @@ public class MoneyService {
             events.publish(KafkaTopics.APPROVAL_REQUESTED, ApprovalRequestedEvent.builder().approvalId(e.getApprovalId()).sourceModule("FINANCE")
                     .sourceRef(e.getId()).kind("EXPENSE").amount(e.getAmount()).requesterId(user.getUserId()).requesterName(user.getFullName())
                     .requesterRole(roleLabel(user)).approverLevel(route.approverLevel())
-                    .description(categoryLabel(e.getCategory()) + " · " + e.getDescription()).build());
+                    .description(labelOf(hotelId, e.getCategory()) + " · " + e.getDescription()).build());
         }
         events.publish(KafkaTopics.EXPENSE_RECORDED, ExpenseRecordedEvent.builder().expenseId(e.getId()).category(e.getCategory())
                 .amount(e.getAmount()).description(e.getDescription()).status(e.getStatus().name()).build());
@@ -264,8 +265,7 @@ public class MoneyService {
             e.setPaidFrom(paidFromOverride.trim().toUpperCase());
         }
         if ("TILL".equals(e.getPaidFrom())) {
-            Till till = tillForPayOut(user);
-            addEntry(till, TillEntry.Kind.EXPENSE, Money.of(e.getAmount()).negate(), "CASH", categoryLabel(e.getCategory()) + " · " + e.getDescription(), e.getId(), null);
+            payOutFromTill(e, user);
         }
         e.setStatus(Expense.Status.PAID);
         e.setPaidBy(user.getUserId());
@@ -274,21 +274,75 @@ public class MoneyService {
         return expenses.save(e);
     }
 
+    /**
+     * The cash for a paid expense leaves a till: the payer's own open till, or the hotel's only open one. Used when an expense or a bill
+     * is paid from the till.
+     */
+    void payOutFromTill(Expense e, HospioUserDetails user) {
+        Till till = tillForPayOut(user);
+        addEntry(till, TillEntry.Kind.EXPENSE, Money.of(e.getAmount()).negate(), "CASH", labelOf(e.getHotelId(), e.getCategory()) + " · " + e.getDescription(),
+                e.getId(), null);
+    }
+
+    /** The hotel's label for a stored category (its list, else the code read as words). */
+    String labelOf(String hotelId, String category) {
+        return hotelId == null ? categoryLabel(category) : ExpenseCategories.labelOf(categories.labels(hotelId), category);
+    }
+
+    /** Expenses that count as spent against a budget: recorded, approved or paid (not waiting, questioned or declined). */
+    static final List<Expense.Status> SPENT = List.of(Expense.Status.RECORDED, Expense.Status.APPROVED, Expense.Status.PAID);
+
     @Transactional(readOnly = true)
     public List<Budget> budgets(String month) {
-        return budgets.findByHotelIdAndMonth(TenantContext.requireHotel(), month);
+        return budgets.findByHotelIdAndMonth(TenantContext.requireHotel(), checkMonth(month).toString());
     }
 
     @Transactional
     public Budget saveBudget(FinanceRequests.BudgetRequest request) {
-        if (!CurrentUser.require().isManagerOrOwner()) {
+        HospioUserDetails user = CurrentUser.require();
+        if (user.isReadOnly() || !(user.isManagerOrOwner() || user.isPlatform())) {
             throw new ForbiddenException("Budgets are set by managers");
         }
-        Budget b = budgets.findByHotelIdAndMonth(TenantContext.requireHotel(), request.month()).stream()
-                .filter(x -> x.getCategory().equals(request.category())).findFirst()
-                .orElseGet(() -> Budget.builder().category(request.category()).month(request.month()).build());
+        String hotel = TenantContext.requireHotel();
+        String month = checkMonth(request.month()).toString();
+        if (request.amount() == null || request.amount().signum() < 0) {
+            throw new BadRequestException("A budget can't be below zero");
+        }
+        String code = categories.find(hotel, request.category()).filter(c -> c.isActive())
+                .map(com.hospio.finance.entity.ExpenseCategory::getCode)
+                .orElseThrow(() -> new BadRequestException("That category isn't in this hotel's list"));
+        Budget b = budgets.findByHotelIdAndMonth(hotel, month).stream()
+                .filter(x -> ExpenseCategories.codeOf(x.getCategory()).equals(code)).findFirst()
+                .orElseGet(() -> Budget.builder().category(code).month(month).build());
+        b.setCategory(code);
         b.setAmount(Money.of(request.amount()));
         return budgets.save(b);
+    }
+
+    /** Budget against actual for a month: every category's budget and what was spent (recorded, approved or paid expenses). */
+    @Transactional
+    public BudgetMath.Overview budgetOverview(String month) {
+        String hotel = TenantContext.requireHotel();
+        java.time.YearMonth m = checkMonth(month);
+        Map<String, BigDecimal> set = new LinkedHashMap<>();
+        budgets.findByHotelIdAndMonth(hotel, m.toString()).forEach(b -> set.merge(b.getCategory(), b.getAmount(), BigDecimal::add));
+        Map<String, BigDecimal> spent = new LinkedHashMap<>();
+        for (Object[] row : expenses.spendByCategory(hotel, m.atDay(1), m.atEndOfMonth(), SPENT)) {
+            spent.merge((String) row[0], (BigDecimal) row[1], BigDecimal::add);
+        }
+        return BudgetMath.overview(m.toString(), categories.all(hotel), set, spent);
+    }
+
+    /** yyyy-MM, or a 400 that says so. */
+    static java.time.YearMonth checkMonth(String month) {
+        if (month == null || !month.trim().matches("\\d{4}-\\d{2}")) {
+            throw new BadRequestException("Month is yyyy-mm");
+        }
+        try {
+            return java.time.YearMonth.parse(month.trim());
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new BadRequestException("Month is yyyy-mm");
+        }
     }
 
     // ---- tills and cash ------------------------------------------------------------------------------

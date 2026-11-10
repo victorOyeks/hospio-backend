@@ -78,6 +78,7 @@ nor `size` is sent (internal callers and operations scripts; no caps on it any m
 | platform | `GET /platform/approvals/all` | `tab` (waiting, owner, decided, open), `status`, `kind`, `q`, `from`/`to` (90-day default; open ones always shown) | PageWithCounts: per tab, questions; money waiting and with the owner. Names filled for the page only | yes |
 | platform | `GET /platform/approvals/{id}` (new) | — | one approval (a link to one off the page) | — |
 | finance | `GET /finance/expenses` | `tab` (approval, questions, paid, requests), `status`, `category`, `q`, `from`/`to` (90-day default; waiting ones always shown) | PageWithCounts per tab; totals all, recorded, requests, matching. Newest date first, then newest recorded | yes |
+| finance | `GET /finance/bills` | `status` (UNPAID, OVERDUE, PAID, CANCELLED; absent = all), `q` (payee, note), `from`/`to` (due dates) | PageWithCounts: UNPAID, OVERDUE, PAID, CANCELLED, all; totals unpaid, overdue, paidThisMonth. Default order due date ascending (soonest first), then newest recorded | no (new) |
 | finance | `GET /finance/night-audit/past` | `status`, `from`/`to` | PagedResponse, newest business day first | yes |
 | inventory | `GET /inventory/requests` | `team`, `status` (list, OPEN), `q` (incl. item names), `from`/`to` | PageWithCounts per status | yes |
 | inventory | `GET /inventory/purchase-orders` | `status` (list, OPEN, DONE), `supplierId`, `q`, `from`/`to` | PageWithCounts per status | yes |

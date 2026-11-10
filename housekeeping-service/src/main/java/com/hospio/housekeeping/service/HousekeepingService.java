@@ -223,9 +223,13 @@ public class HousekeepingService {
         if (t.getStatus() != CleaningTask.Status.DONE) {
             throw new BadRequestException("Only a finished room can be inspected");
         }
+        String note = request.note() == null ? null : request.note().trim();
+        if (!request.passed() && (note == null || note.isEmpty())) {
+            throw new BadRequestException("Say what needs doing again");
+        }
         t.setInspectedBy(user.getUserId());
         t.setInspectedAt(Instant.now());
-        t.setInspectionNote(request.note());
+        t.setInspectionNote(note == null || note.isEmpty() ? null : note);
         if (request.passed()) {
             t.setStatus(CleaningTask.Status.INSPECTED);
             setRoomStatus(t.getRoomId(), t.getRoomNumber(), RoomStatus.Cleanliness.INSPECTED, user.getUserId());
@@ -234,6 +238,12 @@ public class HousekeepingService {
         } else {
             t.setStatus(CleaningTask.Status.SENT_BACK);
             setRoomStatus(t.getRoomId(), t.getRoomNumber(), RoomStatus.Cleanliness.DIRTY, user.getUserId());
+            if (t.getAssignedTo() != null) {
+                // The attendant hears at once; the room is back on their list as Sent back.
+                events.publish(KafkaTopics.NOTICE, com.hospio.common.kafka.events.NoticeEvent.builder().kind("HOUSEKEEPING")
+                        .title("Room " + t.getRoomNumber() + " sent back").body(note).link("/my-rooms")
+                        .userIds(List.of(t.getAssignedTo())).build());
+            }
         }
         return tasks.save(t);
     }
@@ -290,21 +300,6 @@ public class HousekeepingService {
     @Transactional(readOnly = true)
     public List<LostFoundItem> lostAndFound() {
         return lostFound.findByHotelIdOrderByFoundAtDesc(TenantContext.requireHotel());
-    }
-
-    @Transactional
-    public LostFoundItem logFound(TaskRequests.LostFoundRequest request) {
-        return lostFound.save(LostFoundItem.builder().description(request.description()).foundWhere(request.foundWhere())
-                .roomId(request.roomId()).photoKey(request.photoKey()).foundBy(CurrentUser.require().getUserId()).build());
-    }
-
-    @Transactional
-    public LostFoundItem handBack(String id, TaskRequests.ReturnItemRequest request) {
-        LostFoundItem item = lostFound.findById(id).orElseThrow(() -> new ResourceNotFoundException("Item not found"));
-        item.setStatus(LostFoundItem.Status.RETURNED);
-        item.setReturnedTo(request.returnedTo());
-        item.setReturnedAt(Instant.now());
-        return lostFound.save(item);
     }
 
     void setRoomStatus(String roomId, String roomNumber, RoomStatus.Cleanliness status, String by) {

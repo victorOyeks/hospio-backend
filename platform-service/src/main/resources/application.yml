@@ -58,6 +58,8 @@ hospio:
   apps:
     # Where the marketer invite link points.
     admin-url: ${ADMIN_APP_URL:https://admin-staging.hospio360.com}
+    # Where report emails link to (the hotel app).
+    hotel-url: ${HOTEL_APP_URL:https://web-staging.hospio360.com}
   worker:
     # The nightly job (01:30 Lagos): overdue statements, health scores, alert sweep.
     enabled: ${WORKER_ENABLED:true}

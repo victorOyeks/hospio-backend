@@ -38,14 +38,24 @@ public class InsightsController {
     private final SupportService support;
     private final ChangeService changes;
 
+    /**
+     * The activity log (docs/manager-leftovers.md): newest first, paged (size 1 to 200), filtered by {@code q} (summary, person, event),
+     * {@code department}, {@code from}/{@code to} (Lagos days) and {@code byPlatform}. Managers, the owner and H.M.S only.
+     */
     @GetMapping("/activity")
+    @PreAuthorize("@access.managerView()")
     public ApiResponse<PagedResponse<ActivityEntry>> activity(@RequestParam(required = false) String businessId,
-                                                              @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size,
-                                                              @RequestParam(defaultValue = "false") boolean byPlatform) {
-        return ApiResponse.ok(PagedResponse.of(activity.list(businessId, page, size, byPlatform), e -> e));
+                                                              @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
+                                                              @RequestParam(defaultValue = "false") boolean byPlatform,
+                                                              @RequestParam(required = false) String q, @RequestParam(required = false) String department,
+                                                              @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+                                                              @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to) {
+        return ApiResponse.ok(PagedResponse.of(activity.list(new ActivityLogService.Filter(businessId, q, department, from, to, byPlatform), page, size),
+                e -> e));
     }
 
     @GetMapping("/activity/{id}")
+    @PreAuthorize("@access.managerView()")
     public ApiResponse<ActivityEntry> entry(@PathVariable String id) {
         return ApiResponse.ok(activity.get(id));
     }

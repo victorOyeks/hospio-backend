@@ -4,7 +4,9 @@ import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.paging.Paging;
 import com.hospio.common.response.PageWithCounts;
 import com.hospio.common.tenancy.TenantContext;
+import com.hospio.housekeeping.client.HotelConfigClient;
 import com.hospio.housekeeping.dto.LaundryDtos;
+import com.hospio.housekeeping.dto.LostFoundView;
 import com.hospio.housekeeping.entity.LaundryOrder;
 import com.hospio.housekeeping.entity.LinenBatch;
 import com.hospio.housekeeping.entity.LostFoundItem;
@@ -41,6 +43,7 @@ public class HousekeepingLists {
     private final LostFoundItemRepository lostFound;
     private final LaundryService laundry;
     private final GroupCounts groups;
+    private final HotelConfigClient hotelConfig;
 
     public record Query(String q, String status, LocalDate from, LocalDate to, String sort, Integer page, Integer size) {
 
@@ -89,12 +92,18 @@ public class HousekeepingLists {
     }
 
     @Transactional(readOnly = true)
-    public PageWithCounts<LostFoundItem> lostAndFound(Query query) {
-        Specification<LostFoundItem> spec = Specification.allOf(common("foundAt", query, "description", "foundWhere", "returnedTo"));
+    public PageWithCounts<LostFoundView> lostAndFound(Query query) {
+        Specification<LostFoundItem> spec = Specification.allOf(common("foundAt", query, "description", "details", "foundWhere", "roomNumber",
+                "foundByName", "returnedTo"));
         Specification<LostFoundItem> filtered = spec.and(status(LostFoundItem.Status.class, query.status(), Map.of()));
         Sort sort = Paging.sort(query.sort(), Map.of("foundAt", "foundAt", "status", "status"), newest("foundAt"));
         Page<LostFoundItem> page = lostFound.findAll(filtered, Paging.of(query.page(), query.size(), sort));
-        return PageWithCounts.of(page, Function.identity(), groups.by(LostFoundItem.class, spec, "status"), null);
+        Map<String, Long> counts = groups.by(LostFoundItem.class, spec, "status");
+        for (LostFoundItem.Status s : LostFoundItem.Status.values()) {
+            counts.putIfAbsent(s.name(), 0L);
+        }
+        int holdDays = hotelConfig.lostFoundHoldDays(TenantContext.requireHotel());
+        return PageWithCounts.of(page, i -> LostFoundView.of(i, holdDays), counts, null);
     }
 
     private static Sort newest(String at) {

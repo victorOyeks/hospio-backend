@@ -59,6 +59,14 @@ public class OwnerPortalController {
         return ApiResponse.ok("Schedule stopped", schedules.stop(id));
     }
 
+    @Operation(summary = "Email me: a link to this report (kind, period, hotel) goes to the caller's own email address")
+    @PostMapping("/reports/email")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<ReportScheduleService.Emailed> emailMe(@Valid @RequestBody OwnerRequests.ReportEmail request) {
+        ReportScheduleService.Emailed e = schedules.emailMe(request);
+        return ApiResponse.ok("Report emailed to " + e.to(), e);
+    }
+
     @Operation(summary = "Send a scheduled report's latest full period now; on staging the email is echoed back")
     @PostMapping("/reports/schedules/{id}/run")
     @PreAuthorize("@access.manager()")

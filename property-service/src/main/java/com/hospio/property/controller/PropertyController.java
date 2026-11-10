@@ -48,7 +48,8 @@ public class PropertyController {
     @PutMapping("/room-types/{id}")
     @PreAuthorize("@access.manager()")
     public ApiResponse<RoomTypeResponse> updateRoomType(@PathVariable String id, @Valid @RequestBody RoomTypeRequest request) {
-        return ApiResponse.ok("Saved", service.saveRoomType(id, request));
+        RoomTypeResponse saved = service.saveRoomType(id, request);
+        return ApiResponse.ok(saved.priceSentToOwner() ? "Saved · the new price is waiting for the owner" : "Saved", saved);
     }
 
     @Operation(summary = "Hide a room type nobody uses; 409 while rooms still reference it")
