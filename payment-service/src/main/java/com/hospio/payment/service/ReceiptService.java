@@ -19,8 +19,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Resend receipt (Manager · Payments): the receipt of an approved payment goes to the guest again, by WhatsApp
- * when the payment carries a phone, otherwise by email. The delivery is published like every other one; on
+ * Resend receipt (Manager · Payments, My payments): the receipt of an approved payment goes to the guest again by email
+ * (WhatsApp and SMS are coming soon). The delivery is published like every other one; on
  * staging (deliveries echo on) it comes back in the response so the screen can show what would have gone out.
  * The receipt keeps who it was last sent to and how.
  */
@@ -50,19 +50,25 @@ public class ReceiptService {
                 + ". We received " + naira(p.getAmount()) + " by " + p.getMethod().name().toLowerCase()
                 + (blank(p.getDescription()) ? "" : " for " + p.getDescription())
                 + (blank(p.getProviderRef()) ? "" : ". Ref " + p.getProviderRef()) + ".";
-        Delivery delivery;
-        if (!blank(p.getGuestPhone())) {
-            delivery = new Delivery(Delivery.Channel.WHATSAPP, p.getGuestPhone(), "Your receipt", text, Delivery.Kind.RECEIPT, receipt.getNumber());
-        } else if (!blank(p.getGuestEmail())) {
-            delivery = Delivery.email(p.getGuestEmail(), "Your receipt " + receipt.getNumber(), text, Delivery.Kind.RECEIPT, receipt.getNumber());
-        } else {
-            throw new BadRequestException("This payment has no guest phone or email to send the receipt to");
-        }
+        Delivery delivery = resendDelivery(p.getGuestEmail(), p.getGuestPhone(), receipt.getNumber(), text);
         List<Delivery> echoed = deliveries.send(delivery);
         receipt.setSentTo(delivery.to());
         receipt.setSentVia(delivery.channel().name());
         receipts.save(receipt);
         return new Resent(receipt.getNumber(), delivery.to(), delivery.channel().name(), echoed);
+    }
+
+    /**
+     * The resend goes by email, the one channel that is sent for real (docs/email.md). Without an email it is refused in words:
+     * WhatsApp and SMS receipts are coming soon, so the desk prints it or emails it to an address the guest gives.
+     */
+    static Delivery resendDelivery(String email, String phone, String number, String text) {
+        if (!blank(email)) {
+            return Delivery.email(email.trim(), "Your receipt " + number, text, Delivery.Kind.RECEIPT, number);
+        }
+        throw new BadRequestException(!blank(phone)
+                ? "This guest has no email · print the receipt or email it from the receipt page (WhatsApp receipts are coming soon)"
+                : "This payment has no guest email · print the receipt or email it from the receipt page");
     }
 
     // ---- printable and emailed receipts ---------------------------------------------------------------

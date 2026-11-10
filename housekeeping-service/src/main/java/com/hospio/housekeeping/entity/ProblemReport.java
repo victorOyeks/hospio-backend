@@ -45,4 +45,12 @@ public class ProblemReport extends TenantEntity {
     @Column(nullable = false, length = 20)
     @lombok.Builder.Default
     private String status = "SENT";
+
+    /** LOW, NORMAL or URGENT, as the reporter chose ("Can wait", "Today", "Now"). */
+    @Column(length = 20)
+    private String priority;
+
+    /** True when the reporter took the room out of order with the report. */
+    @Column(name = "out_of_order", nullable = false)
+    private boolean outOfOrder;
 }

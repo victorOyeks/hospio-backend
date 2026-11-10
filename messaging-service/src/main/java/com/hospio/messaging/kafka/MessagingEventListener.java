@@ -63,16 +63,18 @@ public class MessagingEventListener {
     @KafkaListener(topics = KafkaTopics.PAYMENT_APPROVED)
     public void onPaymentApproved(PaymentApprovedEvent e) {
         bound(e, () -> {
-            if ("NEVER".equalsIgnoreCase(e.getReceiptPreference())) {
+            // "Don't send" (NONE, or NEVER from older screens) sends nothing; otherwise email when the guest has one (sent for
+            // real), else a WhatsApp copy that is recorded, not sent (coming soon).
+            if (!sendsReceipt(e.getReceiptPreference())) {
                 return null;
             }
             String body = outbound.render(e.getHotelId(), "RECEIPT", NotificationChannel.WHATSAPP,
                     "Thank you {guest}. We received {amount} by {method}. Ref {ref}.",
                     Map.of("guest", nz(e.getGuestName()), "amount", String.valueOf(e.getAmount()), "method", nz(e.getMethod()).toLowerCase(), "ref", nz(e.getProviderRef())));
-            if (e.getGuestPhone() != null) {
+            if (e.getGuestEmail() != null && !e.getGuestEmail().isBlank()) {
+                outbound.queue(NotificationChannel.EMAIL, e.getGuestEmail().trim(), "Your receipt", body, "RECEIPT", "RECEIPT-E-" + e.getPaymentId());
+            } else if (e.getGuestPhone() != null && !e.getGuestPhone().isBlank()) {
                 outbound.queue(NotificationChannel.WHATSAPP, e.getGuestPhone(), "Receipt", body, "RECEIPT", "RECEIPT-W-" + e.getPaymentId());
-            } else if (e.getGuestEmail() != null) {
-                outbound.queue(NotificationChannel.EMAIL, e.getGuestEmail(), "Your receipt", body, "RECEIPT", "RECEIPT-E-" + e.getPaymentId());
             }
             return null;
         });
@@ -371,5 +373,10 @@ public class MessagingEventListener {
 
     private static String nz(String s) {
         return s == null ? "" : s;
+    }
+
+    /** A receipt goes out unless the desk chose "Don't send" (NONE; NEVER from older screens). */
+    static boolean sendsReceipt(String preference) {
+        return preference == null || !(preference.equalsIgnoreCase("NONE") || preference.equalsIgnoreCase("NEVER"));
     }
 }

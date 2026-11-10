@@ -36,7 +36,17 @@ public class LinenRequest extends TenantEntity {
     @Column(name = "requested_by", length = 36)
     private String requestedBy;
 
+    @Column(name = "requested_by_name", length = 150)
+    private String requestedByName;
+
+    /** REQUESTED until laundry marks it SENT. */
     @Column(nullable = false, length = 20)
     @lombok.Builder.Default
     private String status = "REQUESTED";
+
+    @Column(name = "sent_at")
+    private Instant sentAt;
+
+    @Column(name = "sent_by_name", length = 150)
+    private String sentByName;
 }

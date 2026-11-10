@@ -73,6 +73,23 @@ public final class WorkOrderRules {
         throw new BadRequestException(message);
     }
 
+    /** The refusal when a reported room can't go out of order because a guest is checked in; nothing is opened then. */
+    public static String guestInRefusal(String roomNumber, String guest) {
+        return "Room " + (roomNumber == null ? "" : roomNumber) + " has a guest checked in (" + guest + ") · it can't go out of order"
+                + " · send the report without taking it out of order, or move the guest first";
+    }
+
+    /**
+     * Who hears about a problem reported in a room that is urgent or put the room out of order: the front office (so nobody is
+     * checked in there) and the managers, who already hear of every urgent work order when it is opened.
+     */
+    public static java.util.List<String> reportedProblemRoles(boolean urgent, boolean outOfOrder, String roomId) {
+        if (roomId == null || (!urgent && !outOfOrder)) {
+            return java.util.List.of();
+        }
+        return urgent ? java.util.List.of("FRONT_OFFICE") : java.util.List.of("FRONT_OFFICE", "MANAGER");
+    }
+
     /** Where a reopened work order goes: back to whoever had it, else onto the board. */
     public static Repair.Status afterReopen(String assignedTo) {
         return assignedTo == null ? Repair.Status.OPEN : Repair.Status.ASSIGNED;

@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Housekeeping opens a work order from a reported problem through here. Service-to-service only. */
@@ -21,8 +22,10 @@ public class InternalMaintenanceController {
 
     private final MaintenanceService service;
 
+    /** {@code outOfOrder=true}: the room goes out of order with it (refused 400 while a guest is checked in, nothing opened). */
     @PostMapping("/repairs")
-    public ApiResponse<MaintenanceViews.RepairView> open(@Valid @RequestBody MaintenanceRequests.RepairRequest request) {
-        return ApiResponse.ok("Work order opened", service.open(request, true));
+    public ApiResponse<MaintenanceViews.RepairView> open(@Valid @RequestBody MaintenanceRequests.RepairRequest request,
+                                                         @RequestParam(defaultValue = "false") boolean outOfOrder) {
+        return ApiResponse.ok("Work order opened", service.openReported(request, outOfOrder));
     }
 }

@@ -80,6 +80,14 @@ public class CleaningTask extends TenantEntity {
     @Column(name = "skip_reason", length = 300)
     private String skipReason;
 
+    /** The attendant's note for the supervisor (My rooms → "Note for the supervisor"), shown on Inspect. */
+    @Column(name = "attendant_note", length = 500)
+    private String attendantNote;
+
+    /** When a skipped room is tried again ("HH:mm", hotel time), from "Can't clean → Try again at". */
+    @Column(name = "retry_at", length = 5)
+    private String retryAt;
+
     /** RUSH when the front desk needs the room sooner (a guest is waiting or arriving). */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
