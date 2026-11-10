@@ -246,8 +246,8 @@ public class MarketerService {
     }
 
     /**
-     * Commissions, latest month first; size 1 to 100 (25 by default). {@code counts}: all, DUE, PAID for the profile and month (not the
-     * status); {@code totals}: gross, wht and net of the filtered range, and what is due and paid of it.
+     * Commissions, latest month first; size 1 to 100 (25 by default). {@code counts}: all, DUE, WAITING, PAID for the profile and month
+     * (not the status); {@code totals}: gross, wht and net of the filtered range, and what is due, waiting and paid of it.
      */
     @Transactional(readOnly = true)
     public PageWithCounts<CommissionRow> commissions(String profileId, String status, String month, Integer page, Integer size) {
@@ -277,8 +277,9 @@ public class MarketerService {
     private Map<String, Long> commissionCounts(String profileId, String month) {
         Map<String, Long> counts = new java.util.LinkedHashMap<>();
         counts.put("all", commissions.count(commissionSpec(profileId, null, month)));
-        counts.put("DUE", commissions.count(commissionSpec(profileId, "DUE", month)));
-        counts.put("PAID", commissions.count(commissionSpec(profileId, "PAID", month)));
+        for (String s : List.of("DUE", "WAITING", "PAID")) {
+            counts.put(s, commissions.count(commissionSpec(profileId, s, month)));
+        }
         return counts;
     }
 
@@ -291,11 +292,12 @@ public class MarketerService {
         cq.multiselect(cb.coalesce(cb.sum(r.<BigDecimal>get("gross")), BigDecimal.ZERO), cb.coalesce(cb.sum(r.<BigDecimal>get("wht")), BigDecimal.ZERO),
                 cb.coalesce(cb.sum(net), BigDecimal.ZERO),
                 cb.coalesce(cb.sum(cb.<BigDecimal>selectCase().when(cb.equal(r.get("status"), "DUE"), net).otherwise(BigDecimal.ZERO)), BigDecimal.ZERO),
+                cb.coalesce(cb.sum(cb.<BigDecimal>selectCase().when(cb.equal(r.get("status"), "WAITING"), net).otherwise(BigDecimal.ZERO)), BigDecimal.ZERO),
                 cb.coalesce(cb.sum(cb.<BigDecimal>selectCase().when(cb.equal(r.get("status"), "PAID"), net).otherwise(BigDecimal.ZERO)), BigDecimal.ZERO))
                 .where(commissionSpec(profileId, status, month).toPredicate(r, cq, cb));
         Object[] t = em.createQuery(cq).getSingleResult();
         Map<String, BigDecimal> totals = new java.util.LinkedHashMap<>();
-        String[] keys = {"gross", "wht", "net", "due", "paid"};
+        String[] keys = {"gross", "wht", "net", "due", "waiting", "paid"};
         for (int i = 0; i < keys.length; i++) {
             totals.put(keys[i], com.hospio.common.util.Money.of(t[i] == null ? BigDecimal.ZERO : new BigDecimal(t[i].toString())));
         }
