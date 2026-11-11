@@ -22,7 +22,7 @@ public final class PlatformSettingsCatalogue {
     public static Map<String, Map<String, Object>> defaults() {
         Map<String, Map<String, Object>> all = new LinkedHashMap<>();
         Map<String, Object> general = new LinkedHashMap<>();
-        general.put("company", "Hospio360 (H.M.S)");
+        general.put("company", "Hospio360");
         general.put("supportEmail", "support@hospio360.com");
         general.put("supportWhatsApp", "+2348000000000");
         general.put("website", "https://hospio360.com");

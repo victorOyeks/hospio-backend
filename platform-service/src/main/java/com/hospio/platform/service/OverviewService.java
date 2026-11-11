@@ -70,7 +70,7 @@ public class OverviewService {
         return new Overview(new BusinessCounts(summary.total(), summary.byStage()), summary.hotels(), summary.rooms(),
                 fees.billed(YearMonth.now(LAGOS)), fees.outstanding(Set.of("DUE", "PART_PAID")), fees.outstanding(Set.of("OVERDUE")),
                 support.openCount(), inProgress, ready, alerts.newestOpen(10), changes.recent(10),
-                activity.findByActorNameStartingWithOrderByOccurredAtDesc("H.M.S", PageRequest.of(0, 10)), new HealthBuckets(good, watch, atRisk));
+                activity.findByActorNameStartingWithOrderByOccurredAtDesc("Hospio360", PageRequest.of(0, 10)), new HealthBuckets(good, watch, atRisk));
     }
 
     /** Usage tab: people active, bookings, payments and messages per week for 8 weeks, and what the business has adopted. */

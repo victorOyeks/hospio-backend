@@ -139,7 +139,7 @@ class UserServiceRolesTest {
     void managersCannotGiveTheOwnerRole() {
         signInAs("tunde", Role.MANAGER, "h1");
         assertThatThrownBy(() -> service.grantRole("victor", new GrantRoleRequest(Role.OWNER, AccessLevel.FULL, null, null)))
-                .isInstanceOf(ForbiddenException.class).hasMessage("The owner role is given by H.M.S or by transferring ownership");
+                .isInstanceOf(ForbiddenException.class).hasMessage("The owner role is given by Hospio360 or by transferring ownership");
     }
 
     @Test
@@ -227,7 +227,7 @@ class UserServiceRolesTest {
         victorGrants.add(grant("g-own", Role.OWNER, AccessLevel.FULL, null));
         victorGrants.add(grant("g-h2", Role.BAR, AccessLevel.FULL, "h2"));
         assertThatThrownBy(() -> service.changeAccess("victor", "g-own", new AccessChangeRequest(Change.PAUSE, null, null)))
-                .hasMessage("Only H.M.S can change the owner's access");
+                .hasMessage("Only Hospio360 can change the owner's access");
         assertThatThrownBy(() -> service.changeAccess("victor", "g-h2", new AccessChangeRequest(Change.PAUSE, null, null)))
                 .hasMessage("That role is at a hotel you don't manage");
     }

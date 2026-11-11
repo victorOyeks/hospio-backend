@@ -160,7 +160,7 @@ public class UserService {
     public List<UserResponse> listPlatform(String q) {
         HospioUserDetails caller = CurrentUser.require();
         if (!caller.isPlatform()) {
-            throw new ForbiddenException("Only H.M.S staff can see the admin team");
+            throw new ForbiddenException("Only Hospio360 staff can see the admin team");
         }
         String needle = StringUtils.hasText(q) ? q.trim().toLowerCase(Locale.ROOT) : null;
         List<UserAccount> accounts = users.findByBusinessIdIsNullOrderByFullName();
@@ -238,7 +238,7 @@ public class UserService {
 
     /**
      * Another role for a person (Roles &amp; permissions · Give a role). A manager or the owner, never on themselves;
-     * the owner role and the H.M.S roles are not theirs to give; a manager gives roles at their own hotels only
+     * the owner role and the Hospio360 roles are not theirs to give; a manager gives roles at their own hotels only
      * (MANAGER included, as invites allow). A role the person already holds at that hotel is changed, not given
      * again. The person gets an in-app notice and their next request carries the new role (AccessRevocations).
      */
@@ -253,10 +253,10 @@ public class UserService {
             throw new BadRequestException("SYSTEM is not a role a person can hold");
         }
         if (request.role() == Role.OWNER && !caller.isPlatform()) {
-            throw new ForbiddenException("The owner role is given by H.M.S or by transferring ownership");
+            throw new ForbiddenException("The owner role is given by Hospio360 or by transferring ownership");
         }
         if ((request.role().isPlatform() || request.role() == Role.MARKETER) && !caller.isPlatform()) {
-            throw new ForbiddenException("Only H.M.S can give admin roles");
+            throw new ForbiddenException("Only Hospio360 can give admin roles");
         }
         if (request.role().isPlatform() && !caller.has(Role.SUPER_ADMIN) && !caller.has(Role.SYSTEM)) {
             throw new ForbiddenException("Only a super admin can give a platform role");
@@ -304,7 +304,7 @@ public class UserService {
                 .orElseThrow(() -> new ResourceNotFoundException("That role is no longer on " + user.getFullName() + "'s access. Refresh the list"));
         if (!caller.isPlatform()) {
             if (grant.getRole() == Role.OWNER) {
-                throw new ForbiddenException("Only H.M.S can change the owner's access");
+                throw new ForbiddenException("Only Hospio360 can change the owner's access");
             }
             if (!caller.has(Role.OWNER) && (grant.getHotelId() == null || !caller.getHotelIds().contains(grant.getHotelId()))) {
                 throw new ForbiddenException("That role is at a hotel you don't manage");
@@ -507,10 +507,10 @@ public class UserService {
             return;
         }
         if (role == Role.OWNER) {
-            throw new ForbiddenException("Only H.M.S can create an owner; use Transfer ownership instead");
+            throw new ForbiddenException("Only Hospio360 can create an owner; use Transfer ownership instead");
         }
         if (role.isPlatform() || role == Role.MARKETER) {
-            throw new ForbiddenException("Only H.M.S can add admin accounts");
+            throw new ForbiddenException("Only Hospio360 can add admin accounts");
         }
         if (!caller.isManagerOrOwner()) {
             throw new ForbiddenException("Only a manager or the owner can add people");

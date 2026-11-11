@@ -14,7 +14,7 @@ import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
 /**
- * One business × provider × day of approved card and transfer payments, with the provider's fee and H.M.S's
+ * One business × provider × day of approved card and transfer payments, with the provider's fee and Hospio360's
  * share taken off: what the business is owed. PENDING until it joins a payout batch, SETTLED once paid, FAILED
  * when the bank bounced it. Cash never settles. {@code hotelId} is set when the day's payments came from one hotel.
  */

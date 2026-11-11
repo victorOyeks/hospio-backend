@@ -14,7 +14,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 /**
  * What a verified JWT says about the caller: who they are, which business they belong to, which
  * hotels the token grants, every role they hold with its level, and the scope ({@code hotel},
- * {@code business} for owners looking across hotels, {@code platform} for H.M.S staff).
+ * {@code business} for owners looking across hotels, {@code platform} for Hospio360 staff).
  */
 @Getter
 public class HospioUserDetails implements UserDetails {

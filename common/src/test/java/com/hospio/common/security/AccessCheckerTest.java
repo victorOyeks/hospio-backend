@@ -59,7 +59,7 @@ class AccessCheckerTest {
         assertThat(access.platform()).isFalse();
 
         Tenant tenant = Tenant.fromUser(user, null);
-        assertThat(tenant.actorName()).isEqualTo("H.M.S · Kola");
+        assertThat(tenant.actorName()).isEqualTo("Hospio360 · Kola");
         assertThat(tenant.scope()).isEqualTo(JwtUtil.SCOPE_BUSINESS);
     }
 

@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
-/** A hotel a marketer sent to H.M.S. It becomes a business when onboarding starts and follows that business to LIVE. */
+/** A hotel a marketer sent to Hospio360. It becomes a business when onboarding starts and follows that business to LIVE. */
 @Getter
 @Setter
 @SuperBuilder

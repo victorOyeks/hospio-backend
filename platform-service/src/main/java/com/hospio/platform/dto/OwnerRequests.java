@@ -4,7 +4,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-/** Owner portal requests to H.M.S support and report schedules (docs/owner-portal.md). */
+/** Owner portal requests to Hospio360 support and report schedules (docs/owner-portal.md). */
 public final class OwnerRequests {
 
     private OwnerRequests() {

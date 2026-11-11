@@ -336,7 +336,7 @@ public class AuthService {
         TenantContext.runWith(Tenant.system("set-pin"), () -> {
             UserAccount user = users.findById(userId).orElseThrow(() -> new UnauthorizedException("Account not found"));
             if (!pinAllowed(user)) {
-                throw new ForbiddenException("Owners and H.M.S staff sign in with email and password. PINs are for staff on shared devices");
+                throw new ForbiddenException("Owners and Hospio360 staff sign in with email and password. PINs are for staff on shared devices");
             }
             boolean noPassword = request.password() == null || request.password().isBlank();
             if (noPassword) {

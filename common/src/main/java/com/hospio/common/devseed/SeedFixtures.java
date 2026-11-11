@@ -7,7 +7,7 @@ import java.util.List;
 /**
  * The test accounts and the example hotel from the design handoff. Every service that seeds uses the
  * same fixed ids so they agree without asking each other: Royal Suites Ltd, Simpas Ikeja (120 rooms),
- * owner Godwin Kwin, GM Tunde Bakare, the named staff and the H.M.S admins.
+ * owner Godwin Kwin, GM Tunde Bakare, the named staff and the Hospio360 admins.
  *
  * Seeding runs when {@code hospio.seed.enabled=true} (env {@code SEED_DEMO_DATA}), on every start,
  * and only creates what is missing; it never overwrites a row QA has changed.

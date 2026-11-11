@@ -25,7 +25,7 @@ Values live in `/opt/hospio-staging/.env.staging` (systemd `EnvironmentFile`), n
 
 - **From address**: `MAIL_FROM_ADDRESS`.
 - **From name**: the hotel's name (the event's `hotelId`, else the `Delivery.from(businessId, hotelId)` the caller set);
-  no hotel → the business's name; neither (H.M.S staff, marketers) → `MAIL_FROM_NAME_DEFAULT`. Names come from
+  no hotel → the business's name; neither (Hospio360 staff, marketers) → `MAIL_FROM_NAME_DEFAULT`. Names come from
   tenant-service and are cached for 10 minutes.
 - **Reply-To**: the hotel's email (Hotel setup / tenant hotel `email`) when it has one, else the business's email, else none.
 - A sender may override both with the event's `fromName` / `replyTo`.
@@ -52,9 +52,9 @@ One row per delivery: `channel`, `to_address`, `subject`, `kind`, `ref`, `from_n
 (`QUEUED` → `SENT`, `FAILED`, `NOT_CONNECTED` for SMS and WhatsApp, `DISABLED` when `MAIL_ENABLED` is off), `attempts`, `provider_message_id`
 (the SMTP Message-ID Brevo accepted), `error` (one line, never a credential), `sent_at`, `created_at`, `event_id` (unique:
 a redelivered event is not sent twice), `business_id`, `hotel_id`. Forced row-level security like its neighbours; platform
-mail (no business) is visible to H.M.S only.
+mail (no business) is visible to Hospio360 only.
 
-`GET /messaging/deliveries?page&size&status&channel&q` (manager, owner, H.M.S): the hotel's delivery log, newest first,
+`GET /messaging/deliveries?page&size&status&channel&q` (manager, owner, Hospio360): the hotel's delivery log, newest first,
 `PageWithCounts` with counts per status.
 
 ## Sending
@@ -112,7 +112,7 @@ managers and the owner write; front office (View) reads; other roles get 403. An
 | POST | `/messaging/templates/{id}/fill` | front office, manager, owner | `{conversationId?}` or `{bookingId?}` → `{subject, body, missing}` |
 | GET | `/messaging/shift-notice/recipients` | manager, owner | today's rota at the hotel (finance workforce) |
 | POST | `/messaging/shift-notice` | manager, owner | `{body}`: an in-app notice to everyone on today's rota but the sender (400 when nobody else is on) |
-| GET | `/messaging/deliveries` | manager, owner, H.M.S | the delivery log (above) |
+| GET | `/messaging/deliveries` | manager, owner, Hospio360 | the delivery log (above) |
 
 Placeholders: `{{guest}}`, `{{first_name}}`, `{{hotel}}`, `{{room}}`, `{{room_type}}`, `{{check_in}}`, `{{check_out}}`,
 `{{nights}}`, `{{reference}}` (the older `{guest}` form still fills). One the booking has no value for stays as written

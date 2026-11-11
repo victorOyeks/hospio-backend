@@ -84,7 +84,7 @@ class ActivityLogFilterTest {
                 .isInstanceOf(BadRequestException.class).hasMessage("The start date is after the end date");
         Page<ActivityEntry> ok = service.list(f("front office", LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 10)), 0, 20);
         assertThat(ok).isNotNull();
-        service.list(f("H.M.S", null, null), 0, 20);
+        service.list(f("Hospio360", null, null), 0, 20);
     }
 
     @Test

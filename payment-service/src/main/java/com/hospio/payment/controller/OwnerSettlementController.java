@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Owner portal · Payments &amp; payouts (docs/owner-portal.md): the business's own settlements (card and transfer money
- * the providers collected, less their fee and H.M.S's share), by day and provider, with whether it has been paid out.
+ * the providers collected, less their fee and Hospio360's share), by day and provider, with whether it has been paid out.
  */
 @RestController
 @RequestMapping("/payments/settlements")

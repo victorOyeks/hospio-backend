@@ -34,7 +34,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-/** Support tickets: hotels open them, H.M.S assigns, comments, resolves. Updates for the opener go out as TICKET_UPDATE. */
+/** Support tickets: hotels open them, Hospio360 assigns, comments, resolves. Updates for the opener go out as TICKET_UPDATE. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -106,7 +106,7 @@ public class SupportService {
         String hotelId = request.hotelId() != null ? request.hotelId() : user.isPlatform() ? null : TenantContext.current().map(t -> t.hotelId()).orElse(null);
         String priority = priority(request.priority());
         SupportTicket t = tickets.save(SupportTicket.builder().businessId(businessId).hotelId(hotelId).subject(request.subject()).body(request.body())
-                .priority(priority).openedBy(user.getUserId()).openedByName(user.isPlatform() ? "H.M.S · " + user.getFullName() : user.getFullName())
+                .priority(priority).openedBy(user.getUserId()).openedByName(user.isPlatform() ? "Hospio360 · " + user.getFullName() : user.getFullName())
                 .businessName(businessNames.name(businessId)).lastActivityAt(Instant.now()).build());
         if ("URGENT".equals(priority)) {
             alerts.refreshTicketUrgent(businessId);
@@ -143,7 +143,7 @@ public class SupportService {
         HospioUserDetails user = CurrentUser.require();
         boolean internal = request.internal() && user.isPlatform();
         SupportTicketComment c = comments.save(SupportTicketComment.builder().businessId(t.getBusinessId()).hotelId(t.getHotelId()).ticketId(t.getId())
-                .authorId(user.getUserId()).authorName(user.isPlatform() ? "H.M.S · " + user.getFullName() : user.getFullName())
+                .authorId(user.getUserId()).authorName(user.isPlatform() ? "Hospio360 · " + user.getFullName() : user.getFullName())
                 .body(request.body()).internal(internal).build());
         t.setLastActivityAt(Instant.now());
         tickets.save(t);
@@ -206,7 +206,7 @@ public class SupportService {
 
     // ---- helpers -------------------------------------------------------------------------------------
 
-    /** The opener's email; for a ticket H.M.S opened on a business's behalf, the business owner's. */
+    /** The opener's email; for a ticket Hospio360 opened on a business's behalf, the business owner's. */
     private List<Delivery> notifyOpener(SupportTicket t, String subject, String text) {
         Optional<IdentityClient.Contact> opener = names.contact(t.getOpenedBy());
         String to = opener.filter(c -> c.businessId() != null && StringUtils.hasText(c.email())).map(IdentityClient.Contact::email)

@@ -316,7 +316,7 @@ public class OnboardingService {
 
     private static void requirePlatform() {
         if (!CurrentUser.require().isPlatform()) {
-            throw new ForbiddenException("Only H.M.S staff can do this");
+            throw new ForbiddenException("Only Hospio360 staff can do this");
         }
     }
 }

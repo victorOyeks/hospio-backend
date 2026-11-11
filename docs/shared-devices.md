@@ -41,7 +41,7 @@ Web: `hotel-internal-system-admin-FE` (hotel app), QA script `docs/qa/06-shared-
   sessions. Unsaved form state may be lost.
 - **PINs.** Set or changed by the person after a normal sign-in, from My profile & security, with their password. Exactly 6 digits,
   stored as BCrypt. Refused: one digit repeated (1111), a straight run up or down (1234, 4321, 56789), the last digits of
-  their own phone, and the PIN they have now. No PINs for the owner or H.M.S staff.
+  their own phone, and the PIN they have now. No PINs for the owner or Hospio360 staff.
 - **Wrong PINs.** Counted per person, not per device. Each wrong PIN says how many tries are left; the 5th locks that
   person's PIN for 15 minutes (`hospio.auth.pin-max-attempts`, `hospio.auth.pin-lock-minutes`) and the managers of the
   device's hotel get an in-app notice (`hospio-notice`, roles MANAGER). The device is not locked; others keep unlocking.
@@ -74,7 +74,7 @@ Behind the gateway (`https://api-staging.hospio360.com`). `X-Device-Token` is th
 | GET | `/identity/auth/device` | device token | lock screen `{deviceId, name, hotelId, hotelName, roles, autoLockMinutes, people[{userId, fullName, jobTitle, roles, lockedUntil, hasPin, email (only when no PIN)}]}`; 401 unknown or removed |
 | POST | `/identity/auth/pin-sign-in` | device token | `{identifier (user id; phone or email work), pin}` → the usual `AuthResponse`. 401 wrong PIN / locked / unknown device, 403 paused, suspended, owner or no fitting role |
 | POST | `/identity/auth/device/lock` | device token | `{refreshToken, reason: button or idle}` ends that session |
-| POST | `/identity/auth/set-pin` | signed in | `{pin, password?}`; password may be left out only for a first PIN within 15 min of a sign-in; 400 with the reason for a refused PIN or a wrong or missing password, 403 owner or H.M.S |
+| POST | `/identity/auth/set-pin` | signed in | `{pin, password?}`; password may be left out only for a first PIN within 15 min of a sign-in; 400 with the reason for a refused PIN or a wrong or missing password, 403 owner or Hospio360 |
 | POST | `/identity/users/{id}/remind-pin` | manager, owner | in-app notice to someone with no PIN yet; 400 when they have one |
 | POST | `/identity/users/{id}/reset-pin` | manager, owner | clears the PIN and its lock; 400 when there is none |
 | GET | `/identity/users/me` | signed in | now also `hasPin` |

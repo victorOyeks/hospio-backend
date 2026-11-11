@@ -1,6 +1,6 @@
 # Admin portal · API contract (phases 2 and 3)
 
-Everything the H.M.S admin portal (apps/admin) and the marketer portal show, beyond onboarding (`docs/onboarding.md`). Figma: Platform admin page (3304:3841): Dashboard and Hotel businesses (3304:3908), Fees & billing and Marketers (3305:3841), Marketer portal, Support, Admin team, Settings (3306:3841), Phase 1 Businesses & hotels (3321:327), Phase 3 Edit as H.M.S & governance (3334:1454), Payments (3345:7509).
+Everything the Hospio360 admin portal (apps/admin) and the marketer portal show, beyond onboarding (`docs/onboarding.md`). Figma: Platform admin page (3304:3841): Dashboard and Hotel businesses (3304:3908), Fees & billing and Marketers (3305:3841), Marketer portal, Support, Admin team, Settings (3306:3841), Phase 1 Businesses & hotels (3321:327), Phase 3 Edit as Hospio360 & governance (3334:1454), Payments (3345:7509).
 
 Conventions: every route needs the gateway prefix (`/platform`, `/identity`, `/payment`, `/tenant`). "platform" means `@access.platform()` (SUPER_ADMIN, SUPPORT, FINANCE_ADMIN); money routes are SUPER_ADMIN or FINANCE_ADMIN (`@access.has('SUPER_ADMIN') or @access.has('FINANCE_ADMIN')`); team and settings are SUPER_ADMIN only. Lists are paged (`page`, `size`, `PagedResponse`) unless noted. Names of people (admins, owners) are resolved server-side where the row needs them, so the web app never joins fixtures.
 
@@ -41,7 +41,7 @@ Entities: `FeeRule` (exists), `FeeStatement` (exists; gains `dueOn`, `businessNa
 
 ## Payments (payment-service, `/payment/admin/**`, money roles)
 
-Entities (new, in payment-service): `Settlement` (businessId, businessName, hotelId, provider, periodDate, gross, providerFees, hmsShare, net, status PENDING|SETTLED|FAILED, settledAt, payoutBatchId), `PayoutBatch` (ref `PB-YYYY-NNN`, createdBy, createdByName, status PROCESSING|PAID|PART_FAILED, total, businessCount, paidAt), `FailedPayout` (settlementId, businessId, businessName, amount, bankLabel, reason, attempts, lastTriedAt, resolvedAt). A nightly job (and `POST /payment/admin/settlements/run?date=`) builds one PENDING settlement per business × provider × day from approved card and transfer payments (provider fee % and H.M.S share % from platform settings via platform internal `GET /platform/internal/settings/fees`, new); cash never settles.
+Entities (new, in payment-service): `Settlement` (businessId, businessName, hotelId, provider, periodDate, gross, providerFees, hmsShare, net, status PENDING|SETTLED|FAILED, settledAt, payoutBatchId), `PayoutBatch` (ref `PB-YYYY-NNN`, createdBy, createdByName, status PROCESSING|PAID|PART_FAILED, total, businessCount, paidAt), `FailedPayout` (settlementId, businessId, businessName, amount, bankLabel, reason, attempts, lastTriedAt, resolvedAt). A nightly job (and `POST /payment/admin/settlements/run?date=`) builds one PENDING settlement per business × provider × day from approved card and transfer payments (provider fee % and Hospio360 share % from platform settings via platform internal `GET /platform/internal/settings/fees`, new); cash never settles.
 
 | Method | Path | Who | Body → response |
 |---|---|---|---|
@@ -99,12 +99,12 @@ Today `Marketer` is one row per referred business. Rename it conceptually to an 
 
 Security: a MARKETER token has scope `marketer` (see onboarding contract); `@access.marketer()` added to `AccessChecker`. `tenant POST /businesses` accepts `marketerId` (profile id) and `referralId`.
 
-## Changes by H.M.S (platform)
+## Changes by Hospio360 (platform)
 
 | Method | Path | Who | Body → response |
 |---|---|---|---|
 | GET | `/platform/admin/changes?businessId=&madeBy=&from=&to=&page=` | platform | paged `PlatformChange` (+ `businessName`, `madeByName`, `undone`) |
-| POST | `/platform/admin/changes` | platform | exists: `{businessId, hotelId, area, description, reason (≥8 chars), beforeJson, afterJson}`; the web app records a change **after** each edit it makes as H.M.S (business/hotel/setup/users), with before and after snapshots |
+| POST | `/platform/admin/changes` | platform | exists: `{businessId, hotelId, area, description, reason (≥8 chars), beforeJson, afterJson}`; the web app records a change **after** each edit it makes as Hospio360 (business/hotel/setup/users), with before and after snapshots |
 | POST | `/platform/changes/{id}/undo` | owner **or platform** within `undoUntil` | exists; now also allowed to platform |
 
 ## Settings and integrations (platform, SUPER_ADMIN)
@@ -147,10 +147,10 @@ Security: a MARKETER token has scope `marketer` (see onboarding contract); `@acc
 | Method | Path | Who | Body → response |
 |---|---|---|---|
 | POST | `/identity/support-access` | platform | exists: `{businessId, reason, minutes}` → grant |
-| POST | `/identity/support-access/{grantId}/token` | platform | → `{accessToken, expiresIn, hotels}`: a token for the admin with `bid` = business, scope `business`, roles `OWNER:VIEW`, `act: adminId`, `sub` = admin, expiring with the grant (max 60 min). Every write made with such a token is refused by services (`AccessLevel.VIEW`), and `TenantContext` records `actedBy` so the activity log shows "H.M.S · Name". |
+| POST | `/identity/support-access/{grantId}/token` | platform | → `{accessToken, expiresIn, hotels}`: a token for the admin with `bid` = business, scope `business`, roles `OWNER:VIEW`, `act: adminId`, `sub` = admin, expiring with the grant (max 60 min). Every write made with such a token is refused by services (`AccessLevel.VIEW`), and `TenantContext` records `actedBy` so the activity log shows "Hospio360 · Name". |
 | GET | `/identity/support-access?businessId=` | platform | grants incl. expired, for the Contract & activity tab |
 
-The hotel app accepts `/auth/support?token=…` (opened from the admin portal in a new tab): sets the session cookie from the token with a visible "Viewing as H.M.S support · read only · ends at HH:MM" bar.
+The hotel app accepts `/auth/support?token=…` (opened from the admin portal in a new tab): sets the session cookie from the token with a visible "Viewing as Hospio360 support · read only · ends at HH:MM" bar.
 
 ## Seed (staging)
 

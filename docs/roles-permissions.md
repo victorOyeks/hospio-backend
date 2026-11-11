@@ -17,9 +17,9 @@ services' guards (`@access.has`, `@access.atLeast(role, level)`, `@access.manage
 
 ## Rules (UserService)
 
-- A manager or the owner (or H.M.S). A read-only token (every role VIEW) never passes `@access.manager()`.
+- A manager or the owner (or Hospio360). A read-only token (every role VIEW) never passes `@access.manager()`.
 - No one changes their own roles: "You can't change your own access. Ask the owner or another manager".
-- The owner role is not given here ("The owner role is given by H.M.S or by transferring ownership"), and only H.M.S changes an owner's grant. H.M.S roles are not given by hotels.
+- The owner role is not given here ("The owner role is given by Hospio360 or by transferring ownership"), and only Hospio360 changes an owner's grant. Hospio360 roles are not given by hotels.
 - A manager gives and changes roles only at their own hotels ("That role is at a hotel you don't manage"); the owner at any hotel of the business. A manager may give MANAGER, matching invites (`POST /users`).
 - A role already held at the hotel is not given again: "... already has Kitchen here (Full). Change the level instead" (409). Same level, already paused, not paused and no end date are refused with a sentence too.
 - A person's only active role is not removed: "Kitchen is X's only active role. Give them another role first, or pause this one instead". The remove-person flows (Staff → Remove from hotel, Owner → Users → Remove access, Admin team) send `allowLastRole: true`.

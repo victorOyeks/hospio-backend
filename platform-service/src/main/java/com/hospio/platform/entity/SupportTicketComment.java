@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
-/** A note on a ticket. Internal notes stay inside H.M.S; the others are sent to the person who opened it. */
+/** A note on a ticket. Internal notes stay inside Hospio360; the others are sent to the person who opened it. */
 @Getter
 @Setter
 @SuperBuilder

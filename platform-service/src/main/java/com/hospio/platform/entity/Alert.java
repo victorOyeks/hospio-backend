@@ -12,7 +12,7 @@ import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
 /**
- * Something H.M.S should look at: overdue fees, a failing POS, an urgent ticket, a stalled onboarding, a quiet
+ * Something Hospio360 should look at: overdue fees, a failing POS, an urgent ticket, a stalled onboarding, a quiet
  * business. Raised by listeners and the nightly job, dismissed by a person or automatically when the cause ends.
  * The business may be null for platform-wide alerts, so this is not a TenantEntity.
  */

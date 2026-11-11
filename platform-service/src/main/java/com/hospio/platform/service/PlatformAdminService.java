@@ -11,7 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Reports (section 7). Fees, marketers, support, health, alerts and changes by H.M.S each have their own
+ * Reports (section 7). Fees, marketers, support, health, alerts and changes by Hospio360 each have their own
  * service now ({@link FeeService}, {@link MarketerService}, {@link SupportService}, {@link HealthService},
  * {@link AlertService}, {@link ChangeService}).
  */

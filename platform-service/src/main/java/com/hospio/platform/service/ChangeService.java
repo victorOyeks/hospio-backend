@@ -32,7 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-/** Changes H.M.S made inside a business (L1-L3): recorded with a reason, undoable for 7 days by the owner or the platform. */
+/** Changes Hospio360 made inside a business (L1-L3): recorded with a reason, undoable for 7 days by the owner or the platform. */
 @Service
 @RequiredArgsConstructor
 public class ChangeService {
@@ -71,7 +71,7 @@ public class ChangeService {
         return changes.findAllByOrderByCreatedAtDesc(PageRequest.of(0, limit)).stream().map(this::row).toList();
     }
 
-    /** The owner's (or manager's) view of what H.M.S changed in their business. */
+    /** The owner's (or manager's) view of what Hospio360 changed in their business. */
     @Transactional(readOnly = true)
     public List<ChangeRow> forCaller(String businessId) {
         HospioUserDetails user = CurrentUser.require();
@@ -85,7 +85,7 @@ public class ChangeService {
     @Transactional
     public PlatformChange record(PlatformRequests.PlatformChangeRequest request) {
         HospioUserDetails user = CurrentUser.require();
-        String actor = "H.M.S · " + user.getFullName();
+        String actor = "Hospio360 · " + user.getFullName();
         PlatformChange c = changes.save(PlatformChange.builder().businessId(request.businessId()).hotelId(request.hotelId()).area(request.area())
                 .description(request.description()).reason(request.reason()).beforeJson(request.beforeJson()).afterJson(request.afterJson())
                 .madeBy(user.getUserId()).madeByName(actor).businessName(businessNames.name(request.businessId()))
@@ -98,7 +98,7 @@ public class ChangeService {
     }
 
     /**
-     * Undo within 7 days, by H.M.S: support puts the setting back and marks the change undone here; an owner's request
+     * Undo within 7 days, by Hospio360: support puts the setting back and marks the change undone here; an owner's request
      * for it (its ticket) is resolved at the same time. Owners ask through {@link OwnerRequestService#requestUndo}.
      */
     @Transactional
@@ -106,10 +106,10 @@ public class ChangeService {
         HospioUserDetails user = CurrentUser.require();
         PlatformChange c = changes.findById(id).orElseThrow(() -> new ResourceNotFoundException("Change not found"));
         if (!user.isPlatform()) {
-            // H.M.S puts the setting back; the owner asks for it (POST /changes/{id}/request-undo), which opens a ticket.
+            // Hospio360 puts the setting back; the owner asks for it (POST /changes/{id}/request-undo), which opens a ticket.
             throw new ForbiddenException(user.has(Role.OWNER) && c.getBusinessId().equals(user.getBusinessId())
                     ? "Ask Hospio support to undo it: they put the setting back and tell you"
-                    : "Only H.M.S can undo a change by H.M.S");
+                    : "Only Hospio360 can undo a change by Hospio360");
         }
         if (c.getUndoneAt() != null) {
             throw new BadRequestException("Already undone");

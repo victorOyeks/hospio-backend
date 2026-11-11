@@ -10,7 +10,7 @@ The handoff names 14 modules and says to build them as separate services. Each i
 
 Every table in every schema has `business_id` and, for hotel-scoped data, `hotel_id`. `common`'s `TenantEntity` fills them from the request's tenant on insert, and Postgres row-level security enforces them on every statement:
 
-- `JwtFilter` reads the token and the `X-Hotel-Id` header into `TenantContext` (scope `hotel`, `business` for an owner looking across hotels, or `platform` for H.M.S staff).
+- `JwtFilter` reads the token and the `X-Hotel-Id` header into `TenantContext` (scope `hotel`, `business` for an owner looking across hotels, or `platform` for Hospio360 staff).
 - `RowLevelSecurityDataSource` runs `set_config('app.business_id' …)`, `app.hotel_id` and `app.scope` on every pooled connection, and resets them when the connection is returned.
 - Each service's first changelog calls `app.protect(schema, table)` (from `common`'s `000-app-functions.sql`), which enables and forces RLS with the policy `app.can_see(business_id, hotel_id)`.
 - Kafka listeners run before any tenant is known, so they call `TenantBinder.bind(event)` first; it sets the thread tenant and transaction-local settings from the event's business and hotel.
