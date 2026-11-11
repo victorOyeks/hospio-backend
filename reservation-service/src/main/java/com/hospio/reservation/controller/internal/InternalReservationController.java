@@ -37,6 +37,12 @@ public class InternalReservationController {
         return ApiResponse.ok(service.get(id));
     }
 
+    /** Bookings a room has had in any status: property-service refuses to delete a room with any. */
+    @GetMapping("/rooms/{roomId}/booking-count")
+    public ApiResponse<Long> bookingCount(@PathVariable String roomId) {
+        return ApiResponse.ok(service.bookingsOnRoom(roomId));
+    }
+
     @GetMapping("/rooms/{roomId}/active-booking")
     public ApiResponse<BookingResponse> activeOnRoom(@PathVariable String roomId) {
         return ApiResponse.ok(service.activeOnRoom(roomId));

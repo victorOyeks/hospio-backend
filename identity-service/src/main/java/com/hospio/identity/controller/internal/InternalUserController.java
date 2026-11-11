@@ -46,6 +46,13 @@ public class InternalUserController {
         return ApiResponse.ok(userService.contacts(userIds));
     }
 
+    /** {@code {"email": true|false, "phone": true|false}}: whether a login already uses them (tenant's new-owner checks). */
+    @GetMapping("/taken")
+    public ApiResponse<java.util.Map<String, Boolean>> taken(@RequestParam(required = false) String email,
+                                                             @RequestParam(required = false) String phone) {
+        return ApiResponse.ok(userService.taken(email, phone));
+    }
+
     /** Everyone holding a role at a hotel, e.g. HOUSEKEEPING for the cleaning rota. */
     @GetMapping("/with-role")
     public ApiResponse<List<UserContactResponse>> withRole(@RequestParam String hotelId, @RequestParam Role role) {

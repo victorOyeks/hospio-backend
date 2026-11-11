@@ -369,6 +369,13 @@ public class BookingService {
         return BookingResponse.of(b);
     }
 
+    /** How many bookings a room has had, in any status; counted as the system because the room may be in any hotel. */
+    @Transactional(readOnly = true)
+    public long bookingsOnRoom(String roomId) {
+        return com.hospio.common.tenancy.TenantContext.runWith(com.hospio.common.tenancy.Tenant.system("room-bookings"),
+                () -> bookings.countByRoomId(roomId));
+    }
+
     @Transactional(readOnly = true)
     public BookingResponse activeOnRoom(String roomId) {
         return bookings.findFirstByRoomIdAndStatus(roomId, BookingStatus.CHECKED_IN).map(BookingResponse::of)

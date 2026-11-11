@@ -20,6 +20,51 @@ Both paths end in the same place: an owner with a business, one or more hotels w
 - Temporary passwords are returned once in the API response and shown once on screen. Every created user also gets an **invite token** (7 days) that opens `/accept-invite?token=…` on the right app; accepting sets the password and signs the user in. No email or WhatsApp is sent yet (messaging-service does not consume these events).
 - Phone verification uses a 6-digit code. The code is logged on identity-service and, when `hospio.auth.otp-dev-code` is set (staging: `123456`), that code is always accepted. Sign-in is not blocked by an unverified phone; the wizard just shows the step.
 
+## Back-office field rules (admin "Set up a business" and the 10-step wizard)
+
+The admin screens and the API apply the same rules (web: `packages/ui/src/shared/validate.ts`; tenant: `service/Fields.java`;
+property: `service/RoomRules.java`). A refusal is a 400 (bad value) or 409 (already used) with a sentence the screen shows
+under the field.
+
+| Field | Rule |
+|---|---|
+| Owner's full name, business (trading) name, registered name, hotel name | 2–120 characters with at least two letters (not `0000`, not `@#$%`). Registered name optional. |
+| City | Required (business and hotel); letters only, 2–80 characters, no digits. |
+| Address (head office, hotel) | Optional; 5–200 characters with at least three letters. |
+| Email (owner, business, hotel, second contact) | `name@domain.tld`; owner email required, the rest optional. |
+| Phone (owner, business, hotel, second contact) | Optional; 10–15 digits, optional `+`, spaces, brackets, dashes; the last ten digits not all one digit. `+234 803…` and `0803…` are the same number. |
+| CAC / registration number | Optional; `RC`, `BN` or `IT` and 1–8 digits (`RC 1873402`, `rc-1873402`; plain digits mean RC), not all zeros. Stored as `RC 1873402`. |
+| Fee | Model and value required on create. Percentage models: **0 to 100 inclusive**, at most two decimals (0 is a free period, as platform's fee rules allow; platform's `POST /platform/admin/fees/rules` now refuses a percentage over 100 too). Per room night: ₦0 to ₦1,000,000. |
+| Check-in / check-out | `HH:MM`, 00:00–23:59; required on the admin form (the API defaults a missing one to 14:00 / 12:00). |
+
+**One of each across businesses** (checked as the system so row-level security does not hide other businesses, under an
+advisory lock so two admins saving at once take turns; only a value that changes is checked, so an old duplicate never
+blocks saving another step):
+
+- **Business name**: an exact duplicate (trimmed, single-spaced, any case) is **refused** (409 "A business called X already
+  exists…"). Chosen over "flag for confirmation" because it is simpler and a second business with the same name is almost
+  always the same business entered twice. Self-serve sign-up does not apply this rule.
+- **CAC number**: refused when another business has it, however it was written (409 "CAC number RC 1873402 is already used by X…").
+  Also applies to the owner's own business profile.
+- **Owner email**: refused when another business's owner has it or a login already signs in with it (409 "x already has an account…").
+- **Owner phone**: refused when another business's owner has it (last ten digits) or a login uses it (409 "…already in use…").
+- **Hotel name**: one per business, any case or spacing (409 "This business already has a hotel called X…"); also for owners.
+
+The wizard's step 2 second contact (kept in the draft only) is checked by `PUT /tenant/onboarding/{id}/step` when filled.
+
+**Rooms** (property): a room type name has 2–60 characters with letters and is **unique among the hotel's active types**
+(409 "There is already a room type called X in this hotel. One type has one price…"); guests 1–20 when given; price above
+zero. A room number is up to 10 letters, digits or dashes with a non-zero digit (stored upper case); floor up to 20
+characters. The admin screen is stricter: first number `^[A-Za-z]{0,3}\d{1,5}$`, 1–500 rooms a row, price at least ₦100,
+floor a number from -5 to 200 or `G`. `POST /rooms/bulk` takes `refuseExisting: true` (the admin wizard sends it): any number
+that exists or repeats refuses the whole list with a 409 naming them and nothing is made. `DELETE /rooms/{id}` deletes a
+room made by mistake; a room that has ever had a booking is refused (409, asks reservation's `GET /internal/rooms/{id}/booking-count`).
+
+The Rooms step re-reads the hotel's types and rooms from property whenever it opens, so going Back or using the step rail
+never hides rooms already made and never makes them twice; rows typed but not made are kept in the browser. The wizard
+asks the server for a fresh copy when it opens (the browser's Back can show a cached page), and each step is its own
+browser history entry. Hotel setup (step 6) saves which hotels were ticked and when the template reached each.
+
 ## identity-service (`/identity`)
 
 ### New and changed
@@ -129,7 +174,8 @@ Lists (`/setup/lists/{listName}`): `CANCEL_REASONS`, `DISCOUNT_REASONS`, `VOID_R
 
 | Method | Path | Who | Body → response |
 |---|---|---|---|
-| POST | `/rooms/bulk` | manager, owner, platform (+`X-Hotel-Id`) | `{rooms: [{number, roomTypeId, floor?, areaId?}]}` → `{created, skipped: [numbers already present]}`. Up to 500 per call. |
+| POST | `/rooms/bulk` | manager, owner, platform (+`X-Hotel-Id`) | `{rooms: [{number, roomTypeId, floor?, areaId?}], refuseExisting?}` → `{created, skipped: [numbers already present]}`. Up to 500 per call. With `refuseExisting: true` a taken or repeated number refuses the whole list (409). |
+| DELETE | `/rooms/{id}` | manager, owner, platform | Deletes a room made by mistake; 409 when it has ever had a booking. Room count synced. |
 | DELETE | `/room-types/{id}` | manager, owner | 409 if rooms use it; otherwise `active=false` |
 | everything else | unchanged |  |
 

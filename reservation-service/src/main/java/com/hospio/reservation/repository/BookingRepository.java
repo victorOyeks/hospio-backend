@@ -58,6 +58,9 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
 
     long countByHotelIdAndStatus(String hotelId, BookingStatus status);
 
+    /** Every booking ever placed in a room, whatever its status (property refuses to delete a room that has any). */
+    long countByRoomId(String roomId);
+
     long countByHotelIdAndStatusAndCheckInDate(String hotelId, BookingStatus status, LocalDate checkInDate);
 
     long countByHotelIdAndStatusAndCheckOutDate(String hotelId, BookingStatus status, LocalDate checkOutDate);

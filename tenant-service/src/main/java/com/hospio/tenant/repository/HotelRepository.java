@@ -9,6 +9,13 @@ public interface HotelRepository extends JpaRepository<Hotel, String> {
 
     int countByBusinessId(String businessId);
 
+    /** Another hotel of this business with this name (trimmed, single-spaced, any case); {@code id} is the one being edited, or ''. */
+    @org.springframework.data.jpa.repository.Query(value = "select name from tenant.hotels where business_id = :businessId and id <> :id "
+            + "and lower(regexp_replace(trim(name), '\\s+', ' ', 'g')) = :key limit 1", nativeQuery = true)
+    java.util.Optional<String> otherWithName(@org.springframework.data.repository.query.Param("businessId") String businessId,
+                                             @org.springframework.data.repository.query.Param("id") String id,
+                                             @org.springframework.data.repository.query.Param("key") String key);
+
     List<Hotel> findByBusinessIdIn(java.util.Collection<String> businessIds);
 
     /** Hotels and rooms of the businesses a search matches ({@code q} is a lower-case like pattern, or '' for every business). */

@@ -86,7 +86,7 @@ class AuthServiceTest {
         when(deviceRepo.findByTokenHash(Hashing.sha256("dev-token"))).thenReturn(Optional.of(bar));
         when(deviceRepo.findById("d1")).thenReturn(Optional.of(bar));
         grace = UserAccount.builder().businessId("b1").fullName("Grace Bello").email("grace@x.ng").phone("+2348010000012")
-                .passwordHash(encoder.encode("Hospio123!")).pinHash(encoder.encode("2580")).build();
+                .passwordHash(encoder.encode("Hospio123!")).pinHash(encoder.encode("258013")).build();
         grace.setId("grace");
         when(users.findById("grace")).thenReturn(Optional.of(grace));
         graceGrants.add(grant("grace", Role.BAR, "h1"));
@@ -106,7 +106,7 @@ class AuthServiceTest {
     @Test
     void rightPinOnTheDeviceGivesASessionAtItsHotelAndRecordsTheDevice() {
         grace.setFailedPinAttempts(3);
-        AuthResponse response = unlock("2580");
+        AuthResponse response = unlock("258013");
 
         assertThat(response.accessToken()).isEqualTo("pin");
         verify(tokenIssuer).issueOnDevice(grace, "h1", "d1");
@@ -134,7 +134,7 @@ class AuthServiceTest {
         assertThat(notice.getTitle()).isEqualTo("Grace Bello's PIN is locked");
 
         // Even the right PIN is refused while locked, with the minutes left.
-        assertThatThrownBy(() -> unlock("2580")).isInstanceOf(UnauthorizedException.class)
+        assertThatThrownBy(() -> unlock("258013")).isInstanceOf(UnauthorizedException.class)
                 .hasMessageContaining("Your PIN is locked for 15 more minutes");
         // The device itself is not locked: it still answers.
         assertThat(devices.requireDevice("dev-token")).isSameAs(bar);
@@ -142,7 +142,7 @@ class AuthServiceTest {
 
     @Test
     void wrongPinsAreLoggedWithTheDevice() {
-        assertThatThrownBy(() -> unlock("1111")).isInstanceOf(UnauthorizedException.class);
+        assertThatThrownBy(() -> unlock("111111")).isInstanceOf(UnauthorizedException.class);
         ArgumentCaptor<SharedDeviceEvent> sent = ArgumentCaptor.forClass(SharedDeviceEvent.class);
         verify(events).publish(eq(KafkaTopics.SHARED_DEVICE), sent.capture());
         assertThat(sent.getValue().getAction()).isEqualTo("PIN_FAILED");
@@ -154,12 +154,12 @@ class AuthServiceTest {
     void aPersonOfAnotherHotelOrBusinessCannotUnlock() {
         graceGrants.clear();
         graceGrants.add(grant("grace", Role.BAR, "h2"));
-        assertThatThrownBy(() -> unlock("2580")).isInstanceOf(ForbiddenException.class).hasMessageContaining("doesn't work on Bar tablet");
+        assertThatThrownBy(() -> unlock("258013")).isInstanceOf(ForbiddenException.class).hasMessageContaining("doesn't work on Bar tablet");
 
-        UserAccount other = UserAccount.builder().businessId("b2").fullName("Ola").email("ola@y.ng").pinHash(encoder.encode("2580")).build();
+        UserAccount other = UserAccount.builder().businessId("b2").fullName("Ola").email("ola@y.ng").pinHash(encoder.encode("258013")).build();
         other.setId("ola");
         when(users.findById("ola")).thenReturn(Optional.of(other));
-        assertThatThrownBy(() -> service.signInWithPin("dev-token", new PinLoginRequest("ola", "2580")))
+        assertThatThrownBy(() -> service.signInWithPin("dev-token", new PinLoginRequest("ola", "258013")))
                 .isInstanceOf(UnauthorizedException.class).hasMessageContaining("don't know that person");
     }
 
@@ -167,38 +167,38 @@ class AuthServiceTest {
     void aRoleTheDeviceIsNotForCannotUnlock() {
         graceGrants.clear();
         graceGrants.add(grant("grace", Role.KITCHEN, "h1"));
-        assertThatThrownBy(() -> unlock("2580")).isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> unlock("258013")).isInstanceOf(ForbiddenException.class);
         graceGrants.clear();
         RoleGrant paused = grant("grace", Role.BAR, "h1");
         paused.setPaused(true);
         graceGrants.add(paused);
-        assertThatThrownBy(() -> unlock("2580")).isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> unlock("258013")).isInstanceOf(ForbiddenException.class);
     }
 
     @Test
     void pausedOrSuspendedPeopleCannotUnlock() {
         grace.setStatus(UserAccount.Status.SUSPENDED);
-        assertThatThrownBy(() -> unlock("2580")).isInstanceOf(ForbiddenException.class).hasMessageContaining("suspended");
+        assertThatThrownBy(() -> unlock("258013")).isInstanceOf(ForbiddenException.class).hasMessageContaining("suspended");
         grace.setStatus(UserAccount.Status.PAUSED);
         grace.setPausedUntil(Instant.now().plusSeconds(86_400));
-        assertThatThrownBy(() -> unlock("2580")).isInstanceOf(ForbiddenException.class).hasMessageContaining("paused until");
+        assertThatThrownBy(() -> unlock("258013")).isInstanceOf(ForbiddenException.class).hasMessageContaining("paused until");
         verify(tokenIssuer, never()).issueOnDevice(any(), anyString(), anyString());
     }
 
     @Test
     void ownersHaveNoPin() {
         graceGrants.add(grant("grace", Role.OWNER, null));
-        assertThatThrownBy(() -> unlock("2580")).isInstanceOf(ForbiddenException.class).hasMessageContaining("Owners");
-        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("2470", "Hospio123!"))).isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> unlock("258013")).isInstanceOf(ForbiddenException.class).hasMessageContaining("Owners");
+        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("247019", "Hospio123!"))).isInstanceOf(ForbiddenException.class);
     }
 
     @Test
     void aRemovedOrUnknownDeviceIsRefused() {
         bar.setRevokedAt(Instant.now());
-        assertThatThrownBy(() -> unlock("2580")).isInstanceOf(UnauthorizedException.class).hasMessageContaining("removed");
-        assertThatThrownBy(() -> service.signInWithPin("nope", new PinLoginRequest("grace", "2580")))
+        assertThatThrownBy(() -> unlock("258013")).isInstanceOf(UnauthorizedException.class).hasMessageContaining("removed");
+        assertThatThrownBy(() -> service.signInWithPin("nope", new PinLoginRequest("grace", "258013")))
                 .isInstanceOf(UnauthorizedException.class).hasMessageContaining("not set up");
-        assertThatThrownBy(() -> service.signInWithPin(null, new PinLoginRequest("grace", "2580")))
+        assertThatThrownBy(() -> service.signInWithPin(null, new PinLoginRequest("grace", "258013")))
                 .isInstanceOf(UnauthorizedException.class);
     }
 
@@ -237,18 +237,18 @@ class AuthServiceTest {
 
     @Test
     void setPinNeedsThePasswordAndRefusesTrivialOrRepeatedPins() {
-        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("2470", "wrong"))).isInstanceOf(BadRequestException.class)
+        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("247019", "wrong"))).isInstanceOf(BadRequestException.class)
                 .hasMessage("Your password is wrong");
-        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("1234", "Hospio123!"))).isInstanceOf(BadRequestException.class);
-        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("0012", "Hospio123!"))).isInstanceOf(BadRequestException.class)
+        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("123456", "Hospio123!"))).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("000012", "Hospio123!"))).isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("phone");
-        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("2580", "Hospio123!"))).isInstanceOf(BadRequestException.class)
+        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("258013", "Hospio123!"))).isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("current PIN");
 
         grace.setFailedPinAttempts(2);
         grace.setLockedUntil(Instant.now().plusSeconds(600));
-        service.setPin("grace", new SetPinRequest("2470", "Hospio123!"));
-        assertThat(encoder.matches("2470", grace.getPinHash())).isTrue();
+        service.setPin("grace", new SetPinRequest("247019", "Hospio123!"));
+        assertThat(encoder.matches("247019", grace.getPinHash())).isTrue();
         assertThat(grace.getFailedPinAttempts()).isZero();
         assertThat(grace.getLockedUntil()).isNull();
     }
@@ -268,17 +268,17 @@ class AuthServiceTest {
     void aFirstPinRightAfterSigningInNeedsNoPasswordButAChangeDoes() {
         grace.setPinHash(null);
         grace.setLastSignInAt(Instant.now().minusSeconds(60));
-        service.setPin("grace", new SetPinRequest("2470", null));
-        assertThat(encoder.matches("2470", grace.getPinHash())).isTrue();
+        service.setPin("grace", new SetPinRequest("247019", null));
+        assertThat(encoder.matches("247019", grace.getPinHash())).isTrue();
         // Changing it needs the password, however fresh the sign-in.
-        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("3691", ""))).isInstanceOf(BadRequestException.class)
+        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("369150", ""))).isInstanceOf(BadRequestException.class)
                 .hasMessage("Enter your password to change your PIN");
         // A first PIN long after the sign-in needs it too, and the trivial-PIN rules still apply without it.
         grace.setPinHash(null);
         grace.setLastSignInAt(Instant.now().minusSeconds(3600));
-        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("3691", null))).isInstanceOf(BadRequestException.class)
+        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("369150", null))).isInstanceOf(BadRequestException.class)
                 .hasMessage("Enter your password to set a PIN");
         grace.setLastSignInAt(Instant.now());
-        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("1111", null))).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> service.setPin("grace", new SetPinRequest("111111", null))).isInstanceOf(BadRequestException.class);
     }
 }

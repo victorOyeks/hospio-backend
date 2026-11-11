@@ -40,7 +40,8 @@ class PropertyServiceTest {
     private final TenantClient tenant = mock(TenantClient.class);
     private final EventPublisher events = mock(EventPublisher.class);
     private final com.hospio.property.client.HotelConfigClient hotelConfig = mock(com.hospio.property.client.HotelConfigClient.class);
-    private final PropertyService service = new PropertyService(roomTypes, rooms, areas, specialPrices, tenant, events, hotelConfig);
+    private final com.hospio.property.client.ReservationClient reservations = mock(com.hospio.property.client.ReservationClient.class);
+    private final PropertyService service = new PropertyService(roomTypes, rooms, areas, specialPrices, tenant, events, hotelConfig, reservations);
 
     private final RoomType deluxe = RoomType.builder().hotelId("h1").name("Deluxe").basePrice(new BigDecimal("45000")).build();
 
@@ -71,8 +72,8 @@ class PropertyServiceTest {
                 new BulkRoomsRequest.BulkRoom("A103", "t1", "1", null))));
 
         assertThat(result.created()).isEqualTo(2);
-        assertThat(result.skipped()).containsExactly("A101", "a102");
-        verify(rooms, times(2)).save(any());
+        assertThat(result.skipped()).containsExactly("A101", "A102");
+        verify(rooms).saveAll(org.mockito.ArgumentMatchers.argThat(list -> ((java.util.Collection<?>) list).size() == 2));
         verify(tenant).updateRoomCount("h1", 3L);
     }
 
@@ -84,6 +85,70 @@ class PropertyServiceTest {
 
         assertThat(result.created()).isZero();
         verify(tenant, never()).updateRoomCount(eq("h1"), any(Long.class));
+    }
+
+    @Test
+    void strictBulkRefusesTakenAndRepeatedNumbersNamingThemAndMakesNothing() {
+        when(rooms.findByHotelIdOrderByNumber("h1")).thenReturn(List.of(
+                Room.builder().hotelId("h1").roomTypeId("t1").number("101").build(),
+                Room.builder().hotelId("h1").roomTypeId("t1").number("102").build()));
+        List<BulkRoomsRequest.BulkRoom> list = List.of(new BulkRoomsRequest.BulkRoom("101", "t1", null, null),
+                new BulkRoomsRequest.BulkRoom("102", "t1", null, null), new BulkRoomsRequest.BulkRoom("103", "t1", null, null),
+                new BulkRoomsRequest.BulkRoom("103", "t1", null, null));
+
+        assertThatThrownBy(() -> service.bulkRooms(new BulkRoomsRequest(list, true)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("Rooms 101–102 already exist")
+                .hasMessageContaining("Room 103 appear");
+        verify(rooms, never()).saveAll(any());
+        verify(tenant, never()).updateRoomCount(eq("h1"), any(Long.class));
+    }
+
+    @Test
+    void bulkRefusesANumberWithNoDigitsOrOnlyZeros() {
+        assertThatThrownBy(() -> service.bulkRooms(new BulkRoomsRequest(List.of(new BulkRoomsRequest.BulkRoom("abc", "t1", null, null)))))
+                .isInstanceOf(com.hospio.common.exception.BadRequestException.class).hasMessageContaining("abc");
+        assertThatThrownBy(() -> service.bulkRooms(new BulkRoomsRequest(List.of(new BulkRoomsRequest.BulkRoom("000", "t1", null, null)))))
+                .isInstanceOf(com.hospio.common.exception.BadRequestException.class);
+    }
+
+    @Test
+    void aSecondTypeWithTheSameNameInTheHotelIsRefused() {
+        signInAs(com.hospio.common.enums.Role.MANAGER);
+        when(roomTypes.otherActiveWithName("h1", "", "deluxe")).thenReturn(Optional.of("Deluxe"));
+        assertThatThrownBy(() -> service.saveRoomType(null, new com.hospio.property.dto.RoomTypeRequest(" deluxe ", null, new BigDecimal("60000"), 2, 0, null, true)))
+                .isInstanceOf(ConflictException.class).hasMessageContaining("already a room type called Deluxe");
+    }
+
+    @Test
+    void roomTypeNamesNeedLettersAndGuestsAreOneToTwenty() {
+        assertThatThrownBy(() -> RoomRules.typeName("0000")).hasMessageContaining("letters");
+        assertThatThrownBy(() -> RoomRules.typeName(" ")).hasMessageContaining("Enter the room type");
+        assertThat(RoomRules.typeName("  Deluxe   King ")).isEqualTo("Deluxe King");
+        assertThatThrownBy(() -> RoomRules.guests(0)).hasMessageContaining("between 1 and 20");
+        assertThatThrownBy(() -> RoomRules.guests(21)).hasMessageContaining("between 1 and 20");
+        RoomRules.guests(null);
+        RoomRules.guests(20);
+        assertThat(RoomRules.number(" a101 ")).isEqualTo("A101");
+        assertThat(RoomRules.ranges(List.of("101", "102", "103", "201", "A1", "A2"))).isEqualTo("101–103, 201, A1–A2");
+    }
+
+    @Test
+    void aRoomWithBookingsCannotBeDeletedAndOneWithoutIsAndTheCountIsSynced() {
+        Room r = Room.builder().hotelId("h1").roomTypeId("t1").number("120").build();
+        r.setId("r1");
+        when(rooms.findById("r1")).thenReturn(Optional.of(r));
+        when(reservations.bookingCount("r1")).thenReturn(2L);
+        assertThatThrownBy(() -> service.deleteRoom("r1")).isInstanceOf(ConflictException.class)
+                .hasMessageContaining("Room 120 has 2 bookings");
+        verify(rooms, never()).delete(any());
+
+        when(reservations.bookingCount("r1")).thenReturn(0L);
+        when(tenant.businessOf("h1")).thenReturn(Optional.of("b1"));
+        when(rooms.countByHotelId("h1")).thenReturn(19L);
+        assertThat(service.deleteRoom("r1").number()).isEqualTo("120");
+        verify(rooms).delete(r);
+        verify(tenant).updateRoomCount("h1", 19L);
     }
 
     @Test

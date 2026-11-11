@@ -18,7 +18,7 @@ public final class SeedFixtures {
     }
 
     public static final String SEED_PASSWORD = "Hospio123!";
-    public static final String SEED_PIN = "1234";
+    public static final String SEED_PIN = "258013";
 
     public static final String BUSINESS_ID = "b0000000-0000-4000-8000-000000000001";
     public static final String BUSINESS_NAME = "Royal Suites Ltd";

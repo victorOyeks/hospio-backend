@@ -110,7 +110,7 @@ public class AuthController {
         return ApiResponse.ok("Password changed", sessions.reissue(userId, current));
     }
 
-    /** Set or change one's own PIN with the password (4-6 digits, not trivial, not the PIN before). Owners have none. */
+    /** Set or change one's own PIN with the password (6 digits, not trivial, not the PIN before). Owners have none. */
     @PostMapping("/set-pin")
     public ApiResponse<Void> setPin(@Valid @RequestBody SetPinRequest request) {
         authService.setPin(CurrentUser.require().getUserId(), request);

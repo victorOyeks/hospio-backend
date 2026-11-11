@@ -94,6 +94,13 @@ public class PropertyController {
         return ApiResponse.ok("Saved", service.saveRoom(id, request));
     }
 
+    @Operation(summary = "Delete a room made by mistake; 409 when it has ever had a booking")
+    @DeleteMapping("/rooms/{id}")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<RoomResponse> deleteRoom(@PathVariable String id) {
+        return ApiResponse.ok("Room deleted", service.deleteRoom(id));
+    }
+
     /** Maintenance and managers take a room out of order; housekeeping may not. */
     @PostMapping("/rooms/{id}/out-of-order")
     @PreAuthorize("@access.manager() or @access.atLeast('MAINTENANCE','EDIT')")

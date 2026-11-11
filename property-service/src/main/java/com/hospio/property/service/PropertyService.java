@@ -61,6 +61,7 @@ public class PropertyService {
     private final TenantClient tenantClient;
     private final EventPublisher events;
     private final com.hospio.property.client.HotelConfigClient hotelConfig;
+    private final com.hospio.property.client.ReservationClient reservations;
 
     @Transactional(readOnly = true)
     public List<RoomTypeResponse> roomTypes(String hotelId) {
@@ -80,6 +81,14 @@ public class PropertyService {
             type.setPriceSentToOwner(false);
             if (request.basePrice().signum() <= 0) {
                 throw new BadRequestException("Enter a base price above zero");
+            }
+            String typeName = RoomRules.typeName(request.name());
+            RoomRules.guests(request.capacityAdults());
+            if (id == null || !RoomRules.key(typeName).equals(RoomRules.key(type.getName()))) {
+                roomTypes.otherActiveWithName(type.getHotelId(), id == null ? "" : id, RoomRules.key(typeName)).ifPresent(other -> {
+                    throw new ConflictException("There is already a room type called " + other + " in this hotel. One type has one price: "
+                            + "add the rooms to " + other + ", or give this type a different name");
+                });
             }
             BigDecimal price = Money.of(request.basePrice());
             BigDecimal toOwner = null;
@@ -103,7 +112,7 @@ public class PropertyService {
                 }
             }
             BigDecimal oldPrice = type.getBasePrice();
-            type.setName(request.name());
+            type.setName(typeName);
             type.setDescription(request.description());
             type.setBasePrice(price);
             if (request.capacityAdults() != null) {
@@ -223,14 +232,18 @@ public class PropertyService {
         String hotelId = TenantContext.requireHotel();
         return withHotelTenant(hotelId, () -> {
             RoomType type = findType(request.roomTypeId());
-            rooms.findByHotelIdAndNumber(hotelId, request.number()).filter(r -> !r.getId().equals(id)).ifPresent(r -> {
-                throw new ConflictException("Room " + request.number() + " already exists");
+            String number = RoomRules.number(request.number());
+            if (!hotelId.equals(type.getHotelId())) {
+                throw new BadRequestException("Room type " + type.getName() + " belongs to another hotel");
+            }
+            rooms.findByHotelIdAndNumber(hotelId, number).filter(r -> !r.getId().equals(id)).ifPresent(r -> {
+                throw new ConflictException("Room " + number + " already exists");
             });
             Room room = id == null ? Room.builder().hotelId(hotelId).build() : findRoom(id);
-            room.setNumber(request.number());
+            room.setNumber(number);
             room.setRoomTypeId(type.getId());
             room.setAreaId(request.areaId());
-            room.setFloor(request.floor());
+            room.setFloor(RoomRules.floor(request.floor()));
             room.setNotes(request.notes());
             Room saved = rooms.save(room);
             if (id == null) {
@@ -252,24 +265,69 @@ public class PropertyService {
             rooms.findByHotelIdOrderByNumber(hotelId).forEach(r -> taken.add(r.getNumber().trim().toUpperCase()));
             Map<String, RoomType> types = new HashMap<>();
             List<String> skipped = new ArrayList<>();
-            int created = 0;
+            List<String> existing = new ArrayList<>();
+            List<String> repeated = new ArrayList<>();
+            Set<String> seen = new HashSet<>();
+            List<Room> toSave = new ArrayList<>();
             for (BulkRoomsRequest.BulkRoom r : request.rooms()) {
-                String number = r.number().trim();
+                String number = RoomRules.number(r.number());
+                String floor = RoomRules.floor(r.floor());
                 RoomType type = types.computeIfAbsent(r.roomTypeId(), this::findType);
                 if (!hotelId.equals(type.getHotelId())) {
                     throw new BadRequestException("Room type " + type.getName() + " belongs to another hotel");
                 }
-                if (!taken.add(number.toUpperCase())) {
+                String key = number.toUpperCase();
+                if (!seen.add(key)) {
+                    repeated.add(number);
                     skipped.add(number);
                     continue;
                 }
-                rooms.save(Room.builder().hotelId(hotelId).roomTypeId(type.getId()).areaId(r.areaId()).number(number).floor(r.floor()).build());
-                created++;
+                if (!taken.add(key)) {
+                    existing.add(number);
+                    skipped.add(number);
+                    continue;
+                }
+                toSave.add(Room.builder().hotelId(hotelId).roomTypeId(type.getId()).areaId(r.areaId()).number(number).floor(floor).build());
             }
+            if (Boolean.TRUE.equals(request.refuseExisting()) && !skipped.isEmpty()) {
+                StringBuilder msg = new StringBuilder("No rooms were made. ");
+                if (!existing.isEmpty()) {
+                    msg.append(existing.size() == 1 ? "Room " : "Rooms ").append(RoomRules.ranges(existing))
+                            .append(existing.size() == 1 ? " already exists" : " already exist").append(" in this hotel. ");
+                }
+                if (!repeated.isEmpty()) {
+                    msg.append(repeated.size() == 1 ? "Room " : "Rooms ").append(RoomRules.ranges(repeated)).append(" appear more than once in the list. ");
+                }
+                throw new ConflictException(msg.append("Choose numbers that are free").toString());
+            }
+            rooms.saveAll(toSave);
+            int created = toSave.size();
             if (created > 0) {
                 tenantClient.updateRoomCount(hotelId, rooms.countByHotelId(hotelId));
             }
             return new BulkRoomsResponse(created, skipped);
+        });
+    }
+
+    /**
+     * Deletes a room made by mistake (onboarding, Manager · Rooms). A room that has ever had a booking is refused: its history
+     * stays, and it can be taken out of order instead. The hotel's room count is synced after.
+     */
+    @Transactional
+    public RoomResponse deleteRoom(String id) {
+        Room room = findRoom(id);
+        String hotelId = room.getHotelId();
+        RoomType type = roomTypes.findById(room.getRoomTypeId()).orElse(null);
+        long booked = reservations.bookingCount(id);
+        if (booked > 0) {
+            throw new ConflictException("Room " + room.getNumber() + " has " + (booked == 1 ? "a booking" : booked + " bookings")
+                    + ", so it can't be deleted. Take it out of order instead");
+        }
+        return withHotelTenant(hotelId, () -> {
+            rooms.delete(room);
+            rooms.flush();
+            tenantClient.updateRoomCount(hotelId, rooms.countByHotelId(hotelId));
+            return toResponse(room, type);
         });
     }
 
