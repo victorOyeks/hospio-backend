@@ -33,7 +33,7 @@ The design handoff's rule is **build it as if it were fourteen services** — on
 - **Service-to-service reads** go through `/internal/**` endpoints, gated by the internal API key on top of the JWT, using `ServiceClients.internal(...)`.
 - **One worker in each service.** Night audit, scheduled jobs, message retries and the like are `@Scheduled` methods; set `WORKER_ENABLED=false` on extra API instances.
 - **Integrations are ports.** `PosProvider`, `MessageChannel` and `ObjectStorage` in `common` have logging/local implementations for development; a Moniepoint or OPay adapter, a WhatsApp Business adapter or an S3 adapter is a new bean, not a change to business logic.
-- **Nothing is hard-coded.** Rules, lists, prices and limits come from hotel-config-service (Hotel setup); taxes, currency and approval limits are owner-only and H.M.S never changes them.
+- **Nothing is hard-coded.** Rules, lists, prices and limits come from hotel-config-service (Hotel setup); taxes, currency and approval limits are owner-only and Hospio360 never changes them.
 
 ## Test accounts
 
