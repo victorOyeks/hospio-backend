@@ -35,7 +35,7 @@ import org.springframework.util.StringUtils;
  * Hotel setup. Nothing is hard-coded in the other services: every rule, list and price the hotel runs
  * on lives here and they read it. Reads lay the hotel's stored values over the {@link SetupCatalogue}
  * defaults, so a brand-new hotel already answers fully. Taxes, currency and approval limits are set by
- * the owner (or by H.M.S applying a template during onboarding), never by a manager.
+ * the owner (or by Hospio360 applying a template during onboarding), never by a manager.
  */
 @Service
 @RequiredArgsConstructor
@@ -98,7 +98,7 @@ public class HotelSetupService {
     public Map<String, Map<String, JsonNode>> applyTemplate(ApplyTemplateRequest request) {
         HospioUserDetails caller = CurrentUser.require();
         if (!caller.isPlatform() && !caller.isManagerOrOwner()) {
-            throw new ForbiddenException("Only a manager, the owner or H.M.S can apply a template");
+            throw new ForbiddenException("Only a manager, the owner or Hospio360 can apply a template");
         }
         String hotelId = TenantContext.requireHotel();
         JsonNode template;
