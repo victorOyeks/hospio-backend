@@ -541,6 +541,16 @@ public class UserService {
         return hotelId;
     }
 
+    /**
+     * Whether an email or phone already belongs to a login, across every business (tenant-service asks before it records a new
+     * owner, so the handover never fails on a taken sign-in). The phone is matched on its last ten digits, however it was typed.
+     */
+    public java.util.Map<String, Boolean> taken(String email, String phone) {
+        return TenantContext.runWith(Tenant.system("taken-check"), () -> java.util.Map.of(
+                "email", email != null && !email.isBlank() && users.findByEmailIgnoreCase(email.trim()).isPresent(),
+                "phone", phone != null && Phones.key(phone).length() == 10 && users.countByPhoneKey(Phones.key(phone)) > 0));
+    }
+
     /** An email is unique across every business, so the check runs as the system, outside the caller's row-level scope. */
     private void assertPhoneFree(String phone) {
         if (phone == null) {

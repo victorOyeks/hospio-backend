@@ -88,6 +88,37 @@ public class IdentityClient {
         }
     }
 
+    /** What identity already has: whether a login signs in with this email, or uses this phone. */
+    public record Taken(boolean email, boolean phone) {
+    }
+
+    /**
+     * Asks identity whether a login already uses this email or phone. When identity cannot answer, nothing is refused here
+     * (tenant's own checks still run and the handover refuses a taken sign-in).
+     */
+    public Taken taken(String email, String phone) {
+        if (email == null && phone == null) {
+            return new Taken(false, false);
+        }
+        try {
+            JsonNode body = systemClient.get().uri(u -> {
+                u.path("/internal/users/taken");
+                if (email != null) {
+                    u.queryParam("email", email);
+                }
+                if (phone != null) {
+                    u.queryParam("phone", phone.replaceAll("[^0-9]", ""));
+                }
+                return u.build();
+            }).retrieve().body(JsonNode.class);
+            JsonNode data = body == null ? null : body.path("data");
+            return data == null ? new Taken(false, false) : new Taken(data.path("email").asBoolean(false), data.path("phone").asBoolean(false));
+        } catch (Exception e) {
+            log.warn("Could not ask identity-service whether {} / {} are taken: {}", email, phone, e.getMessage());
+            return new Taken(false, false);
+        }
+    }
+
     /**
      * Full names for user ids (account managers, assignees), from a 5-minute cache and one contacts call for
      * the rest. Ids identity does not know, or cannot answer for right now, are left out: a missing name never

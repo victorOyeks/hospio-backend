@@ -103,6 +103,9 @@ public class OnboardingService {
     public OnboardingResponse saveStep(String businessId, OnboardingStepRequest request) {
         requirePlatform();
         Business business = businessService.find(businessId);
+        if (request.step() == 2 && request.data() != null) {
+            checkSecondContact(request.data());
+        }
         OnboardingDraft draft = drafts.findByBusinessId(businessId).orElseGet(() -> OnboardingDraft.builder()
                 .businessId(businessId).assignedTo(CurrentUser.require().getUserId()).data(draftData.empty()).build());
         save(draft, business, request, BACK_OFFICE_STEPS);
@@ -268,6 +271,18 @@ public class OnboardingService {
         draftData.saveStep(root, request.step(), request.data(), request.nextAction());
         draft.setData(draftData.write(root));
         draft.setStep(Math.max(draft.getStep(), Math.min(request.step() + 1, totalSteps)));
+    }
+
+    /** Step 2's optional second contact: blank is fine, anything typed must be a real name, email or phone. */
+    static void checkSecondContact(com.fasterxml.jackson.databind.JsonNode data) {
+        Fields.name(text(data, "contactName"), "the second contact's name", false);
+        Fields.email(text(data, "contactEmail"), "the second contact's email", false);
+        Fields.phone(text(data, "contactPhone"), "the second contact's phone", false);
+    }
+
+    private static String text(com.fasterxml.jackson.databind.JsonNode data, String field) {
+        com.fasterxml.jackson.databind.JsonNode v = data.path(field);
+        return v.isTextual() ? v.asText() : null;
     }
 
     private Business ownersBusiness() {

@@ -97,6 +97,9 @@ public class FeeService {
         if (request.value().signum() < 0) {
             throw new BadRequestException("The fee value cannot be negative");
         }
+        if (!PER_ROOM_NIGHT.equals(model) && request.value().compareTo(java.math.BigDecimal.valueOf(100)) > 0) {
+            throw new BadRequestException("A percentage fee must be between 0 and 100");
+        }
         FeeRule rule = feeRules.save(FeeRule.builder().businessId(request.businessId()).model(model).value(request.value())
                 .startsOn(request.startsOn()).endsOn(request.endsOn()).build());
         if (!tenant.setFee(request.businessId(), model, request.value())) {
