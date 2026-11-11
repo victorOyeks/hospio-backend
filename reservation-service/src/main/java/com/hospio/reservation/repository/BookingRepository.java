@@ -19,16 +19,27 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
 
     Optional<Booking> findFirstByRoomIdAndStatus(String roomId, BookingStatus status);
 
-    /** Stays that overlap [from, to) on a room: a booking blocks the nights it covers, not its check-out day. */
-    @Query("select b from Booking b where b.roomId = :roomId and b.status in ('BOOKED','CHECKED_IN') "
-            + "and b.checkInDate < :to and b.checkOutDate > :from and (:exclude is null or b.id <> :exclude)")
-    List<Booking> overlappingOnRoom(@Param("roomId") String roomId, @Param("from") LocalDate from, @Param("to") LocalDate to,
-                                    @Param("exclude") String excludeBookingId);
+    /**
+     * Active stays on a room that may hold it on a night of [from, to): BOOKED stays touching those nights and every CHECKED_IN stay,
+     * whatever its dates (a guest holds the room until checked out). {@link com.hospio.reservation.service.Occupancy} decides which do.
+     */
+    @Query("select b from Booking b where b.roomId = :roomId and b.checkInDate < :to "
+            + "and ((b.status = 'BOOKED' and b.checkOutDate > :from) or b.status = 'CHECKED_IN')")
+    List<Booking> activeOnRoom(@Param("roomId") String roomId, @Param("from") LocalDate from, @Param("to") LocalDate to);
 
-    @Query("select count(b) from Booking b where b.hotelId = :hotelId and b.roomTypeId = :typeId and b.status in ('BOOKED','CHECKED_IN') "
-            + "and b.checkInDate < :to and b.checkOutDate > :from and (:exclude is null or b.id <> :exclude)")
-    long countOverlappingOnType(@Param("hotelId") String hotelId, @Param("typeId") String roomTypeId, @Param("from") LocalDate from,
-                                @Param("to") LocalDate to, @Param("exclude") String excludeBookingId);
+    /** The same over every stay of a room type at a hotel (assigned or not). */
+    @Query("select b from Booking b where b.hotelId = :hotelId and b.roomTypeId = :typeId and b.checkInDate < :to "
+            + "and ((b.status = 'BOOKED' and b.checkOutDate > :from) or b.status = 'CHECKED_IN')")
+    List<Booking> activeOnType(@Param("hotelId") String hotelId, @Param("typeId") String roomTypeId, @Param("from") LocalDate from,
+                               @Param("to") LocalDate to);
+
+    /** The same over every room of a hotel that has a room assigned (availability's free and turnover rooms). */
+    @Query("select b from Booking b where b.hotelId = :hotelId and b.roomId is not null and b.checkInDate < :to "
+            + "and ((b.status = 'BOOKED' and b.checkOutDate > :from) or b.status = 'CHECKED_IN')")
+    List<Booking> activeWithRoom(@Param("hotelId") String hotelId, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** Who is checked in to a room right now (at most one, by the partial unique index ux_bookings_room_in_house). */
+    List<Booking> findByRoomIdAndStatus(String roomId, BookingStatus status);
 
     @Query("select b from Booking b where b.hotelId = :hotelId and ((b.checkInDate = :date and b.status = 'BOOKED') "
             + "or (b.checkOutDate = :date and b.status = 'CHECKED_IN') or (b.status = 'CHECKED_IN')) order by b.roomNumber")

@@ -39,9 +39,11 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,7 +67,7 @@ public class BookingService {
     @Transactional(readOnly = true)
     public TodayResponse today() {
         String hotelId = TenantContext.requireHotel();
-        LocalDate date = LocalDate.now();
+        LocalDate date = Occupancy.today();
         List<Booking> all = bookings.today(hotelId, date);
         return new TodayResponse(
                 all.stream().filter(b -> b.getStatus() == BookingStatus.BOOKED && date.equals(b.getCheckInDate())).map(BookingResponse::of).toList(),
@@ -75,8 +77,8 @@ public class BookingService {
 
     @Transactional(readOnly = true)
     public List<BookingResponse> list(LocalDate from, LocalDate to, BookingStatus status) {
-        LocalDate f = from == null ? LocalDate.now().minusDays(7) : from;
-        LocalDate t = to == null ? LocalDate.now().plusDays(30) : to;
+        LocalDate f = from == null ? Occupancy.today().minusDays(7) : from;
+        LocalDate t = to == null ? Occupancy.today().plusDays(30) : to;
         return bookings.between(TenantContext.requireHotel(), f, t, status).stream().map(BookingResponse::of).toList();
     }
 
@@ -104,13 +106,23 @@ public class BookingService {
     public AvailabilityResponse availability(String roomTypeId, LocalDate from, LocalDate to) {
         validateDates(from, to);
         String hotelId = TenantContext.requireHotel();
+        LocalDate today = Occupancy.today();
         List<PropertyClient.RoomSummary> rooms = property.rooms(hotelId, roomTypeId).stream().filter(PropertyClient.RoomSummary::inService).toList();
-        long booked = bookings.countOverlappingOnType(hotelId, roomTypeId, from, to, null);
-        List<String> free = rooms.stream().map(PropertyClient.RoomSummary::id)
-                .filter(id -> bookings.overlappingOnRoom(id, from, to, null).isEmpty()).toList();
+        long booked = Occupancy.countBlocking(bookings.activeOnType(hotelId, roomTypeId, from, to), from, to, today, null);
+        Map<String, List<Booking>> byRoom = bookings.activeWithRoom(hotelId, from, to).stream().collect(Collectors.groupingBy(Booking::getRoomId));
+        List<String> free = new ArrayList<>();
+        List<String> turnover = new ArrayList<>();
+        for (PropertyClient.RoomSummary room : rooms) {
+            switch (Occupancy.state(byRoom.getOrDefault(room.id(), List.of()), room.id(), from, to, today)) {
+                case FREE -> free.add(room.id());
+                case TURNOVER -> turnover.add(room.id());
+                case TAKEN -> {
+                }
+            }
+        }
         String typeName = rooms.isEmpty() ? property.roomTypeName(roomTypeId) : rooms.get(0).roomTypeName();
         return new AvailabilityResponse(roomTypeId, typeName, rooms.size(), booked, Math.max(0, rooms.size() - booked),
-                property.price(roomTypeId, from), free);
+                property.price(roomTypeId, from), free, turnover);
     }
 
     @Transactional
@@ -141,11 +153,15 @@ public class BookingService {
         if (request.roomId() != null) {
             room = rooms.stream().filter(r -> r.id().equals(request.roomId())).findFirst()
                     .orElseThrow(() -> new BadRequestException("That room is not of this type or is out of order"));
-            if (!bookings.overlappingOnRoom(room.id(), request.checkInDate(), request.checkOutDate(), null).isEmpty()) {
-                throw new ConflictException("Room " + room.number() + " is already booked for those nights");
+            // A walk-in is checked in straight after: refuse a room somebody is still in before the booking (and any payment) is taken.
+            boolean walkIn = Boolean.TRUE.equals(request.walkIn());
+            if (walkIn && request.checkInDate().isAfter(Occupancy.today())) {
+                throw new BadRequestException("A walk-in arrives today");
             }
+            requireRoomFree(null, room.id(), room.number(), request.checkInDate(), request.checkOutDate(), walkIn);
         }
-        long overlapping = bookings.countOverlappingOnType(hotelId, request.roomTypeId(), request.checkInDate(), request.checkOutDate(), null);
+        long overlapping = Occupancy.countBlocking(bookings.activeOnType(hotelId, request.roomTypeId(), request.checkInDate(), request.checkOutDate()),
+                request.checkInDate(), request.checkOutDate(), Occupancy.today(), null);
         if (overlapping >= rooms.size()) {
             throw new ConflictException("No " + rooms.get(0).roomTypeName() + " room is free for those nights");
         }
@@ -200,14 +216,13 @@ public class BookingService {
                 throw new BadRequestException("Room " + room.number() + " is out of order");
             }
             typeId = room.roomTypeId();
-            if (!bookings.overlappingOnRoom(room.id(), in, out, b.getId()).isEmpty()) {
-                throw new ConflictException("Room " + room.number() + " is already booked for those nights");
-            }
-        } else if (b.getRoomId() != null && !bookings.overlappingOnRoom(b.getRoomId(), in, out, b.getId()).isEmpty()) {
-            throw new ConflictException("Room " + b.getRoomNumber() + " is already booked for those nights");
+            // An in-house guest moves into the room now: nobody else may be checked in to it, whatever their dates.
+            requireRoomFree(b.getId(), room.id(), room.number(), in, out, b.getStatus() == BookingStatus.CHECKED_IN && !room.id().equals(b.getRoomId()));
+        } else if (b.getRoomId() != null) {
+            requireRoomFree(b.getId(), b.getRoomId(), b.getRoomNumber(), in, out, false);
         }
         long rooms = property.rooms(b.getHotelId(), typeId).stream().filter(PropertyClient.RoomSummary::inService).count();
-        if (bookings.countOverlappingOnType(b.getHotelId(), typeId, in, out, b.getId()) >= rooms) {
+        if (Occupancy.countBlocking(bookings.activeOnType(b.getHotelId(), typeId, in, out), in, out, Occupancy.today(), b.getId()) >= rooms) {
             throw new ConflictException("No room of that type is free for those nights");
         }
         String change = describeChange(b, in, out, room);
@@ -223,7 +238,7 @@ public class BookingService {
             }
         }
         b.setTotalAmount(Money.of(b.getNightlyRate().multiply(BigDecimal.valueOf(b.nights()))));
-        bookings.save(b);
+        saveInHouse(b);
         events.publish(KafkaTopics.BOOKING_CHANGED, BookingChangedEvent.builder()
                 .bookingId(b.getId()).guestName(b.getGuestName()).change(change + (request.reason() == null ? "" : " (" + request.reason() + ")"))
                 .roomId(b.getRoomId()).roomNumber(b.getRoomNumber()).checkInDate(in).checkOutDate(out).build());
@@ -236,7 +251,7 @@ public class BookingService {
         if (b.getStatus() != BookingStatus.BOOKED) {
             throw new BadRequestException("This booking is " + b.getStatus().name().toLowerCase().replace('_', ' '));
         }
-        if (LocalDate.now().isBefore(b.getCheckInDate())) {
+        if (Occupancy.today().isBefore(b.getCheckInDate())) {
             throw new BadRequestException("Check-in is on " + b.getCheckInDate());
         }
         HospioUserDetails user = CurrentUser.require();
@@ -254,14 +269,15 @@ public class BookingService {
                 throw new BadRequestException("Room " + room.number() + " is out of order");
             }
             bookings.lock(b.getHotelId() + ":" + room.roomTypeId());
-            if (!bookings.overlappingOnRoom(room.id(), b.getCheckInDate(), b.getCheckOutDate(), b.getId()).isEmpty()) {
-                throw new ConflictException("Room " + room.number() + " is taken for those nights");
-            }
+            requireRoomFree(b.getId(), room.id(), room.number(), b.getCheckInDate(), b.getCheckOutDate(), true);
             b.setRoomId(room.id());
             b.setRoomNumber(room.number());
         } else if (!property.room(b.getRoomId()).inService()) {
             // The room given at booking went out of order since (a work order): the desk picks another room.
             throw new BadRequestException("Room " + b.getRoomNumber() + " is out of order · choose another room");
+        } else {
+            // The room given at booking (or a same-day turnover): the guest before must have been checked out.
+            requireRoomFree(b.getId(), b.getRoomId(), b.getRoomNumber(), b.getCheckInDate(), b.getCheckOutDate(), true);
         }
         String warning = null;
         if (b.getRoomId() != null && readiness.isDirty(b.getHotelId(), b.getRoomId())) {
@@ -291,7 +307,7 @@ public class BookingService {
         guestService.countStay(guest.getId());
         b.setStatus(BookingStatus.CHECKED_IN);
         b.setCheckedInAt(Instant.now());
-        bookings.save(b);
+        saveInHouse(b);
         events.publish(KafkaTopics.GUEST_CHECKED_IN, GuestCheckedInEvent.builder()
                 .bookingId(b.getId()).guestId(guest.getId()).guestName(guest.getFullName()).guestPhone(guest.getPhone())
                 .guestEmail(guest.getEmail()).roomId(b.getRoomId()).roomNumber(b.getRoomNumber()).checkOutDate(b.getCheckOutDate())
@@ -401,6 +417,37 @@ public class BookingService {
         return new DaySummary.Stay(b.getId(), b.getReference(), b.getGuestName(), b.getRoomNumber(), b.getCheckInDate(), b.getCheckOutDate());
     }
 
+    /**
+     * Refuses a room another stay holds on a night of [in, out) (an in-house guest, overstays included, or another booking). With
+     * {@code movingInNow} (check-in, walk-in, moving an in-house guest) it also refuses while anybody else is still checked in to the
+     * room, even a guest due out today whose room may already be given to today's arrival. Takes the room's lock first so two desks
+     * can't both pass; the partial unique index ux_bookings_room_in_house is the database's guarantee behind it.
+     */
+    void requireRoomFree(String selfId, String roomId, String roomNumber, LocalDate in, LocalDate out, boolean movingInNow) {
+        bookings.lock("room:" + roomId);
+        if (movingInNow) {
+            Occupancy.inHouseOn(bookings.findByRoomIdAndStatus(roomId, BookingStatus.CHECKED_IN), roomId, selfId).ifPresent(o -> {
+                throw new ConflictException(Occupancy.stillInHouse(roomNumber, o));
+            });
+        }
+        Occupancy.firstBlocking(bookings.activeOnRoom(roomId, in, out), in, out, Occupancy.today(), selfId).ifPresent(o -> {
+            throw new ConflictException(Occupancy.taken(roomNumber, o));
+        });
+    }
+
+    /** Saves a stay that is (or becomes) in house, turning a clash on ux_bookings_room_in_house into the desk's refusal. */
+    private void saveInHouse(Booking b) {
+        if (b.getStatus() != BookingStatus.CHECKED_IN) {
+            bookings.save(b);
+            return;
+        }
+        try {
+            bookings.saveAndFlush(b);
+        } catch (DataIntegrityViolationException e) {
+            throw new ConflictException("Room " + b.getRoomNumber() + " already has a guest checked in. Check them out first, or choose another room.");
+        }
+    }
+
     private Booking find(String id) {
         return bookings.findById(id).or(() -> bookings.findByReference(id)).orElseThrow(() -> new ResourceNotFoundException("Booking not found"));
     }
@@ -426,7 +473,7 @@ public class BookingService {
         if (!out.isAfter(in)) {
             throw new BadRequestException("Check-out must be after check-in");
         }
-        if (!allowPastCheckIn && in.isBefore(LocalDate.now())) {
+        if (!allowPastCheckIn && in.isBefore(Occupancy.today())) {
             throw new BadRequestException("Check-in can't be in the past");
         }
     }
