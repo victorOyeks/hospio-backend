@@ -326,7 +326,7 @@ public class AuthService {
     }
 
     /**
-     * Set or change one's own PIN after a normal sign-in, with the password (docs/shared-devices.md): 4-6 digits, not trivial
+     * Set or change one's own PIN after a normal sign-in, with the password (docs/shared-devices.md): 6 digits, not trivial
      * ({@link PinRules}), not the same as the PIN before, stored as a BCrypt hash. Owners and the platform have no PIN.
      */
     @Transactional

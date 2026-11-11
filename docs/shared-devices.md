@@ -20,7 +20,7 @@ Web: `hotel-internal-system-admin-FE` (hotel app), QA script `docs/qa/06-shared-
   locked. People with **no PIN yet** are tiles too, marked "No PIN yet": tapping one opens the normal sign-in page with their
   email filled in (`/auth?email=…&shared=1`); there is no second sign-in page. The search box filters the tiles on the device.
 - **The PIN prompt.** After a normal sign-in on a shared device, a person with no PIN is asked "Set a PIN so you can switch in
-  quickly on this device" (4-6 digits, the same rules) with "Not now". "Not now" carries on as normal and the prompt comes
+  quickly on this device" (6 digits, the same rules) with "Not now". "Not now" carries on as normal and the prompt comes
   back at their next sign-in on a shared device. New staff whose role uses a shared desk (front office, bar, kitchen,
   housekeeping, laundry, maintenance, inventory) get the same skippable prompt after accepting their invite and at their
   first sign-in, on any device. A **first** PIN set within 15 minutes of signing in with the password (or accepting the
@@ -39,7 +39,7 @@ Web: `hotel-internal-system-admin-FE` (hotel app), QA script `docs/qa/06-shared-
 - **Locking.** "Lock" in the header, or the device's auto-lock after that many idle minutes (a warning toast 30 seconds
   before). Locking revokes **only this session's** refresh token (`POST /auth/device/lock`), never the person's other
   sessions. Unsaved form state may be lost.
-- **PINs.** Set or changed by the person after a normal sign-in, from My profile & security, with their password. 4-6 digits,
+- **PINs.** Set or changed by the person after a normal sign-in, from My profile & security, with their password. Exactly 6 digits,
   stored as BCrypt. Refused: one digit repeated (1111), a straight run up or down (1234, 4321, 56789), the last digits of
   their own phone, and the PIN they have now. No PINs for the owner or H.M.S staff.
 - **Wrong PINs.** Counted per person, not per device. Each wrong PIN says how many tries are left; the 5th locks that
@@ -95,7 +95,7 @@ identity checks the person works for the owner and refuses the owner's own accou
   keeps working against the APIs until it expires, but the web drops it on its next page or check (60 s).
 - The lock screen lists everyone who fits the device; a very large hotel gets a long list (the search box filters it).
 - Unsaved form state is lost when the device locks.
-- PINs are 4-6 digits: a wrong-try lock of 15 minutes after 5 tries is what keeps them safe, so the lock is per person.
+- PINs are exactly 6 digits (since 2026-11-11; migration `007-six-digit-pins.sql` cleared every older PIN, so each person sets a new one after their next email sign-in). A wrong-try lock of 15 minutes after 5 tries is what keeps them safe, so the lock is per person.
 
 ## Progress
 

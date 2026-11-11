@@ -16,5 +16,6 @@
     <include file="db/changelog/004-staff-account-status.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/005-shared-devices.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/006-profile-security.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/007-six-digit-pins.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>
