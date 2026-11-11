@@ -35,7 +35,7 @@ import org.springframework.util.StringUtils;
 
 /**
  * Settlements: a day's approved card and transfer payments, one row per business and provider, net of the
- * provider's fee and H.M.S's share (both percentages from platform settings). Run nightly for yesterday and on
+ * provider's fee and Hospio360's share (both percentages from platform settings). Run nightly for yesterday and on
  * demand for any date; a business × provider × day that already has a settlement is left alone.
  */
 @Slf4j

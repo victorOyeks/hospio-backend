@@ -349,7 +349,7 @@ public class BusinessService {
         boolean owner = caller.has(Role.OWNER) && h.getBusinessId().equals(caller.getBusinessId());
         boolean managerHere = caller.has(Role.MANAGER) && caller.getHotelIds().contains(hotelId);
         if (!caller.isPlatform() && !owner && !managerHere) {
-            throw new ForbiddenException("Only the owner, this hotel's manager or H.M.S can edit it");
+            throw new ForbiddenException("Only the owner, this hotel's manager or Hospio360 can edit it");
         }
         String name = Fields.name(r.name(), "the hotel name", true);
         if (!Fields.nameKey(name).equals(Fields.nameKey(h.getName()))) {
@@ -373,7 +373,7 @@ public class BusinessService {
         Hotel h = findHotel(hotelId);
         HospioUserDetails caller = CurrentUser.require();
         if (!caller.isPlatform() && !(caller.has(Role.OWNER) && h.getBusinessId().equals(caller.getBusinessId()))) {
-            throw new ForbiddenException("Only the owner or H.M.S can change a hotel's status");
+            throw new ForbiddenException("Only the owner or Hospio360 can change a hotel's status");
         }
         h.setStatus(request.status());
         h.setStatusReason(request.status() == Hotel.Status.ACTIVE ? null : request.reason());
@@ -504,7 +504,7 @@ public class BusinessService {
 
     private static void requirePlatform() {
         if (!CurrentUser.require().isPlatform()) {
-            throw new ForbiddenException("Only H.M.S staff can do this");
+            throw new ForbiddenException("Only Hospio360 staff can do this");
         }
     }
 

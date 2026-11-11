@@ -27,10 +27,10 @@ public class Business extends BaseEntity {
 
     public enum Stage { LEAD, ONBOARDING, HANDED_OVER, LIVE, AT_RISK, SUSPENDED, CHURNED }
 
-    /** How H.M.S earns from this business (card 8): % of guest payments, per room-night, or % of bookings. */
+    /** How Hospio360 earns from this business (card 8): % of guest payments, per room-night, or % of bookings. */
     public enum FeeModel { PERCENT_OF_PAYMENTS, PER_ROOM_NIGHT, PERCENT_OF_BOOKINGS }
 
-    /** How the business came in: the owner signed up on the hotel app, or H.M.S onboarded it. */
+    /** How the business came in: the owner signed up on the hotel app, or Hospio360 onboarded it. */
     public enum Source { SELF_SERVE, BACK_OFFICE }
 
     @Column(nullable = false)

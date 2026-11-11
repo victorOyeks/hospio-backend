@@ -7,7 +7,7 @@ import java.util.Set;
 
 /**
  * Who is acting and on whose data. {@code scope} is {@code hotel} for staff and managers bound to one
- * hotel, {@code business} for an owner looking across hotels, and {@code platform} for H.M.S staff and
+ * hotel, {@code business} for an owner looking across hotels, and {@code platform} for Hospio360 staff and
  * background work. The Postgres policies read exactly these three values.
  */
 public record Tenant(String businessId, String hotelId, String actorId, String actorName, Set<Role> roles, String scope) {
@@ -24,8 +24,8 @@ public record Tenant(String businessId, String hotelId, String actorId, String a
         if (hotel == null && user.getHotelIds().size() == 1 && !user.has(Role.OWNER)) {
             hotel = user.getHotelIds().get(0);
         }
-        // Support access: the activity log shows who at H.M.S was looking, not the owner.
-        String actorName = user.getActedBy() == null ? user.getFullName() : "H.M.S \u00b7 " + user.getFullName();
+        // Support access: the activity log shows who at Hospio360 was looking, not the owner.
+        String actorName = user.getActedBy() == null ? user.getFullName() : "Hospio360 \u00b7 " + user.getFullName();
         return new Tenant(user.getBusinessId(), hotel, user.getUserId(), actorName, user.roleSet(),
                 hotel == null ? JwtUtil.SCOPE_BUSINESS : JwtUtil.SCOPE_HOTEL);
     }

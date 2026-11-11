@@ -230,7 +230,7 @@ public class StaffAccountService {
         }
         if (userId.equals(caller.getUserId())) {
             throw new ForbiddenException("You can't " + verb + " your own account here. Use your profile, or ask "
-                    + (caller.has(Role.OWNER) ? "H.M.S support" : "the owner"));
+                    + (caller.has(Role.OWNER) ? "Hospio360 support" : "the owner"));
         }
         UserAccount user = users.findById(userId).orElseThrow(() -> new ResourceNotFoundException("That person was not found"));
         if (caller.isPlatform()) {
@@ -244,7 +244,7 @@ public class StaffAccountService {
         }
         List<RoleGrant> theirs = grants.findByUserId(user.getId());
         if (theirs.stream().anyMatch(g -> g.getRole() == Role.OWNER)) {
-            throw new ForbiddenException("Only H.M.S can change the owner's account");
+            throw new ForbiddenException("Only Hospio360 can change the owner's account");
         }
         if (!caller.has(Role.OWNER)) {
             Set<String> mine = Set.copyOf(caller.getHotelIds());

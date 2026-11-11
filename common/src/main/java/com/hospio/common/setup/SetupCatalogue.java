@@ -38,7 +38,7 @@ public final class SetupCatalogue {
     public static final String NIGHT_AUDIT = "NIGHT_AUDIT";
     public static final String POS = "POS";
 
-    /** Sections only the owner may change; H.M.S applies them through templates during onboarding. */
+    /** Sections only the owner may change; Hospio360 applies them through templates during onboarding. */
     public static final Set<String> OWNER_ONLY_SECTIONS = Set.of(TAXES_CURRENCY, APPROVAL_LIMITS);
 
     /** Section → key → default, in the order the Hotel setup screen shows them. */

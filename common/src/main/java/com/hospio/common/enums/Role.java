@@ -2,7 +2,7 @@ package com.hospio.common.enums;
 
 /**
  * Roles come from the modules; hotels give them to people at three levels (see {@link AccessLevel}).
- * OWNER and MANAGER are hotel-wide. SUPER_ADMIN, SUPPORT and FINANCE_ADMIN are H.M.S staff; MARKETER
+ * OWNER and MANAGER are hotel-wide. SUPER_ADMIN, SUPPORT and FINANCE_ADMIN are Hospio360 staff; MARKETER
  * uses the marketer portal.
  */
 public enum Role {

@@ -10,8 +10,8 @@ All behind the gateway (`https://api-staging.hospio360.com`). A refusal is one s
 
 | Method | Path | Who | What |
 |---|---|---|---|
-| GET | `/platform/activity` | manager, owner, H.M.S | Paged, newest first. `page`, `size` (1 to 200, else 400 "size is 1 to 200"), `q` (summary, person, event), `department` (Front office, Housekeeping, Laundry, Maintenance, Kitchen, Bar, Store, Finance, Management, H.M.S; unknown is a 400), `from`/`to` (Lagos days), `byPlatform`. Filtered in the database |
-| GET | `/platform/activity/{id}` | manager, owner, H.M.S | one entry (a link off the page) |
+| GET | `/platform/activity` | manager, owner, Hospio360 | Paged, newest first. `page`, `size` (1 to 200, else 400 "size is 1 to 200"), `q` (summary, person, event), `department` (Front office, Housekeeping, Laundry, Maintenance, Kitchen, Bar, Store, Finance, Management, Hospio360; unknown is a 400), `from`/`to` (Lagos days), `byPlatform`. Filtered in the database |
+| GET | `/platform/activity/{id}` | manager, owner, Hospio360 | one entry (a link off the page) |
 | POST | `/platform/reports/email` | manager, owner | `{kind, from, to, hotelId?}`: an email to the caller's own address with a link that opens the report (live data, CSV download). A manager's report is for one of their hotels |
 | PUT | `/property/room-types/{id}` | manager, owner | (existing) a manager's base price change above Approval limits → `rateChangeOwnerPct` (0 = every change) while `rateChangesNeedOwner` is on is saved as `requestedBasePrice` and becomes an approval (kind ROOM_PRICE, OWNER); everything else saves. "Saved · the new price is waiting for the owner" |
 | POST | `/platform/approvals/{id}/decide` | owner | (existing) APPROVED applies the requested base price, DECLINED keeps the old one (property-service follows `APPROVAL_DECIDED`) |

@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
-/** A change H.M.S made inside a business (L1-L3); the owner can undo it for 7 days (section 16). */
+/** A change Hospio360 made inside a business (L1-L3); the owner can undo it for 7 days (section 16). */
 @Getter
 @Setter
 @SuperBuilder
@@ -63,7 +63,7 @@ public class PlatformChange extends TenantEntity {
         return undoneAt != null;
     }
 
-    /** The owner asked H.M.S to undo it (a support ticket, undo_ticket_id); support puts it back and marks it undone. */
+    /** The owner asked Hospio360 to undo it (a support ticket, undo_ticket_id); support puts it back and marks it undone. */
     @Column(name = "undo_requested_at")
     private Instant undoRequestedAt;
 

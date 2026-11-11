@@ -33,7 +33,7 @@ public interface ActivityEntryRepository extends JpaRepository<ActivityEntry, St
     boolean existsByBusinessIdAndEventType(String businessId, String eventType);
 
     @Query("select count(distinct a.actorId) from ActivityEntry a where a.businessId = :businessId and a.occurredAt >= :since "
-            + "and a.actorId is not null and a.actorId <> 'system' and (a.actorName is null or a.actorName not like 'H.M.S%') "
+            + "and a.actorId is not null and a.actorId <> 'system' and (a.actorName is null or (a.actorName not like 'Hospio360%' and a.actorName not like 'H.M.S%')) "
             + "and (a.actorName is null or a.actorName not like 'system%')")
     long countDistinctActorsSince(@Param("businessId") String businessId, @Param("since") Instant since);
 }

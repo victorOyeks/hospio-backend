@@ -19,6 +19,6 @@ public class ChangeByPlatformEvent extends HospioEvent {
 
     @Override
     public String summary() {
-        return "H.M.S changed " + area + ": " + description;
+        return "Hospio360 changed " + area + ": " + description;
     }
 }

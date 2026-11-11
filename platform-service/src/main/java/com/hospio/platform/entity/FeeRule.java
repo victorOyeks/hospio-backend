@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
-/** How H.M.S earns from a business: % of guest payments, per room-night, or % of bookings. */
+/** How Hospio360 earns from a business: % of guest payments, per room-night, or % of bookings. */
 @Getter
 @Setter
 @SuperBuilder

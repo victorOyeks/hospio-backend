@@ -24,8 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 /**
- * What an owner asks H.M.S support for from the owner portal, each as a support ticket the admin team works:
- * undoing a change H.M.S made (support puts it back and marks it undone, which resolves the ticket) and handing the
+ * What an owner asks Hospio360 support for from the owner portal, each as a support ticket the admin team works:
+ * undoing a change Hospio360 made (support puts it back and marks it undone, which resolves the ticket) and handing the
  * business to a new owner. Only the business's owner asks; one open request of each at a time.
  */
 @Service
@@ -42,7 +42,7 @@ public class OwnerRequestService {
     private final BusinessNames businessNames;
     private final AlertService alerts;
 
-    /** The owner asks support to undo a change by H.M.S, within its 7 days. */
+    /** The owner asks support to undo a change by Hospio360, within its 7 days. */
     @Transactional
     public ChangeRow requestUndo(String changeId, OwnerRequests.UndoRequest request) {
         HospioUserDetails owner = owner("ask for a change to be undone");
@@ -59,12 +59,12 @@ public class OwnerRequestService {
         }
         String note = StringUtils.hasText(request == null ? null : request.note()) ? request.note().trim() : null;
         SupportTicket t = tickets.save(SupportTicket.builder().businessId(c.getBusinessId()).hotelId(c.getHotelId()).category(CHANGE_UNDO)
-                .subject(cut("Undo a change by H.M.S: " + c.getDescription(), 200))
+                .subject(cut("Undo a change by Hospio360: " + c.getDescription(), 200))
                 .body(cut("The owner asks for this change to be undone.\n\nChange: " + c.getDescription() + "\nArea: " + c.getArea()
                         + "\nMade by: " + c.getMadeByName() + " on " + WHEN.format(c.getCreatedAt()) + "\nReason given: " + c.getReason()
                         + "\nUndo possible until: " + WHEN.format(c.getUndoUntil())
                         + (note == null ? "" : "\n\nFrom the owner: " + note)
-                        + "\n\nPut it back, then mark the change undone under Changes by H.M.S: that resolves this ticket.", 2000))
+                        + "\n\nPut it back, then mark the change undone under Changes by Hospio360: that resolves this ticket.", 2000))
                 .priority("HIGH").openedBy(owner.getUserId()).openedByName(owner.getFullName())
                 .businessName(businessNames.name(c.getBusinessId())).lastActivityAt(Instant.now()).build());
         c.setUndoRequestedAt(Instant.now());
@@ -85,7 +85,7 @@ public class OwnerRequestService {
         }
         Optional<SupportTicket> open = currentTransfer().filter(t -> OPEN.contains(t.getStatus()));
         if (open.isPresent()) {
-            throw new BadRequestException("A transfer request is already with H.M.S support (opened " + WHEN.format(open.get().getCreatedAt())
+            throw new BadRequestException("A transfer request is already with Hospio360 support (opened " + WHEN.format(open.get().getCreatedAt())
                     + "). They will contact you");
         }
         String business = businessNames.name(owner.getBusinessId());

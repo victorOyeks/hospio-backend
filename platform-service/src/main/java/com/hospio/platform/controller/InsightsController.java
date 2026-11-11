@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Activity log, Departments live, reports, support tickets and Changes by H.M.S, for managers and owners. */
+/** Activity log, Departments live, reports, support tickets and Changes by Hospio360, for managers and owners. */
 @RestController
 @RequiredArgsConstructor
 public class InsightsController {
@@ -40,7 +40,7 @@ public class InsightsController {
 
     /**
      * The activity log (docs/manager-leftovers.md): newest first, paged (size 1 to 200), filtered by {@code q} (summary, person, event),
-     * {@code department}, {@code from}/{@code to} (Lagos days) and {@code byPlatform}. Managers, the owner and H.M.S only.
+     * {@code department}, {@code from}/{@code to} (Lagos days) and {@code byPlatform}. Managers, the owner and Hospio360 only.
      */
     @GetMapping("/activity")
     @PreAuthorize("@access.managerView()")
@@ -94,13 +94,13 @@ public class InsightsController {
         return ApiResponse.ok("Ticket opened", support.open(request));
     }
 
-    @Operation(summary = "Changes H.M.S made in the caller's business (platform names a businessId)")
+    @Operation(summary = "Changes Hospio360 made in the caller's business (platform names a businessId)")
     @GetMapping("/changes")
     public ApiResponse<List<ChangeRow>> changes(@RequestParam(required = false) String businessId) {
         return ApiResponse.ok(changes.forCaller(businessId));
     }
 
-    @Operation(summary = "Undo a change by H.M.S within 7 days: the business's owner or the platform")
+    @Operation(summary = "Undo a change by Hospio360 within 7 days: the business's owner or the platform")
     @PostMapping("/changes/{id}/undo")
     @PreAuthorize("@access.owner() or @access.platform()")
     public ApiResponse<PlatformChange> undo(@PathVariable String id) {

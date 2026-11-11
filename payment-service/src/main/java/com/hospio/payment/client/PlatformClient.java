@@ -9,7 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
-/** The platform's fee settings (provider fee %, H.M.S share %) for settlements. Safe defaults when unreachable. */
+/** The platform's fee settings (provider fee %, Hospio360 share %) for settlements. Safe defaults when unreachable. */
 @Slf4j
 @Component
 public class PlatformClient {

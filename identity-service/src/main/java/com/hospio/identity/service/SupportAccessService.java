@@ -100,7 +100,7 @@ public class SupportAccessService {
     private static HospioUserDetails requirePlatform() {
         HospioUserDetails caller = CurrentUser.require();
         if (!caller.isPlatform()) {
-            throw new ForbiddenException("Only H.M.S staff can use support access");
+            throw new ForbiddenException("Only Hospio360 staff can use support access");
         }
         return caller;
     }

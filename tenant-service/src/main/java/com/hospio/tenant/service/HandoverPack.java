@@ -37,7 +37,7 @@ public class HandoverPack {
     public String text(String businessName, String ownerName, List<HotelResponse> hotels, List<JsonNode> logins) {
         StringBuilder sb = new StringBuilder();
         sb.append("Hello ").append(ownerName == null ? "there" : ownerName).append(",\n\n");
-        sb.append("H.M.S has finished setting up ").append(businessName).append(" on Hospio360. Here is what is ready for you.\n\n");
+        sb.append("Hospio360 has finished setting up ").append(businessName).append(" on Hospio360. Here is what is ready for you.\n\n");
 
         sb.append("HOTELS\n");
         if (hotels == null || hotels.isEmpty()) {

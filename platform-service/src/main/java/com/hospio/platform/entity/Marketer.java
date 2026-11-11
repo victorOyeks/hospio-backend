@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
-/** A marketer who referred this business: 20% of H.M.S's share for 24 months, 5% WHT, paid monthly. */
+/** A marketer who referred this business: 20% of Hospio360's share for 24 months, 5% WHT, paid monthly. */
 @Getter
 @Setter
 @SuperBuilder

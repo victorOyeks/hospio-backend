@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Dashboard, business tabs (Usage, Hotels), health and alerts (L7), changes by H.M.S (L1-L3). Platform only. */
+/** Dashboard, business tabs (Usage, Hotels), health and alerts (L7), changes by Hospio360 (L1-L3). Platform only. */
 @RestController
 @RequestMapping("/admin")
 @RequiredArgsConstructor
@@ -83,7 +83,7 @@ public class AdminOverviewController {
         return ApiResponse.ok("Dismissed", alerts.dismiss(id));
     }
 
-    @Operation(summary = "Changes made as H.M.S, paged, by business, admin and date range, with names and whether undone")
+    @Operation(summary = "Changes made as Hospio360, paged, by business, admin and date range, with names and whether undone")
     @GetMapping("/changes")
     public ApiResponse<PagedResponse<ChangeRow>> changes(@RequestParam(required = false) String businessId, @RequestParam(required = false) String madeBy,
                                                          @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
@@ -92,7 +92,7 @@ public class AdminOverviewController {
         return ApiResponse.ok(changes.search(businessId, madeBy, from, to, page, size));
     }
 
-    @Operation(summary = "Record a change made as H.M.S: area, description, reason (8+ chars), before and after; the owner can undo it for 7 days")
+    @Operation(summary = "Record a change made as Hospio360: area, description, reason (8+ chars), before and after; the owner can undo it for 7 days")
     @PostMapping("/changes")
     public ApiResponse<PlatformChange> recordChange(@Valid @RequestBody PlatformRequests.PlatformChangeRequest request) {
         return ApiResponse.ok("Change recorded; the owner has been told", changes.record(request));

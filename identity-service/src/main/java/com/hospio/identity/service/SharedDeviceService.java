@@ -242,11 +242,11 @@ public class SharedDeviceService {
             }
         }
         // Named here, not from the tenant: these run as the system. Before anyone is signed in (wrong PINs, locks) the person
-        // whose PIN it is stands as the actor; a support view shows the H.M.S name as everywhere else.
+        // whose PIN it is stands as the actor; a support view shows the Hospio360 name as everywhere else.
         Optional<HospioUserDetails> caller = CurrentUser.get();
         if (caller.isPresent()) {
             HospioUserDetails c = caller.get();
-            e.actorId(c.getUserId()).actorName(c.getActedBy() == null ? c.getFullName() : "H.M.S \u00b7 " + c.getFullName());
+            e.actorId(c.getUserId()).actorName(c.getActedBy() == null ? c.getFullName() : "Hospio360 \u00b7 " + c.getFullName());
         } else if (user != null) {
             e.actorId(user.getId()).actorName(user.getFullName());
         }

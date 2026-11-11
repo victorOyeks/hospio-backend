@@ -26,7 +26,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Every action → activity log. Manager · Activity log, Owner · Operations 4-5, Admin · H3 and Changes by H.M.S. */
+/** Every action → activity log. Manager · Activity log, Owner · Operations 4-5, Admin · H3 and Changes by Hospio360. */
 @Service
 @RequiredArgsConstructor
 public class ActivityLogService {
@@ -56,6 +56,10 @@ public class ActivityLogService {
     public static final int MAX_SIZE = 200;
 
     /** Department → the topic prefixes (without "hospio-") it covers, as the web's Departments board names them. */
+    /** The platform as a department: its new name and the one older log rows were written under. */
+    static final java.util.Set<String> PLATFORM_NAMES = java.util.Set.of("Hospio360", "H.M.S");
+
+
     public static final Map<String, List<String>> DEPARTMENT_TOPICS = new LinkedHashMap<>();
 
     static {
@@ -70,12 +74,12 @@ public class ActivityLogService {
         DEPARTMENT_TOPICS.put("Management", List.of("user", "role", "access", "approval", "shared-device", "setting", "notice"));
     }
 
-    /** What the log screen filters on: a search, a department, Lagos days (both inclusive) and H.M.S changes only. */
+    /** What the log screen filters on: a search, a department, Lagos days (both inclusive) and Hospio360 changes only. */
     public record Filter(String businessId, String q, String department, LocalDate from, LocalDate to, boolean platformOnly) {
     }
 
     /**
-     * A manager sees their hotel; the owner the whole business (or one hotel with X-Hotel-Id); H.M.S a business they name.
+     * A manager sees their hotel; the owner the whole business (or one hotel with X-Hotel-Id); Hospio360 a business they name.
      * Filtered, counted and paged in the database, newest first. {@code size} is 1 to 200 (the export reads 200 at a time).
      */
     @Transactional(readOnly = true)
@@ -97,13 +101,13 @@ public class ActivityLogService {
         List<String> topics = null;
         if (f.department() != null && !f.department().isBlank()) {
             String d = f.department().trim();
-            if (!"H.M.S".equals(d)) {
+            if (!PLATFORM_NAMES.contains(d)) {
                 topics = DEPARTMENT_TOPICS.entrySet().stream().filter(e -> e.getKey().equalsIgnoreCase(d)).findFirst().map(Map.Entry::getValue)
                         .orElseThrow(() -> new BadRequestException("Unknown department " + d + ". Pick one of: "
-                                + String.join(", ", DEPARTMENT_TOPICS.keySet()) + ", H.M.S"));
+                                + String.join(", ", DEPARTMENT_TOPICS.keySet()) + ", Hospio360"));
             }
         }
-        boolean platformOnly = f.platformOnly() || "H.M.S".equals(f.department() == null ? null : f.department().trim());
+        boolean platformOnly = f.platformOnly() || (f.department() != null && PLATFORM_NAMES.contains(f.department().trim()));
         Specification<ActivityEntry> spec = spec(business, hotel, f.q(), topics, f.from(), f.to(), platformOnly);
         return entries.findAll(spec, PageRequest.of(p, s, Sort.by(Sort.Direction.DESC, "occurredAt").and(Sort.by(Sort.Direction.DESC, "id"))));
     }
@@ -119,7 +123,7 @@ public class ActivityLogService {
                 where.add(cb.equal(root.get("hotelId"), hotel));
             }
             if (platformOnly) {
-                where.add(cb.like(root.get("actorName"), "H.M.S%"));
+                where.add(cb.or(cb.like(root.get("actorName"), "Hospio360%"), cb.like(root.get("actorName"), "H.M.S%")));
             }
             if (topics != null) {
                 List<Predicate> any = new ArrayList<>();
@@ -127,7 +131,7 @@ public class ActivityLogService {
                     any.add(cb.like(root.get("topic"), KafkaTopics.PREFIX + t + "%"));
                 }
                 where.add(cb.or(any.toArray(new Predicate[0])));
-                where.add(cb.or(cb.isNull(root.get("actorName")), cb.notLike(root.get("actorName"), "H.M.S%")));
+                where.add(cb.or(cb.isNull(root.get("actorName")), cb.and(cb.notLike(root.get("actorName"), "Hospio360%"), cb.notLike(root.get("actorName"), "H.M.S%"))));
             }
             if (from != null) {
                 where.add(cb.greaterThanOrEqualTo(root.get("occurredAt"), from.atStartOfDay(Paging.LAGOS).toInstant()));

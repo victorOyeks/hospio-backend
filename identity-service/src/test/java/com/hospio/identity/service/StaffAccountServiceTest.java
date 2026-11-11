@@ -196,7 +196,7 @@ class StaffAccountServiceTest {
         when(users.findById("owner2")).thenReturn(Optional.of(owner));
         when(grants.findByUserId("owner2")).thenReturn(List.of(grant("owner2", Role.OWNER, null)));
         assertThatThrownBy(() -> service.pause("owner2", new StaffAccountRequests.Pause(7, null)))
-                .isInstanceOf(ForbiddenException.class).hasMessage("Only H.M.S can change the owner's account");
+                .isInstanceOf(ForbiddenException.class).hasMessage("Only Hospio360 can change the owner's account");
 
         UserAccount other = account("zed", "b2", "Zed Other", "zed@x.ng");
         when(users.findById("zed")).thenReturn(Optional.of(other));

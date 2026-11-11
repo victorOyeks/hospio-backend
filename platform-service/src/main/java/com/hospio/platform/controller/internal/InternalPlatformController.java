@@ -33,7 +33,7 @@ public class InternalPlatformController {
         return ApiResponse.ok(approvals.findById(id).orElseThrow(() -> new com.hospio.common.exception.ResourceNotFoundException("Approval not found")));
     }
 
-    /** payment-service settlements: provider fee % and H.M.S share %, with the rest of the fees group. */
+    /** payment-service settlements: provider fee % and Hospio360 share %, with the rest of the fees group. */
     @GetMapping("/settings/fees")
     public ApiResponse<Map<String, Object>> fees() {
         return ApiResponse.ok(settings.group(PlatformSettingsCatalogue.FEES));

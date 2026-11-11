@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Owner portal (docs/owner-portal.md): asking H.M.S support to undo a change or transfer ownership, and report schedules. */
+/** Owner portal (docs/owner-portal.md): asking Hospio360 support to undo a change or transfer ownership, and report schedules. */
 @RestController
 @RequiredArgsConstructor
 public class OwnerPortalController {
@@ -25,18 +25,18 @@ public class OwnerPortalController {
     private final OwnerRequestService requests;
     private final ReportScheduleService schedules;
 
-    @Operation(summary = "Owner: ask H.M.S support to undo one of its changes within 7 days (opens a ticket)")
+    @Operation(summary = "Owner: ask Hospio360 support to undo one of its changes within 7 days (opens a ticket)")
     @PostMapping("/changes/{id}/request-undo")
     @PreAuthorize("@access.owner()")
     public ApiResponse<ChangeRow> requestUndo(@PathVariable String id, @Valid @RequestBody(required = false) OwnerRequests.UndoRequest request) {
         return ApiResponse.ok("Hospio support has your request", requests.requestUndo(id, request));
     }
 
-    @Operation(summary = "Owner: ask H.M.S support to hand the business to a new owner (opens a ticket)")
+    @Operation(summary = "Owner: ask Hospio360 support to hand the business to a new owner (opens a ticket)")
     @PostMapping("/support/ownership-transfer")
     @PreAuthorize("@access.owner()")
     public ApiResponse<SupportTicket> requestTransfer(@Valid @RequestBody OwnerRequests.OwnershipTransfer request) {
-        return ApiResponse.ok("Transfer request sent to H.M.S support", requests.requestTransfer(request));
+        return ApiResponse.ok("Transfer request sent to Hospio360 support", requests.requestTransfer(request));
     }
 
     @Operation(summary = "Owner: the latest ownership transfer request, if any")

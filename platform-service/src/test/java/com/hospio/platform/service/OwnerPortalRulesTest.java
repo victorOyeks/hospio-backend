@@ -47,7 +47,7 @@ class OwnerPortalRulesTest {
     @BeforeEach
     void setUp() {
         change = PlatformChange.builder().businessId("b1").area("Rates").description("Deluxe rate 45,000 → 50,000").reason("Asked by phone")
-                .madeByName("H.M.S · Kemi").undoUntil(Instant.now().plusSeconds(86400)).build();
+                .madeByName("Hospio360 · Kemi").undoUntil(Instant.now().plusSeconds(86400)).build();
         change.setId("ch1");
         change.setCreatedAt(Instant.now());
         when(changes.findById("ch1")).thenReturn(Optional.of(change));
@@ -109,7 +109,7 @@ class OwnerPortalRulesTest {
 
         when(tickets.findByBusinessIdOrderByCreatedAtDesc("b1")).thenReturn(List.of(t));
         assertThatThrownBy(() -> service.requestTransfer(new OwnerRequests.OwnershipTransfer("Ngozi Obi", "ngozi@x.ng", null, null)))
-                .isInstanceOf(BadRequestException.class).hasMessageStartingWith("A transfer request is already with H.M.S support");
+                .isInstanceOf(BadRequestException.class).hasMessageStartingWith("A transfer request is already with Hospio360 support");
     }
 
     @Test

@@ -6,7 +6,7 @@ time. This contract lists what each screen reads and writes, the rules the servi
 
 ## Rules
 
-- **Who.** Owner routes are guarded with `@access.owner()` (the owner, or H.M.S where it makes sense) or
+- **Who.** Owner routes are guarded with `@access.owner()` (the owner, or Hospio360 where it makes sense) or
   `@access.manager()` plus a rule in the service. A refusal is one sentence the screen shows as it is.
 - **Whose hotels.** The owner's token carries every hotel of the business (`hotels` claim). `JwtFilter` answers 403
   "That hotel is not granted to this user" to an `X-Hotel-Id` the token does not carry, and row-level security keeps
@@ -41,10 +41,10 @@ New or changed for the owner portal (all behind the gateway, `https://api-stagin
 | PUT | `/reservation/bookings/{id}` | front office (edit), manager, owner | (existing) when the dates move the guest gets a WhatsApp message, echoed in `deliveries` |
 | POST/PUT | `/folio/organizations[/{id}]` | owner, manager | (existing) a manager's credit limit over the owner threshold no longer fails: the rest is saved and the limit becomes `requestedCreditLimit`, an approval (kind CREDIT_LIMIT, OWNER) |
 | POST | `/platform/approvals/{id}/decide` | owner | (existing) APPROVED applies the requested credit limit, DECLINED keeps the old one (folio follows `APPROVAL_DECIDED`) |
-| GET | `/payment/payments/settlements?from&to` | owner | the business's settlements (day × provider: gross, fees, H.M.S share, net, status) |
-| GET | `/platform/changes` | owner, manager | (existing) changes by H.M.S, now with `undoRequestedAt`, `undoRequestedByName`, `undoTicketId` |
+| GET | `/payment/payments/settlements?from&to` | owner | the business's settlements (day × provider: gross, fees, Hospio360 share, net, status) |
+| GET | `/platform/changes` | owner, manager | (existing) changes by Hospio360, now with `undoRequestedAt`, `undoRequestedByName`, `undoTicketId` |
 | POST | `/platform/changes/{id}/request-undo` | owner | `{note?}` asks support to undo (HIGH ticket, category CHANGE_UNDO); once; within the 7 days |
-| POST | `/platform/changes/{id}/undo` | H.M.S only (was owner too) | support marks it undone after putting it back; resolves the owner's ticket |
+| POST | `/platform/changes/{id}/undo` | Hospio360 only (was owner too) | support marks it undone after putting it back; resolves the owner's ticket |
 | POST | `/platform/support/ownership-transfer` | owner | `{newOwnerName, newOwnerEmail, newOwnerPhone?, note?}` HIGH ticket, category OWNERSHIP_TRANSFER; one open at a time |
 | GET | `/platform/support/ownership-transfer` | owner | the latest transfer request (or null) |
 | GET | `/platform/reports` | owner, manager | (existing) schedules (status SCHEDULED, STOPPED) and the runs they made (READY) |
@@ -61,7 +61,7 @@ from hotel"; owned by Roles & permissions).
 ## Service rules
 
 **identity · staff accounts (`StaffAccountService`).** Nobody acts on themselves ("You can't suspend your own account
-here…"), on the owner ("Only H.M.S can change the owner's account") or outside the business ("That person is not in
+here…"), on the owner ("Only Hospio360 can change the owner's account") or outside the business ("That person is not in
 your business"). A manager acts only on people of their hotels ("That person does not work at one of your hotels") and
 never on a manager ("Only the owner can pause a manager"). Suspending needs a reason ("Say why X is suspended") and
 happens once; a suspended person is reinstated before being paused; a pause is not stacked ("X is already paused until
@@ -84,7 +84,7 @@ A manager raising a limit above it: everything else is saved, the limit waits (`
 owner setting a limit directly settles any waiting request. Approved → the limit applies; declined → the old one stays;
 a question leaves it waiting.
 
-**platform · requests to H.M.S.** Owner only. Undo: within 7 days, once, not already undone. Transfer: not to the
+**platform · requests to Hospio360.** Owner only. Undo: within 7 days, once, not already undone. Transfer: not to the
 owner's own email, one open at a time. Both are HIGH tickets the admin portal's Support queue shows.
 
 **platform · report schedules.** Kinds: DAILY_SUMMARY, OCCUPANCY, REVENUE, PAYMENTS, EXPENSES, GUESTS. A manager
@@ -118,12 +118,12 @@ payment components take an optional `hotelId` through `HotelScope` so the owner 
 - **Dashboard** — hotels with money, approvals and activity across the business; approval descriptions read as words
   and naira.
 - **Operations** — hotels now (on shift, open repairs, occupancy, last action), departments (live board per hotel),
-  activity log (business-wide or one hotel), changes by H.M.S with "Ask support to undo".
+  activity log (business-wide or one hotel), changes by Hospio360 with "Ask support to undo".
 - **Reports** — six reports built from live data for a period and a hotel (or all), downloaded as CSV; schedule
   (daily, weekly, monthly), stop, send now.
 - **Manager · Reports** — the same live reports for the manager's hotels and their own schedules (no all hotels, no
   send-to-managers); runs the owner sends to the managers open there.
-- **Settings** — company details, taxes, approval limits (existing); transfer ownership sends the request to H.M.S
+- **Settings** — company details, taxes, approval limits (existing); transfer ownership sends the request to Hospio360
   support and shows its state.
 
 ### Small fixes 1
@@ -145,10 +145,10 @@ payment components take an optional `hotelId` through `HotelScope` so the owner 
 - Reports are CSV, built in the browser from the live data; no PDF or Excel. Scheduled reports arrive as an in-app
   notice and an email link (echoed on staging; the job has no screen to show it on, "Send now" shows it), not as
   attachments. "This month" runs from the 1st to today; future bookings are not in a guest list for it.
-- A change by H.M.S is put back by support, not by the owner's click: the owner asks (a HIGH ticket), support edits
+- A change by Hospio360 is put back by support, not by the owner's click: the owner asks (a HIGH ticket), support edits
   the setting back and marks the change undone (the admin portal's Undo), which resolves the ticket. The platform
   does not re-apply `before_json` by itself.
-- Ownership transfer is done by H.M.S support from the ticket; there is no self-serve accept flow.
+- Ownership transfer is done by Hospio360 support from the ticket; there is no self-serve accept flow.
 - Staff (non-managers) read and reply to owner and manager messages in Inbox; WhatsApp replies do not come back into
   the thread. Inbox is reached from the notification (no menu item yet).
 - Payments the owner takes from Bookings are recorded under the OWNER role (the owner holds no desk role).
@@ -163,7 +163,7 @@ payment components take an optional `hotelId` through `HotelScope` so the owner 
 - Unit tests: identity StaffAccountServiceTest 11, DeliveryComposerTest +1; messaging StaffThreadServiceTest 7; folio
   OrganizationCreditTest 5; platform OwnerPortalRulesTest 5; reservation GuestNoticesTest 2. Module suites green.
 - API sweep (owner A Royal Suites): 80 checks (staff accounts, threads, guest echo, credit limits, reports, transfer,
-  settlements, booking dates, changes by H.M.S), all pass after the echo fix. Cross-tenant and multi-hotel (owner A vs
+  settlements, booking dates, changes by Hospio360), all pass after the echo fix. Cross-tenant and multi-hotel (owner A vs
   a fresh owner B with two hotels): 24 checks, all pass.
 - Browser: every owner screen for both owners at 1512px and 1280px (384 checks), owner B actions (88), owner A and
   manager regressions (34), check-in at another hotel and the folio (8); front desk regression (fo3, 47) and the
