@@ -40,7 +40,7 @@ public class InternalApiKeyFilter extends OncePerRequestFilter {
             if (providedKey == null || !MessageDigest.isEqual(
                     providedKey.getBytes(StandardCharsets.UTF_8), expectedKey.getBytes(StandardCharsets.UTF_8))) {
                 log.warn("Rejected request to internal-only path {} - missing or invalid {}", path, HEADER);
-                response.sendError(HttpServletResponse.SC_FORBIDDEN, "This endpoint is for internal service use only");
+                FilterErrors.write(response, HttpServletResponse.SC_FORBIDDEN, "This endpoint is for internal service use only");
                 return;
             }
         }
