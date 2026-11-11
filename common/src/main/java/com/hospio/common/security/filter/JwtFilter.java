@@ -53,7 +53,8 @@ public class JwtFilter extends OncePerRequestFilter {
                 }
                 String hotelHeader = request.getHeader(HOTEL_HEADER);
                 if (StringUtils.hasText(hotelHeader) && !user.isPlatform() && !user.getHotelIds().contains(hotelHeader)) {
-                    response.sendError(HttpServletResponse.SC_FORBIDDEN, "That hotel is not granted to this user");
+                    FilterErrors.write(response, HttpServletResponse.SC_FORBIDDEN,
+                            "You don't have access to that hotel. Pick one of your hotels or sign in again");
                     return;
                 }
                 UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
