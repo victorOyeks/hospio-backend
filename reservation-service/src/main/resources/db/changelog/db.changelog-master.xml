@@ -13,5 +13,6 @@
     <include file="db/changelog/001-initial-schema.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/002-amount-paid.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/003-list-indexes.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/004-room-in-house-unique.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>
