@@ -1,7 +1,6 @@
 package com.hospio.tenant.dto;
 
 import com.hospio.tenant.entity.Business;
-import jakarta.validation.constraints.Email;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
@@ -11,7 +10,7 @@ import java.time.LocalDate;
  */
 public record UpdateBusinessRequest(String name, String legalName, String registrationNumber, String businessType,
                                     String email, String phone, String address, String city, String logoUrl, String brandColour,
-                                    String ownerName, @Email String ownerEmail, String ownerPhone,
+                                    String ownerName, String ownerEmail, String ownerPhone,
                                     Business.FeeModel feeModel, BigDecimal feeValue, String currency, String country, String timezone,
                                     LocalDate contractStartsOn, String contractNotes, String marketerId, String accountManagerId,
                                     Business.Source source) {

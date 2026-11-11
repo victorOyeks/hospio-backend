@@ -2,6 +2,7 @@ package com.hospio.tenant.service;
 
 import com.hospio.common.enums.Role;
 import com.hospio.common.exception.BadRequestException;
+import com.hospio.common.exception.ConflictException;
 import com.hospio.common.exception.ForbiddenException;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.kafka.EventPublisher;
@@ -13,6 +14,7 @@ import com.hospio.common.paging.Paging;
 import com.hospio.common.response.PageWithCounts;
 import com.hospio.common.security.CurrentUser;
 import com.hospio.common.security.HospioUserDetails;
+import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.tenant.client.IdentityClient;
 import com.hospio.tenant.dto.BusinessResponse;
@@ -143,7 +145,7 @@ public class BusinessService {
     public BusinessResponse setFee(String id, Business.FeeModel feeModel, BigDecimal feeValue) {
         Business b = find(id);
         b.setFeeModel(feeModel);
-        b.setFeeValue(feeValue);
+        b.setFeeValue(Fields.fee(feeModel, feeValue));
         return toResponse(businesses.save(b));
     }
 
@@ -156,13 +158,22 @@ public class BusinessService {
     @Transactional
     public BusinessResponse create(CreateBusinessRequest request) {
         requirePlatform();
+        String ownerName = Fields.name(request.ownerName(), "the owner's full name", true);
+        String ownerEmail = Fields.email(request.ownerEmail(), "the owner's email", true);
+        String ownerPhone = Fields.phone(request.ownerPhone(), "the owner's phone", false);
+        String name = Fields.name(request.name(), "the business name", true);
+        String legalName = Fields.name(request.legalName(), "the registered name", false);
+        String registration = Fields.registrationNumber(request.registrationNumber());
+        String city = Fields.city(request.city(), true);
+        java.math.BigDecimal feeValue = Fields.fee(request.feeModel(), request.feeValue());
+        assertUnique("", name, registration, ownerEmail, ownerPhone);
         Business business = businesses.save(Business.builder()
-                .name(request.name()).legalName(request.legalName()).registrationNumber(request.registrationNumber())
-                .businessType(request.businessType()).ownerName(request.ownerName()).ownerEmail(request.ownerEmail().toLowerCase())
-                .ownerPhone(request.ownerPhone()).feeModel(request.feeModel()).feeValue(request.feeValue())
+                .name(name).legalName(legalName).registrationNumber(registration)
+                .businessType(request.businessType()).ownerName(ownerName).ownerEmail(ownerEmail)
+                .ownerPhone(ownerPhone).feeModel(request.feeModel()).feeValue(feeValue)
                 .currency(request.currency() == null ? "NGN" : request.currency()).country(request.country())
                 .timezone(request.timezone() == null ? "Africa/Lagos" : request.timezone())
-                .city(request.city()).source(request.source() == null ? Business.Source.BACK_OFFICE : request.source())
+                .city(city).source(request.source() == null ? Business.Source.BACK_OFFICE : request.source())
                 .marketerId(request.marketerId()).referralId(request.referralId()).accountManagerId(CurrentUser.require().getUserId())
                 .stage(Business.Stage.ONBOARDING)
                 .build());
@@ -197,21 +208,40 @@ public class BusinessService {
     public BusinessResponse update(String id, UpdateBusinessRequest r) {
         requirePlatform();
         Business b = find(id);
-        if (StringUtils.hasText(r.name())) b.setName(r.name().trim());
-        if (r.legalName() != null) b.setLegalName(r.legalName());
-        if (r.registrationNumber() != null) b.setRegistrationNumber(r.registrationNumber());
+        // A field sent is checked (blank clears an optional one); a field left null is left as it is.
+        String name = r.name() == null ? null : Fields.name(r.name(), "the trading name", true);
+        String legalName = r.legalName() == null ? null : Fields.name(r.legalName(), "the registered name", false);
+        String registration = r.registrationNumber() == null ? null : Fields.registrationNumber(r.registrationNumber());
+        String email = r.email() == null ? null : Fields.email(r.email(), "the business email", false);
+        String phone = r.phone() == null ? null : Fields.phone(r.phone(), "the business phone", false);
+        String address = r.address() == null ? null : Fields.address(r.address(), false);
+        String city = r.city() == null ? null : Fields.city(r.city(), true);
+        String ownerName = r.ownerName() == null ? null : Fields.name(r.ownerName(), "the owner's full name", true);
+        String ownerEmail = r.ownerEmail() == null ? null : Fields.email(r.ownerEmail(), "the owner's email", true);
+        String ownerPhone = r.ownerPhone() == null ? null : Fields.phone(r.ownerPhone(), "the owner's phone", false);
+        Business.FeeModel feeModel = r.feeModel() != null ? r.feeModel() : b.getFeeModel();
+        java.math.BigDecimal feeValue = r.feeValue() == null ? null : Fields.fee(feeModel, r.feeValue());
+        // Only what changes is checked against the other businesses: an old duplicate never blocks saving another step.
+        assertUnique(b.getId(),
+                name != null && !Fields.nameKey(name).equals(Fields.nameKey(b.getName())) ? name : null,
+                registration != null && !java.util.Objects.equals(Fields.registrationKey(registration), Fields.registrationKey(b.getRegistrationNumber())) ? registration : null,
+                ownerEmail != null && !ownerEmail.equalsIgnoreCase(String.valueOf(b.getOwnerEmail())) ? ownerEmail : null,
+                ownerPhone != null && !Fields.phoneKey(ownerPhone).equals(Fields.phoneKey(b.getOwnerPhone())) ? ownerPhone : null);
+        if (name != null) b.setName(name);
+        if (r.legalName() != null) b.setLegalName(legalName);
+        if (r.registrationNumber() != null) b.setRegistrationNumber(registration);
         if (r.businessType() != null) b.setBusinessType(r.businessType());
-        if (r.email() != null) b.setEmail(r.email());
-        if (r.phone() != null) b.setPhone(r.phone());
-        if (r.address() != null) b.setAddress(r.address());
-        if (r.city() != null) b.setCity(r.city());
+        if (r.email() != null) b.setEmail(email);
+        if (r.phone() != null) b.setPhone(phone);
+        if (r.address() != null) b.setAddress(address);
+        if (city != null) b.setCity(city);
         if (r.logoUrl() != null) b.setLogoUrl(r.logoUrl());
         if (r.brandColour() != null) b.setBrandColour(r.brandColour());
-        if (r.ownerName() != null) b.setOwnerName(r.ownerName());
-        if (r.ownerEmail() != null) b.setOwnerEmail(r.ownerEmail().toLowerCase());
-        if (r.ownerPhone() != null) b.setOwnerPhone(r.ownerPhone());
+        if (ownerName != null) b.setOwnerName(ownerName);
+        if (ownerEmail != null) b.setOwnerEmail(ownerEmail);
+        if (r.ownerPhone() != null) b.setOwnerPhone(ownerPhone);
         if (r.feeModel() != null) b.setFeeModel(r.feeModel());
-        if (r.feeValue() != null) b.setFeeValue(r.feeValue());
+        if (feeValue != null) b.setFeeValue(feeValue);
         if (r.currency() != null) b.setCurrency(r.currency());
         if (r.country() != null) b.setCountry(r.country());
         if (r.timezone() != null) b.setTimezone(r.timezone());
@@ -251,6 +281,10 @@ public class BusinessService {
     public BusinessResponse updateMine(UpdateMyBusinessRequest r) {
         requireOwner();
         Business b = find(TenantContext.requireBusiness());
+        String registrationKey = Fields.registrationKey(r.registrationNumber());
+        if (registrationKey != null && !registrationKey.equals(Fields.registrationKey(b.getRegistrationNumber()))) {
+            assertUnique(b.getId(), null, r.registrationNumber(), null, null);
+        }
         b.setName(r.name());
         b.setLegalName(r.legalName());
         b.setRegistrationNumber(r.registrationNumber());
@@ -280,11 +314,14 @@ public class BusinessService {
             throw new ForbiddenException("Only the owner can add a hotel");
         }
         Business business = find(businessId);
-        Hotel hotel = hotels.save(Hotel.builder().businessId(businessId).name(request.name()).city(request.city())
-                .address(request.address()).phone(request.phone()).email(request.email())
+        String name = Fields.name(request.name(), "the hotel name", true);
+        assertHotelNameFree(businessId, "", name);
+        Hotel hotel = hotels.save(Hotel.builder().businessId(businessId).name(name).city(Fields.city(request.city(), true))
+                .address(Fields.address(request.address(), false)).phone(Fields.phone(request.phone(), "the hotel phone", false))
+                .email(Fields.email(request.email(), "the hotel email", false))
                 .timezone(request.timezone() == null ? business.getTimezone() : request.timezone())
-                .checkInTime(request.checkInTime() == null ? "14:00" : request.checkInTime())
-                .checkOutTime(request.checkOutTime() == null ? "12:00" : request.checkOutTime())
+                .checkInTime(Fields.time(request.checkInTime(), "check-in", "14:00"))
+                .checkOutTime(Fields.time(request.checkOutTime(), "check-out", "12:00"))
                 .starRating(request.starRating()).managerUserId(request.managerUserId()).build());
         business.setHotelCount(hotels.countByBusinessId(businessId));
         businesses.save(business);
@@ -314,14 +351,18 @@ public class BusinessService {
         if (!caller.isPlatform() && !owner && !managerHere) {
             throw new ForbiddenException("Only the owner, this hotel's manager or H.M.S can edit it");
         }
-        h.setName(r.name());
-        if (r.city() != null) h.setCity(r.city());
-        if (r.address() != null) h.setAddress(r.address());
-        if (r.phone() != null) h.setPhone(r.phone());
-        if (r.email() != null) h.setEmail(r.email());
+        String name = Fields.name(r.name(), "the hotel name", true);
+        if (!Fields.nameKey(name).equals(Fields.nameKey(h.getName()))) {
+            assertHotelNameFree(h.getBusinessId(), h.getId(), name);
+        }
+        h.setName(name);
+        if (r.city() != null) h.setCity(Fields.city(r.city(), true));
+        if (r.address() != null) h.setAddress(Fields.address(r.address(), false));
+        if (r.phone() != null) h.setPhone(Fields.phone(r.phone(), "the hotel phone", false));
+        if (r.email() != null) h.setEmail(Fields.email(r.email(), "the hotel email", false));
         if (r.timezone() != null) h.setTimezone(r.timezone());
-        if (r.checkInTime() != null) h.setCheckInTime(r.checkInTime());
-        if (r.checkOutTime() != null) h.setCheckOutTime(r.checkOutTime());
+        if (r.checkInTime() != null) h.setCheckInTime(Fields.time(r.checkInTime(), "check-in", "14:00"));
+        if (r.checkOutTime() != null) h.setCheckOutTime(Fields.time(r.checkOutTime(), "check-out", "12:00"));
         if (r.starRating() != null) h.setStarRating(r.starRating());
         if (r.managerUserId() != null) h.setManagerUserId(r.managerUserId());
         return HotelResponse.of(hotels.save(h));
@@ -384,6 +425,59 @@ public class BusinessService {
         businesses.save(business);
         events.publish(KafkaTopics.BUSINESS_STAGE_CHANGED, BusinessStageChangedEvent.builder()
                 .businessId(business.getId()).fromStage(from.name()).toStage(to.name()).build());
+    }
+
+    /**
+     * One business per name, CAC number, owner email and owner phone (docs/onboarding.md). Run as the system: the row-level
+     * policy would hide another business's row from anyone but the platform. A null value is not checked. The owner's email
+     * and phone are also refused when a login already uses them, so the handover never fails on a taken sign-in.
+     */
+    void assertUnique(String id, String name, String registration, String ownerEmail, String ownerPhone) {
+        if (name == null && registration == null && ownerEmail == null && ownerPhone == null) {
+            return;
+        }
+        String clash = TenantContext.runWith(Tenant.system("business-unique"), () -> {
+            businesses.lockUniqueChecks();
+            if (name != null) {
+                String other = businesses.otherWithName(id, Fields.nameKey(name)).orElse(null);
+                if (other != null) {
+                    return "A business called " + other + " already exists. Use a different name, or open that business instead";
+                }
+            }
+            String regKey = Fields.registrationKey(registration);
+            if (regKey != null) {
+                String digits = regKey.startsWith("RC") ? regKey.substring(2) : regKey;
+                String other = businesses.otherWithRegistration(id, regKey, digits).orElse(null);
+                if (other != null) {
+                    return "CAC number " + regKey.substring(0, 2) + " " + regKey.substring(2) + " is already used by " + other
+                            + ". Check the number on the certificate";
+                }
+            }
+            if (ownerEmail != null && businesses.otherWithOwnerEmail(id, ownerEmail.toLowerCase(Locale.ROOT)).isPresent()) {
+                return ownerEmail + " already has an account. Use a different email for this owner";
+            }
+            if (ownerPhone != null && businesses.otherWithOwnerPhone(id, Fields.phoneKey(ownerPhone)).isPresent()) {
+                return "This phone number is already in use on another business. Use a different number";
+            }
+            return null;
+        });
+        if (clash != null) {
+            throw new ConflictException(clash);
+        }
+        IdentityClient.Taken taken = identityClient.taken(ownerEmail, ownerPhone);
+        if (taken.email()) {
+            throw new ConflictException(ownerEmail + " already has an account. Use a different email for this owner");
+        }
+        if (taken.phone()) {
+            throw new ConflictException("This phone number is already in use on another account. Use a different number");
+        }
+    }
+
+    /** One hotel name per business, any case or spacing. */
+    private void assertHotelNameFree(String businessId, String hotelId, String name) {
+        hotels.otherWithName(businessId, hotelId, Fields.nameKey(name)).ifPresent(other -> {
+            throw new ConflictException("This business already has a hotel called " + other + ". Give this one a different name");
+        });
     }
 
     Business find(String id) {
