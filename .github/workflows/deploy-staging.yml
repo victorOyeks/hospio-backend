@@ -1,5 +1,11 @@
 name: Deploy to Staging VPS
 
+# One job, to keep Actions minutes down: every job pays its own runner start, checkout, JDK setup and Maven
+# download, and bills rounded up to the minute. Earlier this was a detect job, one build job per service and a
+# deploy job (up to 17 jobs per push, plus a random 0-60 s wait in each upload).
+# Now: work out what changed, build those modules in one Maven reactor run, upload every jar over one SSH
+# connection, and run scripts/vps/deploy-staged.sh on the box (health-checked restarts with rollback).
+
 on:
   push:
     branches: [staging]
@@ -16,246 +22,84 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  detect-changes:
+  deploy:
     runs-on: ubuntu-latest
-    outputs:
-      services: ${{ steps.pick.outputs.services }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # A manual run, the very first push to the branch (no "before" commit), or a commit whose message
-      # contains [deploy-all] deploys everything.
-      - id: all
-        if: ${{ github.event_name == 'workflow_dispatch' || github.event.before == '0000000000000000000000000000000000000000' || contains(github.event.head_commit.message, '[deploy-all]') }}
+
+      # A manual run, the very first push to the branch, a push whose "before" commit is gone (force push), a
+      # change to the root pom.xml, or a commit message with [deploy-all] deploys everything. A change under
+      # common/ deploys every service that uses it (all but the gateway).
+      - name: Work out what changed
+        id: pick
         env:
+          EVENT: ${{ github.event_name }}
           REQUESTED: ${{ github.event.inputs.services }}
+          BEFORE: ${{ github.event.before }}
+          MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          all='["api-gateway","identity-service","tenant-service","hotel-config-service","property-service","reservation-service","folio-service","payment-service","fnb-service","housekeeping-service","maintenance-service","inventory-service","finance-service","messaging-service","platform-service"]'
-          if [ -z "$REQUESTED" ] || [ "$REQUESTED" = "all" ]; then
-            echo "services=$all" >> "$GITHUB_OUTPUT"
+          services="identity-service tenant-service hotel-config-service property-service reservation-service folio-service payment-service fnb-service housekeeping-service maintenance-service inventory-service finance-service messaging-service platform-service"
+          all="api-gateway $services"
+          pick=""
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ -z "$REQUESTED" ] || [ "$REQUESTED" = "all" ]; then pick="$all"; else pick=$(echo "$REQUESTED" | tr ',' ' '); fi
+          elif [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
+               || printf '%s' "$MESSAGE" | grep -q '\[deploy-all\]'; then
+            pick="$all"
           else
-            echo "services=$(echo "$REQUESTED" | tr -d ' ' | awk -F, '{printf "["; for(i=1;i<=NF;i++){printf "%s\"%s\"", (i>1?",":""), $i}; printf "]"}')" >> "$GITHUB_OUTPUT"
+            files=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+            if echo "$files" | grep -qx 'pom.xml'; then
+              pick="$all"
+            else
+              echo "$files" | grep -q '^common/' && pick="$services"
+              for s in $all; do
+                echo "$files" | grep -q "^$s/" && pick="$pick $s"
+              done
+            fi
           fi
-      - uses: dorny/paths-filter@v3
-        if: ${{ steps.all.outcome == 'skipped' }}
-        id: filter
-        with:
-          base: ${{ github.event.before }}
-          filters: |
-            api-gateway:
-              - 'api-gateway/**'
+          pick=$(echo $pick | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ' | sed 's/ $//')
+          echo "Deploying: ${pick:-nothing}"
+          echo "services=$pick" >> "$GITHUB_OUTPUT"
+          echo "modules=$(echo $pick | tr ' ' ',')" >> "$GITHUB_OUTPUT"
 
-            identity-service:
-              - 'identity-service/**'
-              - 'common/**'
-
-            tenant-service:
-              - 'tenant-service/**'
-              - 'common/**'
-
-            hotel-config-service:
-              - 'hotel-config-service/**'
-              - 'common/**'
-
-            property-service:
-              - 'property-service/**'
-              - 'common/**'
-
-            reservation-service:
-              - 'reservation-service/**'
-              - 'common/**'
-
-            folio-service:
-              - 'folio-service/**'
-              - 'common/**'
-
-            payment-service:
-              - 'payment-service/**'
-              - 'common/**'
-
-            fnb-service:
-              - 'fnb-service/**'
-              - 'common/**'
-
-            housekeeping-service:
-              - 'housekeeping-service/**'
-              - 'common/**'
-
-            maintenance-service:
-              - 'maintenance-service/**'
-              - 'common/**'
-
-            inventory-service:
-              - 'inventory-service/**'
-              - 'common/**'
-
-            finance-service:
-              - 'finance-service/**'
-              - 'common/**'
-
-            messaging-service:
-              - 'messaging-service/**'
-              - 'common/**'
-
-            platform-service:
-              - 'platform-service/**'
-              - 'common/**'
-
-      - id: pick
-        run: |
-          if [ -n "${{ steps.all.outputs.services }}" ]; then
-            echo 'services=${{ steps.all.outputs.services }}' >> "$GITHUB_OUTPUT"
-          else
-            echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
-          fi
-
-  build:
-    needs: detect-changes
-    if: ${{ needs.detect-changes.outputs.services != '[]' }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        service: ${{ fromJSON(needs.detect-changes.outputs.services) }}
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
+        if: steps.pick.outputs.services != ''
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Build ${{ matrix.service }}
-        run: mvn -B -ntp -pl ${{ matrix.service }} -am package -DskipTests
 
-      # Ships the jar straight to the VPS over SSH; nothing needs to live in Actions artifact storage.
-      - name: SCP jar to Staging VPS
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
-          # Fifteen build jobs reach the box at the same moment; sshd's MaxStartups drops some of those
-          # connections, so every remote step retries with a pause before giving up.
-          remote() { for i in 1 2 3 4 5 6 7 8; do "$@" && return 0; echo "attempt $i failed, retrying in $((i*10))s"; sleep $((i*10)); done; return 1; }
-          # Spread the fifteen uploads over a minute so they do not all knock on sshd at once.
-          sleep $((RANDOM % 60))
-          jar=$(ls ${{ matrix.service }}/target/*.jar | head -1)
-          dest="${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
-          dir="/opt/hospio-staging/${{ matrix.service }}"
-          remote ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 "$dest" "mkdir -p $dir"
-          remote scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 "$jar" "$dest:$dir/app-new.jar.part"
-          # The marker ties the staged jar to this commit, so a jar left behind by an earlier run is never deployed.
-          remote ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 "$dest" \
-            "mv $dir/app-new.jar.part $dir/app-new.jar && echo '${{ github.sha }}' > $dir/app-new.sha"
-          rm -f ~/.ssh/deploy_key
+      - name: Build
+        if: steps.pick.outputs.services != ''
+        run: mvn -B -ntp -T 1C -pl "${{ steps.pick.outputs.modules }}" -am package -DskipTests
 
-  deploy:
-    needs: [detect-changes, build]
-    runs-on: ubuntu-latest
-    # Deploy whatever built, even if some matrix jobs failed; the script reports the ones that did not ship.
-    if: ${{ !cancelled() && needs.detect-changes.outputs.services != '[]' }}
-    steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Ship jars and deploy
+        if: steps.pick.outputs.services != ''
         env:
-          CHANGED_SERVICES: ${{ needs.detect-changes.outputs.services }}
-          DEPLOY_SHA: ${{ github.sha }}
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          envs: CHANGED_SERVICES,DEPLOY_SHA
-          command_timeout: 30m
-          # Restart order follows the build order in the design handoff: identity → tenant → hotel config →
-          # rooms → reservations → folio → payments → departments → back office → platform, gateway last.
-          # Each service gets a health-checked restart with automatic rollback if it doesn't come back up.
-          script: |
-            set -e
-            changed=$(echo "$CHANGED_SERVICES" | tr -d '[]" ' | tr ',' '\n')
-            missing=""
-            echo "Changed services: $(echo $changed | tr '\n' ' ')"
+          SERVICES: ${{ steps.pick.outputs.services }}
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          mkdir -p ~/.ssh stage
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh_() { ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 "$VPS_USER@$VPS_HOST" "$@"; }
+          retry() { for i in 1 2 3 4 5; do "$@" && return 0; echo "attempt $i failed, retrying in $((i*10))s"; sleep $((i*10)); done; return 1; }
 
-            declare -A health_urls
-            health_urls["api-gateway"]="http://localhost:9200/actuator/health"
-            health_urls["identity-service"]="http://localhost:9201/identity/actuator/health"
-            health_urls["tenant-service"]="http://localhost:9202/tenant/actuator/health"
-            health_urls["hotel-config-service"]="http://localhost:9203/hotel-config/actuator/health"
-            health_urls["property-service"]="http://localhost:9204/property/actuator/health"
-            health_urls["reservation-service"]="http://localhost:9205/reservation/actuator/health"
-            health_urls["folio-service"]="http://localhost:9206/folio/actuator/health"
-            health_urls["payment-service"]="http://localhost:9207/payment/actuator/health"
-            health_urls["fnb-service"]="http://localhost:9208/fnb/actuator/health"
-            health_urls["housekeeping-service"]="http://localhost:9209/housekeeping/actuator/health"
-            health_urls["maintenance-service"]="http://localhost:9210/maintenance/actuator/health"
-            health_urls["inventory-service"]="http://localhost:9211/inventory/actuator/health"
-            health_urls["finance-service"]="http://localhost:9212/finance/actuator/health"
-            health_urls["messaging-service"]="http://localhost:9213/messaging/actuator/health"
-            health_urls["platform-service"]="http://localhost:9214/platform/actuator/health"
+          # Stage <svc>/app-new.jar and app-new.sha (the marker ties the jar to this commit), then send them all
+          # in one tar stream: one SSH connection instead of three per service.
+          for s in $SERVICES; do
+            mkdir -p "stage/$s"
+            cp "$(ls $s/target/*.jar | grep -v '\.original$' | head -1)" "stage/$s/app-new.jar"
+            echo "$GITHUB_SHA" > "stage/$s/app-new.sha"
+          done
+          retry sh -c 'tar -C stage -cf - . | ssh -i ~/.ssh/deploy_key -o ConnectTimeout=30 "$0" "tar -C /opt/hospio-staging -xf -"' "$VPS_USER@$VPS_HOST"
 
-            ordered=(
-              identity-service
-              tenant-service
-              hotel-config-service
-              property-service
-              reservation-service
-              folio-service
-              payment-service
-              fnb-service
-              housekeeping-service
-              maintenance-service
-              inventory-service
-              finance-service
-              messaging-service
-              platform-service
-              api-gateway
-            )
-
-            for svc in "${ordered[@]}"; do
-              if ! echo "$changed" | grep -qx "$svc"; then
-                echo "  — $svc unchanged, skipping"
-                continue
-              fi
-              staged_sha=$(cat "/opt/hospio-staging/$svc/app-new.sha" 2>/dev/null || echo none)
-              if [ ! -f "/opt/hospio-staging/$svc/app-new.jar" ] || [ "$staged_sha" != "$DEPLOY_SHA" ]; then
-                if [ "$(cat "/opt/hospio-staging/$svc/app.sha" 2>/dev/null)" = "$DEPLOY_SHA" ]; then
-                  # A rerun of failed jobs: this service already shipped from this commit on an earlier attempt.
-                  echo "  — $svc already running this commit, skipping"
-                  rm -f "/opt/hospio-staging/$svc/app-new.jar" "/opt/hospio-staging/$svc/app-new.sha"
-                  continue
-                fi
-                echo "  ✗ No JAR from this commit for $svc (staged: $staged_sha; its build job failed?) — leaving it as it is"
-                rm -f "/opt/hospio-staging/$svc/app-new.jar" "/opt/hospio-staging/$svc/app-new.sha"
-                missing="$missing $svc"
-                continue
-              fi
-              rm -f "/opt/hospio-staging/$svc/app-new.sha"
-              echo "→ Deploying $svc"
-              [ -f /opt/hospio-staging/$svc/app.jar ] && cp /opt/hospio-staging/$svc/app.jar /opt/hospio-staging/$svc/app.jar.bak
-              mv /opt/hospio-staging/$svc/app-new.jar /opt/hospio-staging/$svc/app.jar
-              echo "$DEPLOY_SHA" > /opt/hospio-staging/$svc/app.sha
-              sudo systemctl enable -q hospio-$svc
-              sudo systemctl restart hospio-$svc
-              ok=false
-              for i in $(seq 1 60); do
-                status=$(wget -qO- "${health_urls[$svc]}" 2>/dev/null | grep -o '"status":"UP"' || echo "")
-                if [ -n "$status" ]; then
-                  echo "  ✓ $svc healthy"
-                  ok=true
-                  break
-                fi
-                sleep 5
-              done
-              if [ "$ok" = "false" ]; then
-                echo "  ✗ $svc did not become healthy in 300s — rolling back"
-                [ -f /opt/hospio-staging/$svc/app.jar.bak ] && cp /opt/hospio-staging/$svc/app.jar.bak /opt/hospio-staging/$svc/app.jar
-                sudo systemctl restart hospio-$svc
-                exit 1
-              fi
-              rm -f /opt/hospio-staging/$svc/app.jar.bak
-            done
-            if [ -n "$missing" ]; then
-              echo "✗ Deployed everything that built, but these did not ship:$missing"
-              exit 1
-            fi
-            echo "✓ Staging deployment complete"
+          changed=$(echo $SERVICES | tr ' ' ',')
+          ssh_ "CHANGED_SERVICES='$changed' DEPLOY_SHA='$GITHUB_SHA' bash -s" < scripts/vps/deploy-staged.sh
+          rm -f ~/.ssh/deploy_key
