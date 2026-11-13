@@ -393,6 +393,7 @@ public class InventoryService {
                 }
             }
         }
+        levels.lockLevels(needed.keySet(), List.of(e.getStoreId()));
         for (Map.Entry<String, BigDecimal> n : needed.entrySet()) {
             if (items.findById(n.getKey()).isEmpty()) {
                 log.warn("Order {} uses stock item {} which this hotel doesn't have", e.getOrderNumber(), n.getKey());
@@ -465,6 +466,7 @@ public class InventoryService {
         if (wanted.isEmpty()) {
             throw new BadRequestException("Enter a quantity above zero");
         }
+        levels.lockLevels(wanted.keySet(), to == null ? List.of(from.getId()) : List.of(from.getId(), to.getId()));
         for (Map.Entry<String, BigDecimal> w : wanted.entrySet()) {
             BigDecimal on = levels.findByItemIdAndStoreId(w.getKey(), from.getId()).map(StockLevel::getQuantity).orElse(BigDecimal.ZERO);
             if (on.compareTo(w.getValue()) < 0) {
@@ -517,7 +519,7 @@ public class InventoryService {
         }
         Map<String, StockItem> im = itemMap();
         Map<String, Store> sm = storeMap();
-        return requests.findByHotelIdOrderByCreatedAtDesc(hotel).stream()
+        return requests.recentOrOpen(hotel, unpagedSince(), OPEN_REQUESTS).stream()
                 .filter(r -> all || mine.contains(r.getFromTeam()))
                 .filter(r -> wanted == null || wanted.equals(r.getFromTeam()))
                 .filter(r -> status == null || matchesStatus(r.getStatus(), status))
@@ -584,7 +586,8 @@ public class InventoryService {
     @Transactional
     public InventoryViews.RequestView issue(String requestId, InventoryRequests.IssueRequest request) {
         HospioUserDetails u = user();
-        StockRequest r = requests.findById(requestId).orElseThrow(() -> new ResourceNotFoundException("Request not found"));
+        // Locked: two people issuing the same request at once would both see it outstanding and issue it twice.
+        StockRequest r = requests.lockById(requestId).orElseThrow(() -> new ResourceNotFoundException("Request not found"));
         if (r.getStatus() != StockRequest.Status.REQUESTED && r.getStatus() != StockRequest.Status.PART_ISSUED) {
             throw new BadRequestException("This request is already " + label(r.getStatus()));
         }
@@ -621,6 +624,7 @@ public class InventoryService {
             throw new BadRequestException("Enter how much to issue");
         }
         String reference = "REQ-" + shortId(r.getId()) + "-" + shortId(UUID.randomUUID().toString()).substring(0, 4);
+        levels.lockLevels(giving.keySet(), to == null ? List.of(from.getId()) : List.of(from.getId(), to.getId()));
         for (Map.Entry<String, BigDecimal> g : giving.entrySet()) {
             StockItem item = im.get(g.getKey());
             BigDecimal left = outstanding.get(g.getKey());
@@ -666,7 +670,7 @@ public class InventoryService {
         if (!StringUtils.hasText(reason)) {
             throw new BadRequestException("Give a reason so the team knows why");
         }
-        StockRequest r = requests.findById(requestId).orElseThrow(() -> new ResourceNotFoundException("Request not found"));
+        StockRequest r = requests.lockById(requestId).orElseThrow(() -> new ResourceNotFoundException("Request not found"));
         if (r.getStatus() != StockRequest.Status.REQUESTED && r.getStatus() != StockRequest.Status.PART_ISSUED) {
             throw new BadRequestException("This request is already " + label(r.getStatus()));
         }
@@ -695,6 +699,7 @@ public class InventoryService {
         String reference = "TRF-" + shortId(UUID.randomUUID().toString());
         String team = teamOfStore(to);
         String note = trim(request.note(), 200);
+        levels.lockLevels(moving.keySet(), List.of(from.getId(), to.getId()));
         for (Map.Entry<String, BigDecimal> m : moving.entrySet()) {
             StockItem item = item(m.getKey());
             StockLevel src = level(m.getKey(), from.getId());
@@ -755,16 +760,21 @@ public class InventoryService {
     public List<InventoryViews.SupplierView> suppliers() {
         String hotel = TenantContext.requireHotel();
         List<StockItem> all = items.findByHotelIdAndActiveTrueOrderByCategoryAscNameAsc(hotel);
-        List<PurchaseOrder> pos = orders.findByHotelIdOrderByCreatedAtDesc(hotel);
-        Map<String, String> poSupplier = pos.stream().collect(Collectors.toMap(PurchaseOrder::getId, PurchaseOrder::getSupplierId));
+        // Open orders and the last order date per supplier come grouped from the database; only the last 30 days' deliveries are read.
+        Map<String, Object[]> stats = new HashMap<>();
+        for (Object[] row : orders.supplierStats(hotel, OPEN_ORDERS)) {
+            stats.put((String) row[0], row);
+        }
         Instant since = Instant.now().minus(30, ChronoUnit.DAYS);
-        List<com.hospio.inventory.entity.Delivery> recent = deliveries.findByHotelIdOrderByCreatedAtDesc(hotel).stream()
-                .filter(d -> d.getCreatedAt() != null && d.getCreatedAt().isAfter(since)).toList();
+        List<com.hospio.inventory.entity.Delivery> recent = deliveries.findByHotelIdAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(hotel, since);
+        Set<String> recentPoIds = recent.stream().map(com.hospio.inventory.entity.Delivery::getPurchaseOrderId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<String, String> poSupplier = recentPoIds.isEmpty() ? Map.of()
+                : orders.findAllById(recentPoIds).stream().collect(Collectors.toMap(PurchaseOrder::getId, PurchaseOrder::getSupplierId));
         return suppliers.findByHotelIdOrderByName(hotel).stream().map(s -> {
             List<String> ids = all.stream().filter(i -> s.getId().equals(i.getSupplierId())).map(StockItem::getId).toList();
-            List<PurchaseOrder> mine = pos.stream().filter(p -> s.getId().equals(p.getSupplierId())).toList();
-            int open = (int) mine.stream().filter(p -> OPEN_ORDERS.contains(p.getStatus())).count();
-            Instant last = mine.stream().map(PurchaseOrder::getCreatedAt).filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null);
+            Object[] st = stats.get(s.getId());
+            int open = st == null || st[1] == null ? 0 : ((Number) st[1]).intValue();
+            Instant last = st == null ? null : toInstant(st[2]);
             BigDecimal spent = recent.stream().filter(d -> s.getId().equals(poSupplier.get(d.getPurchaseOrderId()))
                     || (d.getPurchaseOrderId() == null && s.getName().equalsIgnoreCase(Objects.toString(d.getSupplierName(), ""))))
                     .map(com.hospio.inventory.entity.Delivery::getTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -845,7 +855,7 @@ public class InventoryService {
         Map<String, Supplier> sup = supplierMap();
         Map<String, Store> sm = storeMap();
         Map<String, StockItem> im = itemMap();
-        return orders.findByHotelIdOrderByCreatedAtDesc(hotel).stream().filter(p -> status == null || p.getStatus().name().equalsIgnoreCase(status))
+        return orders.recentOrOpen(hotel, unpagedSince(), OPEN_ORDERS).stream().filter(p -> status == null || p.getStatus().name().equalsIgnoreCase(status))
                 .map(p -> orderView(p, sup, sm, im, null, null)).toList();
     }
 
@@ -882,14 +892,27 @@ public class InventoryService {
     public InventoryViews.OrderView createOrder(InventoryRequests.PurchaseOrderRequest request) {
         HospioUserDetails u = user();
         PurchaseOrder po = PurchaseOrder.builder().createdBy(u.getUserId()).createdByName(u.getFullName())
-                .number("PO-" + LocalDate.now(LAGOS).getYear() + "-" + String.format("%05d", orders.countByHotelId(TenantContext.requireHotel()) + 1))
-                .lines("[]").supplierId(request.supplierId()).build();
+                .number(nextOrderNumber(TenantContext.requireHotel())).lines("[]").supplierId(request.supplierId()).build();
         fillOrder(po, request);
         orders.save(po);
         if (Boolean.TRUE.equals(request.submit())) {
             return submit(po.getId());
         }
         return orderView(po, supplierMap(), storeMap(), itemMap(), null, null);
+    }
+
+    /**
+     * PO-{year}-NNNNN, one more than the hotel's highest this year. Chosen under a per-hotel transaction lock held until the order is
+     * saved and committed, so two orders made at once never share a number (unique (hotel_id, number) backs this up).
+     */
+    String nextOrderNumber(String hotel) {
+        String year = String.valueOf(LocalDate.now(LAGOS).getYear());
+        orders.lockNumbers("inventory.po-number:" + hotel);
+        return orderNumber(year, orders.lastNumber(hotel, year));
+    }
+
+    static String orderNumber(String year, int last) {
+        return "PO-" + year + "-" + String.format("%05d", last + 1);
     }
 
     @Transactional
@@ -1073,7 +1096,7 @@ public class InventoryService {
     @Transactional(readOnly = true)
     public List<InventoryViews.DeliveryView> deliveries() {
         String hotel = TenantContext.requireHotel();
-        List<com.hospio.inventory.entity.Delivery> rows = deliveries.findByHotelIdOrderByCreatedAtDesc(hotel);
+        List<com.hospio.inventory.entity.Delivery> rows = deliveries.findByHotelIdAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(hotel, unpagedSince());
         // Only the orders these deliveries point at, for their numbers.
         Set<String> poIds = rows.stream().map(com.hospio.inventory.entity.Delivery::getPurchaseOrderId).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<String, PurchaseOrder> pos = poIds.isEmpty() ? Map.of()
@@ -1099,7 +1122,9 @@ public class InventoryService {
     @Transactional
     public InventoryViews.DeliveryView receive(InventoryRequests.DeliveryRequest request) {
         HospioUserDetails u = user();
-        PurchaseOrder po = StringUtils.hasText(request.purchaseOrderId()) ? order(request.purchaseOrderId()) : null;
+        // Locked: two receipts against one order at once would both read the same received quantities.
+        PurchaseOrder po = StringUtils.hasText(request.purchaseOrderId())
+                ? orders.lockById(request.purchaseOrderId()).orElseThrow(() -> new ResourceNotFoundException("Order not found")) : null;
         Map<String, StockItem> im = itemMap();
         String supplierName = trim(request.supplierName(), 150);
         Store store;
@@ -1149,6 +1174,7 @@ public class InventoryService {
         int damagedCount = 0;
         Set<String> keys = new java.util.LinkedHashSet<>(onOrder.keySet());
         keys.addAll(given.keySet());
+        levels.lockLevels(keys, List.of(store.getId()));
         for (String itemId : keys) {
             StockItem i = im.get(itemId);
             InventoryRequests.Line l = given.get(itemId);
@@ -1222,7 +1248,7 @@ public class InventoryService {
         Map<String, Store> sm = storeMap();
         boolean all = isStore(u) || seesMoney(u);
         Set<String> mine = teamsOf(u);
-        return counts.findByHotelIdOrderByCreatedAtDesc(TenantContext.requireHotel()).stream()
+        return counts.recentOrOpen(TenantContext.requireHotel(), unpagedSince(), OPEN_COUNTS).stream()
                 .filter(c -> all || (sm.containsKey(c.getStoreId()) && mine.contains(sm.get(c.getStoreId()).getKind())))
                 .map(c -> countView(c, sm)).toList();
     }
@@ -1298,14 +1324,17 @@ public class InventoryService {
         if (u.isReadOnly() || !(u.isManagerOrOwner() || u.isPlatform())) {
             throw new ForbiddenException("Approving a count is for a manager");
         }
-        StockCount c = count(id);
+        // Locked: approving twice at once would apply the variance twice.
+        StockCount c = counts.lockById(id).orElseThrow(() -> new ResourceNotFoundException("Count not found"));
         if (c.getStatus() == StockCount.Status.OPEN) {
             throw new BadRequestException("Nothing counted yet");
         }
         if (c.getStatus() != StockCount.Status.COUNTED) {
             throw new BadRequestException("This count is already " + c.getStatus().name().toLowerCase(Locale.ROOT));
         }
-        for (CountLine l : read(c.getLines(), CountLine.class)) {
+        List<CountLine> countLines = read(c.getLines(), CountLine.class);
+        levels.lockLevels(countLines.stream().map(CountLine::itemId).filter(Objects::nonNull).collect(Collectors.toSet()), List.of(c.getStoreId()));
+        for (CountLine l : countLines) {
             if (l.variance() == null || l.variance().signum() == 0) {
                 continue;
             }
@@ -1446,10 +1475,18 @@ public class InventoryService {
         return level;
     }
 
+    /**
+     * The level of an item in a store, locked until the transaction ends and read fresh, so the check in {@link #move} sees what is really
+     * there and no other writer can change it before this one commits. Created at zero on first use (two first uses at once both succeed).
+     */
     private StockLevel level(String itemId, String storeId) {
-        item(itemId);
-        store(storeId);
-        return levels.findByItemIdAndStoreId(itemId, storeId).orElseGet(() -> levels.save(StockLevel.builder().itemId(itemId).storeId(storeId).build()));
+        StockItem item = item(itemId);
+        Store store = store(storeId);
+        Tenant t = TenantContext.current().orElse(null);
+        String business = item.getBusinessId() != null ? item.getBusinessId() : store.getBusinessId() != null ? store.getBusinessId()
+                : t == null ? null : t.businessId();
+        String hotel = item.getHotelId() != null ? item.getHotelId() : store.getHotelId() != null ? store.getHotelId() : t == null ? null : t.hotelId();
+        return levels.lockLevel(business, hotel, itemId, storeId);
     }
 
     private Map<String, BigDecimal> mergeLines(List<InventoryRequests.Line> lines, String verb) {
@@ -1498,6 +1535,33 @@ public class InventoryService {
 
     Map<String, Supplier> supplierMap() {
         return suppliers.findByHotelIdOrderByName(TenantContext.requireHotel()).stream().collect(Collectors.toMap(Supplier::getId, Function.identity()));
+    }
+
+    /** How far back the unpaged lists reach (docs/pagination.md, natural windows); open rows are always included. */
+    static final int UNPAGED_DAYS = 90;
+    static final Set<StockRequest.Status> OPEN_REQUESTS = EnumSet.of(StockRequest.Status.REQUESTED, StockRequest.Status.PART_ISSUED);
+
+    private static Instant unpagedSince() {
+        return LocalDate.now(LAGOS).minusDays(UNPAGED_DAYS).atStartOfDay(LAGOS).toInstant();
+    }
+
+    private static Instant toInstant(Object v) {
+        if (v == null) {
+            return null;
+        }
+        if (v instanceof Instant i) {
+            return i;
+        }
+        if (v instanceof java.sql.Timestamp ts) {
+            return ts.toInstant();
+        }
+        if (v instanceof java.time.LocalDateTime ldt) {
+            return ldt.atZone(java.time.ZoneOffset.UTC).toInstant();
+        }
+        if (v instanceof java.time.OffsetDateTime odt) {
+            return odt.toInstant();
+        }
+        return null;
     }
 
     private static BigDecimal cost(StockItem i) {
