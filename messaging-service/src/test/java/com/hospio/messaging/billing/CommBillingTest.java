@@ -31,6 +31,9 @@ class CommBillingTest {
     private final CommInvoiceRepository invoices = mock(CommInvoiceRepository.class);
     private final DeliveryRecordRepository deliveries = mock(DeliveryRecordRepository.class);
     private final TenantClient tenants = mock(TenantClient.class);
+    private final NotificationService notices = mock(NotificationService.class);
+    private final com.hospio.messaging.mail.MailDispatcher mail = mock(com.hospio.messaging.mail.MailDispatcher.class);
+    private final com.hospio.messaging.client.IdentityClient identity = mock(com.hospio.messaging.client.IdentityClient.class);
     private CommBilling billing;
 
     @BeforeEach
@@ -43,9 +46,9 @@ class CommBillingTest {
         when(prices.findById("DEFAULT")).thenReturn(Optional.of(d));
         when(tenants.hotel(anyString())).thenReturn(Optional.of(new TenantClient.Sender("Simpas Ikeja", "simpas@hotel.test")));
         when(tenants.business(anyString())).thenReturn(Optional.of(new TenantClient.Sender("Royal Suites Ltd", "owner@hotel.test")));
-        billing = new CommBilling(plans, prices, invoices, deliveries, tenants, mock(NotificationService.class), mock(PaystackClient.class),
-                new TransactionTemplate(mock(PlatformTransactionManager.class)), mock(com.hospio.messaging.mail.MailDispatcher.class),
-                "https://web.example");
+        billing = new CommBilling(plans, prices, invoices, deliveries, tenants, notices, mock(PaystackClient.class),
+                new TransactionTemplate(mock(PlatformTransactionManager.class)), mail, "https://web.example");
+        billing.setIdentity(identity);
     }
 
     private CommPlan plan(boolean enabled, Instant suspended) {
@@ -119,5 +122,32 @@ class CommBillingTest {
         assertThat(CommBilling.label("BOOKING_CONFIRMATION")).isEqualTo("Booking confirmations");
         assertThat(CommBilling.naira(new BigDecimal("1250.50"))).isEqualTo("₦1,250.50");
         assertThat(CommBilling.monthName("2026-11")).isEqualTo("November 2026");
+    }
+
+    @Test
+    void anIssuedInvoiceReachesTheOwnersAndManagersEvenWithoutAHotelEmail() {
+        when(tenants.hotel(anyString())).thenReturn(Optional.of(new TenantClient.Sender("Simpas Ikeja", null)));
+        when(tenants.business(anyString())).thenReturn(Optional.of(new TenantClient.Sender("Royal Suites Ltd", null)));
+        when(identity.withRole("h1", "OWNER")).thenReturn(List.of(contact("godwin@royal.test")));
+        when(identity.withRole("h1", "MANAGER")).thenReturn(List.of(contact("tunde@royal.test"), contact("GODWIN@royal.test")));
+        when(deliveries.unbilledUsage(eq("h1"), any(), any(), any())).thenReturn(List.<Object[]>of(new Object[] {"EMAIL", 3L, new BigDecimal("15.00")}));
+        when(invoices.findByHotelIdAndMonth("h1", "2026-11")).thenReturn(Optional.empty());
+        when(invoices.save(any())).thenAnswer(i -> {
+            CommInvoice inv = i.getArgument(0);
+            inv.setId("a8ff37d7-617d-4f3d-9831-9cffa070bf4f");
+            return inv;
+        });
+        billing.issue("h1", "b1", YearMonth.of(2026, 11)).orElseThrow();
+        org.mockito.ArgumentCaptor<com.hospio.common.kafka.events.DeliveryRequestedEvent> sent = org.mockito.ArgumentCaptor.forClass(com.hospio.common.kafka.events.DeliveryRequestedEvent.class);
+        verify(mail, org.mockito.Mockito.times(2)).accept(sent.capture());
+        assertThat(sent.getAllValues()).extracting(com.hospio.common.kafka.events.DeliveryRequestedEvent::getTo).containsExactly("godwin@royal.test", "tunde@royal.test");
+        assertThat(sent.getAllValues()).allSatisfy(e -> assertThat(e.getKind()).isEqualTo("INVOICE"));
+        org.mockito.ArgumentCaptor<String> eventId = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(notices).notifyRoles(eventId.capture(), eq("COMM_INVOICE"), anyString(), anyString(), anyString(), eq("OWNER"), eq("MANAGER"));
+        assertThat(eventId.getValue()).hasSize(36);
+    }
+
+    private static com.hospio.messaging.client.IdentityClient.Contact contact(String email) {
+        return new com.hospio.messaging.client.IdentityClient.Contact("u", "Someone", email, null, "b1", "ACTIVE", List.of());
     }
 }
