@@ -8,7 +8,6 @@ import java.time.LocalDate;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 /** Room-nights sold and booking value per business for a period, from reservation-service. Zeros when unreachable. */
@@ -37,12 +36,9 @@ public class ReservationClient {
             JsonNode d = TenantClient.data(body);
             return d == null ? Nights.empty() : new Nights(d.path("nights").asLong(), new BigDecimal(d.path("value").asText("0")));
         } catch (Exception e) {
-            if (e instanceof HttpClientErrorException.NotFound) {
-                log.warn("reservation-service has no GET /internal/admin/nights yet; answering zero");
-            } else {
-                log.warn("reservation-service nights failed: {}", e.getMessage());
-            }
-            return Nights.empty();
+            // Never zero on a failure: a fee statement made from it would bill nothing and never be made again.
+            log.warn("reservation-service nights failed for business {}: {}", businessId, e.getMessage());
+            throw new IllegalStateException("reservation-service didn't answer room-nights: " + e.getMessage(), e);
         }
     }
 }

@@ -79,6 +79,7 @@ public class FeeService {
     private final PlatformSettingsService settings;
     private final DeliveryService deliveries;
     private final ObjectMapper objectMapper;
+    private final org.springframework.transaction.support.TransactionTemplate tx;
 
     // ---- rules ---------------------------------------------------------------------------------------
 
@@ -153,7 +154,6 @@ public class FeeService {
      * PERCENT_OF_PAYMENTS on approved payments, PER_ROOM_NIGHT on nights sold, PERCENT_OF_BOOKINGS on booking value.
      * A business that already has the month's statement is skipped. Commissions follow; the owner gets the statement.
      */
-    @Transactional
     public GenerateResult generate(PlatformRequests.GenerateStatementsRequest request) {
         YearMonth ym = parseMonth(request.month());
         FeeSettings fees = settings.fees();
@@ -175,12 +175,14 @@ public class FeeService {
                 skipped++;
                 continue;
             }
+            // One transaction per business: one that fails (a service didn't answer) is left for the next run and the rest go on.
             try {
-                createFor(b, ym, fees, notes);
+                tx.executeWithoutResult(st -> createFor(b, ym, fees, notes));
                 created++;
-            } catch (BadRequestException e) {
+            } catch (RuntimeException e) {
                 skipped++;
-                notes.add(b.name() + ": " + e.getMessage());
+                notes.add(b.name() + ": not made this time, run it again (" + e.getMessage() + ")");
+                log.warn("Fee statement for {} ({}) not made: {}", b.name(), b.id(), e.getMessage());
             }
         }
         return new GenerateResult(created, skipped, notes);
