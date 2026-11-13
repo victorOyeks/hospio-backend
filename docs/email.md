@@ -154,3 +154,11 @@ sent. Full contract: docs/profile.md, "Notification preferences".
   own sender domain.
 - SMS and WhatsApp are recorded and echoed only. The phone code (OTP) stays on screen on staging.
 - The From name lookup falls back to `MAIL_FROM_NAME_DEFAULT` when tenant-service cannot be reached.
+
+## Brevo API instead of SMTP
+
+When `BREVO_API_KEY` is set (staging: the Oyeks Global Brevo account), messaging-service sends every email through Brevo's
+transactional API (`POST /v3/smtp/email`, `BrevoApiGateway`) instead of SMTP; the SMTP settings are then unused. The From
+address (`MAIL_FROM_ADDRESS`) must be a verified sender in that Brevo account or on a domain authenticated there
+(Brevo → Senders, domains & dedicated IPs). hospio360.com is added to the account and needs its DNS records (two DKIM
+CNAMEs and the brevo-code TXT) in Cloudflare before no-reply@hospio360.com can send.
