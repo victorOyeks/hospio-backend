@@ -59,6 +59,11 @@ jwt:
 hospio:
   deliveries:
     echo: ${DELIVERIES_ECHO:false}
+  # Guest messages as a paid service (docs/guest-message-billing.md): Paystack for paying invoices.
+  paystack:
+    secret-key: ${PAYSTACK_SECRET_KEY:}
+  apps:
+    hotel-url: ${HOTEL_APP_URL:https://web-staging.hospio360.com}
   # SMS and WhatsApp through Infobip (docs/sms-whatsapp.md). Off unless switched on; the key comes from the environment.
   sms:
     enabled: ${SMS_ENABLED:false}

@@ -5,7 +5,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface DeliveryRecordRepository extends JpaRepository<DeliveryRecord, String>, JpaSpecificationExecutor<DeliveryRecord> {
 
@@ -15,4 +20,37 @@ public interface DeliveryRecordRepository extends JpaRepository<DeliveryRecord, 
     Optional<DeliveryRecord> findFirstByProviderMessageId(String providerMessageId);
 
     List<DeliveryRecord> findTop100ByStatusAndCreatedAtBefore(DeliveryRecord.Status status, Instant before);
+
+    // ---- guest-message billing (docs/guest-message-billing.md) ----
+
+    /** A hotel's billable messages that went out (sent or delivered) in [from, to) and are on no invoice yet: [via, count, amount]. */
+    @Query("select d.sentVia, count(d), coalesce(sum(d.unitPrice), 0) from DeliveryRecord d where d.hotelId = :hotel and d.billable = true "
+            + "and d.invoiceId is null and d.status in :statuses and d.createdAt >= :from and d.createdAt < :to group by d.sentVia")
+    List<Object[]> unbilledUsage(@Param("hotel") String hotelId, @Param("statuses") List<DeliveryRecord.Status> statuses,
+                                 @Param("from") Instant from, @Param("to") Instant to);
+
+    /** Puts those messages on the invoice. */
+    @Modifying
+    @Query("update DeliveryRecord d set d.invoiceId = :invoice where d.hotelId = :hotel and d.billable = true and d.invoiceId is null "
+            + "and d.status in :statuses and d.createdAt >= :from and d.createdAt < :to")
+    int attachToInvoice(@Param("invoice") String invoiceId, @Param("hotel") String hotelId, @Param("statuses") List<DeliveryRecord.Status> statuses,
+                        @Param("from") Instant from, @Param("to") Instant to);
+
+    /** An invoice's lines: [kind, via, count, amount]. */
+    @Query("select d.kind, d.sentVia, count(d), coalesce(sum(d.unitPrice), 0) from DeliveryRecord d where d.invoiceId = :invoice "
+            + "group by d.kind, d.sentVia order by d.kind, d.sentVia")
+    List<Object[]> invoiceLines(@Param("invoice") String invoiceId);
+
+    Page<DeliveryRecord> findByInvoiceId(String invoiceId, Pageable page);
+
+    /** This month's billable messages so far (not invoiced yet), newest first. */
+    @Query("select d from DeliveryRecord d where d.hotelId = :hotel and d.billable = true and d.invoiceId is null and d.status in :statuses "
+            + "and d.createdAt >= :from order by d.createdAt desc")
+    Page<DeliveryRecord> unbilled(@Param("hotel") String hotelId, @Param("statuses") List<DeliveryRecord.Status> statuses,
+                                  @Param("from") Instant from, Pageable page);
+
+    /** Hotels with billable messages in [from, to) not yet invoiced: [hotelId, businessId]. */
+    @Query("select distinct d.hotelId, d.businessId from DeliveryRecord d where d.billable = true and d.invoiceId is null "
+            + "and d.status in :statuses and d.createdAt >= :from and d.createdAt < :to and d.hotelId is not null")
+    List<Object[]> hotelsToBill(@Param("statuses") List<DeliveryRecord.Status> statuses, @Param("from") Instant from, @Param("to") Instant to);
 }

@@ -25,7 +25,8 @@ public class DeliveryRecord extends BaseEntity {
 
     /** QUEUED until the sender has an answer; NOT_CONNECTED for SMS and WhatsApp; DISABLED when email is switched off. */
     /** DELIVERED: the SMS or WhatsApp reached the phone (Infobip's delivery report); a rejected one goes back to FAILED. */
-    public enum Status { QUEUED, SENT, DELIVERED, FAILED, NOT_CONNECTED, DISABLED }
+    /** SKIPPED: a billable message from a hotel that hasn't switched guest messages on, or is suspended (docs/guest-message-billing.md). */
+    public enum Status { QUEUED, SENT, DELIVERED, FAILED, NOT_CONNECTED, DISABLED, SKIPPED }
 
     @Column(name = "business_id", length = 36)
     private String businessId;
@@ -76,4 +77,18 @@ public class DeliveryRecord extends BaseEntity {
 
     @Column(name = "delivered_at")
     private Instant deliveredAt;
+
+    /** A message the hotel pays for (docs/guest-message-billing.md); priced at {@code unitPrice} by how it went ({@code sentVia}). */
+    @Column(nullable = false)
+    @lombok.Builder.Default
+    private boolean billable = false;
+
+    @Column(name = "sent_via", length = 20)
+    private String sentVia;
+
+    @Column(name = "unit_price")
+    private java.math.BigDecimal unitPrice;
+
+    @Column(name = "invoice_id", length = 36)
+    private String invoiceId;
 }
