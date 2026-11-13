@@ -14,5 +14,6 @@
     <include file="db/changelog/002-admin-portal.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/003-operating-day.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/004-owner-portal.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/005-scale-indexes.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>
