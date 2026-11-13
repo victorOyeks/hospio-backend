@@ -23,7 +23,7 @@ import lombok.experimental.SuperBuilder;
 @Table(name = "deliveries")
 public class DeliveryRecord extends BaseEntity {
 
-    /** QUEUED until the sender has an answer; NOT_CONNECTED for SMS and WhatsApp; DISABLED when email is switched off. */
+    /** QUEUED until the sender has an answer (the row is the queue: a worker claims it, sends, and writes the answer); NOT_CONNECTED for SMS and WhatsApp; DISABLED when email is switched off. */
     /** DELIVERED: the SMS or WhatsApp reached the phone (Infobip's delivery report); a rejected one goes back to FAILED. */
     /** SKIPPED: a billable message from a hotel that hasn't switched guest messages on, or is suspended (docs/guest-message-billing.md). */
     public enum Status { QUEUED, SENT, DELIVERED, FAILED, NOT_CONNECTED, DISABLED, SKIPPED }
@@ -91,4 +91,30 @@ public class DeliveryRecord extends BaseEntity {
 
     @Column(name = "invoice_id", length = 36)
     private String invoiceId;
+
+    // ---- the send queue (docs/email.md, "Sending"): kept only until the delivery is SENT or FAILED, never shown -------------
+
+    /** When a QUEUED row may be (re)claimed by a worker: now, after a back-off, or when a claim's lease runs out. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Column(name = "next_attempt_at")
+    private Instant nextAttemptAt;
+
+    /** The text to lay out and send; cleared once the delivery is finished (temporary passwords travel in it). */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Column(name = "body_text", columnDefinition = "TEXT")
+    private String bodyText;
+
+    /** A caller's own HTML instead of the shared layout (rare). */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Column(name = "body_html", columnDefinition = "TEXT")
+    private String bodyHtml;
+
+    /** WhatsApp: the approved template's name and its values (a JSON array). */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Column(name = "wa_template", length = 100)
+    private String waTemplate;
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Column(name = "wa_params", columnDefinition = "TEXT")
+    private String waParams;
 }

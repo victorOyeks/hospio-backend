@@ -46,6 +46,20 @@ class MailDispatcherTest {
         });
         when(records.findById(any())).thenAnswer(i -> Optional.ofNullable(rows.get(i.<String>getArgument(0))));
         when(records.findByEventId(any())).thenAnswer(i -> rows.values().stream().filter(r -> i.getArgument(0).equals(r.getEventId())).findFirst());
+        // The queue as Postgres keeps it: due QUEUED rows, leased (attempts + 1) when claimed.
+        when(records.lockDue(any(), org.mockito.ArgumentMatchers.anyInt())).thenAnswer(i -> {
+            java.time.Instant now = i.getArgument(0);
+            return rows.values().stream().filter(r -> r.getStatus() == DeliveryRecord.Status.QUEUED && r.getNextAttemptAt() != null
+                    && !r.getNextAttemptAt().isAfter(now)).map(DeliveryRecord::getId).limit(i.<Integer>getArgument(1)).toList();
+        });
+        when(records.lease(any(), any())).thenAnswer(i -> {
+            java.util.Collection<String> ids = i.getArgument(0);
+            ids.forEach(id -> {
+                rows.get(id).setNextAttemptAt(i.getArgument(1));
+                rows.get(id).setAttempts(rows.get(id).getAttempts() + 1);
+            });
+            return ids.size();
+        });
         when(tenants.hotel("h-royal")).thenReturn(Optional.of(new TenantClient.Sender("Royal Suites Ikeja", "frontdesk@royal.example")));
         when(tenants.hotel("h-b1")).thenReturn(Optional.of(new TenantClient.Sender("QA Owner B Lekki", null)));
         when(tenants.business("b-b")).thenReturn(Optional.of(new TenantClient.Sender("QA Owner B Hotels", "owner-b@hotels.example")));
@@ -55,7 +69,7 @@ class MailDispatcherTest {
 
     private MailDispatcher dispatcher(boolean enabled) {
         MailDispatcher d = new MailDispatcher(records, messages, tenants, new EmailTemplates(), smtp,
-                new TransactionTemplate(mock(PlatformTransactionManager.class)), enabled, "no-reply@sender.example", "Hospio360", 1, 30);
+                new TransactionTemplate(mock(PlatformTransactionManager.class)), enabled, "no-reply@sender.example", "Hospio360", 0, 30, 2, 48);
         d.runInline();
         return d;
     }
@@ -196,5 +210,109 @@ class MailDispatcherTest {
         assertThat(dispatcher.accept(e)).isNull();
         verify(smtp, never()).send(any());
         assertThat(rows).isEmpty();
+    }
+
+    @Test
+    void acceptOnlyRecordsTheQueuedEmailWithoutCallingAnyService() {
+        dispatcher.runOn(r -> { }); // no worker
+        DeliveryRecord r = dispatcher.accept(email("b-royal", "h-royal", "ada@guest.test"));
+        assertThat(r.getStatus()).isEqualTo(DeliveryRecord.Status.QUEUED);
+        assertThat(r.getBodyText()).contains("Hello Ada");
+        assertThat(r.getNextAttemptAt()).isNotNull();
+        verify(smtp, never()).send(any());
+        org.mockito.Mockito.verifyNoInteractions(tenants);
+
+        when(smtp.send(any())).thenReturn(new SmtpGateway.Accepted("<m>", "250 OK"));
+        dispatcher.drain(); // a worker, later
+        assertThat(rows.get(r.getId()).getStatus()).isEqualTo(DeliveryRecord.Status.SENT);
+        assertThat(rows.get(r.getId()).getFromName()).isEqualTo("Royal Suites Ikeja");
+        assertThat(rows.get(r.getId()).getBodyText()).isNull(); // what was sent is not kept
+        assertThat(rows.get(r.getId()).getNextAttemptAt()).isNull();
+    }
+
+    @Test
+    void aRowLeftByAWorkerThatDiedIsSentWhenItsLeaseRunsOut() {
+        DeliveryRecord left = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guest.test").subject("Your receipt").kind("RECEIPT")
+                .status(DeliveryRecord.Status.QUEUED).attempts(1).bodyText("Thank you").nextAttemptAt(java.time.Instant.now().minusSeconds(1)).build();
+        left.setId("left");
+        rows.put("left", left);
+        DeliveryRecord leased = DeliveryRecord.builder().channel("EMAIL").toAddress("bo@guest.test").kind("RECEIPT").status(DeliveryRecord.Status.QUEUED)
+                .attempts(1).bodyText("Thank you").nextAttemptAt(java.time.Instant.now().plusSeconds(240)).build();
+        leased.setId("leased");
+        rows.put("leased", leased);
+        when(smtp.send(any())).thenReturn(new SmtpGateway.Accepted("<m>", "250 OK"));
+        dispatcher.drain();
+        assertThat(rows.get("left").getStatus()).isEqualTo(DeliveryRecord.Status.SENT);
+        assertThat(rows.get("left").getAttempts()).isEqualTo(2);
+        assertThat(rows.get("leased").getStatus()).isEqualTo(DeliveryRecord.Status.QUEUED); // still another worker's
+        verify(smtp, times(1)).send(any());
+    }
+
+    @Test
+    void aRowQueuedBeforeTheQueueKeptBodiesIsFailedNotSent() {
+        DeliveryRecord old = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guest.test").kind("RECEIPT").status(DeliveryRecord.Status.QUEUED)
+                .nextAttemptAt(java.time.Instant.now().minusSeconds(1)).build();
+        old.setId("old");
+        rows.put("old", old);
+        dispatcher.drain();
+        assertThat(rows.get("old").getStatus()).isEqualTo(DeliveryRecord.Status.FAILED);
+        assertThat(rows.get("old").getError()).contains("Interrupted");
+        verify(smtp, never()).send(any());
+    }
+
+    @Test
+    void aCodeStillQueuedAfterItsAgeIsNotSentButAReceiptIs() {
+        java.time.Instant hourAgo = java.time.Instant.now().minus(java.time.Duration.ofHours(1));
+        DeliveryRecord code = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guest.test").kind("TEMP_PASSWORD").status(DeliveryRecord.Status.QUEUED)
+                .bodyText("Temporary password: x").nextAttemptAt(hourAgo).build();
+        code.setId("code");
+        code.setCreatedAt(hourAgo);
+        rows.put("code", code);
+        DeliveryRecord receipt = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guest.test").kind("RECEIPT").status(DeliveryRecord.Status.QUEUED)
+                .bodyText("Thank you").nextAttemptAt(hourAgo).build();
+        receipt.setId("receipt");
+        receipt.setCreatedAt(hourAgo);
+        rows.put("receipt", receipt);
+        when(smtp.send(any())).thenReturn(new SmtpGateway.Accepted("<m>", "250 OK"));
+        dispatcher.drain();
+        assertThat(rows.get("code").getStatus()).isEqualTo(DeliveryRecord.Status.FAILED);
+        assertThat(rows.get("code").getBodyText()).isNull();
+        assertThat(rows.get("receipt").getStatus()).isEqualTo(DeliveryRecord.Status.SENT);
+        verify(smtp, times(1)).send(any());
+    }
+
+    @Test
+    void anOldReceiptEventIsStillSentAfterConsumerLag() {
+        when(smtp.send(any())).thenReturn(new SmtpGateway.Accepted("<m>", "250 OK"));
+        DeliveryRequestedEvent e = DeliveryRequestedEvent.builder().eventId("e-late").businessId("b-royal").hotelId("h-royal").channel("EMAIL")
+                .to("ada@guest.test").subject("Your receipt").text("Thank you").kind("RECEIPT").occurredAt(java.time.Instant.now().minus(java.time.Duration.ofHours(3)))
+                .build();
+        assertThat(dispatcher.accept(e)).isNotNull();
+        verify(smtp).send(any());
+        DeliveryRequestedEvent replayed = DeliveryRequestedEvent.builder().eventId("e-replay").channel("EMAIL").to("ada@guest.test").text("Thank you")
+                .kind("RECEIPT").occurredAt(java.time.Instant.now().minus(java.time.Duration.ofDays(5))).build();
+        assertThat(dispatcher.accept(replayed)).isNull(); // a replayed topic, days old
+    }
+
+    @Test
+    void aFinishedRowIsNotSentAgain() {
+        DeliveryRecord done = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guest.test").kind("RECEIPT").status(DeliveryRecord.Status.SENT)
+                .bodyText("x").build();
+        done.setId("done");
+        rows.put("done", done);
+        dispatcher.process("done");
+        verify(smtp, never()).send(any());
+    }
+
+    @Test
+    void aWhatsAppKeepsItsTemplateValuesUntilTheWorkerSendsIt() {
+        com.hospio.messaging.text.TextSender texts = mock(com.hospio.messaging.text.TextSender.class);
+        when(texts.live("WHATSAPP")).thenReturn(true);
+        when(texts.send(any(), any(), any(), any(), any())).thenReturn(new com.hospio.messaging.text.TextSender.Outcome(true, "WHATSAPP", "wa-1", null));
+        dispatcher.setTexts(texts);
+        dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-wa").businessId("b-royal").hotelId("h-royal").channel("WHATSAPP").to("+2348030000000")
+                .text("Thanks from @hotel").kind("RECEIPT").template("hospio_payment_receipt").params(java.util.List.of("Ada", "@hotel", "₦5,000")).build());
+        verify(texts).send("WHATSAPP", "+2348030000000", "Thanks from Royal Suites Ikeja", "hospio_payment_receipt",
+                java.util.List.of("Ada", "Royal Suites Ikeja", "₦5,000"));
     }
 }

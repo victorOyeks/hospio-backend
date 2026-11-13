@@ -19,7 +19,20 @@ public interface DeliveryRecordRepository extends JpaRepository<DeliveryRecord, 
     /** The SMS or WhatsApp a delivery report is about ("sms:<id>" / "whatsapp:<id>"). */
     Optional<DeliveryRecord> findFirstByProviderMessageId(String providerMessageId);
 
-    List<DeliveryRecord> findTop100ByStatusAndCreatedAtBefore(DeliveryRecord.Status status, Instant before);
+    // ---- the send queue (docs/email.md, "Sending") ----
+
+    /**
+     * Up to {@code limit} QUEUED deliveries that are due, locked for this transaction; rows another worker (or instance) holds
+     * are skipped, not waited for. The caller leases them ({@link #lease}) before committing.
+     */
+    @Query(value = "SELECT id FROM messaging.deliveries WHERE status = 'QUEUED' AND next_attempt_at <= :now ORDER BY next_attempt_at "
+            + "LIMIT :limit FOR UPDATE SKIP LOCKED", nativeQuery = true)
+    List<String> lockDue(@Param("now") Instant now, @Param("limit") int limit);
+
+    /** Claims locked rows until {@code until}: no one else picks them up before then; a worker that died lets them go again. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update DeliveryRecord d set d.nextAttemptAt = :until, d.attempts = d.attempts + 1 where d.id in :ids")
+    int lease(@Param("ids") java.util.Collection<String> ids, @Param("until") Instant until);
 
     // ---- guest-message billing (docs/guest-message-billing.md) ----
 
@@ -29,12 +42,26 @@ public interface DeliveryRecordRepository extends JpaRepository<DeliveryRecord, 
     List<Object[]> unbilledUsage(@Param("hotel") String hotelId, @Param("statuses") List<DeliveryRecord.Status> statuses,
                                  @Param("from") Instant from, @Param("to") Instant to);
 
-    /** Puts those messages on the invoice. */
-    @Modifying
+    /**
+     * Puts on the invoice every billable message of the hotel that went out before {@code to} and is on no invoice yet, with no
+     * lower bound: a message of an earlier month that only turned SENT/DELIVERED after that month's invoice was issued (a late
+     * delivery report) rolls into this one instead of never being billed.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update DeliveryRecord d set d.invoiceId = :invoice where d.hotelId = :hotel and d.billable = true and d.invoiceId is null "
-            + "and d.status in :statuses and d.createdAt >= :from and d.createdAt < :to")
+            + "and d.status in :statuses and d.createdAt < :to")
     int attachToInvoice(@Param("invoice") String invoiceId, @Param("hotel") String hotelId, @Param("statuses") List<DeliveryRecord.Status> statuses,
-                        @Param("from") Instant from, @Param("to") Instant to);
+                        @Param("to") Instant to);
+
+    /** What is on an invoice, per channel: [via, count, amount]. */
+    @Query("select d.sentVia, count(d), coalesce(sum(d.unitPrice), 0) from DeliveryRecord d where d.invoiceId = :invoice group by d.sentVia")
+    List<Object[]> invoiceUsage(@Param("invoice") String invoiceId);
+
+    /** Several hotels' billable messages in [from, to) not invoiced yet: [hotelId, via, count, amount]. */
+    @Query("select d.hotelId, d.sentVia, count(d), coalesce(sum(d.unitPrice), 0) from DeliveryRecord d where d.hotelId in :hotels and d.billable = true "
+            + "and d.invoiceId is null and d.status in :statuses and d.createdAt >= :from and d.createdAt < :to group by d.hotelId, d.sentVia")
+    List<Object[]> unbilledUsageOf(@Param("hotels") java.util.Collection<String> hotelIds, @Param("statuses") List<DeliveryRecord.Status> statuses,
+                                   @Param("from") Instant from, @Param("to") Instant to);
 
     /** An invoice's lines: [kind, via, count, amount]. */
     @Query("select d.kind, d.sentVia, count(d), coalesce(sum(d.unitPrice), 0) from DeliveryRecord d where d.invoiceId = :invoice "
@@ -49,8 +76,8 @@ public interface DeliveryRecordRepository extends JpaRepository<DeliveryRecord, 
     Page<DeliveryRecord> unbilled(@Param("hotel") String hotelId, @Param("statuses") List<DeliveryRecord.Status> statuses,
                                   @Param("from") Instant from, Pageable page);
 
-    /** Hotels with billable messages in [from, to) not yet invoiced: [hotelId, businessId]. */
+    /** Hotels with billable messages before {@code to} not yet invoiced (stragglers of earlier months included): [hotelId, businessId]. */
     @Query("select distinct d.hotelId, d.businessId from DeliveryRecord d where d.billable = true and d.invoiceId is null "
-            + "and d.status in :statuses and d.createdAt >= :from and d.createdAt < :to and d.hotelId is not null")
-    List<Object[]> hotelsToBill(@Param("statuses") List<DeliveryRecord.Status> statuses, @Param("from") Instant from, @Param("to") Instant to);
+            + "and d.status in :statuses and d.createdAt < :to and d.hotelId is not null")
+    List<Object[]> hotelsToBill(@Param("statuses") List<DeliveryRecord.Status> statuses, @Param("to") Instant to);
 }

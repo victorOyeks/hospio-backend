@@ -22,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Queue and send WhatsApp, SMS and email through the channel adapters. Sending is done by the
@@ -32,16 +33,20 @@ import org.springframework.transaction.annotation.Transactional;
 public class OutboundService {
 
     private static final int MAX_ATTEMPTS = 6;
+    private static final int BATCH = 50;
+    private static final java.time.Duration LEASE = java.time.Duration.ofMinutes(10);
 
     private final OutboundMessageRepository outbound;
     private final TemplateRepository templates;
     private final Map<NotificationChannel, MessageChannel> channels;
     private final EventPublisher events;
     private final com.hospio.messaging.mail.MailDispatcher mail;
+    private final TransactionTemplate tx;
 
     public OutboundService(OutboundMessageRepository outbound, TemplateRepository templates, List<MessageChannel> channels, EventPublisher events,
-                           com.hospio.messaging.mail.MailDispatcher mail) {
+                           com.hospio.messaging.mail.MailDispatcher mail, TransactionTemplate tx) {
         this.mail = mail;
+        this.tx = tx;
         this.outbound = outbound;
         this.templates = templates;
         this.channels = channels.stream().collect(Collectors.toMap(MessageChannel::kind, Function.identity(), (a, b) -> a));
@@ -73,44 +78,84 @@ public class OutboundService {
         return text;
     }
 
-    /** The worker: every 20 seconds, send what is due. */
+    /**
+     * The worker: every 20 seconds, send what is due. A short transaction claims a batch (FOR UPDATE SKIP LOCKED, then a
+     * lease of a few minutes), so two instances never send the same message; each is sent outside any transaction and its
+     * row updated after. A worker that dies mid-batch lets the lease run out and the rows are picked up again.
+     */
     @Scheduled(fixedDelayString = "${hospio.messaging.send-interval-ms:20000}")
-    @Transactional
     public void sendDue() {
         TenantContext.runWith(Tenant.system("outbound"), () -> {
-            for (OutboundMessage m : outbound.findTop50ByStatusAndNextAttemptAtBeforeOrderByNextAttemptAt(OutboundMessage.Status.QUEUED, Instant.now())) {
-                TenantContext.set(Tenant.systemFor(m.getBusinessId(), m.getHotelId(), null, "system:outbound"));
-                MessageChannel channel = channels.get(m.getChannel());
-                m.setAttempts(m.getAttempts() + 1);
-                try {
-                    if (m.getChannel() == NotificationChannel.EMAIL || m.getChannel() == NotificationChannel.SMS
-                            || m.getChannel() == NotificationChannel.WHATSAPP) {
-                        // One sender for email, SMS and WhatsApp (docs/email.md, docs/sms-whatsapp.md): it records the delivery and
-                        // sends after this commits. A WhatsApp here has no template, so it goes as an SMS of the same text.
-                        var record = mail.accept(com.hospio.common.kafka.events.DeliveryRequestedEvent.builder().eventId(m.getId()).occurredAt(m.getCreatedAt())
-                                .businessId(m.getBusinessId()).hotelId(m.getHotelId()).channel(m.getChannel().name()).to(m.getRecipient())
-                                .subject(m.getSubject()).text(m.getBody()).kind(m.getKind()).ref(m.getReference()).build());
-                        m.setProviderRef(record == null ? null : "delivery:" + record.getId());
-                    } else if (channel == null) {
-                        throw new IllegalStateException("No adapter for " + m.getChannel());
-                    } else {
-                        m.setProviderRef(channel.send(m.getRecipient(), m.getSubject(), m.getBody()));
-                    }
-                    m.setStatus(OutboundMessage.Status.SENT);
-                    m.setSentAt(Instant.now());
-                    events.publish(KafkaTopics.MESSAGE_SENT, MessageSentEvent.builder().messageId(m.getId()).channel(m.getChannel().name())
-                            .to(m.getRecipient()).subject(m.getSubject() == null ? m.getKind() : m.getSubject()).build());
-                } catch (Exception e) {
-                    m.setLastError(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
-                    if (m.getAttempts() >= MAX_ATTEMPTS) {
-                        m.setStatus(OutboundMessage.Status.FAILED);
-                        log.error("Giving up on {} to {} after {} attempts: {}", m.getChannel(), m.getRecipient(), m.getAttempts(), m.getLastError());
-                    } else {
-                        m.setNextAttemptAt(Instant.now().plus((long) Math.pow(2, m.getAttempts()), ChronoUnit.MINUTES));
-                    }
+            List<String> ids = tx.execute(s -> {
+                Instant now = Instant.now();
+                List<String> due = outbound.lockDue(now, BATCH);
+                if (due != null && !due.isEmpty()) {
+                    outbound.lease(due, now.plus(LEASE));
                 }
-                outbound.save(m);
+                return due;
+            });
+            for (String id : ids == null ? List.<String>of() : ids) {
+                try {
+                    sendOne(id);
+                } catch (RuntimeException e) {
+                    log.error("Outbound message {} not processed: {}", id, e.getMessage());
+                }
             }
+        });
+    }
+
+    private void sendOne(String id) {
+        OutboundMessage m = outbound.findById(id).filter(x -> x.getStatus() == OutboundMessage.Status.QUEUED).orElse(null);
+        if (m == null) {
+            return;
+        }
+        TenantContext.set(Tenant.systemFor(m.getBusinessId(), m.getHotelId(), null, "system:outbound"));
+        String providerRef = null;
+        String error = null;
+        try {
+            if (m.getChannel() == NotificationChannel.EMAIL || m.getChannel() == NotificationChannel.SMS || m.getChannel() == NotificationChannel.WHATSAPP) {
+                // One sender for email, SMS and WhatsApp (docs/email.md, docs/sms-whatsapp.md): it records the delivery (its own
+                // queue sends it). A WhatsApp here has no template, so it goes as an SMS of the same text. The message id is
+                // the delivery's event id, so a second run never records it twice.
+                var record = mail.accept(com.hospio.common.kafka.events.DeliveryRequestedEvent.builder().eventId(m.getId()).occurredAt(m.getCreatedAt())
+                        .businessId(m.getBusinessId()).hotelId(m.getHotelId()).channel(m.getChannel().name()).to(m.getRecipient())
+                        .subject(m.getSubject()).text(m.getBody()).kind(m.getKind()).ref(m.getReference()).build());
+                providerRef = record == null ? null : "delivery:" + record.getId();
+            } else {
+                MessageChannel channel = channels.get(m.getChannel());
+                if (channel == null) {
+                    throw new IllegalStateException("No adapter for " + m.getChannel());
+                }
+                providerRef = channel.send(m.getRecipient(), m.getSubject(), m.getBody());
+            }
+        } catch (Exception e) {
+            error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+        }
+        String ref = providerRef;
+        String err = error;
+        tx.execute(s -> {
+            OutboundMessage row = outbound.findById(id).orElse(null);
+            if (row == null || row.getStatus() != OutboundMessage.Status.QUEUED) {
+                return null;
+            }
+            row.setAttempts(row.getAttempts() + 1);
+            if (err == null) {
+                row.setProviderRef(ref);
+                row.setStatus(OutboundMessage.Status.SENT);
+                row.setSentAt(Instant.now());
+                events.publish(KafkaTopics.MESSAGE_SENT, MessageSentEvent.builder().messageId(row.getId()).channel(row.getChannel().name())
+                        .to(row.getRecipient()).subject(row.getSubject() == null ? row.getKind() : row.getSubject()).build());
+            } else {
+                row.setLastError(err.length() > 500 ? err.substring(0, 500) : err);
+                if (row.getAttempts() >= MAX_ATTEMPTS) {
+                    row.setStatus(OutboundMessage.Status.FAILED);
+                    log.error("Giving up on {} to {} after {} attempts: {}", row.getChannel(), row.getRecipient(), row.getAttempts(), err);
+                } else {
+                    row.setNextAttemptAt(Instant.now().plus((long) Math.pow(2, row.getAttempts()), ChronoUnit.MINUTES));
+                }
+            }
+            outbound.save(row);
+            return null;
         });
     }
 }
