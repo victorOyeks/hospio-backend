@@ -196,7 +196,9 @@ public class MessagingController {
         if ("EMAIL".equals(ch)) {
             return "NOT_CONNECTED".equals(sent.message().status()) ? "Saved · email is switched off here" : "Email sent to " + sent.conversation().contact();
         }
-        return "Saved · " + ("SMS".equals(ch) ? "SMS" : "WhatsApp") + " is coming soon, so copy the message to the guest";
+        String name = "SMS".equals(ch) ? "SMS" : "WhatsApp";
+        return "NOT_CONNECTED".equals(sent.message().status()) ? "Saved · " + name + " is switched off here, so copy the message to the guest"
+                : name + " sent to " + sent.conversation().contact();
     }
 
     @GetMapping("/templates")
