@@ -51,6 +51,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -756,23 +757,42 @@ public class MaintenanceService {
         return opened;
     }
 
-    /** Every 15 minutes: open work orders past their due time tell the manager and the assignee, once each. */
+    /** Work orders flagged per transaction by {@link #flagOverdue}. */
+    static final int OVERDUE_PAGE = 500;
+    /** At most this many pages a run (100,000 work orders); the rest are flagged 15 minutes later. */
+    static final int OVERDUE_MAX_PAGES = 200;
+
+    /**
+     * Every 15 minutes: open work orders past their due time tell the manager and the assignee, once each. Works through
+     * them 500 per transaction; each is flagged with a guarded update and its notice published (after that transaction
+     * commits) only when this run flipped the flag, so overlapping runs never notify twice.
+     */
     @Scheduled(cron = "0 */15 * * * *", zone = "Africa/Lagos")
     public void flagOverdue() {
         TenantContext.runWith(Tenant.system("work-order-overdue"), () -> {
             TransactionTemplate tx = new TransactionTemplate(transactionManager);
-            tx.executeWithoutResult(s -> {
-                for (Repair r : repairs.findByStatusInAndDueAtBeforeAndOverdueNotifiedFalse(WorkOrderRules.OPEN, Instant.now())) {
-                    r.setOverdueNotified(true);
-                    repairs.save(r);
-                    NoticeEvent n = NoticeEvent.builder().kind("REPAIR_OVERDUE").title(r.getNumber() + " is overdue")
-                            .body(where(r) + " · " + r.getTitle() + " · " + r.getPriority().name().toLowerCase(Locale.ROOT) + " priority")
-                            .link("/repairs/" + r.getId()).userIds(r.getAssignedTo() == null ? null : List.of(r.getAssignedTo())).roles(List.of("MANAGER")).build();
-                    n.setBusinessId(r.getBusinessId());
-                    n.setHotelId(r.getHotelId());
-                    events.publish(KafkaTopics.NOTICE, n);
+            Instant now = Instant.now();
+            for (int pageNo = 0; pageNo < OVERDUE_MAX_PAGES; pageNo++) {
+                // Always the first page: the rows flagged by the previous transaction no longer match.
+                Integer seen = tx.execute(s -> {
+                    List<Repair> page = repairs.findOverdueToNotify(WorkOrderRules.OPEN, now, PageRequest.of(0, OVERDUE_PAGE));
+                    for (Repair r : page) {
+                        if (repairs.markOverdueNotified(r.getId()) != 1) {
+                            continue;
+                        }
+                        NoticeEvent n = NoticeEvent.builder().kind("REPAIR_OVERDUE").title(r.getNumber() + " is overdue")
+                                .body(where(r) + " · " + r.getTitle() + " · " + r.getPriority().name().toLowerCase(Locale.ROOT) + " priority")
+                                .link("/repairs/" + r.getId()).userIds(r.getAssignedTo() == null ? null : List.of(r.getAssignedTo())).roles(List.of("MANAGER")).build();
+                        n.setBusinessId(r.getBusinessId());
+                        n.setHotelId(r.getHotelId());
+                        events.publish(KafkaTopics.NOTICE, n); // sent after this page's transaction commits
+                    }
+                    return page.size();
+                });
+                if (seen == null || seen < OVERDUE_PAGE) {
+                    break;
                 }
-            });
+            }
         });
     }
 
