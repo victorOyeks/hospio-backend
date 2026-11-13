@@ -24,7 +24,8 @@ import lombok.experimental.SuperBuilder;
 public class DeliveryRecord extends BaseEntity {
 
     /** QUEUED until the sender has an answer; NOT_CONNECTED for SMS and WhatsApp; DISABLED when email is switched off. */
-    public enum Status { QUEUED, SENT, FAILED, NOT_CONNECTED, DISABLED }
+    /** DELIVERED: the SMS or WhatsApp reached the phone (Infobip's delivery report); a rejected one goes back to FAILED. */
+    public enum Status { QUEUED, SENT, DELIVERED, FAILED, NOT_CONNECTED, DISABLED }
 
     @Column(name = "business_id", length = 36)
     private String businessId;
@@ -72,4 +73,7 @@ public class DeliveryRecord extends BaseEntity {
 
     @Column(name = "sent_at")
     private Instant sentAt;
+
+    @Column(name = "delivered_at")
+    private Instant deliveredAt;
 }

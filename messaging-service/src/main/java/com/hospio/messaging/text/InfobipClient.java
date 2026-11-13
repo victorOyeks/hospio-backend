@@ -54,17 +54,24 @@ public class InfobipClient {
     private final String apiKey;
     private final String smsSender;
     private final String whatsAppSender;
+    private final String notifyUrl;
     private volatile Map<String, TemplateInfo> templates = Map.of();
     private volatile Instant templatesReadAt = Instant.EPOCH;
 
     public InfobipClient(@Value("${hospio.infobip.base-url:}") String baseUrl,
                          @Value("${hospio.infobip.api-key:}") String apiKey,
                          @Value("${hospio.infobip.sms-sender:}") String smsSender,
-                         @Value("${hospio.infobip.whatsapp-sender:}") String whatsAppSender) {
+                         @Value("${hospio.infobip.whatsapp-sender:}") String whatsAppSender,
+                         @Value("${hospio.infobip.notify-url:}") String notifyUrl,
+                         @Value("${hospio.infobip.webhook-key:}") String webhookKey) {
         this.baseUrl = baseUrl == null ? "" : baseUrl.trim().replaceAll("/+$", "");
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         this.smsSender = smsSender == null ? "" : smsSender.trim();
         this.whatsAppSender = whatsAppSender == null ? "" : whatsAppSender.trim().replace("+", "");
+        // Where Infobip posts each message's final outcome (delivered, rejected and why); the key proves it is Infobip.
+        this.notifyUrl = StringUtils.hasText(notifyUrl) && StringUtils.hasText(webhookKey)
+                ? notifyUrl.trim() + (notifyUrl.contains("?") ? "&" : "?") + "key=" + java.net.URLEncoder.encode(webhookKey.trim(), java.nio.charset.StandardCharsets.UTF_8)
+                : "";
     }
 
     /** Whether there is an account to send through at all (base URL and key set). */
@@ -86,6 +93,10 @@ public class InfobipClient {
         if (StringUtils.hasText(smsSender)) {
             message.put("from", smsSender);
         }
+        if (StringUtils.hasText(notifyUrl)) {
+            message.put("notifyUrl", notifyUrl);
+            message.put("notifyContentType", "application/json");
+        }
         return send("/sms/2/text/advanced", Map.of("messages", List.of(message)));
     }
 
@@ -102,8 +113,11 @@ public class InfobipClient {
         if (codeButton && params != null && !params.isEmpty()) {
             data.put("buttons", List.of(Map.of("type", "URL", "parameter", params.get(0))));
         }
-        Map<String, Object> message = Map.of("from", whatsAppSender, "to", to, "messageId", UUID.randomUUID().toString(),
-                "content", Map.of("templateName", template, "templateData", data, "language", language));
+        Map<String, Object> message = new HashMap<>(Map.of("from", whatsAppSender, "to", to, "messageId", UUID.randomUUID().toString(),
+                "content", Map.of("templateName", template, "templateData", data, "language", language)));
+        if (StringUtils.hasText(notifyUrl)) {
+            message.put("notifyUrl", notifyUrl);
+        }
         return send("/whatsapp/1/message/template", Map.of("messages", List.of(message)));
     }
 

@@ -11,5 +11,8 @@ public interface DeliveryRecordRepository extends JpaRepository<DeliveryRecord, 
 
     Optional<DeliveryRecord> findByEventId(String eventId);
 
+    /** The SMS or WhatsApp a delivery report is about ("sms:<id>" / "whatsapp:<id>"). */
+    Optional<DeliveryRecord> findFirstByProviderMessageId(String providerMessageId);
+
     List<DeliveryRecord> findTop100ByStatusAndCreatedAtBefore(DeliveryRecord.Status status, Instant before);
 }

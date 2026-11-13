@@ -15,8 +15,14 @@ Infobip, from the Oyeks Global account.
 Which templates are approved is read from Infobip every ten minutes, so a template starts being used **on its own** the
 moment Meta approves it: nothing to deploy or switch.
 
-Each record ends `SENT` (with `provider_message_id` = `sms:<id>` or `whatsapp:<id>`), `FAILED` (with the reason), or
-`NOT_CONNECTED` (that channel is off). "Sent" means Infobip accepted it; the handset delivery report is Infobip's.
+Each record is `SENT` once Infobip takes it (`provider_message_id` = `sms:<id>` or `whatsapp:<id>`), `FAILED` (with the
+reason) or `NOT_CONNECTED` (that channel is off). Infobip then posts the **delivery report** to
+`POST /messaging/webhooks/infobip/reports?key=…` (the address and key are given on every message): the record becomes
+`DELIVERED` (with `delivered_at`) or `FAILED` with the network's words, e.g. "Destination on DND list - DND blacklisted
+(REJECTED_DND, …)". In Infobip's portal the same messages are under **Analyze → Logs**.
+
+**DND.** Nigerian networks block promotional SMS to numbers on the Do-Not-Disturb list. Until a *transactional* sender ID
+is approved (and set in `INFOBIP_SMS_SENDER`), SMS goes from Infobip's shared sender and DND numbers reject it.
 
 ## One page per SMS
 
@@ -54,6 +60,7 @@ template and goes as SMS.
 | `INFOBIP_BASE_URL`, `INFOBIP_API_KEY` | The Infobip account. The key is only ever in the environment. |
 | `INFOBIP_WHATSAPP_SENDER` | The WhatsApp number, digits only (2348148849797). |
 | `INFOBIP_SMS_SENDER` | The approved alphanumeric sender (e.g. `Hospio360`). Empty uses Infobip's default; set it once approved. |
+| `INFOBIP_NOTIFY_URL`, `INFOBIP_WEBHOOK_KEY` | Where Infobip posts delivery reports, and the key it must quote. Both empty: no reports. |
 | `TEXTS_ALLOW_ONLY` | Comma-separated numbers. When set only these receive SMS/WhatsApp; others are recorded as held back. **Staging sets it** (test data holds real-looking numbers); production leaves it empty. |
 
 While the Infobip account is on its free trial it only delivers to the numbers verified in Infobip.

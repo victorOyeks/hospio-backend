@@ -71,6 +71,9 @@ hospio:
     # The approved alphanumeric sender (e.g. Hospio360); empty uses Infobip's default until it is approved.
     sms-sender: ${INFOBIP_SMS_SENDER:}
     whatsapp-sender: ${INFOBIP_WHATSAPP_SENDER:}
+    # Delivery reports: Infobip posts each message's outcome to notify-url?key=webhook-key (both empty = no reports).
+    notify-url: ${INFOBIP_NOTIFY_URL:}
+    webhook-key: ${INFOBIP_WEBHOOK_KEY:}
   texts:
     # Comma-separated numbers: when set, only these receive SMS/WhatsApp (staging), everyone else is held back.
     allow-only: ${TEXTS_ALLOW_ONLY:}
