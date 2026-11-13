@@ -234,7 +234,7 @@ class BookingServiceTest {
     void anArrivalTodayCanBeGivenTheRoomOfAGuestDueOutToday() {
         inRoom(stay("dep", "r1", today.minusDays(2), today, BookingStatus.CHECKED_IN));
         CreateBookingRequest r = new CreateBookingRequest(null, new GuestRequest("Ifeoma Nwachukwu", "+2348011112222", null, null, null, null, null, null),
-                "t1", "r1", today, today.plusDays(2), 1, 0, PriceKind.NORMAL, null, PaymentPlan.PAY_AT_CHECKOUT, null, null, null, null);
+                "t1", "r1", today, today.plusDays(2), 1, 0, PriceKind.NORMAL, null, PaymentPlan.PAY_AT_CHECKOUT, null, null, null, null, null);
 
         assertThat(service.create(r).roomId()).isEqualTo("r1");
     }
@@ -243,7 +243,7 @@ class BookingServiceTest {
     void aWalkInIsRefusedARoomSomebodyIsStillIn() {
         inRoom(stay("dep", "r1", today.minusDays(2), today, BookingStatus.CHECKED_IN));
         CreateBookingRequest r = new CreateBookingRequest(null, new GuestRequest("Walk In", "+2348011112222", null, null, null, null, null, null),
-                "t1", "r1", today, today.plusDays(1), 1, 0, PriceKind.NORMAL, null, PaymentPlan.PAY_IN_FULL, null, null, null, true);
+                "t1", "r1", today, today.plusDays(1), 1, 0, PriceKind.NORMAL, null, PaymentPlan.PAY_IN_FULL, null, null, null, true, null);
 
         assertThatThrownBy(() -> service.create(r)).isInstanceOf(ConflictException.class).hasMessageContaining("still has a guest checked in (Guest dep)");
         org.mockito.Mockito.verify(bookings, org.mockito.Mockito.never()).save(any());
@@ -253,7 +253,7 @@ class BookingServiceTest {
     void anOverstayRoomCantBeGivenToTodaysArrival() {
         inRoom(stay("over", "r1", today.minusDays(3), today.minusDays(1), BookingStatus.CHECKED_IN));
         CreateBookingRequest r = new CreateBookingRequest(null, new GuestRequest("Ifeoma Nwachukwu", "+2348011112222", null, null, null, null, null, null),
-                "t1", "r1", today, today.plusDays(1), 1, 0, PriceKind.NORMAL, null, PaymentPlan.PAY_AT_CHECKOUT, null, null, null, null);
+                "t1", "r1", today, today.plusDays(1), 1, 0, PriceKind.NORMAL, null, PaymentPlan.PAY_AT_CHECKOUT, null, null, null, null, null);
 
         assertThatThrownBy(() -> service.create(r)).isInstanceOf(ConflictException.class).hasMessageContaining("still has a guest checked in (Guest over)");
     }
@@ -292,7 +292,7 @@ class BookingServiceTest {
 
     private CreateBookingRequest request(PriceKind kind, BigDecimal special) {
         return new CreateBookingRequest(null, new GuestRequest("Ifeoma Nwachukwu", "+2348011112222", null, null, null, null, null, null),
-                "t1", null, in, out, 2, 0, kind, special, PaymentPlan.DEPOSIT_50, null, null, null, null);
+                "t1", null, in, out, 2, 0, kind, special, PaymentPlan.DEPOSIT_50, null, null, null, null, "15:30");
     }
 
     private void signInAs(Role role, AccessLevel level) {

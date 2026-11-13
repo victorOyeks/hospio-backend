@@ -29,13 +29,14 @@ public class GuestService {
     /** Find the guest by phone first so a returning guest is never duplicated. */
     @Transactional
     public Guest findOrCreate(GuestRequest request) {
-        if (request.phone() != null && !request.phone().isBlank()) {
-            Guest existing = guests.findFirstByBusinessIdAndPhone(TenantContext.requireBusiness(), request.phone().trim()).orElse(null);
-            if (existing != null) {
-                return existing;
-            }
+        String name = GuestRules.name(request.fullName());
+        String phone = GuestRules.phone(request.phone());
+        // "+234 803 111 0001", "08031110001" and "+2348031110001" are one person: match on the last ten digits.
+        Guest existing = guests.findByPhoneKey(TenantContext.requireBusiness(), GuestRules.phoneKey(phone)).orElse(null);
+        if (existing != null) {
+            return existing;
         }
-        Guest g = Guest.builder().fullName(request.fullName()).phone(request.phone()).email(request.email()).idType(request.idType())
+        Guest g = Guest.builder().fullName(name).phone(phone).email(request.email()).idType(request.idType())
                 .idNumber(request.idNumber()).nationality(request.nationality()).preferences(request.preferences()).notes(request.notes()).build();
         g.setHotelId(null);
         return guests.save(g);
@@ -44,8 +45,9 @@ public class GuestService {
     @Transactional
     public Guest update(String id, GuestRequest request) {
         Guest g = get(id);
-        g.setFullName(request.fullName());
-        g.setPhone(request.phone());
+        g.setFullName(GuestRules.name(request.fullName()));
+        // A phone is kept optional here (older guests have none), but one that is given must be real.
+        g.setPhone(request.phone() == null || request.phone().isBlank() ? null : GuestRules.phone(request.phone()));
         g.setEmail(request.email());
         g.setIdType(request.idType());
         g.setIdNumber(request.idNumber());

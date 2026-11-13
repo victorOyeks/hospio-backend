@@ -16,7 +16,8 @@ public record BookingResponse(String id, String reference, String hotelId, Strin
                               BigDecimal totalAmount, BigDecimal amountPaid, PaymentPlan paymentPlan, BigDecimal amountDueNow, String organizationId,
                               String source, String notes, Instant checkedInAt, Instant checkedOutAt, LocalTime lateCheckoutUntil,
                               Instant cancelledAt, String cancellationReason, Instant createdAt, String warning,
-                              java.util.List<com.hospio.common.delivery.Delivery> deliveries, String guestPhone, String guestEmail) {
+                              java.util.List<com.hospio.common.delivery.Delivery> deliveries, String guestPhone, String guestEmail,
+                              String expectedArrival) {
 
     public static BookingResponse of(Booking b) {
         BigDecimal paid = b.getAmountPaid() == null ? BigDecimal.ZERO : b.getAmountPaid();
@@ -30,20 +31,20 @@ public record BookingResponse(String id, String reference, String hotelId, Strin
                 b.getRoomTypeName(), b.getRoomId(), b.getRoomNumber(), b.getCheckInDate(), b.getCheckOutDate(), b.nights(), b.getAdults(),
                 b.getChildren(), b.getStatus(), b.getPriceKind(), b.getNightlyRate(), b.getTotalAmount(), paid, b.getPaymentPlan(), dueNow,
                 b.getOrganizationId(), b.getSource(), b.getNotes(), b.getCheckedInAt(), b.getCheckedOutAt(), b.getLateCheckoutUntil(),
-                b.getCancelledAt(), b.getCancellationReason(), b.getCreatedAt(), null, null, null, null);
+                b.getCancelledAt(), b.getCancellationReason(), b.getCreatedAt(), null, null, null, null, b.getExpectedArrival());
     }
 
     public BookingResponse withWarning(String warning) {
         return new BookingResponse(id, reference, hotelId, guestId, guestName, roomTypeId, roomTypeName, roomId, roomNumber, checkInDate,
                 checkOutDate, nights, adults, children, status, priceKind, nightlyRate, totalAmount, amountPaid, paymentPlan, amountDueNow,
-                organizationId, source, notes, checkedInAt, checkedOutAt, lateCheckoutUntil, cancelledAt, cancellationReason, createdAt, warning, deliveries, guestPhone, guestEmail);
+                organizationId, source, notes, checkedInAt, checkedOutAt, lateCheckoutUntil, cancelledAt, cancellationReason, createdAt, warning, deliveries, guestPhone, guestEmail, expectedArrival);
     }
 
     /** What the guest was sent about this change (echoed on staging; empty in production). */
     public BookingResponse withDeliveries(java.util.List<com.hospio.common.delivery.Delivery> sent) {
         return new BookingResponse(id, reference, hotelId, guestId, guestName, roomTypeId, roomTypeName, roomId, roomNumber, checkInDate,
                 checkOutDate, nights, adults, children, status, priceKind, nightlyRate, totalAmount, amountPaid, paymentPlan, amountDueNow,
-                organizationId, source, notes, checkedInAt, checkedOutAt, lateCheckoutUntil, cancelledAt, cancellationReason, createdAt, warning, sent, guestPhone, guestEmail);
+                organizationId, source, notes, checkedInAt, checkedOutAt, lateCheckoutUntil, cancelledAt, cancellationReason, createdAt, warning, sent, guestPhone, guestEmail, expectedArrival);
     }
 
     /** The guest's phone and email on the row (lists), so a screen needn't load every guest. */
@@ -51,6 +52,6 @@ public record BookingResponse(String id, String reference, String hotelId, Strin
         return new BookingResponse(id, reference, hotelId, guestId, guestName, roomTypeId, roomTypeName, roomId, roomNumber, checkInDate,
                 checkOutDate, nights, adults, children, status, priceKind, nightlyRate, totalAmount, amountPaid, paymentPlan, amountDueNow,
                 organizationId, source, notes, checkedInAt, checkedOutAt, lateCheckoutUntil, cancelledAt, cancellationReason, createdAt, warning,
-                deliveries, phone, email);
+                deliveries, phone, email, expectedArrival);
     }
 }

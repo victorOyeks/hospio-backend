@@ -128,6 +128,10 @@ public class BookingService {
     @Transactional
     public BookingResponse create(CreateBookingRequest request) {
         validateDates(request.checkInDate(), request.checkOutDate());
+        // The party and arrival before anything is saved (the same checks the web makes).
+        GuestRules.adults(request.adults());
+        GuestRules.children(request.children());
+        GuestRules.arrival(request.expectedArrival());
         HospioUserDetails user = CurrentUser.require();
         String hotelId = TenantContext.requireHotel();
         PriceKind kind = request.priceKind() == null ? PriceKind.NORMAL : request.priceKind();
@@ -181,7 +185,8 @@ public class BookingService {
                 .roomTypeId(request.roomTypeId()).roomTypeName(rooms.get(0).roomTypeName())
                 .roomId(room == null ? null : room.id()).roomNumber(room == null ? null : room.number())
                 .checkInDate(request.checkInDate()).checkOutDate(request.checkOutDate())
-                .adults(request.adults() == null ? 1 : request.adults()).children(request.children() == null ? 0 : request.children())
+                .adults(GuestRules.adults(request.adults())).children(GuestRules.children(request.children()))
+                .expectedArrival(Boolean.TRUE.equals(request.walkIn()) ? null : GuestRules.arrival(request.expectedArrival()))
                 .priceKind(kind).nightlyRate(Money.of(nightly)).paymentPlan(plan).organizationId(request.organizationId())
                 .source(request.source() == null ? "FRONT_DESK" : request.source()).notes(request.notes()).createdBy(user.getUserId())
                 .build();
@@ -297,7 +302,7 @@ public class BookingService {
                 guest.setEmail(request.guestEmail());
             }
             if (request.guestPhone() != null) {
-                guest.setPhone(request.guestPhone());
+                guest.setPhone(GuestRules.phone(request.guestPhone()));
             }
             if (request.idNumber() != null) {
                 guest.setIdType(request.idType());
@@ -463,9 +468,9 @@ public class BookingService {
         if (request.guest() == null || request.guest().fullName() == null || request.guest().fullName().isBlank()) {
             throw new BadRequestException("Choose a guest or enter the guest's name");
         }
-        if (request.guest().phone() == null || request.guest().phone().isBlank()) {
-            throw new BadRequestException("Enter the guest's phone number");
-        }
+        // Checked before anything is saved: a real name and phone (findOrCreate trims them the same way).
+        GuestRules.name(request.guest().fullName());
+        GuestRules.phone(request.guest().phone());
         return request.guest();
     }
 

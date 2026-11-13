@@ -35,6 +35,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 /** Manager · Organizations and Finance 5.x: agreements, staff lists, statements, invoices and payments. */
 @Service
@@ -85,10 +86,13 @@ public class OrganizationService {
             // The owner set the limit themselves: the waiting request is answered by that.
             clearRequest(org);
         }
-        org.setName(request.name());
-        org.setContactName(request.contactName());
-        org.setContactPhone(request.contactPhone());
-        org.setContactEmail(request.contactEmail());
+        org.setName(meaningful(request.name(), "The company name", 160));
+        org.setContactName(StringUtils.hasText(request.contactName()) ? meaningful(request.contactName(), "The contact person", 120) : null);
+        org.setContactPhone(phone(request.contactPhone()));
+        org.setContactEmail(email(request.contactEmail()));
+        if (request.dailyCap() != null && request.dailyCap().signum() <= 0) {
+            throw new BadRequestException("Leave the daily cap empty, or enter an amount above ₦0");
+        }
         org.setAddress(request.address());
         org.setCreditLimit(credit);
         org.setDailyCap(request.dailyCap());
@@ -117,6 +121,47 @@ public class OrganizationService {
     }
 
     public static final String CREDIT_LIMIT = "CREDIT_LIMIT";
+
+    /** A company's or person's name: letters in it (not "0000"), up to {@code max} characters. */
+    static String meaningful(String value, String what, int max) {
+        if (!StringUtils.hasText(value)) {
+            throw new BadRequestException(what + " is required");
+        }
+        String t = value.trim().replaceAll("\\s+", " ");
+        if (t.length() > max) {
+            throw new BadRequestException(what + " must be under " + max + " characters");
+        }
+        if (t.length() < 2 || t.replaceAll("[^\\p{L}]", "").length() < 2) {
+            throw new BadRequestException(what + " must contain letters, not only numbers or symbols");
+        }
+        return t;
+    }
+
+    /** Optional; when given, 10 to 15 digits with an optional +, spaces, brackets or dashes (as identity's Phones). */
+    static String phone(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        String t = value.trim();
+        String d = t.replaceAll("[^0-9]", "");
+        String key = d.length() <= 10 ? d : d.substring(d.length() - 10);
+        if (!t.matches("^\\+?[0-9 ()-]{7,24}$") || d.length() < 10 || d.length() > 15 || key.matches("^(\\d)\\1*$")) {
+            throw new BadRequestException("Enter a real phone number, like +234 803 555 0192");
+        }
+        return t.replaceAll("\\s+", " ");
+    }
+
+    /** Optional; when given, an address like name@company.com. */
+    static String email(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        String t = value.trim();
+        if (t.length() > 160 || !t.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$")) {
+            throw new BadRequestException("Enter a valid email, like accounts@company.com");
+        }
+        return t;
+    }
 
     /**
      * The owner's answer to a credit limit request (APPROVAL_DECIDED from platform-service): approved, the requested

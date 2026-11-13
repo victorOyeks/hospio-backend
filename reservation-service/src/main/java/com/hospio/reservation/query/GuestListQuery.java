@@ -94,8 +94,18 @@ public class GuestListQuery {
             w.add(view(f.view(), f, p));
         }
         if (f.q() != null && !f.q().isBlank()) {
-            w.add("(lower(g.full_name) like :q escape '\\' or coalesce(g.phone, '') like :q escape '\\' or lower(coalesce(g.email, '')) like :q escape '\\')");
+            // A number is matched on its digits too, so "0803 111 0001" finds "+234 803 111 0001".
+            String digits = f.q().replaceAll("[^0-9]", "");
+            String byDigits = digits.length() >= 6
+                    ? " or regexp_replace(coalesce(g.phone, ''), '[^0-9]', '', 'g') like :qd"
+                    : "";
+            w.add("(lower(g.full_name) like :q escape '\\' or coalesce(g.phone, '') like :q escape '\\' or lower(coalesce(g.email, '')) like :q escape '\\'"
+                    + byDigits + ")");
             p.addValue("q", Paging.like(f.q().trim().toLowerCase(Locale.ROOT)));
+            if (!byDigits.isEmpty()) {
+                // From the 10th-last digit: "08031110001" and "2348031110001" both look for "8031110001".
+                p.addValue("qd", "%" + (digits.length() > 10 ? digits.substring(digits.length() - 10) : digits.replaceFirst("^0", "")) + "%");
+            }
         }
         return " where " + String.join(" and ", w);
     }

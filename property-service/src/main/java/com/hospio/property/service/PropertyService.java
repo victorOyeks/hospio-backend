@@ -84,6 +84,9 @@ public class PropertyService {
             }
             String typeName = RoomRules.typeName(request.name());
             RoomRules.guests(request.capacityAdults());
+            if (request.capacityChildren() != null && (request.capacityChildren() < 0 || request.capacityChildren() > 20)) {
+                throw new BadRequestException("Children per room must be between 0 and 20");
+            }
             if (id == null || !RoomRules.key(typeName).equals(RoomRules.key(type.getName()))) {
                 roomTypes.otherActiveWithName(type.getHotelId(), id == null ? "" : id, RoomRules.key(typeName)).ifPresent(other -> {
                     throw new ConflictException("There is already a room type called " + other + " in this hotel. One type has one price: "
