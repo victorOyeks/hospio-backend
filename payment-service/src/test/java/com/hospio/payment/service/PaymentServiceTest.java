@@ -48,7 +48,8 @@ class PaymentServiceTest {
     private final EventPublisher events = mock(EventPublisher.class);
     private final ReservationClient reservations = mock(ReservationClient.class);
     private final com.hospio.payment.client.FnbClient fnb = mock(com.hospio.payment.client.FnbClient.class);
-    private final PaymentService service = new PaymentService(payments, receipts, terminals, new LoggingPosProvider(), hotelConfig, events, reservations, fnb);
+    private final PaymentService service = new PaymentService(payments, receipts, terminals, new LoggingPosProvider(), hotelConfig, events, reservations, fnb,
+            new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)));
 
     @BeforeEach
     void setUp() {
@@ -63,7 +64,7 @@ class PaymentServiceTest {
             return p;
         });
         when(receipts.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(receipts.findByPaymentId(anyString())).thenReturn(Optional.empty());
+        when(receipts.findFirstByPaymentIdOrderByCreatedAtAsc(anyString())).thenReturn(Optional.empty());
         when(hotelConfig.paymentSettings("h1")).thenReturn(HotelConfigClient.PaymentSettings.defaults());
         HospioUserDetails user = new HospioUserDetails("u1", "bar@x.ng", "Segun", "b1", List.of("h1"), Map.of(Role.BAR, AccessLevel.EDIT), JwtUtil.SCOPE_HOTEL);
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities()));
@@ -225,5 +226,66 @@ class PaymentServiceTest {
         }
         assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("3500"), null, null, null, null, null, null, null, "order-7", Role.BAR)))
                 .isInstanceOf(BadRequestException.class).hasMessageContaining("₦3,000");
+    }
+
+    // ---- one answer per payment: webhook, Verify and Cancel lock the row and read the status again ----------------------------
+
+    private com.hospio.payment.entity.PaymentRequest card(String id, PaymentStatus status) {
+        com.hospio.payment.entity.PaymentRequest p = com.hospio.payment.entity.PaymentRequest.builder().method(PaymentMethod.CARD).role(Role.BAR)
+                .amount(new BigDecimal("5000")).requestedBy("u1").providerRef("LOG-1").provider("logging").status(status).build();
+        p.setId(id);
+        p.setHotelId("h1");
+        p.setBusinessId("b1");
+        return p;
+    }
+
+    @Test
+    void verifyAfterTheWebhookApprovedItDoesNotApproveAgain() {
+        com.hospio.common.integrations.PosProvider pos = mock(com.hospio.common.integrations.PosProvider.class);
+        when(pos.query("LOG-1")).thenReturn(Optional.of(new com.hospio.common.integrations.PosProvider.WebhookResult("LOG-1", "p1",
+                com.hospio.common.integrations.PosProvider.Outcome.APPROVED, new BigDecimal("5000"), "APPROVED")));
+        PaymentService verifying = new PaymentService(payments, receipts, terminals, pos, hotelConfig, events, reservations, fnb,
+                new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)));
+        when(payments.findById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.PROCESSING)));
+        when(payments.lockById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.APPROVED)));
+
+        PaymentResponse r = verifying.verify("p1");
+
+        assertThat(r.status()).isEqualTo(PaymentStatus.APPROVED);
+        org.mockito.Mockito.verify(events, org.mockito.Mockito.never()).publish(eq(KafkaTopics.PAYMENT_APPROVED), any());
+        org.mockito.Mockito.verify(receipts, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void aRetriedWebhookForAnApprovedPaymentPublishesNothing() {
+        when(payments.lockById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.APPROVED)));
+
+        service.onWebhook("logging", Map.of("status", "APPROVED", "paymentRequestId", "p1", "reference", "LOG-1"), Map.of());
+
+        org.mockito.Mockito.verify(events, org.mockito.Mockito.never()).publish(eq(KafkaTopics.PAYMENT_APPROVED), any());
+        org.mockito.Mockito.verify(payments, org.mockito.Mockito.never()).findById("p1");
+    }
+
+    @Test
+    void cancelAfterTheWebhookApprovedItIsRefused() {
+        when(payments.findById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.PROCESSING)));
+        when(payments.lockById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.APPROVED)));
+
+        assertThatThrownBy(() -> service.cancel("p1")).isInstanceOf(BadRequestException.class).hasMessageContaining("Only a pending payment");
+        org.mockito.Mockito.verify(payments, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void receiptNumbersAreTakenUnderTheHotelsLock() {
+        when(receipts.maxNumber(eq("h1"), anyString())).thenReturn(Optional.of("RCP-" + java.time.LocalDate.now().getYear() + "-000041"));
+
+        service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), null, null, "Walk-in", null, null, "Drinks", null));
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(receipts);
+        order.verify(receipts).lock("rcp:h1");
+        order.verify(receipts).maxNumber(eq("h1"), anyString());
+        org.mockito.ArgumentCaptor<com.hospio.payment.entity.Receipt> saved = org.mockito.ArgumentCaptor.forClass(com.hospio.payment.entity.Receipt.class);
+        order.verify(receipts).save(saved.capture());
+        assertThat(saved.getValue().getNumber()).endsWith("-000042");
     }
 }

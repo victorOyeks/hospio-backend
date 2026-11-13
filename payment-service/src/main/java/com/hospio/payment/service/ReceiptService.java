@@ -12,7 +12,9 @@ import com.hospio.payment.repository.PaymentRequestRepository;
 import com.hospio.payment.repository.ReceiptRepository;
 import java.math.BigDecimal;
 import java.text.NumberFormat;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -44,7 +46,7 @@ public class ReceiptService {
         if (p.getStatus() != PaymentStatus.APPROVED) {
             throw new BadRequestException("Only an approved payment has a receipt");
         }
-        Receipt receipt = receipts.findByPaymentId(p.getId())
+        Receipt receipt = receipts.findFirstByPaymentIdOrderByCreatedAtAsc(p.getId())
                 .orElseThrow(() -> new BadRequestException("This payment has no receipt yet"));
         String text = "Receipt " + receipt.getNumber() + ". Thank you" + (blank(p.getGuestName()) ? "" : " " + p.getGuestName())
                 + ". We received " + naira(p.getAmount()) + " by " + p.getMethod().name().toLowerCase()
@@ -81,7 +83,7 @@ public class ReceiptService {
         if (p.getStatus() != PaymentStatus.APPROVED) {
             throw new BadRequestException("Only an approved payment has a receipt");
         }
-        Receipt r = receipts.findByPaymentId(p.getId()).orElseThrow(() -> new BadRequestException("This payment has no receipt yet"));
+        Receipt r = receipts.findFirstByPaymentIdOrderByCreatedAtAsc(p.getId()).orElseThrow(() -> new BadRequestException("This payment has no receipt yet"));
         return ReceiptViews.ReceiptView.of(p, r);
     }
 
@@ -94,8 +96,9 @@ public class ReceiptService {
         List<PaymentRequest> list = !blank(orderId) ? payments.findByOrderIdAndStatusOrderByCreatedAtAsc(orderId, PaymentStatus.APPROVED)
                 : payments.findByFolioIdAndStatusOrderByCreatedAtAsc(folioId, PaymentStatus.APPROVED);
         String hotel = com.hospio.common.tenancy.TenantContext.current().map(t -> t.hotelId()).orElse(null);
-        return list.stream().filter(p -> hotel == null || hotel.equals(p.getHotelId()))
-                .flatMap(p -> receipts.findByPaymentId(p.getId()).map(r -> ReceiptViews.ReceiptView.of(p, r)).stream()).toList();
+        List<PaymentRequest> mine = list.stream().filter(p -> hotel == null || hotel.equals(p.getHotelId())).toList();
+        Map<String, Receipt> byPayment = receiptsOf(mine.stream().map(PaymentRequest::getId).toList());
+        return mine.stream().filter(p -> byPayment.containsKey(p.getId())).map(p -> ReceiptViews.ReceiptView.of(p, byPayment.get(p.getId()))).toList();
     }
 
     /** Email receipt: the receipt (one payment, a sale's or a folio's) goes to the address given, as the screen printed it. */
@@ -113,14 +116,24 @@ public class ReceiptService {
         String numbers = String.join(",", views.stream().map(ReceiptViews.ReceiptView::number).toList());
         List<Delivery> echoed = deliveries.send(Delivery.email(to, ReceiptViews.subject(views), text,
                 !blank(request.folioId()) ? Delivery.Kind.FOLIO : Delivery.Kind.RECEIPT, numbers.length() > 100 ? first.number() : numbers));
-        for (ReceiptViews.ReceiptView v : views) {
-            receipts.findByPaymentId(v.paymentId()).ifPresent(r -> {
-                r.setSentTo(to);
-                r.setSentVia("EMAIL");
-                receipts.save(r);
-            });
+        for (Receipt r : receiptsOf(views.stream().map(ReceiptViews.ReceiptView::paymentId).toList()).values()) {
+            r.setSentTo(to);
+            r.setSentVia("EMAIL");
+            receipts.save(r);
         }
         return new ReceiptViews.Emailed(views.stream().map(ReceiptViews.ReceiptView::number).toList(), to, echoed);
+    }
+
+    /** Each payment's receipt in one query; a payment with two (from before receipts.payment_id was unique) keeps its first. */
+    private Map<String, Receipt> receiptsOf(List<String> paymentIds) {
+        Map<String, Receipt> out = new HashMap<>();
+        if (paymentIds.isEmpty()) {
+            return out;
+        }
+        for (Receipt r : receipts.findByPaymentIdIn(paymentIds)) {
+            out.merge(r.getPaymentId(), r, (a, b) -> b.getCreatedAt() != null && a.getCreatedAt() != null && b.getCreatedAt().isBefore(a.getCreatedAt()) ? b : a);
+        }
+        return out;
     }
 
     private static void sameHotel(PaymentRequest p) {

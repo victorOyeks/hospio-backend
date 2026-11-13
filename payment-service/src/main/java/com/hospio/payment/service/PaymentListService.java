@@ -133,10 +133,17 @@ public class PaymentListService {
         return PageWithCounts.of(result, r -> RefundRow.of(r, pays.get(r.getPaymentId())), counts, Map.of("pending", pendingAmount));
     }
 
-    /** Every refund of the hotel with the payment's guest and amount (the unpaged form, for scripts and other callers). */
+    /**
+     * The unpaged form (scripts and other callers), bounded like the other recent lists (docs/pagination.md): the hotel's refunds asked for
+     * in the last 90 days plus any still waiting for approval however old, newest first, with the payment's guest and amount.
+     */
     @Transactional(readOnly = true)
     public List<RefundRow> allRefunds() {
-        List<Refund> list = refunds.findByHotelIdOrderByCreatedAtDesc(TenantContext.requireHotel());
+        String hotel = TenantContext.requireHotel();
+        Instant since = Paging.windowFrom(null).atStartOfDay(Paging.LAGOS).toInstant();
+        List<Refund> list = refunds.findAll((root, q, cb) -> cb.and(cb.equal(root.get("hotelId"), hotel),
+                        cb.or(cb.greaterThanOrEqualTo(root.get("createdAt"), since), cb.equal(root.get("status"), Refund.Status.PENDING_APPROVAL))),
+                Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by("id")));
         Map<String, PaymentRequest> pays = paymentsOf(list.stream().map(Refund::getPaymentId).toList());
         return list.stream().map(r -> RefundRow.of(r, pays.get(r.getPaymentId()))).toList();
     }
@@ -160,9 +167,14 @@ public class PaymentListService {
         return PageWithCounts.of(result, d -> DisputeRow.of(d, pays.get(d.getPaymentId())), counts, Map.of());
     }
 
+    /** The unpaged form, bounded the same way: disputes opened in the last 90 days plus any still open, newest first. */
     @Transactional(readOnly = true)
     public List<DisputeRow> allDisputes() {
-        List<Dispute> list = disputes.findByHotelIdOrderByCreatedAtDesc(TenantContext.requireHotel());
+        String hotel = TenantContext.requireHotel();
+        Instant since = Paging.windowFrom(null).atStartOfDay(Paging.LAGOS).toInstant();
+        List<Dispute> list = disputes.findAll((root, q, cb) -> cb.and(cb.equal(root.get("hotelId"), hotel),
+                        cb.or(cb.greaterThanOrEqualTo(root.get("createdAt"), since), cb.equal(root.get("status"), Dispute.Status.OPEN))),
+                Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by("id")));
         Map<String, PaymentRequest> pays = paymentsOf(list.stream().map(Dispute::getPaymentId).toList());
         return list.stream().map(d -> DisputeRow.of(d, pays.get(d.getPaymentId()))).toList();
     }

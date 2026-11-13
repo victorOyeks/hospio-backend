@@ -29,6 +29,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Manager · Payments 3-4: refunds and disputes. Staff ask; a manager approves; a refund over the
@@ -43,18 +44,15 @@ public class RefundService {
     private final PaymentRequestRepository payments;
     private final EventPublisher events;
     private final com.hospio.payment.client.HotelConfigClient hotelConfig;
+    private final TransactionTemplate tx;
 
     @Value("${hospio.approvals.manager-spend-limit:500000}")
     private BigDecimal managerLimit;
 
-    @Transactional(readOnly = true)
-    public List<Refund> list() {
-        return refunds.findByHotelIdOrderByCreatedAtDesc(TenantContext.requireHotel());
-    }
-
     @Transactional
     public Refund request(String paymentId, RefundRequestDto dto) {
-        PaymentRequest p = payments.findById(paymentId).orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
+        // The payment is locked until commit, so two refund requests at once can't both fit in what is left to refund.
+        PaymentRequest p = payments.lockById(paymentId).orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
         if (p.getStatus() != PaymentStatus.APPROVED) {
             throw new BadRequestException("Only an approved payment can be refunded");
         }
@@ -73,31 +71,48 @@ public class RefundService {
                 .reason(dto.reason()).requestedBy(CurrentUser.require().getUserId()).build());
     }
 
-    @Transactional
+    /**
+     * The hotel's limits are read first, outside any transaction; then the refund is locked and its status read again, so two managers
+     * approving at once settle (and announce) it once. A refund for the owner is marked and committed before the 400 that says so, so
+     * its approval id is kept for the owner's answer.
+     */
     public Refund approve(String refundId) {
         HospioUserDetails user = CurrentUser.require();
         if (!user.isManagerOrOwner()) {
             throw new ForbiddenException("Only a manager can approve a refund");
         }
-        Refund r = find(refundId);
-        if (r.getStatus() != Refund.Status.PENDING_APPROVAL) {
-            throw new BadRequestException("This refund is already " + r.getStatus().name().toLowerCase().replace('_', ' '));
-        }
-        com.hospio.payment.client.HotelConfigClient.ApprovalLimits hotel = hotelConfig.approvalLimits(r.getHotelId());
+        Refund seen = tx.execute(s -> find(refundId));
+        requirePending(seen);
+        com.hospio.payment.client.HotelConfigClient.ApprovalLimits hotel = hotelConfig.approvalLimits(seen.getHotelId());
         BigDecimal limit = hotel.managerExpenseLimit() != null ? hotel.managerExpenseLimit() : managerLimit;
-        boolean needsOwner = hotel.refundsNeedOwner() || r.getAmount().compareTo(limit) > 0;
-        if (needsOwner && !user.has(com.hospio.common.enums.Role.OWNER) && !user.isPlatform()) {
-            if (r.getApprovalId() == null) {
-                r.setApprovalId(UUID.randomUUID().toString());
-                refunds.save(r);
-                events.publish(KafkaTopics.APPROVAL_REQUESTED, ApprovalRequestedEvent.builder().approvalId(r.getApprovalId())
-                        .sourceModule("PAYMENT").sourceRef(r.getId()).kind("REFUND").amount(r.getAmount()).requesterId(user.getUserId())
-                        .requesterName(user.getFullName()).approverLevel("OWNER").description("Refund of " + r.getAmount() + ": " + r.getReason()).build());
+        Refund[] settled = new Refund[1];
+        tx.executeWithoutResult(s -> {
+            Refund r = lock(refundId);
+            requirePending(r);
+            boolean needsOwner = hotel.refundsNeedOwner() || r.getAmount().compareTo(limit) > 0;
+            if (needsOwner && !user.has(com.hospio.common.enums.Role.OWNER) && !user.isPlatform()) {
+                if (r.getApprovalId() == null) {
+                    r.setApprovalId(UUID.randomUUID().toString());
+                    refunds.save(r);
+                    events.publish(KafkaTopics.APPROVAL_REQUESTED, ApprovalRequestedEvent.builder().approvalId(r.getApprovalId())
+                            .sourceModule("PAYMENT").sourceRef(r.getId()).kind("REFUND").amount(r.getAmount()).requesterId(user.getUserId())
+                            .requesterName(user.getFullName()).approverLevel("OWNER").description("Refund of " + r.getAmount() + ": " + r.getReason()).build());
+                }
+                return;
             }
+            settled[0] = settle(r, user.getUserId(), user.getFullName());
+        });
+        if (settled[0] == null) {
             throw new BadRequestException(hotel.refundsNeedOwner() ? "Refunds go to the owner. It has been sent for approval"
                     : "A refund over " + limit + " goes to the owner. It has been sent for approval");
         }
-        return settle(r, user.getUserId(), user.getFullName());
+        return settled[0];
+    }
+
+    private static void requirePending(Refund r) {
+        if (r.getStatus() != Refund.Status.PENDING_APPROVAL) {
+            throw new BadRequestException("This refund is already " + r.getStatus().name().toLowerCase().replace('_', ' '));
+        }
     }
 
     @Transactional
@@ -125,7 +140,8 @@ public class RefundService {
         if (!CurrentUser.require().isManagerOrOwner()) {
             throw new ForbiddenException("Only a manager can decline a refund");
         }
-        Refund r = find(refundId);
+        Refund r = lock(refundId);
+        requirePending(r);
         r.setStatus(Refund.Status.DECLINED);
         r.setDecidedAt(Instant.now());
         return refunds.save(r);
@@ -133,7 +149,7 @@ public class RefundService {
 
     @Transactional
     public Refund onOwnerDecision(String approvalId, String decision, String decidedBy, String decidedByName) {
-        Refund r = refunds.findByApprovalId(approvalId).orElse(null);
+        Refund r = refunds.lockByApprovalId(approvalId).orElse(null);
         if (r == null || r.getStatus() != Refund.Status.PENDING_APPROVAL) {
             return r;
         }
@@ -146,11 +162,6 @@ public class RefundService {
             refunds.save(r);
         }
         return r;
-    }
-
-    @Transactional(readOnly = true)
-    public List<Dispute> disputes() {
-        return disputes.findByHotelIdOrderByCreatedAtDesc(TenantContext.requireHotel());
     }
 
     @Transactional
@@ -174,5 +185,9 @@ public class RefundService {
 
     private Refund find(String id) {
         return refunds.findById(id).orElseThrow(() -> new ResourceNotFoundException("Refund not found"));
+    }
+
+    private Refund lock(String id) {
+        return refunds.lockById(id).orElseThrow(() -> new ResourceNotFoundException("Refund not found"));
     }
 }
