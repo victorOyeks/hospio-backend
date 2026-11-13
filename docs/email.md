@@ -18,8 +18,11 @@ Values live in `/opt/hospio-staging/.env.staging` (systemd `EnvironmentFile`), n
 | `MAIL_FROM_NAME_DEFAULT` | `hospio.mail.from-name-default` | From name for platform mail (no hotel, no business) |
 | `MAIL_ENABLED` | `hospio.mail.enabled` | `true` sends real email; anything else records and echoes only (default false) |
 | `DELIVERIES_ECHO` | `hospio.deliveries.echo` | Echo every delivery in the API response (`deliveries`), on for staging |
-| `MAIL_MAX_EVENT_AGE_MINUTES` | `hospio.mail.max-event-age-minutes` | A delivery event older than this (default 30) is never sent: a replayed topic must not re-send old passwords and links |
-| `MAIL_RETRY_DELAY_MS` | `hospio.mail.retry-delay-ms` | Wait before the one retry (default 5000) |
+| `MAIL_MAX_EVENT_AGE_MINUTES` | `hospio.mail.max-event-age-minutes` | A phone code, temporary password, reset or invite (`PHONE_CODE`, `TEMP_PASSWORD`, `PASSWORD_RESET`, `INVITE`) older than this (default 30) is never sent: a replayed topic must not re-send old passwords and links. Other kinds (receipts, invoices) still go after consumer lag |
+| (none) | `hospio.mail.max-backlog-hours` | Any other delivery older than this (default 48) is not sent: a topic replayed from the start does not re-send old receipts |
+| `MAIL_RETRY_DELAY_MS` | `hospio.mail.retry-delay-ms` | Wait before the first retry of a transient failure (default 5000); each next one waits four times longer |
+| (none) | `hospio.mail.max-attempts` | Tries per email before it is `FAILED` (default 3) |
+| (none) | `hospio.mail.poll-interval-ms` | How often each instance looks for due deliveries besides the immediate send (default 5000) |
 
 ## Who it is from
 
@@ -59,11 +62,19 @@ mail (no business) is visible to Hospio360 only.
 
 ## Sending
 
-- Asynchronous: the event is published after the producer's commit; messaging-service's listener records the row, commits,
-  then a worker thread sends.
-- One retry on a transient failure (connection refused or timed out, SMTP 4xx) after 5 seconds; a permanent failure (5xx,
-  bad address, authentication) is not retried. Either way the row says `FAILED` with the error and the action that asked
-  for the email has already succeeded.
+- Asynchronous, and the `deliveries` table is the queue: the event is published after the producer's commit;
+  messaging-service's listener only records the row (`QUEUED`, with the text to send) and commits, so the Kafka offset moves
+  on without waiting for SMTP or another service, and nothing waits in memory (a restart loses nothing).
+- Sender threads (two per instance, woken right after the commit and every few seconds) claim due rows with
+  `FOR UPDATE SKIP LOCKED` and lease them for 5 minutes: two instances never send the same row. They look up the From name
+  and brand, send outside any transaction, and write the answer. A worker that dies mid-send lets the lease run out and the
+  row is sent again then.
+- A transient failure (connection refused or timed out, SMTP 4xx) is retried after 5 seconds, then 20 (3 attempts in all);
+  a permanent failure (5xx, bad address, authentication) is not retried. Either way the row ends `FAILED` with the error
+  and the action that asked for the email has already succeeded.
+- What is sent is kept on the row only while it is `QUEUED`; once `SENT` or `FAILED` it is cleared (temporary passwords
+  travel in it). It is never in an API response.
+- A code, temporary password, reset or invite still queued after `MAIL_MAX_EVENT_AGE_MINUTES` is `FAILED`, not sent late.
 - HTML with a plain-text part, one shared layout: the hotel's name as the header, the body, a footer ("Sent by <hotel> with
   Hospio360 · reply to this email to reach <hotel>"). Kinds with their own heading and button: `INVITE` (Accept the
   invite), `TEMP_PASSWORD` / `PASSWORD_RESET` (Sign in), `BOOKING_CONFIRMATION`, `MESSAGE` (guest message), `PURCHASE_ORDER`,
@@ -153,7 +164,8 @@ sent. Full contract: docs/profile.md, "Notification preferences".
 - Brevo's daily quota applies (coryd's account for now). The From address is `no-reply@coryd.ng` until Hospio360 has its
   own sender domain.
 - SMS and WhatsApp are recorded and echoed only. The phone code (OTP) stays on screen on staging.
-- The From name lookup falls back to `MAIL_FROM_NAME_DEFAULT` when tenant-service cannot be reached.
+- The From name lookup falls back to `MAIL_FROM_NAME_DEFAULT` when tenant-service cannot be reached (tried again after
+  30 seconds; names and brands are cached for 10 minutes, at most 10,000 of each).
 
 ## Brevo API instead of SMTP
 

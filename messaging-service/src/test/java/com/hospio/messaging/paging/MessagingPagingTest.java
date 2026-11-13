@@ -133,6 +133,25 @@ class MessagingPagingTest {
     }
 
     @Test
+    void theUnpagedListIsTheNewestFiftyAndReadAllIsOneUpdateOverMine() {
+        for (int i = 1; i <= 60; i++) {
+            add(i % 2 == 0 ? "u1" : null, i % 2 == 0 ? null : "FINANCE", "h1", "QA " + i, 1, false);
+        }
+        add(null, "BAR", "h1", "Not mine 1", 1, false);
+        add("u1", null, "h1", "Old 1", 120, false);
+        List<Notification> mine = service.mine(false);
+        assertThat(mine).hasSize(NotificationService.MINE_LIMIT);
+        for (int i = 1; i < mine.size(); i++) {
+            assertThat(mine.get(i - 1).getCreatedAt()).isAfterOrEqualTo(mine.get(i).getCreatedAt());
+        }
+        assertThat(mine).extracting(Notification::getTitle).doesNotContain("Not mine 1", "Old 1");
+        assertThat(service.markAllRead()).isEqualTo(61); // every unread one of mine, any age
+        assertThat(service.unreadCount()).isZero();
+        assertThat(repo.findAll()).filteredOn(n -> "BAR".equals(n.getRole())).allSatisfy(n -> assertThat(n.getReadAt()).isNull());
+        assertThat(service.mine(true)).isEmpty();
+    }
+
+    @Test
     void threadsArePagedAndSearched() {
         HospioUserDetails owner = new HospioUserDetails("own", "o@x.ng", "Godwin", "b1", List.of("h1"), Map.of(Role.OWNER, AccessLevel.FULL),
                 JwtUtil.SCOPE_BUSINESS);
