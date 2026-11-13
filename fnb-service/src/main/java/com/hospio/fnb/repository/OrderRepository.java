@@ -14,6 +14,26 @@ public interface OrderRepository extends JpaRepository<Order, String> {
 
     long countByHotelId(String hotelId);
 
+    /** The order with its row locked until the transaction ends: every change to an order takes this before its checks. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select o from Order o where o.id = :id")
+    Optional<Order> lockById(@org.springframework.data.repository.query.Param("id") String id);
+
+    /** What a change needs to know before it calls other services, read without loading (or locking) the order. */
+    interface Peek {
+        String getHotelId();
+
+        String getOutletId();
+
+        String getRoomId();
+
+        String getRoomNumber();
+    }
+
+    @org.springframework.data.jpa.repository.Query("select o.hotelId as hotelId, o.outletId as outletId, o.roomId as roomId, o.roomNumber as roomNumber "
+            + "from Order o where o.id = :id")
+    Optional<Peek> peek(@org.springframework.data.repository.query.Param("id") String id);
+
     long countByOutletIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(String outletId, java.time.Instant from, java.time.Instant to);
 
     /** Orders settled (paid, charged to a room or closed as complimentary) in the window. */

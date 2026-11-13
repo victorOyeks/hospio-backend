@@ -13,5 +13,6 @@
     <include file="db/changelog/001-initial-schema.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/002-credit-limit-requests.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/003-scale-indexes.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/004-folio-locking-and-invoice-numbers.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

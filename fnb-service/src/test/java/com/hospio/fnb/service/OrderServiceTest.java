@@ -142,7 +142,29 @@ class OrderServiceTest {
         o.setId("order-1");
         o.setHotelId("h1");
         when(orders.findById("order-1")).thenReturn(Optional.of(o));
+        when(orders.lockById("order-1")).thenReturn(Optional.of(o));
+        when(orders.peek("order-1")).thenAnswer(inv -> Optional.of(peekOf(o)));
         return o;
+    }
+
+    private static OrderRepository.Peek peekOf(Order o) {
+        return new OrderRepository.Peek() {
+            public String getHotelId() {
+                return o.getHotelId();
+            }
+
+            public String getOutletId() {
+                return o.getOutletId();
+            }
+
+            public String getRoomId() {
+                return o.getRoomId();
+            }
+
+            public String getRoomNumber() {
+                return o.getRoomNumber();
+            }
+        };
     }
 
     private OrderLine line(OrderLine.Status status) {
@@ -342,6 +364,73 @@ class OrderServiceTest {
         assertThat(o.isPaid()).isTrue();
         assertThat(o.getStatus()).isEqualTo(Order.Status.CLOSED);
         assertThat(storedPayments).extracting(OrderPayment::getMethod).containsExactly("CARD", "CASH");
+    }
+
+    // ---- concurrency: every change locks the order and re-checks it -----------------------------------------------
+
+    @Test
+    void aChargeToTheRoomAfterAPaymentSettledTheOrderMeanwhileIsRefusedAndPostsNothing() {
+        signIn(Map.of(Role.FRONT_OFFICE, AccessLevel.EDIT));
+        Order o = savedOrder(Order.Kind.ROOM_SERVICE, "1500.00");
+        line(OrderLine.Status.SENT);
+        when(reservations.findActiveStay("room-1")).thenReturn(Optional.of(new ReservationClient.ActiveStay("bk-1", "Ada", "204", null, null)));
+        // The card payment lands while the room and the folio are being checked: the lock then sees the order paid.
+        when(folios.hasOpenFolio("bk-1")).thenAnswer(inv -> {
+            o.setPaid(true);
+            o.setPaidAmount(new BigDecimal("1500.00"));
+            return true;
+        });
+
+        assertThatThrownBy(() -> service.chargeToRoom("order-1", "room-1")).isInstanceOf(BadRequestException.class)
+                .hasMessage("This order is already settled");
+        verify(orders).lockById("order-1");
+        verify(events, never()).publish(eq(KafkaTopics.CHARGE_POSTED), any());
+    }
+
+    @Test
+    void aPaymentForAnOrderAlreadyChargedToTheRoomIsRecordedButDoesNotSettleItAgain() {
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+        Order o = savedOrder(Order.Kind.TAKEAWAY, "1500.00");
+        line(OrderLine.Status.SENT);
+        o.setChargedToRoom(true);
+        o.setSettledBy("ROOM");
+
+        service.applyPayment("order-1", "pay-1", "CARD", new BigDecimal("1500.00"));
+
+        verify(orders).lockById("order-1");
+        assertThat(o.isPaid()).isFalse();
+        assertThat(o.getSettledBy()).isEqualTo("ROOM");
+        verify(events, never()).publish(eq(KafkaTopics.ORDER_SETTLED), any());
+    }
+
+    @Test
+    void aLineAddedToAnOrderSettledMeanwhileIsRefused() {
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+        Order o = savedOrder(Order.Kind.TAB, "1500.00");
+        line(OrderLine.Status.SENT);
+        // Settled while the hotel's settings were being fetched (before the lock).
+        when(settings.get(any())).thenAnswer(inv -> {
+            o.setPaid(true);
+            return config;
+        });
+
+        assertThatThrownBy(() -> service.addLine("order-1", new OrderRequest.LineRequest("lager", 1, null, null)))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("already settled");
+        verify(orders).lockById("order-1");
+        assertThat(storedLines).hasSize(1);
+    }
+
+    @Test
+    void theSecondOfTwoLinesIsCheckedAgainstTheTabLimitWithTheFirstOnIt() {
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+        savedOrder(Order.Kind.TAB, "3000.00");
+        line(OrderLine.Status.SENT);
+        line(OrderLine.Status.SENT);
+
+        service.addLine("order-1", new OrderRequest.LineRequest("lager", 1, null, null));
+        assertThatThrownBy(() -> service.addLine("order-1", new OrderRequest.LineRequest("lager", 1, null, null)))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("Tab limit");
+        assertThat(storedLines).hasSize(3);
     }
 
     // ---- line status ---------------------------------------------------------------------------------------------

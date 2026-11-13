@@ -83,6 +83,12 @@ public class Folio extends TenantEntity {
     @Column(name = "closed_at")
     private Instant closedAt;
 
+    /** Backstop for the row lock every writer takes: a save from a stale copy fails instead of overwriting newer totals. */
+    @jakarta.persistence.Version
+    @Column(nullable = false)
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private Long version;
+
     public boolean isOpen() {
         return status == Status.OPEN;
     }
