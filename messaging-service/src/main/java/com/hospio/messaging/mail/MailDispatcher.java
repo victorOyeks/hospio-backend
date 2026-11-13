@@ -249,6 +249,47 @@ public class MailDispatcher {
         }
     }
 
+    /**
+     * Infobip's final word on an SMS or WhatsApp (docs/sms-whatsapp.md): DELIVERED, or FAILED with the network's reason
+     * ("Rejected - Destination on DND list"). {@code group} is Infobip's status group (PENDING, DELIVERED, UNDELIVERABLE,
+     * REJECTED, EXPIRED); PENDING changes nothing. Unknown message ids are ignored. Returns whether a record changed.
+     */
+    public boolean applyReport(String providerRef, String group, String reason) {
+        if (providerRef == null || group == null) {
+            return false;
+        }
+        String g = group.toUpperCase(java.util.Locale.ROOT);
+        if (!g.equals("DELIVERED") && !g.equals("UNDELIVERABLE") && !g.equals("REJECTED") && !g.equals("EXPIRED")) {
+            return false;
+        }
+        try {
+            Boolean changed = asSystem(() -> tx.execute(s -> {
+                DeliveryRecord r = records.findFirstByProviderMessageId(providerRef).orElse(null);
+                if (r == null) {
+                    return false;
+                }
+                if (g.equals("DELIVERED")) {
+                    r.setStatus(DeliveryRecord.Status.DELIVERED);
+                    r.setDeliveredAt(Instant.now());
+                } else {
+                    r.setStatus(DeliveryRecord.Status.FAILED);
+                    String was = r.getError();
+                    r.setError(cut((was == null || was.isBlank() ? "" : was + "; ") + reason, 500));
+                }
+                records.save(r);
+                follow(r);
+                return true;
+            }));
+            if (Boolean.TRUE.equals(changed)) {
+                log.info("Delivery report {}: {} {}", providerRef, g, reason == null ? "" : reason);
+            }
+            return Boolean.TRUE.equals(changed);
+        } catch (RuntimeException ex) {
+            log.warn("Delivery report for {} not applied: {}", providerRef, ex.getMessage());
+            return false;
+        }
+    }
+
     /** A guest message's status follows its delivery (ref = the message id). */
     private void follow(DeliveryRecord r) {
         if (!"MESSAGE".equals(r.getKind()) || r.getRef() == null) {
