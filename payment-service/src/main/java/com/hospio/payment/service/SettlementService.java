@@ -11,6 +11,7 @@ import com.hospio.payment.client.TenantClient;
 import com.hospio.payment.dto.AdminPaymentDtos.RunResult;
 import com.hospio.payment.entity.PaymentRequest;
 import com.hospio.payment.entity.Settlement;
+import com.hospio.payment.repository.ApprovedTotal;
 import com.hospio.payment.repository.PaymentRequestRepository;
 import com.hospio.payment.repository.SettlementRepository;
 import jakarta.persistence.criteria.Predicate;
@@ -29,8 +30,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 /**
@@ -50,64 +54,96 @@ public class SettlementService {
     private final SettlementRepository settlements;
     private final PlatformClient platform;
     private final TenantClient tenant;
+    private final TransactionTemplate tx;
 
-    @Transactional
+    /**
+     * The day's approved card and transfer payments are summed in the database per business, hotel, method and provider; business names
+     * are read before any transaction is open; each business's settlements are then written in a transaction of their own, so one
+     * failure no longer undoes the day. A settlement that is already there (an earlier run, or another instance running now and
+     * caught by the unique key) is counted as skipped.
+     */
     public RunResult run(LocalDate date) {
         LocalDate day = date == null ? LocalDate.now(LAGOS).minusDays(1) : date;
-        List<PaymentRequest> approved = payments.approvedBetween(PaymentStatus.APPROVED, SETTLING_METHODS,
+        List<ApprovedTotal> totals = payments.approvedTotalsBetween(PaymentStatus.APPROVED, SETTLING_METHODS,
                 day.atStartOfDay(LAGOS).toInstant(), day.plusDays(1).atStartOfDay(LAGOS).toInstant());
         PlatformClient.FeeSettings fees = platform.feeSettings();
+        Map<String, List<Settlement>> byBusiness = new LinkedHashMap<>();
+        for (Settlement draft : group(totals, day, fees)) {
+            byBusiness.computeIfAbsent(draft.getBusinessId(), k -> new ArrayList<>()).add(draft);
+        }
+        Map<String, String> names = new LinkedHashMap<>();
+        byBusiness.keySet().forEach(b -> tenant.businessName(b).ifPresent(n -> names.put(b, n)));
+        TransactionTemplate perBusiness = new TransactionTemplate(tx.getTransactionManager());
+        perBusiness.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         int created = 0;
         int skipped = 0;
-        for (Settlement draft : group(approved, day, fees)) {
-            if (settlements.existsByBusinessIdAndProviderAndPeriodDate(draft.getBusinessId(), draft.getProvider(), day)) {
-                skipped++;
-                continue;
+        int failed = 0;
+        for (Map.Entry<String, List<Settlement>> e : byBusiness.entrySet()) {
+            for (Settlement draft : e.getValue()) {
+                draft.setBusinessName(names.get(e.getKey()));
+                try {
+                    Boolean saved = perBusiness.execute(st -> {
+                        if (settlements.existsByBusinessIdAndProviderAndPeriodDate(draft.getBusinessId(), draft.getProvider(), day)) {
+                            return false;
+                        }
+                        settlements.saveAndFlush(draft);
+                        return true;
+                    });
+                    if (Boolean.TRUE.equals(saved)) {
+                        created++;
+                    } else {
+                        skipped++;
+                    }
+                } catch (DataIntegrityViolationException dup) {
+                    skipped++; // another run wrote the same business × provider × day a moment ago
+                } catch (RuntimeException ex) {
+                    failed++;
+                    log.error("Settlement for business {} ({}) on {} failed: {}", draft.getBusinessId(), draft.getProvider(), day, ex.getMessage(), ex);
+                }
             }
-            draft.setBusinessName(tenant.businessName(draft.getBusinessId()).orElse(null));
-            settlements.save(draft);
-            created++;
         }
-        log.info("Settlements for {}: {} created, {} already there, from {} approved card/transfer payments", day, created, skipped, approved.size());
+        log.info("Settlements for {}: {} created, {} already there, {} failed, from {} payment groups", day, created, skipped, failed, totals.size());
         return new RunResult(day, created, skipped);
     }
 
     /** The nightly job: yesterday's settlements, as the platform. */
-    @Transactional
     public RunResult runNightly() {
         return TenantContext.runWith(Tenant.system("settlements"), () -> run(LocalDate.now(LAGOS).minusDays(1)));
     }
 
-    /** Pure grouping: one PENDING settlement per business × provider, with the fees computed. Cash is ignored. */
-    public static List<Settlement> group(List<PaymentRequest> approved, LocalDate day, PlatformClient.FeeSettings fees) {
-        Map<String, List<PaymentRequest>> groups = new LinkedHashMap<>();
-        for (PaymentRequest p : approved) {
-            if (p.getStatus() != PaymentStatus.APPROVED || !SETTLING_METHODS.contains(p.getMethod()) || p.getBusinessId() == null) {
+    /**
+     * Pure grouping of the database's sums: one PENDING settlement per business × provider, with the fees computed. Cash is ignored, and
+     * so is a transfer without a provider (the desk confirmed it landed in the hotel's bank: nothing to settle).
+     */
+    public static List<Settlement> group(List<ApprovedTotal> totals, LocalDate day, PlatformClient.FeeSettings fees) {
+        Map<String, List<ApprovedTotal>> groups = new LinkedHashMap<>();
+        for (ApprovedTotal t : totals) {
+            if (!SETTLING_METHODS.contains(t.method()) || t.businessId() == null) {
                 continue;
             }
-            // A transfer the desk confirmed went straight to the hotel's bank: no provider, nothing to settle.
-            if (p.getMethod() == PaymentMethod.TRANSFER && !StringUtils.hasText(p.getProvider())) {
+            if (t.method() == PaymentMethod.TRANSFER && !StringUtils.hasText(t.provider())) {
                 continue;
             }
-            groups.computeIfAbsent(p.getBusinessId() + "|" + providerOf(p), k -> new ArrayList<>()).add(p);
+            groups.computeIfAbsent(t.businessId() + "|" + providerOf(t.provider()), k -> new ArrayList<>()).add(t);
         }
         List<Settlement> out = new ArrayList<>();
-        for (List<PaymentRequest> ps : groups.values()) {
-            PaymentRequest first = ps.get(0);
-            BigDecimal gross = Money.of(ps.stream().map(PaymentRequest::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
+        for (List<ApprovedTotal> ts : groups.values()) {
+            ApprovedTotal first = ts.get(0);
+            BigDecimal gross = Money.of(ts.stream().map(t -> t.amount() == null ? BigDecimal.ZERO : t.amount()).reduce(BigDecimal.ZERO, BigDecimal::add));
+            int count = ts.stream().mapToInt(t -> t.count() == null ? 0 : t.count().intValue()).sum();
             BigDecimal providerFees = Money.percent(gross, fees.providerFeePct());
             BigDecimal hmsShare = Money.percent(gross, fees.hmsSharePct());
             Set<String> hotels = new java.util.HashSet<>();
-            ps.forEach(p -> hotels.add(p.getHotelId()));
-            out.add(Settlement.builder().businessId(first.getBusinessId()).hotelId(hotels.size() == 1 ? first.getHotelId() : null)
-                    .provider(providerOf(first)).periodDate(day).gross(gross).providerFees(providerFees).hmsShare(hmsShare)
-                    .net(gross.subtract(providerFees).subtract(hmsShare)).paymentCount(ps.size()).status(Settlement.Status.PENDING).build());
+            ts.forEach(t -> hotels.add(t.hotelId()));
+            out.add(Settlement.builder().businessId(first.businessId()).hotelId(hotels.size() == 1 ? first.hotelId() : null)
+                    .provider(providerOf(first.provider())).periodDate(day).gross(gross).providerFees(providerFees).hmsShare(hmsShare)
+                    .net(gross.subtract(providerFees).subtract(hmsShare)).paymentCount(count).status(Settlement.Status.PENDING).build());
         }
         return out;
     }
 
-    static String providerOf(PaymentRequest p) {
-        return StringUtils.hasText(p.getProvider()) ? p.getProvider().toLowerCase(Locale.ROOT) : "logging";
+    static String providerOf(String provider) {
+        return StringUtils.hasText(provider) ? provider.toLowerCase(Locale.ROOT) : "logging";
     }
 
     @Transactional(readOnly = true)

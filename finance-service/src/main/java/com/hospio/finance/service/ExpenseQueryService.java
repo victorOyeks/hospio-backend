@@ -73,11 +73,9 @@ public class ExpenseQueryService {
         Sort order = Paging.sort(sort, SORTS, Sort.by(Sort.Direction.DESC, "expenseDate").and(Sort.by(Sort.Direction.DESC, "createdAt"))
                 .and(Sort.by(Sort.Direction.DESC, "id")));
         Page<Expense> result = expenses.findAll(spec, Paging.of(page, size, order));
-        Map<String, Long> counts = new LinkedHashMap<>();
-        counts.put("all", expenses.count(base));
-        for (String t : TABS) {
-            counts.put(t, expenses.count(base.and(tab(t))));
-        }
+        Map<String, Specification<Expense>> tabs = new LinkedHashMap<>();
+        TABS.forEach(t -> tabs.put(t, tab(t)));
+        Map<String, Long> counts = TabCounts.of(em, Expense.class, base, tabs);
         Map<String, BigDecimal> totals = new LinkedHashMap<>();
         totals.put("all", sum(base));
         totals.put("recorded", sum(base.and((r, q, cb) -> cb.notEqual(r.get("status"), Expense.Status.DECLINED))));

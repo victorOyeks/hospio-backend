@@ -1,6 +1,7 @@
 package com.hospio.payment.service;
 
 import com.hospio.common.exception.BadRequestException;
+import com.hospio.common.exception.ConflictException;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.response.PagedResponse;
 import com.hospio.common.security.CurrentUser;
@@ -72,11 +73,15 @@ public class PayoutService {
         PayoutBatch b = batches.save(PayoutBatch.builder().ref(nextRef(LocalDate.now(SettlementService.LAGOS)))
                 .createdBy(user.getUserId()).createdByName(user.getFullName()).status(PayoutBatch.Status.PROCESSING)
                 .total(Money.of(total)).businessCount(businesses.size()).settlementCount(picked.size()).build());
+        // A guarded update: only rows still PENDING move, so a settlement read by two batch runs at once lands in one batch only.
+        int moved = settlements.claimForBatch(picked.stream().map(Settlement::getId).toList(), b.getId(), Instant.now());
+        if (moved != picked.size()) {
+            throw new ConflictException("Some of these settlements were just put in another payout batch; reload and try again");
+        }
         for (Settlement s : picked) {
             s.setStatus(Settlement.Status.SETTLED);
             s.setPayoutBatchId(b.getId());
             s.setSettledAt(null);
-            settlements.save(s);
         }
         return new BatchDetail(b, picked);
     }

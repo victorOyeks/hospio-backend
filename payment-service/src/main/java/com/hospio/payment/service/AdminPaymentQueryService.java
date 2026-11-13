@@ -10,6 +10,7 @@ import com.hospio.payment.dto.AdminPaymentDtos.ProviderTotal;
 import com.hospio.payment.dto.AdminPaymentDtos.Summary;
 import com.hospio.payment.dto.PaymentResponse;
 import com.hospio.payment.entity.PaymentRequest;
+import com.hospio.payment.repository.ApprovedTotal;
 import com.hospio.payment.repository.PaymentRequestRepository;
 import jakarta.persistence.criteria.Predicate;
 import java.math.BigDecimal;
@@ -68,21 +69,26 @@ public class AdminPaymentQueryService {
         YearMonth now = YearMonth.now(SettlementService.LAGOS);
         LocalDate f = from == null ? now.atDay(1) : from;
         LocalDate t = to == null ? now.atEndOfMonth() : to;
-        List<PaymentRequest> approved = payments.approvedForBusiness(PaymentStatus.APPROVED, businessId,
+        // Summed in the database per hotel, method and provider (a handful of rows), then folded into the two breakdowns.
+        List<ApprovedTotal> rows = payments.approvedTotalsForBusiness(PaymentStatus.APPROVED, businessId,
                 f.atStartOfDay(SettlementService.LAGOS).toInstant(), t.plusDays(1).atStartOfDay(SettlementService.LAGOS).toInstant());
         Map<String, BigDecimal[]> byProvider = new LinkedHashMap<>();
         Map<String, BigDecimal[]> byHotel = new LinkedHashMap<>();
         BigDecimal gross = BigDecimal.ZERO;
-        for (PaymentRequest p : approved) {
-            gross = gross.add(p.getAmount());
-            add(byProvider, p.getMethod() == com.hospio.common.enums.PaymentMethod.CASH ? "cash" : SettlementService.providerOf(p), p.getAmount());
-            add(byHotel, p.getHotelId(), p.getAmount());
+        long count = 0;
+        for (ApprovedTotal r : rows) {
+            BigDecimal amount = r.amount() == null ? BigDecimal.ZERO : r.amount();
+            long n = r.count() == null ? 0 : r.count();
+            gross = gross.add(amount);
+            count += n;
+            add(byProvider, r.method() == com.hospio.common.enums.PaymentMethod.CASH ? "cash" : SettlementService.providerOf(r.provider()), amount, n);
+            add(byHotel, r.hotelId(), amount, n);
         }
         List<ProviderTotal> providers = new ArrayList<>();
         byProvider.forEach((k, v) -> providers.add(new ProviderTotal(k, Money.of(v[0]), v[1].longValue())));
         List<HotelTotal> hotels = new ArrayList<>();
         byHotel.forEach((k, v) -> hotels.add(new HotelTotal(k, Money.of(v[0]), v[1].longValue())));
-        return new Summary(businessId, f, t, Money.of(gross), approved.size(), providers, hotels);
+        return new Summary(businessId, f, t, Money.of(gross), count, providers, hotels);
     }
 
     /** Today's approved payments at a hotel, plus how many are still waiting on the POS. */
@@ -91,15 +97,16 @@ public class AdminPaymentQueryService {
         LocalDate today = LocalDate.now(SettlementService.LAGOS);
         Instant from = today.atStartOfDay(SettlementService.LAGOS).toInstant();
         Instant to = today.plusDays(1).atStartOfDay(SettlementService.LAGOS).toInstant();
-        List<PaymentRequest> approved = payments.approvedForHotel(PaymentStatus.APPROVED, hotelId, from, to);
-        BigDecimal gross = Money.of(approved.stream().map(PaymentRequest::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
-        long pending = payments.findByHotelIdAndStatusIn(hotelId, List.of(PaymentStatus.PENDING, PaymentStatus.PROCESSING, PaymentStatus.NO_RESPONSE)).size();
-        return new HotelOverview(hotelId, new PaymentsToday(approved.size(), gross), pending);
+        Object[] row = payments.approvedCountAndSumForHotel(PaymentStatus.APPROVED, hotelId, from, to).stream().findFirst().orElse(new Object[]{0L, null});
+        long count = row[0] == null ? 0 : ((Number) row[0]).longValue();
+        BigDecimal gross = Money.of(row[1] == null ? BigDecimal.ZERO : (BigDecimal) row[1]);
+        long pending = payments.countByHotelIdAndStatusIn(hotelId, List.of(PaymentStatus.PENDING, PaymentStatus.PROCESSING, PaymentStatus.NO_RESPONSE));
+        return new HotelOverview(hotelId, new PaymentsToday(count, gross), pending);
     }
 
-    private static void add(Map<String, BigDecimal[]> m, String key, BigDecimal amount) {
+    private static void add(Map<String, BigDecimal[]> m, String key, BigDecimal amount, long count) {
         BigDecimal[] acc = m.computeIfAbsent(key == null ? "unknown" : key.toLowerCase(Locale.ROOT), k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
         acc[0] = acc[0].add(amount);
-        acc[1] = acc[1].add(BigDecimal.ONE);
+        acc[1] = acc[1].add(BigDecimal.valueOf(count));
     }
 }

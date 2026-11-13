@@ -8,6 +8,7 @@ import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.integrations.PosProvider;
 import com.hospio.common.kafka.EventPublisher;
 import com.hospio.common.kafka.KafkaTopics;
+import com.hospio.common.paging.Paging;
 import com.hospio.common.kafka.events.PaymentApprovedEvent;
 import com.hospio.common.kafka.events.PaymentDeclinedEvent;
 import com.hospio.common.kafka.events.PaymentRequestedEvent;
@@ -35,6 +36,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The POS model (handoff card 10). Ask card, transfer or cash → a card goes to the role's POS and waits
@@ -57,13 +59,19 @@ public class PaymentService {
     private final EventPublisher events;
     private final ReservationClient reservations;
     private final com.hospio.payment.client.FnbClient fnb;
+    private final TransactionTemplate tx;
 
+    /**
+     * The unpaged list (scripts, docs/pagination.md): payments taken since {@code from} (a Lagos day; default 90 days ago), newest first.
+     * Staff see what they took, managers the hotel's. The screens read the paged form.
+     */
     @Transactional(readOnly = true)
-    public List<PaymentResponse> mine() {
+    public List<PaymentResponse> mine(LocalDate from) {
         HospioUserDetails user = CurrentUser.require();
         String hotelId = TenantContext.requireHotel();
-        List<PaymentRequest> list = user.isManagerOrOwner() ? payments.findByHotelIdOrderByCreatedAtDesc(hotelId)
-                : payments.findByHotelIdAndRequestedByOrderByCreatedAtDesc(hotelId, user.getUserId());
+        Instant since = Paging.windowFrom(from).atStartOfDay(Paging.LAGOS).toInstant();
+        List<PaymentRequest> list = user.isManagerOrOwner() ? payments.findByHotelIdAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(hotelId, since)
+                : payments.findByHotelIdAndRequestedByAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(hotelId, user.getUserId(), since);
         return list.stream().map(PaymentResponse::of).toList();
     }
 
@@ -237,12 +245,13 @@ public class PaymentService {
     public void onWebhook(String provider, Map<String, Object> body, Map<String, String> headers) {
         PosProvider.WebhookResult result = posProvider.parseWebhook(body, headers);
         TenantContext.runWith(Tenant.system("pos-webhook"), () -> {
+            // Locked until commit: a retried webhook, Verify or Cancel on the same payment waits here and then sees it resolved.
             PaymentRequest p = null;
             if (result.paymentRequestId() != null) {
-                p = payments.findById(result.paymentRequestId()).orElse(null);
+                p = payments.lockById(result.paymentRequestId()).orElse(null);
             }
             if (p == null && result.providerRef() != null) {
-                p = payments.findByProviderRef(result.providerRef()).orElse(null);
+                p = payments.lockByProviderRef(result.providerRef()).orElse(null);
             }
             if (p == null) {
                 log.warn("Webhook from {} for unknown payment: {}", provider, result);
@@ -273,33 +282,47 @@ public class PaymentService {
         });
     }
 
-    /** Verify (9.2-9.5): the guest says they paid; ask the provider; settle or report still pending. */
-    @Transactional
+    /**
+     * Verify (9.2-9.5): the guest says they paid; ask the provider; settle or report still pending. The provider is asked outside any
+     * transaction; the answer is applied with the payment locked and its status read again, so a webhook that settled it meanwhile wins
+     * and the payment is approved (and announced) once.
+     */
     public PaymentResponse verify(String id) {
-        PaymentRequest p = find(id);
-        if (p.getStatus() == PaymentStatus.APPROVED) {
-            return PaymentResponse.of(p);
+        PaymentRequest seen = tx.execute(s -> find(id));
+        if (seen.getStatus() == PaymentStatus.APPROVED) {
+            return PaymentResponse.of(seen);
         }
+        checkPending(seen);
+        PosProvider.WebhookResult result = posProvider.query(seen.getProviderRef()).orElse(null);
+        if (result == null || result.outcome() == PosProvider.Outcome.UNKNOWN || result.outcome() == PosProvider.Outcome.NO_RESPONSE) {
+            throw new BadRequestException("Still pending. The POS hasn't confirmed it yet");
+        }
+        return tx.execute(s -> {
+            PaymentRequest p = lock(id);
+            if (p.getStatus() == PaymentStatus.APPROVED) {
+                return PaymentResponse.of(p);
+            }
+            checkPending(p);
+            p.setVerifiedAt(Instant.now());
+            if (result.outcome() == PosProvider.Outcome.APPROVED) {
+                approve(p, result.providerRef(), p.getProvider());
+            } else {
+                decline(p, "Failed at the POS");
+            }
+            return PaymentResponse.of(p);
+        });
+    }
+
+    private static void checkPending(PaymentRequest p) {
         if (!p.isPendingOrProcessing()) {
             throw new BadRequestException("This payment " + p.getStatus().name().toLowerCase().replace('_', ' '));
         }
-        PosProvider.WebhookResult result = posProvider.query(p.getProviderRef()).orElse(null);
-        p.setVerifiedAt(Instant.now());
-        if (result == null || result.outcome() == PosProvider.Outcome.UNKNOWN || result.outcome() == PosProvider.Outcome.NO_RESPONSE) {
-            payments.save(p);
-            throw new BadRequestException("Still pending. The POS hasn't confirmed it yet");
-        }
-        if (result.outcome() == PosProvider.Outcome.APPROVED) {
-            approve(p, result.providerRef(), p.getProvider());
-        } else {
-            decline(p, "Failed at the POS");
-        }
-        return PaymentResponse.of(p);
     }
 
+    /** Cancel locks the payment first: a webhook approving it at the same moment either lands before (and cancel refuses) or after (and sees it failed). */
     @Transactional
     public PaymentResponse cancel(String id) {
-        PaymentRequest p = find(id);
+        PaymentRequest p = lock(id);
         if (!p.isPendingOrProcessing()) {
             throw new BadRequestException("Only a pending payment can be cancelled");
         }
@@ -320,7 +343,7 @@ public class PaymentService {
         if (p.getTerminalId() != null) {
             terminals.markOnline(terminals.find(p.getTerminalId()));
         }
-        Receipt receipt = receipts.findByPaymentId(p.getId()).orElseGet(() -> receipts.save(Receipt.builder().paymentId(p.getId())
+        Receipt receipt = receipts.findFirstByPaymentIdOrderByCreatedAtAsc(p.getId()).orElseGet(() -> receipts.save(Receipt.builder().paymentId(p.getId())
                 .number(nextReceiptNumber(p.getHotelId())).build()));
         events.publish(KafkaTopics.PAYMENT_APPROVED, PaymentApprovedEvent.builder().paymentId(p.getId()).folioId(p.getFolioId())
                 .bookingId(p.getBookingId()).guestName(p.getGuestName()).guestPhone(p.getGuestPhone()).guestEmail(p.getGuestEmail())
@@ -342,8 +365,14 @@ public class PaymentService {
         return payments.findById(id).orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
     }
 
+    private PaymentRequest lock(String id) {
+        return payments.lockById(id).orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
+    }
+
     /** Next number in this hotel's run for the year (RCP-2026-000042): one past the highest issued, so gaps or a reset year never repeat one. */
     private String nextReceiptNumber(String hotelId) {
+        // Two cash payments at once would both read the same max: the lock (held to commit) makes the second wait for the first's number.
+        receipts.lock("rcp:" + hotelId);
         String prefix = "RCP-" + LocalDate.now().getYear() + "-";
         long next = receipts.maxNumber(hotelId, prefix)
                 .map(n -> n.substring(prefix.length()))

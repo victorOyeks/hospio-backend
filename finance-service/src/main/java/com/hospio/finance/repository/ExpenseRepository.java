@@ -20,6 +20,22 @@ public interface ExpenseRepository extends JpaRepository<Expense, String>, org.s
     @org.springframework.data.jpa.repository.Query("select distinct e.category from Expense e where e.hotelId = :hotelId")
     List<String> distinctCategories(@org.springframework.data.repository.query.Param("hotelId") String hotelId);
 
+    /** [hotelId, sum] per hotel between two expense days (both inclusive), leaving out one status (declined). */
+    @org.springframework.data.jpa.repository.Query("select e.hotelId, sum(e.amount) from Expense e where e.hotelId in :hotelIds "
+            + "and e.expenseDate between :from and :to and e.status <> :excluded group by e.hotelId")
+    List<Object[]> sumByHotel(@org.springframework.data.repository.query.Param("hotelIds") java.util.Collection<String> hotelIds,
+                              @org.springframework.data.repository.query.Param("from") java.time.LocalDate from,
+                              @org.springframework.data.repository.query.Param("to") java.time.LocalDate to,
+                              @org.springframework.data.repository.query.Param("excluded") Expense.Status excluded);
+
+    /** [expenseDate, sum] per day at a hotel, leaving out one status (declined). */
+    @org.springframework.data.jpa.repository.Query("select e.expenseDate, sum(e.amount) from Expense e where e.hotelId = :hotelId "
+            + "and e.expenseDate between :from and :to and e.status <> :excluded group by e.expenseDate")
+    List<Object[]> sumByDay(@org.springframework.data.repository.query.Param("hotelId") String hotelId,
+                            @org.springframework.data.repository.query.Param("from") java.time.LocalDate from,
+                            @org.springframework.data.repository.query.Param("to") java.time.LocalDate to,
+                            @org.springframework.data.repository.query.Param("excluded") Expense.Status excluded);
+
     /** Money spent per stored category between two days (both inclusive), counting only the given statuses. */
     @org.springframework.data.jpa.repository.Query("select e.category, sum(e.amount) from Expense e where e.hotelId = :hotelId "
             + "and e.expenseDate between :from and :to and e.status in :statuses group by e.category")

@@ -40,7 +40,7 @@ public class PaymentController {
     /**
      * Payments the caller may see, newest first. With {@code page} or {@code size}: one page (docs/pagination.md) with tab counts and the
      * money above the list, filtered by {@code q, status (comma separated), method, role, from, to (Lagos days; from defaults to 90 days
-     * ago), mine, today} and, for the owner without X-Hotel-Id, {@code hotelId}. Without either: every payment, as before (scripts).
+     * ago), mine, today} and, for the owner without X-Hotel-Id, {@code hotelId}. Without either: the plain list since {@code from} (90 days ago by default), as before (scripts).
      */
     @GetMapping
     public ApiResponse<?> mine(@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size,
@@ -52,7 +52,7 @@ public class PaymentController {
                                @RequestParam(required = false) Boolean mine, @RequestParam(required = false) String hotelId,
                                @RequestParam(required = false) Boolean today) {
         if (!Paging.requested(page, size)) {
-            return ApiResponse.ok(payments.mine());
+            return ApiResponse.ok(payments.mine(from));
         }
         return ApiResponse.ok(lists.payments(new PaymentListService.Params(page, size, sort, q, status, method, role, from, to, mine, hotelId, today)));
     }

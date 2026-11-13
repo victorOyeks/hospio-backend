@@ -38,6 +38,7 @@ class ReceiptViewsTest {
     private final ReceiptRepository receipts = mock(ReceiptRepository.class);
     private final DeliveryService deliveries = mock(DeliveryService.class);
     private final ReceiptService service = new ReceiptService(payments, receipts, deliveries);
+    private final java.util.Map<String, Receipt> issued = new java.util.HashMap<>();
 
     private PaymentRequest pay(String id, String hotel, PaymentStatus status, String amount) {
         PaymentRequest p = PaymentRequest.builder().method(PaymentMethod.CASH).amount(new BigDecimal(amount)).status(status).role(Role.BAR)
@@ -48,7 +49,8 @@ class ReceiptViewsTest {
         when(payments.findById(id)).thenReturn(Optional.of(p));
         Receipt r = Receipt.builder().paymentId(id).number("RCP-2026-0000" + id.substring(1)).build();
         r.setCreatedAt(Instant.now());
-        when(receipts.findByPaymentId(id)).thenReturn(Optional.of(r));
+        when(receipts.findFirstByPaymentIdOrderByCreatedAtAsc(id)).thenReturn(Optional.of(r));
+        issued.put(id, r);
         return p;
     }
 
@@ -58,6 +60,8 @@ class ReceiptViewsTest {
                 JwtUtil.SCOPE_HOTEL);
         TenantContext.set(Tenant.fromUser(u, "h1"));
         when(deliveries.send(any(Delivery.class))).thenAnswer(i -> List.of((Delivery) i.getArgument(0)));
+        when(receipts.findByPaymentIdIn(any())).thenAnswer(i -> ((java.util.Collection<?>) i.getArgument(0)).stream()
+                .map(issued::get).filter(java.util.Objects::nonNull).toList());
     }
 
     @AfterEach
