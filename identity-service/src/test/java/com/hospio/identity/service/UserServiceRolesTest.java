@@ -237,14 +237,29 @@ class UserServiceRolesTest {
         RoleGrant temp = grant("g-t", Role.BAR, AccessLevel.EDIT, "h1");
         temp.setExpiresAt(Instant.now().minus(1, ChronoUnit.HOURS));
         when(grants.findByExpiresAtBefore(any())).thenReturn(List.of(temp));
+        when(users.findAllById(any())).thenReturn(List.of(victor));
+        when(grants.deleteIfExpired(eq("g-t"), any())).thenReturn(1);
 
         assertThat(service.endExpiredGrants()).isEqualTo(1);
-        verify(grants).delete(temp);
+        verify(grants).deleteIfExpired(eq("g-t"), any());
         ArgumentCaptor<AccessChangedEvent> logged = ArgumentCaptor.forClass(AccessChangedEvent.class);
         verify(events).publish(eq(KafkaTopics.ACCESS_CHANGED), logged.capture());
         assertThat(logged.getValue().getChange()).isEqualTo("EXPIRED");
         ArgumentCaptor<NoticeEvent> notice = ArgumentCaptor.forClass(NoticeEvent.class);
         verify(events).publish(eq(KafkaTopics.NOTICE), notice.capture());
         assertThat(notice.getValue().getTitle()).isEqualTo("Your Bar access has ended");
+    }
+
+    @Test
+    void aGrantAnotherRunAlreadyEndedIsNotToldTwice() {
+        RoleGrant temp = grant("g-t", Role.BAR, AccessLevel.EDIT, "h1");
+        temp.setExpiresAt(Instant.now().minus(1, ChronoUnit.HOURS));
+        when(grants.findByExpiresAtBefore(any())).thenReturn(List.of(temp));
+        when(users.findAllById(any())).thenReturn(List.of(victor));
+        when(grants.deleteIfExpired(eq("g-t"), any())).thenReturn(0);
+
+        assertThat(service.endExpiredGrants()).isZero();
+        verify(events, never()).publish(any(), any());
+        verify(users, never()).findById(anyString());
     }
 }

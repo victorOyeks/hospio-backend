@@ -72,6 +72,8 @@ hospio:
     enabled: ${SEED_DEMO_DATA:false}
   auth:
     refresh-days: 30
+    # Sign-in, PIN sign-in, sign-up and forgot-password POSTs per client address per minute (backstop behind nginx).
+    rate-limit-per-minute: ${AUTH_RATE_LIMIT_PER_MINUTE:30}
     temporary-password-hours: 168
     pin-max-attempts: 5
     pin-lock-minutes: 15

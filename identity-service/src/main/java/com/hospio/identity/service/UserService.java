@@ -66,6 +66,10 @@ public class UserService {
     private final DeliveryComposer deliveries;
     private final DeliveryService deliveryService;
 
+    /** For the staff list's counts in one query; injected by the container, absent when a test builds the service by hand. */
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager entityManager;
+
     @Value("${hospio.auth.temporary-password-hours:72}")
     private long temporaryPasswordHours;
 
@@ -387,14 +391,26 @@ public class UserService {
     /**
      * Temporary roles whose last day has passed are ended: deleted, logged as EXPIRED and the person told.
      * Runs as the system across every business (the role grants table is row-level scoped). Returns how many.
+     * Each grant is deleted with a guarded delete, so one already ended (another run) or extended meanwhile is neither
+     * removed nor told twice; the people are read in one query.
      */
     @Transactional
     public int endExpiredGrants() {
         return TenantContext.runWith(Tenant.system("grant-expiry"), () -> {
-            List<RoleGrant> ended = grants.findByExpiresAtBefore(Instant.now());
-            for (RoleGrant g : ended) {
-                UserAccount user = users.findById(g.getUserId()).orElse(null);
-                grants.delete(g);
+            Instant now = Instant.now();
+            List<RoleGrant> expired = grants.findByExpiresAtBefore(now);
+            if (expired.isEmpty()) {
+                return 0;
+            }
+            Map<String, UserAccount> people = users.findAllById(expired.stream().map(RoleGrant::getUserId).distinct().toList()).stream()
+                    .collect(Collectors.toMap(UserAccount::getId, u -> u, (a, b) -> a));
+            int ended = 0;
+            for (RoleGrant g : expired) {
+                if (grants.deleteIfExpired(g.getId(), now) != 1) {
+                    continue;
+                }
+                ended++;
+                UserAccount user = people.get(g.getUserId());
                 if (user == null) {
                     continue;
                 }
@@ -406,7 +422,7 @@ public class UserService {
                 notice(user, g.getHotelId(), "Your " + label + " access has ended",
                         "It was given until " + AccessDates.day(AccessDates.lastDay(g.getExpiresAt())) + ". Ask your manager if you still need it");
             }
-            return ended.size();
+            return ended;
         });
     }
 
@@ -720,26 +736,61 @@ public class UserService {
         org.springframework.data.domain.Page<UserAccount> result = users.findAll(
                 scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, st, q, null)),
                 com.hospio.common.paging.Paging.of(page, size, order));
-        Map<String, Long> counts = new java.util.LinkedHashMap<>();
-        counts.put("all", users.count(scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, null))));
+        Map<String, org.springframework.data.jpa.domain.Specification<UserAccount>> countSpecs = new java.util.LinkedHashMap<>();
+        countSpecs.put("all", scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, null)));
         for (String s : List.of("ACTIVE", "PAUSED", "SUSPENDED", "HELD", "INVITED", "WORKING")) {
-            counts.put(s, users.count(scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, s, q, null))));
+            countSpecs.put(s, scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, s, q, null)));
         }
-        counts.put("MANAGER", users.count(scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, Role.MANAGER, null, q, null))));
-        counts.put("INVITE_PENDING", users.count(scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, UserResponse.InviteStatus.PENDING))));
-        counts.put("INVITE_EXPIRED", users.count(scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, UserResponse.InviteStatus.EXPIRED))));
+        countSpecs.put("MANAGER", scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, Role.MANAGER, null, q, null)));
+        countSpecs.put("INVITE_PENDING", scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, UserResponse.InviteStatus.PENDING)));
+        countSpecs.put("INVITE_EXPIRED", scoped.apply(userSpec(business, managerOnly, callerHotels, hotelId, role, null, q, UserResponse.InviteStatus.EXPIRED)));
         if (roleCounts) {
             for (Role r : Role.values()) {
-                counts.put("ROLE_" + r.name(), users.count(scoped.apply(userSpec(business, managerOnly, callerHotels, null, null, null, q, null))
-                        .and(holding(business, r, hotelId))));
+                countSpecs.put("ROLE_" + r.name(), scoped.apply(userSpec(business, managerOnly, callerHotels, null, null, null, q, null))
+                        .and(holding(business, r, hotelId)));
             }
         }
+        // Every count above narrows this one (no hotel or role filter), so it is the WHERE and each count a SUM(CASE ...).
+        Map<String, Long> counts = countTogether(scoped.apply(userSpec(business, managerOnly, callerHotels, null, null, null, q, null)), countSpecs);
         List<String> ids = result.getContent().stream().map(UserAccount::getId).toList();
         Map<String, List<RoleGrant>> byUser = ids.isEmpty() ? Map.of()
                 : grants.findByUserIdIn(ids).stream().filter(g -> business.equals(g.getBusinessId())).collect(Collectors.groupingBy(RoleGrant::getUserId));
         Map<String, UserResponse.InviteStatus> inviteStatus = invites.statusFor(ids);
         return com.hospio.common.response.PageWithCounts.of(result,
                 u -> toResponse(u, byUser.getOrDefault(u.getId(), List.of()), inviteStatus.get(u.getId())), counts, Map.of());
+    }
+
+    /**
+     * Each named count in one query over the accounts matching {@code where}: {@code SELECT SUM(CASE WHEN <spec> THEN 1 ELSE 0 END), ...}.
+     * Every spec must be narrower than {@code where}. Without an EntityManager (unit tests) each count is its own query.
+     */
+    private Map<String, Long> countTogether(org.springframework.data.jpa.domain.Specification<UserAccount> where,
+                                            Map<String, org.springframework.data.jpa.domain.Specification<UserAccount>> specs) {
+        Map<String, Long> counts = new java.util.LinkedHashMap<>();
+        if (entityManager == null) {
+            specs.forEach((name, spec) -> counts.put(name, users.count(spec)));
+            return counts;
+        }
+        jakarta.persistence.criteria.CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        jakarta.persistence.criteria.CriteriaQuery<jakarta.persistence.Tuple> query = cb.createTupleQuery();
+        jakarta.persistence.criteria.Root<UserAccount> root = query.from(UserAccount.class);
+        List<jakarta.persistence.criteria.Selection<?>> sums = new java.util.ArrayList<>();
+        for (org.springframework.data.jpa.domain.Specification<UserAccount> spec : specs.values()) {
+            jakarta.persistence.criteria.Predicate p = spec.toPredicate(root, query, cb);
+            sums.add(cb.sum(cb.<Long>selectCase().when(p, cb.literal(1L)).otherwise(cb.literal(0L))));
+        }
+        query.multiselect(sums);
+        jakarta.persistence.criteria.Predicate base = where.toPredicate(root, query, cb);
+        if (base != null) {
+            query.where(base);
+        }
+        jakarta.persistence.Tuple row = entityManager.createQuery(query).getSingleResult();
+        int i = 0;
+        for (String name : specs.keySet()) {
+            Object v = row.get(i++);
+            counts.put(name, v == null ? 0L : ((Number) v).longValue());
+        }
+        return counts;
     }
 
     /** The {@link #list} filters as a query: grants are this business's; a business-wide grant (no hotel) counts for every hotel. */
