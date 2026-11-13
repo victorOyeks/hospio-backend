@@ -74,6 +74,7 @@ public class EmailTemplates {
     private static final String LINE = "#e9ecf1";
     private static final String PAGE = "#f6f4f5";
     private static final String SUBTLE = "#f8f8f9";
+    private static final String FOOTER = "Hospio360 · hotel management by Oyeks Global";
     private static final String FONT = "'DM Sans',-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
     private enum Tone {
@@ -200,18 +201,12 @@ public class EmailTemplates {
         }
         h.append("</td></tr>");
 
-        // Footer, outside the card.
-        h.append("<tr><td style=\"padding:18px 32px 0 32px;text-align:center;font-size:12px;line-height:1.6;color:").append(INK_3).append(";\">");
-        if (isPlatform(from)) {
-            h.append("Hospio360 · hotel management by Oyeks Global");
-        } else {
-            h.append("Sent by ").append(esc(from)).append(" with Hospio360.<br>Reply to this email to reach ").append(esc(from)).append(".");
-        }
-        h.append("</td></tr></table></td></tr></table></body></html>");
+        // Footer, outside the card: the same line on every email.
+        h.append("<tr><td style=\"padding:18px 32px 0 32px;text-align:center;font-size:12px;line-height:1.6;color:").append(INK_3).append(";\">")
+                .append(FOOTER).append("</td></tr></table></td></tr></table></body></html>");
 
         StringBuilder plain = new StringBuilder();
-        plain.append(from).append("\n\n").append(heading).append("\n\n").append(body).append("\n\n-- \n")
-                .append(isPlatform(from) ? "Hospio360" : "Sent by " + from + " with Hospio360. Reply to this email to reach " + from + ".").append("\n");
+        plain.append(from).append("\n\n").append(heading).append("\n\n").append(body).append("\n\n-- \n").append(FOOTER).append("\n");
         return new Rendered(subj, h.toString(), plain.toString());
     }
 
@@ -370,10 +365,6 @@ public class EmailTemplates {
             }
         }
         return s.length() == 0 ? "H" : s.toString();
-    }
-
-    private static boolean isPlatform(String from) {
-        return "Hospio360".equalsIgnoreCase(from);
     }
 
     /** Links in already-escaped text become anchors in the brand colour. */
