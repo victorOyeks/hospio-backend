@@ -369,7 +369,22 @@ public class PropertyService {
         return withHotelTenant(hotelId, () -> {
             Area area = id == null ? Area.builder().hotelId(hotelId).build()
                     : areas.findById(id).orElseThrow(() -> new ResourceNotFoundException("Area not found"));
-            area.setName(request.name());
+            // A floor or wing as people write it ("Floor 2", "Block A · Floor 1", "Annex"): 1-60 characters with a letter
+            // or digit in it, and not the name of another area in this hotel.
+            String name = request.name() == null ? "" : request.name().trim().replaceAll("\\s+", " ");
+            if (name.isEmpty() || name.length() > 60 || !name.matches(".*[\\p{L}\\d].*")) {
+                throw new BadRequestException("Name the floor or wing, like Floor 2 or Block A");
+            }
+            areas.findByHotelIdOrderBySortOrderAscNameAsc(hotelId).stream()
+                    .filter(a -> !a.getId().equals(area.getId()) && a.getName().equalsIgnoreCase(name)).findFirst()
+                    .ifPresent(a -> {
+                        throw new ConflictException(a.getName() + " is already a floor or wing in this hotel");
+                    });
+            if (id == null && request.sortOrder() == null) {
+                // New ones go after the ones already there.
+                area.setSortOrder(areas.findByHotelIdOrderBySortOrderAscNameAsc(hotelId).size() + 1);
+            }
+            area.setName(name);
             if (request.kind() != null) {
                 area.setKind(request.kind());
             }
