@@ -69,11 +69,9 @@ public class ReportingService {
     public List<DayPoint> series(LocalDate from, LocalDate to) {
         range(from, to);
         String hotelId = TenantContext.requireHotel();
-        Map<LocalDate, BigDecimal> in = new LinkedHashMap<>();
-        Map<LocalDate, BigDecimal> out = new LinkedHashMap<>();
-        revenue.findByHotelIdAndBusinessDateBetween(hotelId, from, to).forEach(r -> in.merge(r.getBusinessDate(), r.getAmount(), BigDecimal::add));
-        expenses.findByHotelIdAndExpenseDateBetween(hotelId, from, to).stream().filter(e -> e.getStatus() != Expense.Status.DECLINED)
-                .forEach(e -> out.merge(e.getExpenseDate(), e.getAmount(), BigDecimal::add));
+        // Summed per day in the database: a year is at most 366 rows each, not every entry of the year.
+        Map<LocalDate, BigDecimal> in = sums(revenue.sumByDay(hotelId, from, to));
+        Map<LocalDate, BigDecimal> out = sums(expenses.sumByDay(hotelId, from, to, Expense.Status.DECLINED));
         List<DayPoint> points = new ArrayList<>();
         for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
             points.add(new DayPoint(d, Money.of(in.get(d)), Money.of(out.get(d))));
@@ -89,8 +87,9 @@ public class ReportingService {
     public List<IncomeSource> income(LocalDate from, LocalDate to) {
         range(from, to);
         Map<String, BigDecimal> by = new LinkedHashMap<>();
-        revenue.findByHotelIdAndBusinessDateBetween(TenantContext.requireHotel(), from, to)
-                .forEach(r -> by.merge(sourceOf(r.incomeDesk()), r.getAmount(), BigDecimal::add));
+        for (Object[] row : revenue.sumByDeskAndRole(TenantContext.requireHotel(), from, to)) {
+            by.merge(sourceOf(RevenueEntry.incomeDesk((String) row[0], (String) row[1])), amount(row[2]), BigDecimal::add);
+        }
         BigDecimal total = by.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
         return by.entrySet().stream().sorted((a, b) -> b.getValue().compareTo(a.getValue()))
                 .map(e -> new IncomeSource(e.getKey(), Money.of(e.getValue()),
@@ -145,23 +144,29 @@ public class ReportingService {
         return list;
     }
 
-    /** Each hotel of the business as the system sees it, plus totals. Occupancy is what is in house now over the hotel's rooms. */
-    @Transactional(readOnly = true)
+    /**
+     * Each hotel of the business as the system sees it, plus totals. Occupancy is what is in house now over the hotel's rooms. Revenue and
+     * expenses are summed per hotel in two grouped queries across the business (no transaction is held open); the other services are
+     * asked about rooms and occupancy outside any transaction.
+     */
     public OwnerSummary ownerSummary(LocalDate from, LocalDate to) {
         range(from, to);
         HospioUserDetails user = CurrentUser.require();
         String businessId = TenantContext.requireBusiness();
+        List<PeerServices.Hotel> hotels = peers.hotels(businessId);
+        List<String> ids = hotels.stream().map(PeerServices.Hotel::id).toList();
+        Tenant asBusiness = Tenant.systemFor(businessId, null, user.getUserId(), user.getFullName());
+        Map<String, BigDecimal> inByHotel = ids.isEmpty() ? Map.of() : TenantContext.runWith(asBusiness, () -> sums(revenue.sumByHotel(ids, from, to)));
+        Map<String, BigDecimal> outByHotel = ids.isEmpty() ? Map.of()
+                : TenantContext.runWith(asBusiness, () -> sums(expenses.sumByHotel(ids, from, to, Expense.Status.DECLINED)));
         List<HotelLine> lines = new ArrayList<>();
         BigDecimal totalIn = BigDecimal.ZERO;
         BigDecimal totalOut = BigDecimal.ZERO;
         int occupiedAll = 0;
         int roomsAll = 0;
-        for (PeerServices.Hotel h : peers.hotels(businessId)) {
-            Tenant asHotel = Tenant.systemFor(businessId, h.id(), user.getUserId(), user.getFullName());
-            BigDecimal in = TenantContext.runWith(asHotel, () -> revenue.findByHotelIdAndBusinessDateBetween(h.id(), from, to).stream()
-                    .map(RevenueEntry::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
-            BigDecimal out = TenantContext.runWith(asHotel, () -> expenses.findByHotelIdAndExpenseDateBetween(h.id(), from, to).stream()
-                    .filter(e -> e.getStatus() != Expense.Status.DECLINED).map(Expense::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
+        for (PeerServices.Hotel h : hotels) {
+            BigDecimal in = inByHotel.getOrDefault(h.id(), BigDecimal.ZERO);
+            BigDecimal out = outByHotel.getOrDefault(h.id(), BigDecimal.ZERO);
             int rooms = peers.roomCount(h.id());
             int occupied = peers.daySoft(h.id(), to).map(PeerServices.Day::roomsOccupied).orElse(0);
             lines.add(new HotelLine(h.id(), h.name(), Money.of(in), Money.of(out), Money.of(in.subtract(out)), rooms > 0 ? MoneyService.pct(occupied, rooms) : null));
@@ -174,6 +179,20 @@ public class ReportingService {
         }
         return new OwnerSummary(from, to, lines, new Totals(Money.of(totalIn), Money.of(totalOut), Money.of(totalIn.subtract(totalOut)),
                 roomsAll > 0 ? MoneyService.pct(occupiedAll, roomsAll) : null));
+    }
+
+    /** [key, sum] rows → key → sum. */
+    @SuppressWarnings("unchecked")
+    static <K> Map<K, BigDecimal> sums(List<Object[]> rows) {
+        Map<K, BigDecimal> out = new LinkedHashMap<>();
+        for (Object[] row : rows) {
+            out.merge((K) row[0], amount(row[1]), BigDecimal::add);
+        }
+        return out;
+    }
+
+    private static BigDecimal amount(Object o) {
+        return o == null ? BigDecimal.ZERO : (BigDecimal) o;
     }
 
     private static void range(LocalDate from, LocalDate to) {

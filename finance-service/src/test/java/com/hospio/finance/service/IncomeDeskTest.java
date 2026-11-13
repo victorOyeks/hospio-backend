@@ -88,8 +88,10 @@ class IncomeDeskTest {
     void aManagerCollectingABarSaleIsBarIncomeInTodaysMoneyAndIncome() {
         when(revenue.findByHotelIdAndBusinessDate("h1", DAY)).thenReturn(List.of(entry("5000", "BAR", "BAR"), entry("2400", "MANAGER", "BAR"),
                 entry("9000", "FRONT_OFFICE", "KITCHEN"), entry("40000", "FRONT_OFFICE", null)));
-        when(revenue.findByHotelIdAndBusinessDateBetween("h1", DAY, DAY)).thenReturn(List.of(entry("5000", "BAR", "BAR"), entry("2400", "MANAGER", "BAR"),
-                entry("9000", "FRONT_OFFICE", "KITCHEN"), entry("40000", "FRONT_OFFICE", null)));
+        // income() reads [desk, role, sum] rows summed in the database
+        when(revenue.sumByDeskAndRole("h1", DAY, DAY)).thenReturn(List.of(new Object[]{"BAR", "BAR", new BigDecimal("5000")},
+                new Object[]{"BAR", "MANAGER", new BigDecimal("2400")}, new Object[]{"KITCHEN", "FRONT_OFFICE", new BigDecimal("9000")},
+                new Object[]{null, "FRONT_OFFICE", new BigDecimal("40000")}));
 
         MoneyToday today = money.today(DAY);
 
@@ -110,7 +112,8 @@ class IncomeDeskTest {
     void cashForAnOrderLandsInThePayersTillAndKeepsTheOutletAsIncomeDesk() {
         Till frontDesk = Till.builder().role("FRONT_OFFICE").status(Till.Status.OPEN).openingFloat(BigDecimal.ZERO).expectedCash(BigDecimal.ZERO).build();
         frontDesk.setId("t-fo");
-        when(tills.findFirstByHotelIdAndRoleAndStatus("h1", "FRONT_OFFICE", Till.Status.OPEN)).thenReturn(Optional.of(frontDesk));
+        when(tills.lockOpen("h1", "FRONT_OFFICE")).thenReturn(List.of(frontDesk));
+        when(tills.lockStatus("t-fo")).thenReturn(Optional.of("OPEN"));
         when(tillEntries.findByPaymentId("p1")).thenReturn(Optional.empty());
         when(tillEntries.save(any())).thenAnswer(i -> i.getArgument(0));
         when(tillEntries.findByTillIdOrderByCreatedAt(any())).thenReturn(List.of());
@@ -136,6 +139,6 @@ class IncomeDeskTest {
         ArgumentCaptor<RevenueEntry> saved = ArgumentCaptor.forClass(RevenueEntry.class);
         verify(revenue).save(saved.capture());
         assertThat(saved.getValue().incomeDesk()).isEqualTo("BAR");
-        verify(tills, never()).findFirstByHotelIdAndRoleAndStatus("h1", "BAR", Till.Status.OPEN);
+        verify(tills, never()).lockOpen("h1", "BAR");
     }
 }

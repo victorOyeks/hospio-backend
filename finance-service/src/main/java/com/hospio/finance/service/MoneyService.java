@@ -47,6 +47,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -86,7 +87,7 @@ public class MoneyService {
         }
         LocalDate date = (at == null ? Instant.now() : at).atZone(LAGOS).toLocalDate();
         boolean cash = PaymentMethod.CASH.name().equals(method);
-        Optional<Till> till = cash && role != null ? openTill(TenantContext.requireHotel(), role) : Optional.empty();
+        Optional<Till> till = cash && role != null ? lockOpenTill(TenantContext.requireHotel(), role) : Optional.empty();
         revenue.save(RevenueEntry.builder().paymentId(paymentId).businessDate(date).amount(Money.of(amount)).method(method).role(role).folioId(folioId)
                 .orderId(orderId).desk(desk == null || desk.isBlank() ? null : desk).unattachedCash(cash && till.isEmpty()).build());
         till.ifPresent(t -> {
@@ -105,7 +106,7 @@ public class MoneyService {
         if (tillEntries.findFirstByKindAndRef(TillEntry.Kind.REFUND, refundId).isPresent()) {
             return;
         }
-        openTill(TenantContext.requireHotel(), role).ifPresent(t -> addEntry(t, TillEntry.Kind.REFUND, Money.of(amount).negate(), "CASH", "Cash refund", refundId, null));
+        lockOpenTill(TenantContext.requireHotel(), role).ifPresent(t -> addEntry(t, TillEntry.Kind.REFUND, Money.of(amount).negate(), "CASH", "Cash refund", refundId, null));
     }
 
     @Transactional(readOnly = true)
@@ -410,14 +411,19 @@ public class MoneyService {
         if (opening.signum() < 0) {
             throw new BadRequestException("The opening float can't be negative");
         }
-        return tills.save(Till.builder().role(role.name()).openedBy(user.getUserId()).openedByName(user.getFullName())
-                .openingFloat(opening).expectedCash(opening).build());
+        try {
+            // Two people opening the same till at once: the partial unique index (one OPEN till per hotel and role) refuses the second.
+            return tills.saveAndFlush(Till.builder().role(role.name()).openedBy(user.getUserId()).openedByName(user.getFullName())
+                    .openingFloat(opening).expectedCash(opening).build());
+        } catch (DataIntegrityViolationException e) {
+            throw new BadRequestException("The " + label(role) + " till is already open");
+        }
     }
 
     @Transactional
     public TillEntry addMovement(String tillId, FinanceRequests.MovementRequest request) {
         HospioUserDetails user = CurrentUser.require();
-        Till t = till(tillId);
+        Till t = lockTill(tillId);
         if (!TillAccess.canMove(user, roleOf(t))) {
             throw new ForbiddenException("Only a manager or the " + label(roleOf(t)) + " can move cash in this till");
         }
@@ -440,7 +446,7 @@ public class MoneyService {
     @Transactional
     public Till closeTill(String id, FinanceRequests.CloseTillRequest request) {
         HospioUserDetails user = CurrentUser.require();
-        Till t = till(id);
+        Till t = lockTill(id);
         if (!TillAccess.canOpenOrClose(user, roleOf(t))) {
             throw new ForbiddenException("Only a manager, finance or the " + label(roleOf(t)) + " can close this till");
         }
@@ -453,18 +459,19 @@ public class MoneyService {
     @Transactional
     public Handover handover(String id, FinanceRequests.HandoverRequest request) {
         HospioUserDetails user = CurrentUser.require();
-        Till t = till(id);
+        Till t = lockTill(id);
         if (!TillAccess.canMove(user, roleOf(t))) {
             throw new ForbiddenException("Only a manager or the " + label(roleOf(t)) + " can hand this till over");
         }
         Till closed = close(t, request.countedCash(), request.note(), user, request);
+        tills.flush(); // the close is written before the new till: only one till of the role may be OPEN at a time
         Till opened = tills.save(Till.builder().role(t.getRole()).openedBy(request.toUserId()).openedByName(request.toUserName())
                 .openingFloat(Money.of(request.countedCash())).expectedCash(Money.of(request.countedCash())).build());
         return new Handover(closed, opened);
     }
 
     private Till close(Till t, BigDecimal counted, String note, HospioUserDetails user, FinanceRequests.HandoverRequest handover) {
-        if (t.getStatus() == Till.Status.CLOSED) {
+        if (!Till.Status.OPEN.name().equals(tills.lockStatus(t.getId()).orElse(null))) {
             throw new BadRequestException("This till is already closed");
         }
         recompute(t);
@@ -525,7 +532,19 @@ public class MoneyService {
         return tills.findFirstByHotelIdAndRoleAndStatus(hotelId, role, Till.Status.OPEN);
     }
 
+    /** The role's open till, locked until commit (for writing to it). */
+    private Optional<Till> lockOpenTill(String hotelId, String role) {
+        return tills.lockOpen(hotelId, role).stream().findFirst();
+    }
+
+    /**
+     * The till row is locked (and its status read as committed) before the entry goes in and the totals are recomputed: two entries at
+     * once no longer overwrite each other's totals, and nothing lands on a till that was closed a moment ago.
+     */
     private TillEntry addEntry(Till t, TillEntry.Kind kind, BigDecimal amount, String method, String description, String ref, String paymentId) {
+        if (!Till.Status.OPEN.name().equals(tills.lockStatus(t.getId()).orElse(null))) {
+            throw new BadRequestException("This till is closed");
+        }
         HospioUserDetails user = CurrentUser.get().orElse(null);
         TillEntry entry = tillEntries.save(TillEntry.builder().tillId(t.getId()).kind(kind).paymentId(paymentId).amount(amount).method(method)
                 .description(description).ref(ref).createdBy(user == null ? null : user.getUserId()).createdByName(user == null ? null : user.getFullName()).build());
@@ -566,7 +585,7 @@ public class MoneyService {
         String hotelId = TenantContext.requireHotel();
         for (Role role : PAYING_ROLES) {
             if (user.has(role)) {
-                Optional<Till> t = openTill(hotelId, role.name());
+                Optional<Till> t = lockOpenTill(hotelId, role.name());
                 if (t.isPresent()) {
                     return t.get();
                 }
@@ -581,6 +600,10 @@ public class MoneyService {
 
     private Till till(String id) {
         return tills.findById(id).orElseThrow(() -> new ResourceNotFoundException("Till not found"));
+    }
+
+    private Till lockTill(String id) {
+        return tills.lockById(id).orElseThrow(() -> new ResourceNotFoundException("Till not found"));
     }
 
     private static Role roleOf(Till t) {
