@@ -56,6 +56,15 @@ def call(method: str, url: str, key: str, body=None):
 def problems(t: dict) -> list:
     """Meta's common rejection reasons, checked before anything is sent."""
     out = []
+    if t["category"] == "AUTHENTICATION":
+        # Meta writes the text of a code template itself: "<code> is your verification code."
+        if not NAME.match(t["name"]):
+            out.append("name: lowercase letters, digits and underscores only")
+        if not 1 <= int(t.get("codeExpirationMinutes", 10)) <= 90:
+            out.append("codeExpirationMinutes: 1 to 90")
+        if len(t.get("buttonText", "Copy code")) > 25:
+            out.append("buttonText: up to 25 characters")
+        return out
     body = t["body"].strip()
     nums = [int(n) for n in VAR.findall(body)]
     if not NAME.match(t["name"]):
@@ -78,6 +87,13 @@ def problems(t: dict) -> list:
 
 
 def payload(t: dict) -> dict:
+    if t["category"] == "AUTHENTICATION":
+        # Infobip's code-template shape (docs/tutorials/authenticate-users-with-whatsapp-template-messages): the security
+        # note in the body, the expiry in the footer, one copy-code button. Sending fills the code into the body and button.
+        return {"name": t["name"], "language": t["language"], "category": "AUTHENTICATION", "allowCategoryChange": False,
+                "structure": {"body": {"addSecurityRecommendation": True},
+                              "footer": {"codeExpirationMinutes": int(t.get("codeExpirationMinutes", 10))},
+                              "buttons": [{"text": t.get("buttonText", "Copy code"), "otpType": "COPY_CODE"}]}}
     structure = {"body": {"text": t["body"]}, "type": "TEXT"}
     if t.get("examples"):
         structure["body"]["examples"] = t["examples"]
