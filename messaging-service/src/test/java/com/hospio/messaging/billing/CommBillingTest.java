@@ -32,6 +32,7 @@ class CommBillingTest {
     private final DeliveryRecordRepository deliveries = mock(DeliveryRecordRepository.class);
     private final TenantClient tenants = mock(TenantClient.class);
     private final NotificationService notices = mock(NotificationService.class);
+    private final PaystackClient paystack = mock(PaystackClient.class);
     private final com.hospio.messaging.mail.MailDispatcher mail = mock(com.hospio.messaging.mail.MailDispatcher.class);
     private final com.hospio.messaging.client.IdentityClient identity = mock(com.hospio.messaging.client.IdentityClient.class);
     private CommBilling billing;
@@ -46,7 +47,7 @@ class CommBillingTest {
         when(prices.findById("DEFAULT")).thenReturn(Optional.of(d));
         when(tenants.hotel(anyString())).thenReturn(Optional.of(new TenantClient.Sender("Simpas Ikeja", "simpas@hotel.test")));
         when(tenants.business(anyString())).thenReturn(Optional.of(new TenantClient.Sender("Royal Suites Ltd", "owner@hotel.test")));
-        billing = new CommBilling(plans, prices, invoices, deliveries, tenants, notices, mock(PaystackClient.class),
+        billing = new CommBilling(plans, prices, invoices, deliveries, tenants, notices, paystack,
                 new TransactionTemplate(mock(PlatformTransactionManager.class)), mail, "https://web.example");
         billing.setIdentity(identity);
     }
@@ -145,6 +146,23 @@ class CommBillingTest {
         org.mockito.ArgumentCaptor<String> eventId = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(notices).notifyRoles(eventId.capture(), eq("COMM_INVOICE"), anyString(), anyString(), anyString(), eq("OWNER"), eq("MANAGER"));
         assertThat(eventId.getValue()).hasSize(36);
+    }
+
+    @Test
+    void aPaymentFromAnOlderCheckoutStillPaysItsInvoice() {
+        CommInvoice inv = CommInvoice.builder().number("MSG-202611-0001").status(CommInvoice.Status.OVERDUE).totalAmount(new BigDecimal("15.00"))
+                .paymentReference("MSG-202611-0001-BBBBBBBB").build();
+        inv.setId("inv-1");
+        inv.setHotelId("h1");
+        when(invoices.findByPaymentReference("MSG-202611-0001-AAAAAAAA")).thenReturn(Optional.empty());
+        when(invoices.findByNumber("MSG-202611-0001")).thenReturn(Optional.of(inv));
+        when(paystack.verify("MSG-202611-0001-AAAAAAAA")).thenReturn(new PaystackClient.Verified(false, BigDecimal.ZERO, null, "Abandoned"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> billing.confirm("MSG-202611-0001-AAAAAAAA", "Godwin"))
+                .hasMessageContaining("hasn't confirmed");
+        assertThat(CommBilling.invoiceNumberOf("MSG-202611-0001-AAAAAAAA")).isEqualTo("MSG-202611-0001");
+        assertThat(CommBilling.invoiceNumberOf("T123-abc")).isEmpty();
+        assertThat(CommBilling.invoiceNumberOf(null)).isEmpty();
+        verify(invoices, never()).save(any());
     }
 
     private static com.hospio.messaging.client.IdentityClient.Contact contact(String email) {

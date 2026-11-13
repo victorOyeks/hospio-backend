@@ -256,7 +256,8 @@ public class CommBilling {
 
     /** After Paystack sends the payer back (or its webhook arrives): confirm with Paystack and settle the invoice. */
     public CommInvoice confirm(String reference, String paidByName) {
-        CommInvoice inv = asSystem(() -> invoices.findByPaymentReference(reference)).orElseThrow(() -> new ResourceNotFoundException("No invoice for that payment"));
+        CommInvoice inv = asSystem(() -> invoices.findByPaymentReference(reference).or(() -> invoices.findByNumber(invoiceNumberOf(reference))))
+                .orElseThrow(() -> new ResourceNotFoundException("No invoice for that payment"));
         if (inv.getStatus() == CommInvoice.Status.PAID) {
             return inv;
         }
@@ -268,6 +269,15 @@ public class CommBilling {
             throw new BadRequestException("Paystack received " + v.amount() + ", less than the invoice's " + inv.getTotalAmount());
         }
         return settle(inv.getId(), "PAYSTACK" + (v.channel() == null ? "" : ":" + v.channel()), reference, paidByName, null);
+    }
+
+    /**
+     * A payment reference is the invoice number plus 8 characters (MSG-202611-0001-6EDD3669). Each Pay starts a new one, so a
+     * payment made in an older checkout (a second tab, Pay then back then Pay) still finds its invoice by the number.
+     */
+    static String invoiceNumberOf(String reference) {
+        int dash = reference == null ? -1 : reference.lastIndexOf('-');
+        return dash > 0 && reference.startsWith("MSG-") ? reference.substring(0, dash) : "";
     }
 
     /** Marks an invoice paid (Paystack, or Hospio360 by hand for a transfer) and lifts a suspension it caused. */
