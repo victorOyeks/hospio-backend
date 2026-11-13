@@ -81,6 +81,8 @@ hospio:
     enabled: ${MAIL_ENABLED:false}
     from-address: ${MAIL_FROM_ADDRESS:no-reply@hospio360.com}
     from-name-default: ${MAIL_FROM_NAME_DEFAULT:Hospio360}
+    # Brevo's API (docs/email.md): when set, email goes through the API with this key instead of SMTP.
+    brevo-api-key: ${BREVO_API_KEY:}
     # Wait before the one retry of a transient failure.
     retry-delay-ms: ${MAIL_RETRY_DELAY_MS:5000}
     # A delivery event older than this is not sent (a replayed topic must never re-send old passwords and links).
