@@ -43,6 +43,7 @@ public class MailDispatcher {
     private final long retryDelayMs;
     private final long maxEventAgeMinutes;
     private com.hospio.messaging.text.TextSender texts;
+    private com.hospio.messaging.client.HotelBrandClient brands;
     private Executor executor = Executors.newFixedThreadPool(2, r -> {
         Thread t = new Thread(r, "mail-sender");
         t.setDaemon(true);
@@ -73,6 +74,12 @@ public class MailDispatcher {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setTexts(com.hospio.messaging.text.TextSender texts) {
         this.texts = texts;
+    }
+
+    /** The hotel's colour and logo for its emails (absent in tests: Hospio360's own look). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setBrands(com.hospio.messaging.client.HotelBrandClient brands) {
+        this.brands = brands;
     }
 
     /** Tests run the send on the calling thread. */
@@ -138,7 +145,8 @@ public class MailDispatcher {
                 String body = e.getText() == null ? "" : e.getText().replace("@hotel", sender.name() == null ? "Hospio360" : sender.name());
                 afterCommit(() -> executor.execute(() -> deliverText(id, channel, to, body, e.getTemplate(), params)));
             } else if (status == DeliveryRecord.Status.QUEUED) {
-                EmailTemplates.Rendered r = templates.render(e.getKind(), sender.name(), e.getSubject(), e.getText());
+                EmailTemplates.Rendered r = templates.render(e.getKind(), sender.name(), e.getSubject(), e.getText(),
+                        brands == null ? EmailTemplates.Brand.HOSPIO : brands.brand(e.getHotelId()));
                 String html = notBlank(e.getHtml()) ? e.getHtml() : r.html();
                 SmtpGateway.Email mail = new SmtpGateway.Email(fromAddress, sender.name(), saved.getToAddress(), sender.replyTo(), r.subject(), html, r.text());
                 String id = saved.getId();

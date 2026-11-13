@@ -69,8 +69,9 @@ public class MessagingEventListener {
                 return null;
             }
             String body = outbound.render(e.getHotelId(), "RECEIPT", NotificationChannel.WHATSAPP,
-                    "Thank you {guest}. We received {amount} by {method}. Ref {ref}.",
-                    Map.of("guest", nz(e.getGuestName()), "amount", String.valueOf(e.getAmount()), "method", nz(e.getMethod()).toLowerCase(), "ref", nz(e.getProviderRef())));
+                    "Thank you, {guest}. We have received your payment.\n\nAmount: {amount}\nMethod: {method}\nReference: {ref}",
+                    Map.of("guest", nz(e.getGuestName()), "amount", naira(e.getAmount()), "method", cap(nz(e.getMethod()).toLowerCase()),
+                            "ref", nz(e.getProviderRef()).isBlank() ? "-" : e.getProviderRef()));
             if (e.getGuestEmail() != null && !e.getGuestEmail().isBlank()) {
                 outbound.queue(NotificationChannel.EMAIL, e.getGuestEmail().trim(), "Your receipt", body, "RECEIPT", "RECEIPT-E-" + e.getPaymentId());
             } else if (e.getGuestPhone() != null && !e.getGuestPhone().isBlank()) {
@@ -95,8 +96,8 @@ public class MessagingEventListener {
     public void onCheckedOut(GuestCheckedOutEvent e) {
         bound(e, () -> {
             String body = outbound.render(e.getHotelId(), "STAY_SUMMARY", NotificationChannel.EMAIL,
-                    "Thank you for staying with us, {guest}. Your stay in room {room} has ended. Balance: {balance}.",
-                    Map.of("guest", nz(e.getGuestName()), "room", nz(e.getRoomNumber()), "balance", String.valueOf(e.getFolioBalance())));
+                    "Thank you for staying with us, {guest}. We hope to welcome you again.\n\nRoom: {room}\nBalance: {balance}",
+                    Map.of("guest", nz(e.getGuestName()), "room", nz(e.getRoomNumber()), "balance", naira(e.getFolioBalance())));
             if (e.getSummaryChannels() != null) {
                 for (String ch : e.getSummaryChannels()) {
                     if ("EMAIL".equalsIgnoreCase(ch) && e.getGuestEmail() != null) {
@@ -390,4 +391,8 @@ public class MessagingEventListener {
         return preference == null || !(preference.equalsIgnoreCase("NONE") || preference.equalsIgnoreCase("NEVER"));
     }
 
+
+    private static String cap(String s) {
+        return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
 }

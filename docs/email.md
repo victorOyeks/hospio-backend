@@ -162,3 +162,21 @@ transactional API (`POST /v3/smtp/email`, `BrevoApiGateway`) instead of SMTP; th
 address (`MAIL_FROM_ADDRESS`) must be a verified sender in that Brevo account or on a domain authenticated there
 (Brevo → Senders, domains & dedicated IPs). hospio360.com is added to the account and needs its DNS records (two DKIM
 CNAMEs and the brevo-code TXT) in Cloudflare before no-reply@hospio360.com can send.
+
+## Design
+
+Every email is laid out by `EmailTemplates` in the web app's look (DM Sans, the app's ink/line/status colours, rounded
+cards) and in the **sending hotel's brand**: Hotel setup → Brand's colour (header band, buttons, links, amounts) and logo
+(else the hotel's initials). A hotel with no colour set — and platform mail — uses Hospio360's maroon `#4c091e`. The brand
+is read from hotel-config (`/internal/settings/BRAND`) and kept for ten minutes, so a new colour shows in the next emails.
+
+Each kind has its own badge, tone and heading (booking confirmed in green, cancelled in red, payment reminder in amber…).
+Services keep writing plain text; it is laid out:
+
+- a paragraph of `Label: value` lines → a details card (amounts in the brand colour);
+- `Temporary password:` / `Code:` → a highlighted box;
+- `- ` lines → a list;
+- the first link → the button (and the address under it).
+
+`EmailPreviewWriter` (test) writes a sample of every email to look at:
+`mvn -pl messaging-service test -Dtest=EmailPreviewWriter -Demail.previews=/tmp/previews`.

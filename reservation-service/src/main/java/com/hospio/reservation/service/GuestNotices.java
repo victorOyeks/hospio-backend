@@ -47,27 +47,28 @@ public class GuestNotices {
         if (Objects.equals(before.checkInDate(), after.checkInDate()) && Objects.equals(before.checkOutDate(), after.checkOutDate())) {
             return List.of();
         }
-        return tell(after, "Your stay has changed", Delivery.Kind.MESSAGE,
+        return tell(after, "Your stay has changed", Delivery.Kind.BOOKING_CHANGED,
                 first -> new Text("hospio_booking_changed",
                         List.of(first, after.reference(), "@hotel", DAY.format(after.checkInDate()), DAY.format(after.checkOutDate())),
                         "@hotel: Hello " + first + ", booking " + after.reference() + " is now " + DAY.format(after.checkInDate()) + " to "
                                 + DAY.format(after.checkOutDate()) + ". Reply here if that is not right."),
-                first -> "Hello " + first + ", your stay (" + after.reference()
-                + ") is now " + DAY.format(after.checkInDate()) + " to " + DAY.format(after.checkOutDate()) + ", " + after.nights()
-                + (after.nights() == 1 ? " night" : " nights") + (after.roomNumber() == null ? "" : ", room " + after.roomNumber())
-                + ". Reply to this message if that is not right.");
+                // "Label: value" lines become the email's details card (docs/email.md).
+                first -> "Hello " + first + ",\n\nYour stay has new dates.\n\nReference: " + after.reference()
+                        + "\nCheck-in: " + DAY.format(after.checkInDate()) + "\nCheck-out: " + DAY.format(after.checkOutDate())
+                        + "\nNights: " + after.nights() + (after.roomNumber() == null ? "" : "\nRoom: " + after.roomNumber())
+                        + "\n\nReply to this email if that is not right.");
     }
 
     public List<Delivery> cancelled(BookingResponse b) {
         String why = StringUtils.hasText(b.cancellationReason()) ? "Reason: " + b.cancellationReason().trim().replaceAll("[.\\s]+$", "") + "."
                 : "We hope to welcome you another time.";
-        return tell(b, "Your booking " + b.reference() + " is cancelled", Delivery.Kind.MESSAGE,
+        return tell(b, "Your booking " + b.reference() + " is cancelled", Delivery.Kind.BOOKING_CANCELLED,
                 first -> new Text("hospio_booking_cancelled", List.of(first, b.reference(), "@hotel", why),
                         "@hotel: Hello " + first + ", booking " + b.reference() + " has been cancelled. " + why),
-                first -> "Hello " + first
-                + ", your booking " + b.reference() + " (" + stay(b).replace("\n", ", ") + ") has been cancelled."
-                + (StringUtils.hasText(b.cancellationReason()) ? " Reason: " + b.cancellationReason() + "." : "")
-                + " Reply to this message if you have any questions.");
+                first -> "Hello " + first + ",\n\nYour booking has been cancelled.\n\nReference: " + b.reference()
+                        + "\nWas: " + DAY.format(b.checkInDate()) + " to " + DAY.format(b.checkOutDate())
+                        + (StringUtils.hasText(b.cancellationReason()) ? "\nReason: " + b.cancellationReason().trim() : "")
+                        + "\n\nReply to this email if you have any questions. We hope to welcome you another time.");
     }
 
     /** The WhatsApp side: its template and values, and the one-page SMS it falls back to. */
