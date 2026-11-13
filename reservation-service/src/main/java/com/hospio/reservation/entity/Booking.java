@@ -65,6 +65,10 @@ public class Booking extends TenantEntity {
     @lombok.Builder.Default
     private int children = 0;
 
+    /** When the guest expects to arrive, "15:30" (none for a walk-in checked in on the spot). */
+    @Column(name = "expected_arrival", length = 5)
+    private String expectedArrival;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @lombok.Builder.Default

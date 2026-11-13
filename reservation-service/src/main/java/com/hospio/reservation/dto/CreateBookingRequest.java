@@ -16,5 +16,5 @@ public record CreateBookingRequest(String guestId, GuestRequest guest, @NotBlank
                                    @NotNull LocalDate checkInDate, @NotNull LocalDate checkOutDate,
                                    Integer adults, Integer children, PriceKind priceKind, BigDecimal specialRate,
                                    PaymentPlan paymentPlan, String organizationId, String source, String notes,
-                                   Boolean walkIn) {
+                                   Boolean walkIn, String expectedArrival) {
 }
