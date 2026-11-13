@@ -43,7 +43,11 @@ class GuestNoticesTest {
         assertThat(sent).hasSize(1);
         assertThat(sent.get(0).channel()).isEqualTo(Delivery.Channel.WHATSAPP);
         assertThat(sent.get(0).to()).isEqualTo("+2348030000001");
-        assertThat(sent.get(0).text()).isEqualTo("Hello Ada, your stay (BK-1001) is now Sat 21 Nov to Tue 24 Nov, 3 nights. Reply to this message if that is not right.");
+        // WhatsApp goes as the approved template; its text is the one-page SMS it falls back to (@hotel = the hotel's name).
+        assertThat(sent.get(0).template()).isEqualTo("hospio_booking_changed");
+        assertThat(sent.get(0).params()).containsExactly("Ada", "BK-1001", "@hotel", "Sat 21 Nov", "Tue 24 Nov");
+        assertThat(sent.get(0).text()).isEqualTo("@hotel: Hello Ada, booking BK-1001 is now Sat 21 Nov to Tue 24 Nov. Reply here if that is not right.");
+        assertThat(com.hospio.common.delivery.SmsText.length(sent.get(0).text().replace("@hotel", "Royal Suites Ikeja Victoria Island"))).isLessThanOrEqualTo(160);
     }
 
     @Test

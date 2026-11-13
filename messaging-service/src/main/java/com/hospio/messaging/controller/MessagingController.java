@@ -36,12 +36,19 @@ public class MessagingController {
     private final NotificationService notifications;
     private final ConversationService conversations;
     private final GuestInboxService guests;
+    private final com.hospio.messaging.text.TextSender texts;
 
     /**
      * Mine. With {@code page} or {@code size}: a page (newest first, {@code from} 90 days back by default) with {@code counts.all} and
      * {@code counts.unread}; filters {@code unread}, {@code kind}, {@code q}, {@code from}, {@code to}. Without either: the old full list
      * (operations scripts read it), {@code unreadOnly} narrowing it.
      */
+    /** Which text channels go out here, and whether a code can go on WhatsApp (its template approved), for "Send on WhatsApp instead". */
+    @GetMapping("/channels")
+    public ApiResponse<java.util.Map<String, Boolean>> channels() {
+        return ApiResponse.ok(java.util.Map.of("sms", texts.smsLive(), "whatsapp", texts.live("WHATSAPP"), "whatsappCodes", texts.whatsAppTemplateReady("oyeks_otp")));
+    }
+
     @GetMapping("/notifications")
     public ApiResponse<?> notifications(@RequestParam(defaultValue = "false") boolean unreadOnly,
                                         @RequestParam(required = false) Boolean unread, @RequestParam(required = false) String kind,

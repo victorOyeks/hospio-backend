@@ -117,10 +117,12 @@ public class AuthController {
         return ApiResponse.ok("PIN set", null);
     }
 
-    @Operation(summary = "Send a 6-digit code to the signed-in person's phone (logged; no SMS yet)")
+    @Operation(summary = "Send a 6-digit code to the signed-in person's phone: by SMS, or {\"channel\":\"WHATSAPP\"} on WhatsApp "
+            + "(an SMS while the WhatsApp code template isn't approved)")
     @PostMapping("/phone/send-code")
-    public ApiResponse<PhoneCodeResponse> sendPhoneCode() {
-        return ApiResponse.ok("Code sent", phoneVerification.sendCode(CurrentUser.require().getUserId()));
+    public ApiResponse<PhoneCodeResponse> sendPhoneCode(@RequestBody(required = false) java.util.Map<String, String> body) {
+        boolean whatsApp = body != null && "WHATSAPP".equalsIgnoreCase(body.get("channel"));
+        return ApiResponse.ok("Code sent", phoneVerification.sendCode(CurrentUser.require().getUserId(), whatsApp));
     }
 
     @Operation(summary = "Confirm the phone with the code; 400 when wrong or expired")

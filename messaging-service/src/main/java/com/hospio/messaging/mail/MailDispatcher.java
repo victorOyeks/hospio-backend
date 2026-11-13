@@ -10,6 +10,7 @@ import com.hospio.messaging.repository.DeliveryRecordRepository;
 import com.hospio.messaging.repository.MessageRepository;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -23,7 +24,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * The one sender (docs/email.md). Every delivery is recorded; emails are laid out in the shared template and handed to the
  * SMTP relay on a worker thread after the record commits, with one retry on a transient failure. The answer (Message-ID
  * and reply line, or the error) goes on the record and, for a guest message, on the message. Nothing here throws back to
- * whoever asked: the action that wanted the email has already succeeded. SMS and WhatsApp are recorded as NOT_CONNECTED.
+ * whoever asked: the action that wanted the email has already succeeded. SMS and WhatsApp go the same way through
+ * {@link com.hospio.messaging.text.TextSender} (Infobip, docs/sms-whatsapp.md) when switched on, else are recorded as NOT_CONNECTED.
  */
 @Slf4j
 @Service
@@ -40,6 +42,7 @@ public class MailDispatcher {
     private final String defaultName;
     private final long retryDelayMs;
     private final long maxEventAgeMinutes;
+    private com.hospio.messaging.text.TextSender texts;
     private Executor executor = Executors.newFixedThreadPool(2, r -> {
         Thread t = new Thread(r, "mail-sender");
         t.setDaemon(true);
@@ -64,6 +67,12 @@ public class MailDispatcher {
         this.fromAddress = fromAddress;
         this.defaultName = defaultName;
         this.retryDelayMs = retryDelayMs;
+    }
+
+    /** SMS and WhatsApp (absent in the email-only tests: they are then recorded as NOT_CONNECTED). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setTexts(com.hospio.messaging.text.TextSender texts) {
+        this.texts = texts;
     }
 
     /** Tests run the send on the calling thread. */
@@ -100,8 +109,9 @@ public class MailDispatcher {
         try {
             String channel = e.getChannel() == null ? "EMAIL" : e.getChannel().toUpperCase();
             boolean email = "EMAIL".equals(channel);
-            From sender = email ? senderFor(e.getBusinessId(), e.getHotelId(), e.getFromName(), e.getReplyTo()) : new From(null, null);
-            DeliveryRecord.Status status = !email ? DeliveryRecord.Status.NOT_CONNECTED
+            boolean text = !email && texts != null && texts.live(channel);
+            From sender = email || text ? senderFor(e.getBusinessId(), e.getHotelId(), e.getFromName(), e.getReplyTo()) : new From(null, null);
+            DeliveryRecord.Status status = !email ? (text ? DeliveryRecord.Status.QUEUED : DeliveryRecord.Status.NOT_CONNECTED)
                     : !enabled ? DeliveryRecord.Status.DISABLED : DeliveryRecord.Status.QUEUED;
             DeliveryRecord saved = asSystem(() -> tx.execute(s -> {
                 if (e.getEventId() != null) {
@@ -119,7 +129,15 @@ public class MailDispatcher {
                 log.info("Delivery event {} already recorded; not sent again", e.getEventId());
                 return null;
             }
-            if (status == DeliveryRecord.Status.QUEUED) {
+            if (status == DeliveryRecord.Status.QUEUED && text) {
+                // @hotel in a WhatsApp template's values is the sending hotel's name, as an email's From name.
+                List<String> params = e.getParams() == null ? null
+                        : e.getParams().stream().map(p -> "@hotel".equals(p) ? sender.name() : p == null ? "" : p).toList();
+                String id = saved.getId();
+                String to = saved.getToAddress();
+                String body = e.getText() == null ? "" : e.getText().replace("@hotel", sender.name() == null ? "Hospio360" : sender.name());
+                afterCommit(() -> executor.execute(() -> deliverText(id, channel, to, body, e.getTemplate(), params)));
+            } else if (status == DeliveryRecord.Status.QUEUED) {
                 EmailTemplates.Rendered r = templates.render(e.getKind(), sender.name(), e.getSubject(), e.getText());
                 String html = notBlank(e.getHtml()) ? e.getHtml() : r.html();
                 SmtpGateway.Email mail = new SmtpGateway.Email(fromAddress, sender.name(), saved.getToAddress(), sender.replyTo(), r.subject(), html, r.text());
@@ -181,6 +199,46 @@ public class MailDispatcher {
                 } else {
                     r.setStatus(DeliveryRecord.Status.FAILED);
                     r.setError(cut(err, 500));
+                }
+                records.save(r);
+                follow(r);
+                return null;
+            }));
+        } catch (RuntimeException ex) {
+            log.error("Could not record the answer for delivery {}: {}", recordId, ex.getMessage());
+        }
+    }
+
+    /** Sends one SMS or WhatsApp (a WhatsApp without an approved template goes as an SMS) and records the answer. */
+    void deliverText(String recordId, String channel, String to, String text, String template, List<String> params) {
+        com.hospio.messaging.text.TextSender.Outcome out;
+        try {
+            out = texts.send(channel, to, text, template, params);
+        } catch (RuntimeException ex) {
+            out = new com.hospio.messaging.text.TextSender.Outcome(false, channel, null, ex.getClass().getSimpleName() + ": " + ex.getMessage());
+        }
+        com.hospio.messaging.text.TextSender.Outcome done = out;
+        if (done.sent()) {
+            log.info("{} to {} sent as {} {}{}", channel, to, done.channel(), done.providerRef(), done.note() == null ? "" : " (" + done.note() + ")");
+        } else {
+            log.warn("{} to {} not sent: {}", channel, to, done.note());
+        }
+        try {
+            asSystem(() -> tx.execute(s -> {
+                DeliveryRecord r = records.findById(recordId).orElse(null);
+                if (r == null) {
+                    return null;
+                }
+                r.setAttempts(r.getAttempts() + 1);
+                if (done.sent()) {
+                    r.setStatus(DeliveryRecord.Status.SENT);
+                    r.setSentAt(Instant.now());
+                    r.setProviderMessageId(cut(done.providerRef(), 255));
+                    // Sent, but not the way asked (a WhatsApp that went as an SMS): the reason stays on the record.
+                    r.setError(cut(done.note(), 500));
+                } else {
+                    r.setStatus(DeliveryRecord.Status.FAILED);
+                    r.setError(cut(done.note(), 500));
                 }
                 records.save(r);
                 follow(r);
