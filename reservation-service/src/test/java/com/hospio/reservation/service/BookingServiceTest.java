@@ -45,7 +45,8 @@ class BookingServiceTest {
     private final PropertyClient property = mock(PropertyClient.class);
     private final EventPublisher events = mock(EventPublisher.class);
     private final com.hospio.reservation.client.RoomReadiness readiness = mock(com.hospio.reservation.client.RoomReadiness.class);
-    private final BookingService service = new BookingService(bookings, guests, property, events, readiness);
+    private final BookingService service = new BookingService(bookings, guests, property, events, readiness,
+            mock(org.springframework.transaction.PlatformTransactionManager.class));
 
     private final LocalDate in = LocalDate.now().plusDays(1);
     private final LocalDate out = in.plusDays(3);
@@ -54,6 +55,8 @@ class BookingServiceTest {
     void setUp() {
         when(bookings.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(bookings.findByReference(anyString())).thenReturn(Optional.empty());
+        // The row lock reads the same booking the plain read does (each test stubs findById).
+        when(bookings.lockById(anyString())).thenAnswer(inv -> bookings.findById(inv.getArgument(0)));
         when(property.rooms("h1", "t1")).thenReturn(List.of(
                 new PropertyClient.RoomSummary("r1", "101", "t1", "Standard", true),
                 new PropertyClient.RoomSummary("r2", "102", "t1", "Standard", true)));
@@ -299,5 +302,103 @@ class BookingServiceTest {
         HospioUserDetails user = new HospioUserDetails("u1", "x@y.ng", "Victor", "b1", List.of("h1"), Map.of(role, level), JwtUtil.SCOPE_HOTEL);
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities()));
         TenantContext.set(Tenant.fromUser(user, "h1"));
+    }
+
+    // ---- the booking row is locked and its status read again before any change (scale audit 2026-11-13) ------------------------
+
+    private static final com.hospio.reservation.dto.CheckInRequest NO_EXTRAS = new com.hospio.reservation.dto.CheckInRequest(null, null, null, null, null, null, null);
+
+    @Test
+    void aSecondCheckInOfTheSameBookingIsRefusedAfterTheLockAndCountsTheStayOnce() {
+        var b = arrivalIn("r1");
+        // The first desk's check-in commits while the second waits on the row: the second reads it fresh, already checked in.
+        var checkedIn = stay("b1", "r1", b.getCheckInDate(), b.getCheckOutDate(), BookingStatus.CHECKED_IN);
+        org.mockito.Mockito.doReturn(Optional.of(checkedIn)).when(bookings).lockById("b1");
+
+        assertThatThrownBy(() -> service.checkIn("b1", NO_EXTRAS))
+                .isInstanceOf(com.hospio.common.exception.BadRequestException.class).hasMessage("This booking is checked in");
+        org.mockito.Mockito.verify(guests, org.mockito.Mockito.never()).countStay(any());
+        org.mockito.Mockito.verifyNoInteractions(events);
+    }
+
+    @Test
+    void checkInReadsPropertyAndHousekeepingBeforeTheRowLock() {
+        arrivalIn("r1");
+        when(readiness.isDirty("h1", "r1")).thenReturn(false);
+        var order = org.mockito.Mockito.inOrder(property, readiness, bookings);
+
+        service.checkIn("b1", NO_EXTRAS);
+
+        order.verify(property).room("r1");
+        order.verify(readiness).isDirty("h1", "r1");
+        order.verify(bookings).lockById("b1");
+        order.verify(bookings).lock("room:r1");
+    }
+
+    @Test
+    void aBookingChangedBetweenTheReadAndTheLockIsAConflict() {
+        var b = arrivalIn("r1");
+        var moved = stay("b1", "r2", b.getCheckInDate(), b.getCheckOutDate(), BookingStatus.BOOKED);
+        org.mockito.Mockito.doReturn(Optional.of(moved)).when(bookings).lockById("b1");
+
+        assertThatThrownBy(() -> service.checkIn("b1", NO_EXTRAS))
+                .isInstanceOf(ConflictException.class).hasMessage("Someone else changed this booking just now; reload and try again");
+    }
+
+    @Test
+    void cancellingAGuestWhoWasCheckedInMeanwhileIsRefused() {
+        var b = arrivalIn("r1");
+        org.mockito.Mockito.doReturn(Optional.of(stay("b1", "r1", b.getCheckInDate(), b.getCheckOutDate(), BookingStatus.CHECKED_IN))).when(bookings).lockById("b1");
+
+        assertThatThrownBy(() -> service.cancel("b1", new com.hospio.reservation.dto.CancelBookingRequest("no longer coming", false)))
+                .isInstanceOf(com.hospio.common.exception.BadRequestException.class).hasMessage("The guest is already in; check them out instead");
+        org.mockito.Mockito.verify(bookings, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void aSecondCheckOutIsRefusedAfterTheLock() {
+        var b = arrivalIn("r1");
+        org.mockito.Mockito.doReturn(Optional.of(stay("b1", "r1", b.getCheckInDate(), b.getCheckOutDate(), BookingStatus.CHECKED_OUT))).when(bookings).lockById("b1");
+
+        assertThatThrownBy(() -> service.checkOut("b1", new com.hospio.reservation.dto.CheckOutRequest(null, null, null)))
+                .isInstanceOf(com.hospio.common.exception.BadRequestException.class).hasMessage("The guest is not checked in");
+        org.mockito.Mockito.verifyNoInteractions(events);
+    }
+
+    @Test
+    void movingToARoomOfAnotherTypeLocksBothTypesInOrder() {
+        com.hospio.reservation.entity.Booking b = stay("mv", "r1", today.plusDays(1), today.plusDays(3), BookingStatus.BOOKED);
+        b.setRoomTypeId("t2");
+        when(bookings.findById("mv")).thenReturn(Optional.of(b));
+        when(property.room("r1")).thenReturn(new PropertyClient.RoomSummary("r1", "101", "t1", "Standard", true));
+        var order = org.mockito.Mockito.inOrder(property, bookings);
+
+        service.change("mv", new com.hospio.reservation.dto.ChangeBookingRequest(null, null, "r1", null, null));
+
+        order.verify(property).rooms("h1", "t1");
+        order.verify(bookings).lockById("mv");
+        order.verify(bookings).lock("h1:t1");
+        order.verify(bookings).lock("h1:t2");
+        org.mockito.Mockito.verify(bookings, org.mockito.Mockito.never()).lock("h1:null");
+        assertThat(b.getRoomTypeId()).isEqualTo("t1");
+    }
+
+    @Test
+    void theNightAuditLeavesAGuestCheckedInMeanwhileAlone() {
+        when(bookings.unresolvedArrivalIds("h1", today)).thenReturn(List.of("a", "b"));
+        org.mockito.Mockito.doReturn(Optional.of(stay("a", "r1", today, today.plusDays(1), BookingStatus.CHECKED_IN))).when(bookings).lockById("a");
+        org.mockito.Mockito.doReturn(Optional.of(stay("b", "r2", today, today.plusDays(1), BookingStatus.BOOKED))).when(bookings).lockById("b");
+
+        assertThat(service.markNoShows("h1", today)).isEqualTo(1);
+        org.mockito.Mockito.verify(bookings, org.mockito.Mockito.times(1)).save(any());
+    }
+
+    @Test
+    void thePlainListRefusesASpanOverThreeMonths() {
+        assertThatThrownBy(() -> service.list(today, today.plusDays(94), null))
+                .isInstanceOf(com.hospio.common.exception.BadRequestException.class)
+                .hasMessage("Choose at most 93 days between from and to, or ask for a page");
+        when(bookings.between(any(), any(), any(), any())).thenReturn(List.of());
+        assertThat(service.list(today, today.plusDays(93), null)).isEmpty();
     }
 }

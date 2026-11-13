@@ -241,20 +241,18 @@ public class OrganizationService {
 
     @Transactional(readOnly = true)
     public BigDecimal outstanding(String orgId) {
-        return Money.of(stays(orgId).stream().map(Folio::getBalance).reduce(BigDecimal.ZERO, BigDecimal::add));
+        return Money.of(folios.organizationBalance(get(orgId).getId()));
     }
 
     @Transactional
     public Invoice createInvoice(String orgId, InvoiceRequest request) {
         Organization org = get(orgId);
-        BigDecimal amount = stays(orgId).stream()
-                .filter(f -> !f.getOpenedAt().isBefore(request.periodFrom().atStartOfDay().toInstant(ZoneOffset.UTC))
-                        && f.getOpenedAt().isBefore(request.periodTo().plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC)))
-                .map(Folio::getBalance).reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (amount.signum() <= 0) {
+        BigDecimal amount = folios.organizationBalance(org.getId(), request.periodFrom().atStartOfDay().toInstant(ZoneOffset.UTC),
+                request.periodTo().plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC));
+        if (amount == null || amount.signum() <= 0) {
             throw new BadRequestException("Nothing to invoice for that period");
         }
-        String number = "INV-" + LocalDate.now().getYear() + "-" + String.format("%05d", invoices.countByHotelId(TenantContext.requireHotel()) + 1);
+        String number = nextInvoiceNumber(TenantContext.requireHotel());
         Invoice invoice = invoices.save(Invoice.builder().organizationId(orgId).number(number).periodFrom(request.periodFrom())
                 .periodTo(request.periodTo()).amount(Money.of(amount))
                 .dueDate(request.dueDate() == null ? LocalDate.now().plusDays(org.getPaymentTermsDays()) : request.dueDate())
@@ -262,6 +260,16 @@ public class OrganizationService {
         events.publish(KafkaTopics.INVOICE_ISSUED, InvoiceIssuedEvent.builder().invoiceId(invoice.getId()).organizationId(orgId)
                 .organizationName(org.getName()).amount(invoice.getAmount()).dueDate(invoice.getDueDate()).build());
         return invoice;
+    }
+
+    /**
+     * INV-&lt;year&gt;-NNNNN, the next after the hotel's highest this year. Taken under a per-hotel advisory lock held to commit, so two
+     * invoices at once wait for each other instead of both taking the same number; numbers are unique per hotel (hotel_id, number).
+     */
+    String nextInvoiceNumber(String hotelId) {
+        invoices.advisoryLock("inv-number:" + hotelId);
+        String prefix = "INV-" + LocalDate.now().getYear() + "-";
+        return prefix + String.format("%05d", invoices.lastNumber(hotelId, prefix) + 1);
     }
 
     @Transactional(readOnly = true)
@@ -276,7 +284,7 @@ public class OrganizationService {
                 .amount(Money.of(request.amount())).method(request.method()).reference(request.reference())
                 .recordedBy(CurrentUser.require().getUserId()).build());
         if (request.invoiceId() != null) {
-            Invoice invoice = invoices.findById(request.invoiceId()).orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+            Invoice invoice = invoices.lockById(request.invoiceId()).orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
             invoice.setPaidAmount(Money.add(invoice.getPaidAmount(), request.amount()));
             invoice.setStatus(invoice.getPaidAmount().compareTo(invoice.getAmount()) >= 0 ? Invoice.Status.PAID : Invoice.Status.PART_PAID);
             invoices.save(invoice);

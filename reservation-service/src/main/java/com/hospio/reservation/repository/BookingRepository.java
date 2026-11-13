@@ -5,13 +5,54 @@ import com.hospio.reservation.entity.Booking;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import jakarta.persistence.LockModeType;
+import java.math.BigDecimal;
+import java.time.Instant;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface BookingRepository extends JpaRepository<Booking, String> {
 
     Optional<Booking> findByReference(String reference);
+
+    /** The booking, its row locked until the transaction ends: every state change starts here, before its status checks. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select b from Booking b where b.id = :id")
+    Optional<Booking> lockById(@Param("id") String id);
+
+    /** The id for a reference (no entity loaded, so a following {@link #lockById} reads the row fresh). */
+    @Query("select b.id from Booking b where b.reference = :reference")
+    Optional<String> idByReference(@Param("reference") String reference);
+
+    /**
+     * Records that a payment or refund ({@code ref}) was applied to the booking; 1 when recorded now, 0 when it already was (or the
+     * booking does not exist). Written in the same transaction as {@link #addPaid}, so each payment counts once.
+     */
+    @Modifying
+    @Query(value = "insert into reservation.booking_payments (payment_ref, booking_id, business_id, hotel_id, amount) "
+            + "select :ref, b.id, b.business_id, b.hotel_id, :amount from reservation.bookings b where b.id = :id "
+            + "on conflict (payment_ref) do nothing", nativeQuery = true)
+    int recordPayment(@Param("ref") String ref, @Param("id") String bookingId, @Param("amount") BigDecimal amount);
+
+    /** Adds {@code delta} to what was paid (never below zero) in one statement, without loading the booking. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update Booking b set b.amountPaid = greatest(b.amountPaid + :delta, 0), b.version = b.version + 1, b.updatedAt = :now where b.id = :id")
+    int addPaid(@Param("id") String bookingId, @Param("delta") BigDecimal delta, @Param("now") Instant now);
+
+    /** Ids of BOOKED stays whose arrival date is on or before {@code date} (the night audit locks each before marking it). */
+    @Query("select b.id from Booking b where b.hotelId = :hotelId and b.status = 'BOOKED' and b.checkInDate <= :date")
+    List<String> unresolvedArrivalIds(@Param("hotelId") String hotelId, @Param("date") LocalDate date);
+
+    /** Room nights and their value over [from, toExclusive) for a business: only the nights inside the range, at each stay's rate. */
+    @Query(value = "select coalesce(sum(n), 0) as nights, coalesce(sum(n * coalesce(nightly_rate, 0)), 0) as value from ("
+            + "select greatest(0, least(b.check_out_date, :toExclusive) - greatest(b.check_in_date, :from)) as n, b.nightly_rate "
+            + "from reservation.bookings b where b.business_id = :businessId and b.status in ('BOOKED','CHECKED_IN','CHECKED_OUT') "
+            + "and b.check_in_date < :toExclusive and b.check_out_date > :from) s", nativeQuery = true)
+    List<Object[]> nightsInBusiness(@Param("businessId") String businessId, @Param("from") LocalDate from,
+                                    @Param("toExclusive") LocalDate toExclusive);
 
     List<Booking> findByHotelIdAndStatusOrderByCheckInDate(String hotelId, BookingStatus status);
 

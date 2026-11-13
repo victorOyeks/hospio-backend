@@ -6,7 +6,6 @@ import com.hospio.common.util.Money;
 import com.hospio.reservation.client.PropertyClient;
 import com.hospio.reservation.dto.AdminNightsResponse;
 import com.hospio.reservation.dto.HotelOverviewResponse;
-import com.hospio.reservation.entity.Booking;
 import com.hospio.reservation.repository.BookingRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -39,17 +38,10 @@ public class AdminOverviewService {
         if (from == null || to == null || to.isBefore(from)) {
             throw new BadRequestException("Give a from and to date, from first");
         }
-        LocalDate toExclusive = to.plusDays(1);
-        long nights = 0;
-        BigDecimal value = BigDecimal.ZERO;
-        for (Booking b : bookings.overlappingInBusiness(businessId, from, toExclusive)) {
-            LocalDate start = b.getCheckInDate().isAfter(from) ? b.getCheckInDate() : from;
-            LocalDate end = b.getCheckOutDate().isBefore(toExclusive) ? b.getCheckOutDate() : toExclusive;
-            long n = Math.max(0, ChronoUnit.DAYS.between(start, end));
-            nights += n;
-            BigDecimal rate = b.getNightlyRate() == null ? BigDecimal.ZERO : b.getNightlyRate();
-            value = value.add(rate.multiply(BigDecimal.valueOf(n)));
-        }
+        // Summed in SQL over the overlapping nights only: nothing is loaded per booking.
+        Object[] row = bookings.nightsInBusiness(businessId, from, to.plusDays(1)).stream().findFirst().orElse(new Object[] {0L, BigDecimal.ZERO});
+        long nights = row[0] == null ? 0 : ((Number) row[0]).longValue();
+        BigDecimal value = row[1] == null ? BigDecimal.ZERO : new BigDecimal(row[1].toString());
         return new AdminNightsResponse(nights, Money.of(value));
     }
 

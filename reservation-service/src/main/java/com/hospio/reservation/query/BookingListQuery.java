@@ -27,6 +27,11 @@ public class BookingListQuery {
             return new Filter(businessId, hotelId, q, null, null, from, to, arrivingFrom, arrivingTo, guestId, today);
         }
 
+        /** The scope and the list's date window only (no search, status, view or guest). */
+        public Filter windowOnly() {
+            return new Filter(businessId, hotelId, null, null, null, from, to, arrivingFrom, arrivingTo, null, today);
+        }
+
         public Filter scopeOnly() {
             return new Filter(businessId, hotelId, null, null, null, null, null, null, null, null, today);
         }
@@ -83,33 +88,41 @@ public class BookingListQuery {
     }
 
     /**
-     * The cards above the list over the scope only (business or hotel): what is booked and not cancelled, what is still unpaid (company
-     * stays aside), and today's arrivals split into checked in and still to arrive.
+     * The cards above the list. Booked value and unpaid are over the scope (business or hotel) within the list's date window
+     * ({@code from/to}, {@code arrivingFrom/arrivingTo}; none on the screens, so the whole history as before), never narrowed by the search,
+     * status or view, so switching tabs never changes them. Today's arrivals, paid this month and in-house owing are over the scope too, but
+     * read only the stays that can count for them (leaving on or after the first of the month, or still checked in), not the whole history.
      */
     public Map<String, BigDecimal> totals(Filter f) {
-        MapSqlParameterSource p = new MapSqlParameterSource();
-        String where = where(f.scopeOnly(), p, true);
-        p.addValue("today", f.today());
-        p.addValue("ms", f.today().withDayOfMonth(1)).addValue("me", f.today().withDayOfMonth(f.today().lengthOfMonth()));
         String live = "status not in ('CANCELLED', 'NO_SHOW')";
         String owes = "payment_plan <> 'ORGANIZATION' and total_amount - amount_paid > 0";
-        String sql = "select coalesce(sum(total_amount) filter (where " + live + " and price_kind <> 'COMPLIMENTARY'), 0) \"booked\", "
+        Map<String, BigDecimal> out = new LinkedHashMap<>();
+        MapSqlParameterSource p = new MapSqlParameterSource();
+        String window = where(f.windowOnly(), p, true);
+        read("select coalesce(sum(total_amount) filter (where " + live + " and price_kind <> 'COMPLIMENTARY'), 0) \"booked\", "
                 + "count(*) filter (where " + live + ") \"bookedCount\", "
                 + "coalesce(sum(greatest(total_amount - amount_paid, 0)) filter (where " + live + " and payment_plan <> 'ORGANIZATION'), 0) \"unpaid\", "
-                + "count(*) filter (where " + live + " and payment_plan <> 'ORGANIZATION' and total_amount - amount_paid > 0) \"unpaidCount\", "
-                + "count(*) filter (where " + view("arrivals") + " and status = 'CHECKED_IN') \"arrivalsCheckedIn\", "
+                + "count(*) filter (where " + live + " and payment_plan <> 'ORGANIZATION' and total_amount - amount_paid > 0) \"unpaidCount\" "
+                + "from bookings b" + window, p, out);
+        MapSqlParameterSource p2 = new MapSqlParameterSource();
+        String recent = where(f.scopeOnly(), p2, true) + " and (b.check_out_date >= :ms or b.status = 'CHECKED_IN')";
+        p2.addValue("today", f.today());
+        p2.addValue("ms", f.today().withDayOfMonth(1)).addValue("me", f.today().withDayOfMonth(f.today().lengthOfMonth()));
+        read("select count(*) filter (where " + view("arrivals") + " and status = 'CHECKED_IN') \"arrivalsCheckedIn\", "
                 + "count(*) filter (where " + view("arrivals") + " and status = 'BOOKED') \"arrivalsToCome\", "
                 + "coalesce(sum(amount_paid) filter (where status <> 'CANCELLED' and check_in_date <= :me and check_out_date >= :ms), 0) \"paidThisMonth\", "
                 + "coalesce(sum(total_amount - amount_paid) filter (where status = 'CHECKED_IN' and " + owes + "), 0) \"inHouseUnpaid\", "
-                + "count(*) filter (where status = 'CHECKED_IN' and " + owes + ") \"inHouseUnpaidCount\" from bookings b" + where;
-        Map<String, BigDecimal> out = new LinkedHashMap<>();
+                + "count(*) filter (where status = 'CHECKED_IN' and " + owes + ") \"inHouseUnpaidCount\" from bookings b" + recent, p2, out);
+        return out;
+    }
+
+    private void read(String sql, MapSqlParameterSource p, Map<String, BigDecimal> out) {
         jdbc.query(sql, p, rs -> {
             var md = rs.getMetaData();
             for (int i = 1; i <= md.getColumnCount(); i++) {
                 out.put(md.getColumnLabel(i), rs.getBigDecimal(i));
             }
         });
-        return out;
     }
 
     /** The view as SQL over {@code :today} (the same rules the screens used on the whole list). */

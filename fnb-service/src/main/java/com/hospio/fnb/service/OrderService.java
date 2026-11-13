@@ -1,6 +1,7 @@
 package com.hospio.fnb.service;
 
 import com.hospio.common.exception.BadRequestException;
+import com.hospio.common.exception.ConflictException;
 import com.hospio.common.exception.ForbiddenException;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.kafka.EventPublisher;
@@ -202,14 +203,16 @@ public class OrderService {
     @Transactional(noRollbackFor = BadRequestException.class)
     public OrderResponse addLine(String orderId, OrderRequest.LineRequest line) {
         HospioUserDetails user = CurrentUser.require();
-        Order o = find(orderId);
+        // The hotel's settings come over HTTP, so before the lock; then the order is locked and checked. A line can't land on an order a
+        // payment or charge-to-room is settling (it would never be billed), and two lines at once can't both pass the tab limit.
+        OutletSettings.Settings s = settings.get(peek(orderId).getHotelId());
+        Order o = lock(orderId);
         Outlet outlet = outlet(o.getOutletId());
         requireTake(user, outlet, o.getKind());
         requireLive(o);
         if (o.isSettled()) {
             throw new BadRequestException("This order is already settled. Start a new one");
         }
-        OutletSettings.Settings s = settings.get(o.getHotelId());
         OrderLine fresh = newLine(outlet, line, s);
         List<OrderLine> existing = new ArrayList<>(lines.findByOrderIdOrderByCreatedAt(orderId));
         checkTabLimit(user, o, outlet, existing, List.of(fresh), s);
@@ -225,7 +228,7 @@ public class OrderService {
     @Transactional
     public OrderResponse send(String orderId) {
         HospioUserDetails user = CurrentUser.require();
-        Order o = find(orderId);
+        Order o = lock(orderId);
         requireTake(user, outlet(o.getOutletId()), o.getKind());
         requireLive(o);
         List<OrderLine> all = lines.findByOrderIdOrderByCreatedAt(orderId);
@@ -249,7 +252,7 @@ public class OrderService {
     /** Order-level status for the kitchen or bar: sent, ready, served or closed. Cancelling has its own route (it needs a reason). */
     @Transactional
     public OrderResponse setStatus(String orderId, Order.Status status) {
-        Order o = find(orderId);
+        Order o = lock(orderId);
         Outlet outlet = outlet(o.getOutletId());
         requireWorks(CurrentUser.require(), outlet);
         if (status == Order.Status.CANCELLED) {
@@ -291,7 +294,7 @@ public class OrderService {
     /** One dish or drink is ready or served; the order becomes READY when every live line is, SERVED when all are served. */
     @Transactional
     public OrderResponse setLineStatus(String orderId, String lineId, OrderLine.Status status) {
-        Order o = find(orderId);
+        Order o = lock(orderId);
         Outlet outlet = outlet(o.getOutletId());
         requireWorks(CurrentUser.require(), outlet);
         if (status != OrderLine.Status.READY && status != OrderLine.Status.SERVED) {
@@ -328,7 +331,8 @@ public class OrderService {
     @Transactional
     public OrderResponse cancelLine(String orderId, String lineId, String reason) {
         HospioUserDetails user = CurrentUser.require();
-        Order o = find(orderId);
+        OutletSettings.Settings s = settings.get(peek(orderId).getHotelId());
+        Order o = lock(orderId);
         Outlet outlet = outlet(o.getOutletId());
         requireLive(o);
         if (o.isSettled()) {
@@ -349,7 +353,7 @@ public class OrderService {
         l.setCancelledBy(user.getUserId());
         l.setCancelledByName(user.getFullName());
         lines.save(l);
-        recalc(o, settings.get(o.getHotelId()));
+        recalc(o, s);
         if (o.getPaidAmount().compareTo(o.getTotal()) > 0) {
             // Rolled back: the money already taken would be more than the order is worth.
             throw new BadRequestException(naira(o.getPaidAmount()) + " is already paid on " + o.getNumber() + ". A manager refunds before taking items off");
@@ -365,7 +369,7 @@ public class OrderService {
     @Transactional
     public OrderResponse cancel(String orderId, String reason) {
         HospioUserDetails user = CurrentUser.require();
-        Order o = find(orderId);
+        Order o = lock(orderId);
         Outlet outlet = outlet(o.getOutletId());
         requireLive(o);
         if (o.isSettled()) {
@@ -398,14 +402,25 @@ public class OrderService {
     @Transactional
     public OrderResponse chargeToRoom(String orderId, String roomId) {
         HospioUserDetails user = CurrentUser.require();
-        Order o = find(orderId);
-        Outlet outlet = outlet(o.getOutletId());
+        // Settings, the stay and the folio are other services: asked first, from a peek that loads nothing. Then the order is locked and
+        // every check on it made again, so a card payment and a charge to the room can't both settle it.
+        OrderRepository.Peek p = peek(orderId);
+        Outlet outlet = outlet(p.getOutletId());
         if (!OutletAccess.works(user, outlet) && !OutletAccess.frontOffice(user)) {
             throw new ForbiddenException("This order belongs to the " + outlet.getName());
         }
-        if (!settings.get(o.getHotelId()).roomCharge()) {
+        if (!settings.get(p.getHotelId()).roomCharge()) {
             throw new BadRequestException("Charging to a room is switched off for this hotel");
         }
+        String room = roomId == null ? p.getRoomId() : roomId;
+        if (room == null) {
+            throw new BadRequestException("Choose the room");
+        }
+        ReservationClient.ActiveStay stay = stayOf(room, room.equals(p.getRoomId()) ? p.getRoomNumber() : null);
+        if (!folios.hasOpenFolio(stay.bookingId())) {
+            throw new BadRequestException("Room " + label(room, stay.roomNumber()) + " has no open bill");
+        }
+        Order o = lock(orderId);
         requireLive(o);
         if (o.isSettled()) {
             throw new BadRequestException("This order is already settled");
@@ -413,13 +428,8 @@ public class OrderService {
         if (!Money.isPositive(o.getTotal()) || !Money.isPositive(o.getTotal().subtract(o.getPaidAmount()))) {
             throw new BadRequestException("There is nothing to charge");
         }
-        String room = roomId == null ? o.getRoomId() : roomId;
-        if (room == null) {
-            throw new BadRequestException("Choose the room");
-        }
-        ReservationClient.ActiveStay stay = stayOf(room, room.equals(o.getRoomId()) ? o.getRoomNumber() : null);
-        if (!folios.hasOpenFolio(stay.bookingId())) {
-            throw new BadRequestException("Room " + label(room, stay.roomNumber()) + " has no open bill");
+        if (roomId == null && !room.equals(o.getRoomId())) {
+            throw new ConflictException("The order's room changed just now; reload and try again");
         }
         o.setRoomId(room);
         o.setRoomNumber(stay.roomNumber());
@@ -458,12 +468,13 @@ public class OrderService {
     /** As above, keeping the terminal's or bank's {@code reference}; the taker is the event's actor (the tenant bound for it). */
     @Transactional
     public void applyPayment(String orderId, String paymentId, String method, BigDecimal amount, String reference) {
-        if (orderPayments.existsByPaymentId(paymentId)) {
-            return;
-        }
-        Order o = orders.findById(orderId).orElse(null);
+        // Locked first: a payment and a charge to the room (or the same payment delivered twice) settle the order one after the other.
+        Order o = orders.lockById(orderId).orElse(null);
         if (o == null) {
             log.warn("Payment {} is for order {} which this hotel doesn't have", paymentId, orderId);
+            return;
+        }
+        if (orderPayments.existsByPaymentId(paymentId)) {
             return;
         }
         Tenant actor = TenantContext.current().orElse(null);
@@ -508,7 +519,7 @@ public class OrderService {
     /** The internal "paid" route: the whole balance was paid by {@code method} (CASH when not said). */
     @Transactional
     public OrderResponse markPaid(String orderId, String paymentId, String method) {
-        Order o = find(orderId);
+        Order o = lock(orderId);
         BigDecimal due = o.getTotal().subtract(o.getPaidAmount());
         applyPayment(orderId, paymentId, method, due.signum() > 0 ? due : BigDecimal.ZERO);
         return getInternal(orderId);
@@ -516,7 +527,7 @@ public class OrderService {
 
     @Transactional
     public OrderResponse moveTable(String orderId, String tableId) {
-        Order o = find(orderId);
+        Order o = lock(orderId);
         Outlet outlet = outlet(o.getOutletId());
         requireWorks(CurrentUser.require(), outlet);
         requireLive(o);
@@ -726,6 +737,15 @@ public class OrderService {
 
     private Outlet outlet(String id) {
         return outlets.findById(id).orElseThrow(() -> new ResourceNotFoundException("Outlet not found"));
+    }
+
+    /** The order with its row locked for the rest of the transaction: taken before any status, settled or limit check. */
+    private Order lock(String id) {
+        return orders.lockById(id).orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+    }
+
+    private OrderRepository.Peek peek(String id) {
+        return orders.peek(id).orElseThrow(() -> new ResourceNotFoundException("Order not found"));
     }
 
     private Order find(String id) {
