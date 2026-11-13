@@ -15,6 +15,8 @@ public interface CommInvoiceRepository extends JpaRepository<CommInvoice, String
 
     Optional<CommInvoice> findByPaymentReference(String reference);
 
+    Optional<CommInvoice> findByNumber(String number);
+
     List<CommInvoice> findByStatusAndDueOnBefore(CommInvoice.Status status, LocalDate day);
 
     List<CommInvoice> findByHotelIdAndStatusIn(String hotelId, Collection<CommInvoice.Status> statuses);
