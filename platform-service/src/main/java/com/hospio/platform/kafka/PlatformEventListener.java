@@ -17,6 +17,8 @@ import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Every action → activity log (card 12). This listener subscribes to every topic; each event is
@@ -34,8 +36,12 @@ public class PlatformEventListener {
     private final PlatformDomainEvents domain;
     private final TenantBinder tenant;
 
+    /**
+     * Three consumers share the topics' partitions (one consumer for every topic was the bottleneck). The live board's Redis bump runs
+     * after the commit, outside the transaction, so a slow Redis never holds the database connection or rolls the log line back.
+     */
     @Transactional
-    @KafkaListener(topics = "#{T(com.hospio.common.kafka.KafkaTopics).ALL_ARRAY}")
+    @KafkaListener(topics = "#{T(com.hospio.common.kafka.KafkaTopics).ALL_ARRAY}", concurrency = "${hospio.platform.events.concurrency:3}")
     public void onAnyEvent(@Payload HospioEvent event, @Header(KafkaHeaders.RECEIVED_TOPIC) String topic) {
         tenant.bind(event);
         try {
@@ -51,13 +57,29 @@ public class PlatformEventListener {
             } catch (Exception e) {
                 log.warn("Admin portal rules not applied for {} {}: {}", event.type(), event.getEventId(), e.getMessage());
             }
-            try {
-                live.bump(topic, event);
-            } catch (Exception e) {
-                log.warn("Live board not updated for {}: {}", topic, e.getMessage());
-            }
+            afterCommit(() -> {
+                try {
+                    live.bump(topic, event);
+                } catch (Exception e) {
+                    log.warn("Live board not updated for {}: {}", topic, e.getMessage());
+                }
+            });
         } finally {
             TenantContext.clear();
+        }
+    }
+
+    /** Runs the work once the surrounding transaction has committed (straight away when there is none). */
+    static void afterCommit(Runnable work) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    work.run();
+                }
+            });
+        } else {
+            work.run();
         }
     }
 }

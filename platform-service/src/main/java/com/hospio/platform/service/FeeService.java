@@ -146,7 +146,15 @@ public class FeeService {
     /** Statements of one business, for the Money tab and the overview. */
     @Transactional(readOnly = true)
     public List<FeeStatementResponse> statementsOf(String businessId) {
-        return feeStatements.findByBusinessIdOrderByMonthDesc(businessId).stream().map(s -> toResponse(s, feePayments.findByStatementIdOrderByPaidOnAsc(s.getId()))).toList();
+        List<FeeStatement> list = feeStatements.findByBusinessIdOrderByMonthDesc(businessId);
+        Map<String, List<FeePayment>> byStatement = new HashMap<>();
+        if (!list.isEmpty()) {
+            // All their payments in one query, not one per statement.
+            for (FeePayment p : feePayments.findByStatementIdInOrderByPaidOnAsc(list.stream().map(FeeStatement::getId).toList())) {
+                byStatement.computeIfAbsent(p.getStatementId(), k -> new ArrayList<>()).add(p);
+            }
+        }
+        return list.stream().map(s -> toResponse(s, byStatement.getOrDefault(s.getId(), List.of()))).toList();
     }
 
     /**
@@ -289,7 +297,8 @@ public class FeeService {
         if (request.amount() == null || request.amount().signum() <= 0) {
             throw new BadRequestException("The amount must be more than zero");
         }
-        FeeStatement s = find(statementId);
+        // Locked until commit: two payments recorded at once each add to what the other left, none is lost.
+        FeeStatement s = feeStatements.lockById(statementId).orElseThrow(() -> new ResourceNotFoundException("Statement not found"));
         HospioUserDetails user = CurrentUser.require();
         feePayments.save(FeePayment.builder().businessId(s.getBusinessId()).statementId(s.getId()).amount(Money.of(request.amount()))
                 .paidOn(request.paidOn() == null ? LocalDate.now(LAGOS) : request.paidOn()).reference(request.reference())
@@ -350,16 +359,16 @@ public class FeeService {
     public int markOverdue() {
         int graceDays = settings.fees().graceDays();
         LocalDate today = LocalDate.now(LAGOS);
-        int flipped = 0;
-        for (FeeStatement s : feeStatements.findByStatusIn(List.of("DUE", "PART_PAID"))) {
-            String next = status(s, today, graceDays);
-            if (!next.equals(s.getStatus())) {
-                s.setStatus(next);
-                feeStatements.save(s);
-                flipped++;
-            }
-        }
-        return flipped;
+        Instant now = Instant.now();
+        // The same rule as status(): settled ones are PAID; past dueOn + grace days with money owed is OVERDUE. Guarded updates, so a
+        // payment recorded meanwhile is seen by the row check rather than overwritten by a status read earlier.
+        feeStatements.markSettled(now);
+        return feeStatements.markOverdue(overdueCutoff(today, graceDays), now);
+    }
+
+    /** today.isAfter(dueOn + grace) ⇔ dueOn < today − grace. */
+    static LocalDate overdueCutoff(LocalDate today, int graceDays) {
+        return today.minusDays(graceDays);
     }
 
     @Transactional(readOnly = true)
@@ -370,18 +379,20 @@ public class FeeService {
     /** Sum of what is still owed on statements in the given statuses (dashboard). */
     @Transactional(readOnly = true)
     public BigDecimal outstanding(Set<String> statuses) {
-        return Money.of(feeStatements.findByStatusIn(statuses).stream().map(FeeStatement::outstanding).reduce(BigDecimal.ZERO, BigDecimal::add));
+        BigDecimal sum = feeStatements.sumOutstanding(statuses);
+        return Money.of(sum == null ? BigDecimal.ZERO : sum);
     }
 
     /** Fees billed for a month: the platform's recurring revenue. */
     @Transactional(readOnly = true)
     public BigDecimal billed(YearMonth month) {
-        return Money.of(feeStatements.findByMonth(month.toString()).stream().map(FeeStatement::getFeeAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
+        BigDecimal sum = feeStatements.sumBilled(month.toString());
+        return Money.of(sum == null ? BigDecimal.ZERO : sum);
     }
 
     @Transactional(readOnly = true)
     public long overdueCount(String businessId) {
-        return feeStatements.findByBusinessIdAndStatusIn(businessId, List.of("OVERDUE")).size();
+        return feeStatements.countByBusinessIdAndStatus(businessId, "OVERDUE");
     }
 
     // ---- commissions on statements -------------------------------------------------------------------

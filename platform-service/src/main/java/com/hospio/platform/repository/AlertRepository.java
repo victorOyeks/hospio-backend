@@ -8,6 +8,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface AlertRepository extends JpaRepository<Alert, String> {
     List<Alert> findByDismissedAtIsNullOrderByOpenedAtDesc();
 
+    /** The newest open alerts, as many as the page asks (the dashboard's ten), without reading every open one. */
+    List<Alert> findByDismissedAtIsNullOrderByOpenedAtDesc(org.springframework.data.domain.Pageable page);
+
     List<Alert> findByBusinessIdOrderByOpenedAtDesc(String businessId);
 
     List<Alert> findByBusinessIdAndDismissedAtIsNullOrderByOpenedAtDesc(String businessId);

@@ -8,6 +8,7 @@ import com.hospio.common.exception.ForbiddenException;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.kafka.EventPublisher;
 import com.hospio.common.kafka.KafkaTopics;
+import com.hospio.common.kafka.events.DeliveryRequestedEvent;
 import com.hospio.common.kafka.events.NoticeEvent;
 import com.hospio.common.security.CurrentUser;
 import com.hospio.common.security.HospioUserDetails;
@@ -139,15 +140,27 @@ public class ReportScheduleService {
                 () -> run(schedule, ZonedDateTime.now(LAGOS), false));
     }
 
-    /** The job: every schedule that is due runs once and moves to its next time. */
+    /**
+     * The job: every schedule that is due runs once and moves to its next time. Each due schedule is claimed first (next_run_at moved on
+     * only if it still holds what was read), so with several instances running the job only the one that claims it sends it.
+     */
     public int runDue() {
         List<Report> due = TenantContext.runWith(Tenant.system("report-schedules"),
                 () -> reports.findByStatusAndNextRunAtLessThanEqual("SCHEDULED", Instant.now()));
         int ran = 0;
         for (Report schedule : due) {
             try {
+                ZonedDateTime now = ZonedDateTime.now(LAGOS);
+                Instant next = nextRun(schedule.getSchedule(), sendAt(schedule.getSendAt()), now.plusMinutes(1));
+                boolean mine = TenantContext.runWith(Tenant.systemFor(schedule.getBusinessId(), null, "system", "Hospio"),
+                        () -> reports.claim(schedule.getId(), schedule.getNextRunAt(), next, Instant.now()) == 1);
+                if (!mine) {
+                    log.debug("Report schedule {} was taken by another instance", schedule.getId());
+                    continue;
+                }
+                schedule.setNextRunAt(next);
                 TenantContext.runWith(Tenant.systemFor(schedule.getBusinessId(), null, "system", "Hospio"),
-                        () -> run(schedule, ZonedDateTime.now(LAGOS), true));
+                        () -> run(schedule, now, true));
                 ran++;
             } catch (RuntimeException e) {
                 log.warn("Report schedule {} did not run: {}", schedule.getId(), e.getMessage());
@@ -158,25 +171,28 @@ public class ReportScheduleService {
 
     // ---- running ---------------------------------------------------------------------------------
 
-    private Run run(Report schedule, ZonedDateTime now, boolean advance) {
+    /**
+     * One run. {@code scheduled} is the job's run, already claimed (next_run_at moved on by {@link #runDue}): its notices and email carry
+     * ids made from the schedule and period, so a run repeated for the same period is recognised downstream. "Run now" keeps fresh ids.
+     */
+    private Run run(Report schedule, ZonedDateTime now, boolean scheduled) {
         LocalDate[] period = period(schedule.getSchedule(), now.toLocalDate());
         Report ready = reports.saveAndFlush(Report.builder().businessId(schedule.getBusinessId()).hotelId(schedule.getHotelId())
                 .kind(schedule.getKind()).name(schedule.getName()).status("READY").periodFrom(period[0]).periodTo(period[1])
                 .scheduleId(schedule.getId()).requestedBy(schedule.getRequestedBy()).requestedByName(schedule.getRequestedByName()).build());
         schedule.setLastRunAt(Instant.now());
-        if (advance) {
-            schedule.setNextRunAt(nextRun(schedule.getSchedule(), sendAt(schedule.getSendAt()), now.plusMinutes(1)));
-        }
         reports.saveAndFlush(schedule);
 
         String label = periodLabel(period[0], period[1]);
         String title = schedule.getName() + " · " + label + " is ready";
-        events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().kind("REPORT").title(title).body("Open it to read or download")
+        events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().eventId(scheduled ? runId(schedule, period, "notice:owner") : null).kind("REPORT")
+                .title(title).body("Open it to read or download")
                 .link(link(schedule, period, schedule.getHotelId())).businessId(schedule.getBusinessId())
                 .userIds(List.of(schedule.getRequestedBy())).build());
         if (schedule.getRecipients() != null && schedule.getRecipients().contains("MANAGERS")) {
             for (String hotelId : hotelsOf(schedule)) {
-                events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().kind("REPORT").title(title)
+                events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().eventId(scheduled ? runId(schedule, period, "notice:" + hotelId) : null)
+                        .kind("REPORT").title(title)
                         .body("Sent by " + schedule.getRequestedByName() + " · your hotel only").link(link(schedule, period, hotelId))
                         .businessId(schedule.getBusinessId()).hotelId(hotelId).roles(List.of(Role.MANAGER.name())).build());
             }
@@ -186,7 +202,22 @@ public class ReportScheduleService {
                 "Hello " + c.fullName() + ",\n\nYour " + schedule.getName().toLowerCase(Locale.ROOT) + " for " + label + " is ready.\n\n"
                         + "Open it in Hospio360: Reports → " + schedule.getName() + "\n\n" + absolute(link(schedule, period, schedule.getHotelId())) + "\n",
                 Delivery.Kind.DAILY_REPORT, ready.getId())));
+        if (scheduled) {
+            // Published with a stable event id (schedule + period), so messaging sends the email once even if the run is repeated.
+            for (Delivery d : out) {
+                events.publish(KafkaTopics.DELIVERY_REQUESTED, DeliveryRequestedEvent.builder().eventId(runId(schedule, period, "email:" + d.to()))
+                        .businessId(schedule.getBusinessId()).channel(d.channel().name()).to(d.to()).subject(d.subject()).text(d.text())
+                        .kind(d.kind().name()).ref(d.ref()).build());
+            }
+            return new Run(ready, out);
+        }
         return new Run(ready, deliveries.send(out));
+    }
+
+    /** A 36-character id fixed by the schedule, the period it covers and what is sent (scheduleId:periodFrom:what). */
+    static String runId(Report schedule, LocalDate[] period, String what) {
+        return java.util.UUID.nameUUIDFromBytes((schedule.getId() + ":" + period[0] + ":" + what).getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .toString();
     }
 
     public record Emailed(String to, List<Delivery> deliveries) {

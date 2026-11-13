@@ -34,11 +34,9 @@ public class ActivityLogService {
     private final ActivityEntryRepository entries;
     private final ObjectMapper objectMapper;
 
+    /** Logs the event once (insert … on conflict (event_id) do nothing: no read first). True when this call wrote it. */
     @Transactional
-    public void record(String topic, HospioEvent event) {
-        if (event.getEventId() != null && entries.findByEventId(event.getEventId()).isPresent()) {
-            return;
-        }
+    public boolean record(String topic, HospioEvent event) {
         String payload;
         try {
             payload = objectMapper.writeValueAsString(event);
@@ -46,10 +44,15 @@ public class ActivityLogService {
             payload = null;
         }
         String summary = event.summary();
-        entries.save(ActivityEntry.builder().businessId(event.getBusinessId()).hotelId(event.getHotelId()).eventId(event.getEventId())
-                .eventType(event.type()).topic(topic).actorId(event.getActorId()).actorName(event.getActorName())
-                .summary(summary == null ? event.type() : (summary.length() > 500 ? summary.substring(0, 500) : summary))
-                .payload(payload).occurredAt(event.getOccurredAt() == null ? Instant.now() : event.getOccurredAt()).build());
+        Instant now = Instant.now();
+        return entries.insertOnce(java.util.UUID.randomUUID().toString(), event.getBusinessId(), event.getHotelId(), event.getEventId(),
+                trim(event.type(), 60), trim(topic, 80), event.getActorId(), trim(event.getActorName(), 150),
+                summary == null ? trim(event.type(), 500) : trim(summary, 500), payload,
+                event.getOccurredAt() == null ? now : event.getOccurredAt(), now) > 0;
+    }
+
+    private static String trim(String s, int max) {
+        return s == null || s.length() <= max ? s : s.substring(0, max);
     }
 
     /** The largest page the activity log answers (exports read it 200 at a time). */

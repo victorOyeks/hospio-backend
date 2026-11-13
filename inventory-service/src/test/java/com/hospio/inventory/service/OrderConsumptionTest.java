@@ -64,6 +64,9 @@ class OrderConsumptionTest {
         item("chicken", "Chicken", "1");
         when(levels.findByItemIdAndStoreId("rice", "kitchen")).thenReturn(Optional.of(rice));
         when(levels.findByItemIdAndStoreId("chicken", "kitchen")).thenReturn(Optional.of(chicken));
+        // Every stock change reads its level through the row lock (created at zero on first use).
+        when(levels.lockLevel(any(), any(), eq("rice"), eq("kitchen"))).thenReturn(rice);
+        when(levels.lockLevel(any(), any(), eq("chicken"), eq("kitchen"))).thenReturn(chicken);
         when(levels.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(movements.save(any())).thenAnswer(inv -> {
             recorded.add(inv.getArgument(0));
@@ -99,6 +102,21 @@ class OrderConsumptionTest {
         assertThat(recorded.get(0).getReference()).isEqualTo("ORDER-o1");
         assertThat(recorded.get(0).getQuantity()).isEqualByComparingTo("-0.60");
         assertThat(rice.getQuantity()).isEqualByComparingTo("9.40");
+    }
+
+    @Test
+    void locksTheLevelsBeforeDrawingAndReadsEachThroughTheRowLock() {
+        service.onOrderSettled(order(dish("Jollof", 1, "rice", "0.2")));
+
+        verify(levels).lockLevels(java.util.Set.of("rice"), List.of("kitchen"));
+        verify(levels).lockLevel(any(), any(), eq("rice"), eq("kitchen"));
+        verify(levels, never()).findByItemIdAndStoreId("rice", "kitchen");
+    }
+
+    @Test
+    void orderNumbersAreOneAfterTheYearsHighest() {
+        assertThat(InventoryService.orderNumber("2026", 0)).isEqualTo("PO-2026-00001");
+        assertThat(InventoryService.orderNumber("2026", 41)).isEqualTo("PO-2026-00042");
     }
 
     @Test
