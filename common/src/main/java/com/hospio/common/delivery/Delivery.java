@@ -15,7 +15,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record Delivery(Channel channel, String to, String subject, String text, Kind kind, String ref, String status,
-                       @JsonIgnore String hotelId, @JsonIgnore String businessId) {
+                       @JsonIgnore String hotelId, @JsonIgnore String businessId,
+                       @JsonIgnore String template, @JsonIgnore java.util.List<String> params) {
 
     public enum Channel { EMAIL, SMS, WHATSAPP }
 
@@ -27,9 +28,18 @@ public record Delivery(Channel channel, String to, String subject, String text, 
     /** The echo's status values (see the class comment). */
     public static final String EMAIL_SENT = "EMAIL_SENT";
     public static final String NOT_CONNECTED = "NOT_CONNECTED";
+    /** An SMS handed to the SMS provider (docs/sms-whatsapp.md). */
+    public static final String SMS_SENT = "SMS_SENT";
+    /** A WhatsApp handed to the sender: its approved template, else the same text by SMS. */
+    public static final String WHATSAPP_SENT = "WHATSAPP_SENT";
 
     public Delivery(Channel channel, String to, String subject, String text, Kind kind, String ref) {
-        this(channel, to, subject, text, kind, ref, null, null, null);
+        this(channel, to, subject, text, kind, ref, null, null, null, null, null);
+    }
+
+    public Delivery(Channel channel, String to, String subject, String text, Kind kind, String ref, String status,
+                    String hotelId, String businessId) {
+        this(channel, to, subject, text, kind, ref, status, hotelId, businessId, null, null);
     }
 
     public static Delivery email(String to, String subject, String text, Kind kind, String ref) {
@@ -46,10 +56,19 @@ public record Delivery(Channel channel, String to, String subject, String text, 
 
     /** The same message, from this hotel (its name is the From name, its email the Reply-To). Nulls keep the caller's context. */
     public Delivery from(String businessId, String hotelId) {
-        return new Delivery(channel, to, subject, text, kind, ref, status, hotelId, businessId);
+        return new Delivery(channel, to, subject, text, kind, ref, status, hotelId, businessId, template, params);
     }
 
     public Delivery withStatus(String status) {
-        return new Delivery(channel, to, subject, text, kind, ref, status, hotelId, businessId);
+        return new Delivery(channel, to, subject, text, kind, ref, status, hotelId, businessId, template, params);
+    }
+
+    /**
+     * The approved WhatsApp template this message goes as, with its placeholder values in order ({@code @hotel} is filled
+     * with the sending hotel's name by messaging-service). Without an approved template a WhatsApp goes as an SMS of
+     * {@code text}, so the text must always read well on its own.
+     */
+    public Delivery withTemplate(String template, java.util.List<String> params) {
+        return new Delivery(channel, to, subject, text, kind, ref, status, hotelId, businessId, template, params);
     }
 }

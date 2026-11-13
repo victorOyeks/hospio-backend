@@ -28,6 +28,9 @@ public class DeliveryRequestedEvent extends HospioEvent {
     private String fromName;
     private String replyTo;
     private String html;
+    /** WhatsApp only: the approved template and its placeholder values in order ({@code @hotel} = the hotel's name). */
+    private String template;
+    private java.util.List<String> params;
 
     @Override
     public String summary() {

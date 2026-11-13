@@ -74,7 +74,17 @@ public class MessagingEventListener {
             if (e.getGuestEmail() != null && !e.getGuestEmail().isBlank()) {
                 outbound.queue(NotificationChannel.EMAIL, e.getGuestEmail().trim(), "Your receipt", body, "RECEIPT", "RECEIPT-E-" + e.getPaymentId());
             } else if (e.getGuestPhone() != null && !e.getGuestPhone().isBlank()) {
-                outbound.queue(NotificationChannel.WHATSAPP, e.getGuestPhone(), "Receipt", body, "RECEIPT", "RECEIPT-W-" + e.getPaymentId());
+                // WhatsApp as the approved hospio_payment_receipt template (an SMS of the same text until it is approved).
+                String first = nz(e.getGuestName()).trim().split("\\s+")[0];
+                mail.accept(com.hospio.common.kafka.events.DeliveryRequestedEvent.builder()
+                        .eventId(java.util.UUID.nameUUIDFromBytes(("RECEIPT-W-" + e.getPaymentId()).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString())
+                        .occurredAt(e.getOccurredAt()).businessId(e.getBusinessId()).hotelId(e.getHotelId()).channel("WHATSAPP")
+                        .to(e.getGuestPhone()).subject("Receipt").text(body).kind("RECEIPT").ref(e.getPaymentId())
+                        .template("hospio_payment_receipt")
+                        .params(java.util.List.of(first.isBlank() ? "there" : first, "@hotel", naira(e.getAmount()),
+                                !nz(e.getProviderRef()).isBlank() ? e.getProviderRef()
+                                        : nz(e.getPaymentId()).length() >= 8 ? e.getPaymentId().substring(0, 8).toUpperCase() : nz(e.getPaymentId())))
+                        .build());
             }
             return null;
         });
@@ -379,4 +389,5 @@ public class MessagingEventListener {
     static boolean sendsReceipt(String preference) {
         return preference == null || !(preference.equalsIgnoreCase("NONE") || preference.equalsIgnoreCase("NEVER"));
     }
+
 }

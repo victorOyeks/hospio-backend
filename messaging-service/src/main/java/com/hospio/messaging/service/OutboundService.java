@@ -83,10 +83,12 @@ public class OutboundService {
                 MessageChannel channel = channels.get(m.getChannel());
                 m.setAttempts(m.getAttempts() + 1);
                 try {
-                    if (m.getChannel() == NotificationChannel.EMAIL) {
-                        // Email has one sender (docs/email.md): it records the delivery and sends through SMTP after this commits.
+                    if (m.getChannel() == NotificationChannel.EMAIL || m.getChannel() == NotificationChannel.SMS
+                            || m.getChannel() == NotificationChannel.WHATSAPP) {
+                        // One sender for email, SMS and WhatsApp (docs/email.md, docs/sms-whatsapp.md): it records the delivery and
+                        // sends after this commits. A WhatsApp here has no template, so it goes as an SMS of the same text.
                         var record = mail.accept(com.hospio.common.kafka.events.DeliveryRequestedEvent.builder().eventId(m.getId()).occurredAt(m.getCreatedAt())
-                                .businessId(m.getBusinessId()).hotelId(m.getHotelId()).channel("EMAIL").to(m.getRecipient())
+                                .businessId(m.getBusinessId()).hotelId(m.getHotelId()).channel(m.getChannel().name()).to(m.getRecipient())
                                 .subject(m.getSubject()).text(m.getBody()).kind(m.getKind()).ref(m.getReference()).build());
                         m.setProviderRef(record == null ? null : "delivery:" + record.getId());
                     } else if (channel == null) {

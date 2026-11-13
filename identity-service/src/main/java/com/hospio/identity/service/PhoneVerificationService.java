@@ -49,12 +49,18 @@ public class PhoneVerificationService {
 
     @Transactional
     public PhoneCodeResponse sendCode(String userId) {
+        return sendCode(userId, false);
+    }
+
+    /** {@code whatsApp}: the code goes on WhatsApp ("Send on WhatsApp instead"), else by SMS. */
+    @Transactional
+    public PhoneCodeResponse sendCode(String userId, boolean whatsApp) {
         return TenantContext.runWith(Tenant.system("phone-code"), () -> {
             UserAccount user = find(userId);
             if (!StringUtils.hasText(user.getPhone())) {
                 throw new BadRequestException("Add a phone number first");
             }
-            return issue(user);
+            return issue(user, whatsApp);
         });
     }
 
@@ -64,6 +70,11 @@ public class PhoneVerificationService {
      */
     @Transactional
     public PhoneCodeResponse issue(UserAccount user) {
+        return issue(user, false);
+    }
+
+    @Transactional
+    public PhoneCodeResponse issue(UserAccount user, boolean whatsApp) {
         if (!StringUtils.hasText(user.getPhone())) {
             return null;
         }
@@ -74,7 +85,7 @@ public class PhoneVerificationService {
         user.setPhoneCodeAttempts(0);
         users.save(user);
         log.info("Phone verification code for {} ({}): {} (valid until {})", user.getEmail(), user.getPhone(), code, expires);
-        List<Delivery> sent = deliveryService.send(composer.forPhoneCode(user, code, expires));
+        List<Delivery> sent = deliveryService.send(composer.forPhoneCode(user, code, expires, whatsApp));
         return new PhoneCodeResponse(expires, sent);
     }
 

@@ -59,6 +59,21 @@ jwt:
 hospio:
   deliveries:
     echo: ${DELIVERIES_ECHO:false}
+  # SMS and WhatsApp through Infobip (docs/sms-whatsapp.md). Off unless switched on; the key comes from the environment.
+  sms:
+    enabled: ${SMS_ENABLED:false}
+  whatsapp:
+    enabled: ${WHATSAPP_ENABLED:false}
+    language: ${WHATSAPP_LANGUAGE:en}
+  infobip:
+    base-url: ${INFOBIP_BASE_URL:}
+    api-key: ${INFOBIP_API_KEY:}
+    # The approved alphanumeric sender (e.g. Hospio360); empty uses Infobip's default until it is approved.
+    sms-sender: ${INFOBIP_SMS_SENDER:}
+    whatsapp-sender: ${INFOBIP_WHATSAPP_SENDER:}
+  texts:
+    # Comma-separated numbers: when set, only these receive SMS/WhatsApp (staging), everyone else is held back.
+    allow-only: ${TEXTS_ALLOW_ONLY:}
   mail:
     enabled: ${MAIL_ENABLED:false}
     from-address: ${MAIL_FROM_ADDRESS:no-reply@hospio360.com}

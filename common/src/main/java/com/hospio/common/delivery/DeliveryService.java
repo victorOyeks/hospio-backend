@@ -56,14 +56,18 @@ public class DeliveryService {
             if (raw == null) {
                 continue;
             }
-            Delivery d = marked(raw);
+            // An SMS is one page; the echo shows exactly what the phone gets (docs/sms-whatsapp.md).
+            Delivery d = marked(raw.channel() == Delivery.Channel.SMS
+                    ? new Delivery(raw.channel(), raw.to(), raw.subject(), SmsText.fit(raw.text()), raw.kind(), raw.ref(), raw.status(),
+                    raw.hotelId(), raw.businessId(), raw.template(), raw.params())
+                    : raw);
             out.add(d);
             try {
                 if (events != null) {
                     events.publish(KafkaTopics.DELIVERY_REQUESTED, DeliveryRequestedEvent.builder()
                             .businessId(d.businessId()).hotelId(d.hotelId())
                             .channel(d.channel().name()).to(d.to()).subject(d.subject()).text(d.text())
-                            .kind(d.kind().name()).ref(d.ref()).build());
+                            .kind(d.kind().name()).ref(d.ref()).template(d.template()).params(d.params()).build());
                 }
                 log.info("Delivery {} to {} via {} ({}){}", d.kind(), d.to(), d.channel(), d.status(), echo ? " echoed in the response" : "");
             } catch (RuntimeException e) {

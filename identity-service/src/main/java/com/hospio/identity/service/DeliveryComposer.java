@@ -65,10 +65,8 @@ public class DeliveryComposer {
                             + (inviteExpiresAt == null ? "" : "\nThe link works until " + WHEN.format(inviteExpiresAt) + ".\n"),
                     Delivery.Kind.INVITE, user.getId()));
             if (StringUtils.hasText(user.getPhone())) {
-                out.add(Delivery.sms(user.getPhone(),
-                        "Hospio360: " + user.getFullName() + ", set your password here: " + link
-                                + (inviteExpiresAt == null ? "" : " (until " + WHEN.format(inviteExpiresAt) + ")"),
-                        Delivery.Kind.INVITE, user.getId()));
+                // One SMS page: the link (about 95 characters) must stay whole, so the words around it are few.
+                out.add(Delivery.sms(user.getPhone(), "Hospio360: set your password here " + link, Delivery.Kind.INVITE, user.getId()));
             }
         }
         return out;
@@ -86,18 +84,27 @@ public class DeliveryComposer {
                 Delivery.Kind.PASSWORD_RESET, user.getId()));
         if (StringUtils.hasText(user.getPhone())) {
             out.add(Delivery.sms(user.getPhone(),
-                    "Hospio360: your password was reset. Temporary password: " + temporaryPassword
-                            + (expiresAt == null ? "" : " (until " + WHEN.format(expiresAt) + ")") + ". Sign in at " + appUrl(roles),
+                    "Hospio360: password reset. Temporary password: " + temporaryPassword + " - change it when you sign in at " + appUrl(roles),
                     Delivery.Kind.PASSWORD_RESET, user.getId()));
         }
         return out;
     }
 
     public Delivery forPhoneCode(UserAccount user, String code, Instant expiresAt) {
-        return Delivery.sms(user.getPhone(),
-                "Your Hospio360 code is " + code + ". It works for the next "
-                        + Math.max(1, java.time.Duration.between(Instant.now(), expiresAt).toMinutes()) + " minutes.",
-                Delivery.Kind.PHONE_CODE, user.getId());
+        return forPhoneCode(user, code, expiresAt, false);
+    }
+
+    /**
+     * The phone code by SMS, or on WhatsApp as the oyeks_otp code template ("<code> is your verification code") with the
+     * same short text as its SMS fallback (docs/sms-whatsapp.md).
+     */
+    public Delivery forPhoneCode(UserAccount user, String code, Instant expiresAt, boolean whatsApp) {
+        String text = "Your Hospio360 code is " + code + ". It works for the next "
+                + Math.max(1, java.time.Duration.between(Instant.now(), expiresAt).toMinutes()) + " minutes. Don't share it.";
+        return whatsApp
+                ? Delivery.whatsApp(user.getPhone(), "Your Hospio360 code", text, Delivery.Kind.PHONE_CODE, user.getId())
+                        .withTemplate("oyeks_otp", List.of(code))
+                : Delivery.sms(user.getPhone(), text, Delivery.Kind.PHONE_CODE, user.getId());
     }
 
     private static String trimSlash(String url) {
