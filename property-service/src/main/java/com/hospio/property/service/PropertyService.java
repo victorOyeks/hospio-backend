@@ -347,6 +347,14 @@ public class PropertyService {
     }
 
     @Transactional
+    public RoomResponse roomNote(String id, String note) {
+        Room room = findRoom(id);
+        room.setNotes(note == null || note.isBlank() ? null : note.trim());
+        rooms.save(room);
+        return toResponse(room, findType(room.getRoomTypeId()));
+    }
+
+    @Transactional
     public RoomResponse backInService(String id) {
         Room room = findRoom(id);
         room.setStatus(Room.Status.IN_SERVICE);
