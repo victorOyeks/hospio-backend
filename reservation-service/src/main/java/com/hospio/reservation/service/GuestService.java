@@ -18,7 +18,11 @@ public class GuestService {
 
     @Transactional(readOnly = true)
     public List<Guest> search(String query) {
-        return guests.search(TenantContext.requireBusiness(), query == null ? "" : query.trim());
+        String q = query == null ? "" : query.trim();
+        String d = GuestRules.digits(q);
+        // From the 10th-last digit: "08031110001" and "2348031110001" both look for "8031110001".
+        String digits = d.length() < 6 ? "" : d.length() > 10 ? d.substring(d.length() - 10) : d.replaceFirst("^0", "");
+        return guests.search(TenantContext.requireBusiness(), q, digits);
     }
 
     @Transactional(readOnly = true)
