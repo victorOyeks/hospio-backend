@@ -4,9 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.messaging.mail.EmailTemplates;
 import java.time.Duration;
-import java.time.Instant;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -23,11 +20,9 @@ public class HotelBrandClient {
 
     private static final Duration TTL = Duration.ofMinutes(10);
 
-    private record Cached(EmailTemplates.Brand brand, Instant at) {
-    }
-
     private final RestClient restClient;
-    private final Map<String, Cached> cache = new ConcurrentHashMap<>();
+    /** At most 10,000 hotels; a failed read falls back to Hospio360's look and is retried after 30 seconds. */
+    private final TtlCache<EmailTemplates.Brand> cache = new TtlCache<>(10_000, TTL, Duration.ofSeconds(30));
 
     public HotelBrandClient(@Value("${services.hotelconfig.url}") String hotelConfigUrl, JwtUtil jwtUtil,
                             @Value("${services.internal.api-key}") String internalApiKey) {
@@ -38,21 +33,16 @@ public class HotelBrandClient {
         if (hotelId == null || hotelId.isBlank()) {
             return EmailTemplates.Brand.HOSPIO;
         }
-        Cached c = cache.get(hotelId);
-        if (c != null && c.at().plus(TTL).isAfter(Instant.now())) {
-            return c.brand();
-        }
-        EmailTemplates.Brand brand = EmailTemplates.Brand.HOSPIO;
-        try {
-            JsonNode body = restClient.get().uri("/internal/settings/BRAND?hotelId={id}", hotelId).retrieve().body(JsonNode.class);
-            JsonNode d = body == null ? null : body.path("data");
-            if (d != null && d.isObject()) {
-                brand = EmailTemplates.Brand.of(d.path("primaryColour").asText(null), d.path("logoUrl").asText(null));
+        return cache.get(hotelId, () -> {
+            try {
+                JsonNode body = restClient.get().uri("/internal/settings/BRAND?hotelId={id}", hotelId).retrieve().body(JsonNode.class);
+                JsonNode d = body == null ? null : body.path("data");
+                return TtlCache.Loaded.ok(d != null && d.isObject() ? EmailTemplates.Brand.of(d.path("primaryColour").asText(null), d.path("logoUrl").asText(null))
+                        : EmailTemplates.Brand.HOSPIO);
+            } catch (Exception e) {
+                log.warn("Could not read hotel {}'s brand from hotel-config: {}", hotelId, e.getMessage());
+                return TtlCache.Loaded.failed(EmailTemplates.Brand.HOSPIO);
             }
-        } catch (Exception e) {
-            log.warn("Could not read hotel {}'s brand from hotel-config: {}", hotelId, e.getMessage());
-        }
-        cache.put(hotelId, new Cached(brand, Instant.now()));
-        return brand;
+        });
     }
 }

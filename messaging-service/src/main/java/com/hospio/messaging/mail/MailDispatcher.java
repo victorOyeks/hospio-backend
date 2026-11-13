@@ -8,12 +8,16 @@ import com.hospio.messaging.entity.DeliveryRecord;
 import com.hospio.messaging.entity.Message;
 import com.hospio.messaging.repository.DeliveryRecordRepository;
 import com.hospio.messaging.repository.MessageRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -21,15 +25,27 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The one sender (docs/email.md). Every delivery is recorded; emails are laid out in the shared template and handed to the
- * SMTP relay on a worker thread after the record commits, with one retry on a transient failure. The answer (Message-ID
- * and reply line, or the error) goes on the record and, for a guest message, on the message. Nothing here throws back to
- * whoever asked: the action that wanted the email has already succeeded. SMS and WhatsApp go the same way through
+ * The one sender (docs/email.md). Every delivery is recorded, and the {@code deliveries} table is the send queue: {@link #accept}
+ * only writes the row (QUEUED with what to send) and returns, so the Kafka listener never waits on SMTP or another service
+ * and nothing waits in memory. Workers claim due rows with {@code FOR UPDATE SKIP LOCKED} (any number of instances, no row
+ * twice), lease them for a few minutes, send outside any transaction, and write the answer (Message-ID and reply line, or the
+ * error) on the record and, for a guest message, on the message. A transient failure is retried with back-off; a worker that
+ * dies mid-send lets its lease run out and the row is picked up again. Nothing here throws back to whoever asked: the action
+ * that wanted the email has already succeeded. SMS and WhatsApp go the same way through
  * {@link com.hospio.messaging.text.TextSender} (Infobip, docs/sms-whatsapp.md) when switched on, else are recorded as NOT_CONNECTED.
  */
 @Slf4j
 @Service
 public class MailDispatcher {
+
+    /** Kinds whose content goes stale (a code, a temporary password, a reset or invite link): never sent once old. */
+    public static final Set<String> EXPIRING_KINDS = Set.of("PHONE_CODE", "TEMP_PASSWORD", "PASSWORD_RESET", "INVITE");
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final int BATCH = 20;
+    private static final int MAX_ROUNDS = 50;
+    /** How long a claimed row is a worker's own; longer than any send (SMTP and Infobip time out within a minute). */
+    private static final Duration LEASE = Duration.ofMinutes(5);
 
     private final DeliveryRecordRepository records;
     private final MessageRepository messages;
@@ -42,14 +58,20 @@ public class MailDispatcher {
     private final String defaultName;
     private final long retryDelayMs;
     private final long maxEventAgeMinutes;
+    private final int maxAttempts;
+    private final long maxBacklogHours;
     private com.hospio.messaging.text.TextSender texts;
     private com.hospio.messaging.client.HotelBrandClient brands;
     private com.hospio.messaging.billing.CommBilling billing;
-    private Executor executor = Executors.newFixedThreadPool(2, r -> {
+    /**
+     * Two sender threads; a "kick" asks one of them to drain the queue. At most one kick waits (the queue holds one), the
+     * rest are dropped: a waiting drain will find their rows anyway, and the poll picks up anything left.
+     */
+    private Executor executor = new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1), r -> {
         Thread t = new Thread(r, "mail-sender");
         t.setDaemon(true);
         return t;
-    });
+    }, new ThreadPoolExecutor.DiscardPolicy());
 
     public MailDispatcher(DeliveryRecordRepository records, MessageRepository messages, TenantClient tenants, EmailTemplates templates,
                           SmtpGateway smtp, TransactionTemplate tx,
@@ -57,7 +79,9 @@ public class MailDispatcher {
                           @Value("${hospio.mail.from-address:no-reply@hospio360.com}") String fromAddress,
                           @Value("${hospio.mail.from-name-default:Hospio360}") String defaultName,
                           @Value("${hospio.mail.retry-delay-ms:5000}") long retryDelayMs,
-                          @Value("${hospio.mail.max-event-age-minutes:30}") long maxEventAgeMinutes) {
+                          @Value("${hospio.mail.max-event-age-minutes:30}") long maxEventAgeMinutes,
+                          @Value("${hospio.mail.max-attempts:3}") int maxAttempts,
+                          @Value("${hospio.mail.max-backlog-hours:48}") long maxBacklogHours) {
         this.maxEventAgeMinutes = maxEventAgeMinutes;
         this.records = records;
         this.messages = messages;
@@ -69,6 +93,8 @@ public class MailDispatcher {
         this.fromAddress = fromAddress;
         this.defaultName = defaultName;
         this.retryDelayMs = retryDelayMs;
+        this.maxAttempts = Math.max(1, maxAttempts);
+        this.maxBacklogHours = maxBacklogHours;
     }
 
     /** SMS and WhatsApp (absent in the email-only tests: they are then recorded as NOT_CONNECTED). */
@@ -89,9 +115,14 @@ public class MailDispatcher {
         this.billing = billing;
     }
 
-    /** Tests run the send on the calling thread. */
+    /** Tests drain the queue on the calling thread. */
     void runInline() {
         this.executor = Runnable::run;
+    }
+
+    /** Tests: who runs a drain (a no-op executor leaves rows queued). */
+    void runOn(Executor executor) {
+        this.executor = executor;
     }
 
     /** Who an email is from: the display name and the Reply-To address (null when there is none). */
@@ -112,19 +143,23 @@ public class MailDispatcher {
         return new From(name, notBlank(reply) ? reply : null);
     }
 
-    /** Records the delivery and, for an email, sends it on the worker after the record commits. Never throws. */
+    /**
+     * Records the delivery and returns: an email (or a live SMS / WhatsApp) is QUEUED with what to send, and a worker sends it
+     * after this commits. No call to another service happens here (the From name and brand are looked up by the worker), so a
+     * listener transaction never waits on HTTP. Never throws.
+     */
     public DeliveryRecord accept(DeliveryRequestedEvent e) {
-        // A delivery asked for long ago (a replayed topic, a new consumer group reading from the start) is never sent:
-        // the temporary password or link in it is stale, and the person already saw the action's answer at the time.
-        if (e.getOccurredAt() != null && e.getOccurredAt().isBefore(Instant.now().minus(maxEventAgeMinutes, ChronoUnit.MINUTES))) {
-            log.info("Delivery {} to {} from {} is older than {} minutes; not sent", e.getKind(), e.getTo(), e.getOccurredAt(), maxEventAgeMinutes);
+        if (tooOld(e.getKind(), e.getOccurredAt())) {
+            // A code, temporary password or link asked for long ago (a replayed topic, a new consumer group reading from the
+            // start) is never sent: it is stale, and the person already saw the action's answer at the time. Other kinds (a
+            // receipt, an invoice) still go after consumer lag, up to max-backlog-hours.
+            log.info("Delivery {} to {} from {} is too old to send; not sent", e.getKind(), e.getTo(), e.getOccurredAt());
             return null;
         }
         try {
             String channel = e.getChannel() == null ? "EMAIL" : e.getChannel().toUpperCase();
             boolean email = "EMAIL".equals(channel);
             boolean text = !email && texts != null && texts.live(channel);
-            From sender = email || text ? senderFor(e.getBusinessId(), e.getHotelId(), e.getFromName(), e.getReplyTo()) : new From(null, null);
             DeliveryRecord.Status wanted = !email ? (text ? DeliveryRecord.Status.QUEUED : DeliveryRecord.Status.NOT_CONNECTED)
                     : !enabled ? DeliveryRecord.Status.DISABLED : DeliveryRecord.Status.QUEUED;
             // A message the hotel pays for goes only while its guest-message service is on and not suspended.
@@ -134,6 +169,8 @@ public class MailDispatcher {
             if (status == DeliveryRecord.Status.SKIPPED) {
                 log.info("{} {} to {} not sent: {}", channel, e.getKind(), e.getTo(), gate.reason());
             }
+            boolean queued = status == DeliveryRecord.Status.QUEUED;
+            String params = queued && text && e.getParams() != null ? json(e.getParams()) : null;
             DeliveryRecord saved = asSystem(() -> tx.execute(s -> {
                 if (e.getEventId() != null) {
                     Optional<DeliveryRecord> existing = records.findByEventId(e.getEventId());
@@ -141,30 +178,22 @@ public class MailDispatcher {
                         return null;
                     }
                 }
+                // from_name / reply_to hold the caller's overrides until the worker resolves the hotel's own.
                 return records.save(DeliveryRecord.builder().eventId(e.getEventId()).businessId(e.getBusinessId()).hotelId(e.getHotelId())
                         .channel(channel).toAddress(cut(e.getTo() == null ? "" : e.getTo().trim(), 255)).subject(cut(e.getSubject(), 300))
-                        .kind(cut(e.getKind(), 40)).ref(cut(e.getRef(), 80)).fromName(cut(sender.name(), 200)).replyTo(cut(sender.replyTo(), 255))
-                        .status(status).billable(gate.billable() && gate.allowed()).error(gate.allowed() ? null : cut(gate.reason(), 500)).build());
+                        .kind(cut(e.getKind(), 40)).ref(cut(e.getRef(), 80)).fromName(cut(trimmed(e.getFromName()), 200))
+                        .replyTo(cut(trimmed(e.getReplyTo()), 255)).status(status).billable(gate.billable() && gate.allowed())
+                        .error(gate.allowed() ? null : cut(gate.reason(), 500))
+                        .nextAttemptAt(queued ? Instant.now() : null).bodyText(queued ? nz(e.getText()) : null)
+                        .bodyHtml(queued && email && notBlank(e.getHtml()) ? e.getHtml() : null)
+                        .waTemplate(queued && text ? cut(e.getTemplate(), 100) : null).waParams(params).build());
             }));
             if (saved == null) {
                 log.info("Delivery event {} already recorded; not sent again", e.getEventId());
                 return null;
             }
-            if (status == DeliveryRecord.Status.QUEUED && text) {
-                // @hotel in a WhatsApp template's values is the sending hotel's name, as an email's From name.
-                List<String> params = e.getParams() == null ? null
-                        : e.getParams().stream().map(p -> "@hotel".equals(p) ? sender.name() : p == null ? "" : p).toList();
-                String id = saved.getId();
-                String to = saved.getToAddress();
-                String body = e.getText() == null ? "" : e.getText().replace("@hotel", sender.name() == null ? "Hospio360" : sender.name());
-                afterCommit(() -> executor.execute(() -> deliverText(id, channel, to, body, e.getTemplate(), params)));
-            } else if (status == DeliveryRecord.Status.QUEUED) {
-                EmailTemplates.Rendered r = templates.render(e.getKind(), sender.name(), e.getSubject(), e.getText(),
-                        brands == null ? EmailTemplates.Brand.HOSPIO : brands.brand(e.getHotelId()));
-                String html = notBlank(e.getHtml()) ? e.getHtml() : r.html();
-                SmtpGateway.Email mail = new SmtpGateway.Email(fromAddress, sender.name(), saved.getToAddress(), sender.replyTo(), r.subject(), html, r.text());
-                String id = saved.getId();
-                afterCommit(() -> executor.execute(() -> deliver(id, mail)));
+            if (queued) {
+                afterCommit(this::kick);
             } else {
                 follow(saved);
             }
@@ -175,102 +204,195 @@ public class MailDispatcher {
         }
     }
 
-    /** Sends one email: one retry on a transient failure, then the answer goes on the record. */
-    void deliver(String recordId, SmtpGateway.Email mail) {
-        int attempts = 0;
-        SmtpGateway.Accepted accepted = null;
-        String error = null;
-        while (attempts < 2) {
-            attempts++;
-            try {
-                accepted = smtp.send(mail);
-                error = null;
-                break;
-            } catch (SmtpGateway.SendFailure f) {
-                error = f.getMessage();
-                if (!f.isTransient() || attempts >= 2) {
-                    break;
+    /** Codes, passwords and links expire after max-event-age-minutes; anything else after max-backlog-hours (a replayed topic). */
+    private boolean tooOld(String kind, Instant at) {
+        if (at == null) {
+            return false;
+        }
+        Duration limit = kind != null && EXPIRING_KINDS.contains(kind.toUpperCase(java.util.Locale.ROOT)) ? Duration.ofMinutes(maxEventAgeMinutes)
+                : Duration.ofHours(maxBacklogHours);
+        return at.isBefore(Instant.now().minus(limit));
+    }
+
+    /** Asks a sender thread to drain the queue (dropped when one is already waiting to). */
+    void kick() {
+        try {
+            executor.execute(this::drain);
+        } catch (RuntimeException ex) {
+            log.warn("Could not start a sender: {}", ex.getMessage());
+        }
+    }
+
+    /** Every few seconds: anything due (a retry after its back-off, a lease that ran out, rows written by another instance). */
+    @Scheduled(fixedDelayString = "${hospio.mail.poll-interval-ms:5000}", initialDelayString = "${hospio.mail.poll-initial-delay-ms:15000}")
+    public void poll() {
+        kick();
+    }
+
+    /** Claims due deliveries a batch at a time and sends them, until none is due. Safe on any number of threads and instances. */
+    public void drain() {
+        try {
+            for (int round = 0; round < MAX_ROUNDS; round++) {
+                List<String> ids = claim();
+                if (ids.isEmpty()) {
+                    return;
                 }
-                log.warn("Email to {} failed ({}); trying once more", mail.to(), error);
-                sleep(retryDelayMs);
-            } catch (RuntimeException ex) {
-                error = ex.getClass().getSimpleName() + ": " + ex.getMessage();
-                break;
+                for (String id : ids) {
+                    process(id);
+                }
             }
+        } catch (RuntimeException ex) {
+            log.warn("Delivery queue not drained: {}", ex.getMessage());
         }
-        int tries = attempts;
-        SmtpGateway.Accepted ok = accepted;
-        String err = error;
-        if (ok != null) {
-            log.info("Email to {} accepted: {} {}", mail.to(), ok.messageId(), ok.reply());
+    }
+
+    /** A short transaction: lock up to a batch of due rows (skipping rows others hold) and lease them to this worker. */
+    private List<String> claim() {
+        List<String> ids = asSystem(() -> tx.execute(s -> {
+            Instant now = Instant.now();
+            List<String> due = records.lockDue(now, BATCH);
+            if (due != null && !due.isEmpty()) {
+                records.lease(due, now.plus(LEASE));
+            }
+            return due;
+        }));
+        return ids == null ? List.of() : ids;
+    }
+
+    /** What one send came to. */
+    private record Result(boolean sent, boolean retry, String via, String providerRef, String error, From from) {
+    }
+
+    /** Sends one claimed delivery (outside any transaction) and writes the answer. */
+    void process(String recordId) {
+        DeliveryRecord r;
+        try {
+            r = asSystem(() -> records.findById(recordId)).orElse(null);
+        } catch (RuntimeException ex) {
+            log.warn("Delivery {} could not be read: {}", recordId, ex.getMessage());
+            return;
+        }
+        if (r == null || r.getStatus() != DeliveryRecord.Status.QUEUED) {
+            return;
+        }
+        Result result;
+        if (r.getBodyText() == null) {
+            result = new Result(false, false, null, null, "Interrupted before it was sent (service restarted)", null);
+        } else if (r.getKind() != null && EXPIRING_KINDS.contains(r.getKind()) && r.getCreatedAt() != null
+                && r.getCreatedAt().isBefore(Instant.now().minus(Duration.ofMinutes(maxEventAgeMinutes)))) {
+            result = new Result(false, false, null, null, "Not sent: still waiting after " + maxEventAgeMinutes + " minutes, the code or link is stale", null);
+        } else if (r.getAttempts() > maxAttempts) {
+            result = new Result(false, false, null, null, cut(nz(r.getError()) + (notBlank(r.getError()) ? "; " : "") + "gave up after "
+                    + (r.getAttempts() - 1) + " attempt(s)", 500), null);
+        } else if ("EMAIL".equals(r.getChannel())) {
+            result = sendEmail(r);
         } else {
-            log.error("Email to {} failed after {} attempt(s): {}", mail.to(), tries, err);
+            result = sendText(r);
         }
+        finish(recordId, result);
+    }
+
+    private Result sendEmail(DeliveryRecord r) {
+        From sender;
+        SmtpGateway.Email mail;
+        try {
+            sender = senderFor(r.getBusinessId(), r.getHotelId(), r.getFromName(), r.getReplyTo());
+            EmailTemplates.Rendered rendered = templates.render(r.getKind(), sender.name(), r.getSubject(), r.getBodyText(),
+                    brands == null ? EmailTemplates.Brand.HOSPIO : brands.brand(r.getHotelId()));
+            String html = notBlank(r.getBodyHtml()) ? r.getBodyHtml() : rendered.html();
+            mail = new SmtpGateway.Email(fromAddress, sender.name(), r.getToAddress(), sender.replyTo(), rendered.subject(), html, rendered.text());
+        } catch (RuntimeException ex) {
+            return new Result(false, false, null, null, ex.getClass().getSimpleName() + ": " + ex.getMessage(), null);
+        }
+        try {
+            SmtpGateway.Accepted ok = smtp.send(mail);
+            log.info("Email to {} accepted: {} {}", mail.to(), ok.messageId(), ok.reply());
+            return new Result(true, false, "EMAIL", ok.messageId() + (ok.reply() == null ? "" : " · " + ok.reply()), null, sender);
+        } catch (SmtpGateway.SendFailure f) {
+            boolean retry = f.isTransient() && r.getAttempts() < maxAttempts;
+            if (retry) {
+                log.warn("Email to {} failed ({}); trying again (attempt {} of {})", mail.to(), f.getMessage(), r.getAttempts() + 1, maxAttempts);
+            } else {
+                log.error("Email to {} failed after {} attempt(s): {}", mail.to(), r.getAttempts(), f.getMessage());
+            }
+            return new Result(false, retry, null, null, f.getMessage(), sender);
+        } catch (RuntimeException ex) {
+            log.error("Email to {} failed: {}", mail.to(), ex.getMessage());
+            return new Result(false, false, null, null, ex.getClass().getSimpleName() + ": " + ex.getMessage(), sender);
+        }
+    }
+
+    /** One SMS or WhatsApp (a WhatsApp without an approved template goes as an SMS). */
+    private Result sendText(DeliveryRecord r) {
+        if (texts == null) {
+            return new Result(false, false, null, null, "SMS and WhatsApp are not connected", null);
+        }
+        try {
+            From sender = senderFor(r.getBusinessId(), r.getHotelId(), r.getFromName(), r.getReplyTo());
+            // @hotel in a WhatsApp template's values (and the text) is the sending hotel's name, as an email's From name.
+            List<String> params = r.getWaParams() == null ? null
+                    : readParams(r.getWaParams()).stream().map(p -> "@hotel".equals(p) ? sender.name() : p == null ? "" : p).toList();
+            String body = r.getBodyText().replace("@hotel", sender.name() == null ? "Hospio360" : sender.name());
+            com.hospio.messaging.text.TextSender.Outcome out = texts.send(r.getChannel(), r.getToAddress(), body, r.getWaTemplate(), params);
+            if (out.sent()) {
+                log.info("{} to {} sent as {} {}{}", r.getChannel(), r.getToAddress(), out.channel(), out.providerRef(), out.note() == null ? "" : " (" + out.note() + ")");
+            } else {
+                log.warn("{} to {} not sent: {}", r.getChannel(), r.getToAddress(), out.note());
+            }
+            // Sent, but not the way asked (a WhatsApp that went as an SMS): the reason stays on the record.
+            return new Result(out.sent(), false, out.channel(), out.providerRef(), out.note(), sender);
+        } catch (RuntimeException ex) {
+            return new Result(false, false, null, null, ex.getClass().getSimpleName() + ": " + ex.getMessage(), null);
+        }
+    }
+
+    /** Writes the answer, unless the row was finished meanwhile (its lease ran out and another worker got there first). */
+    private void finish(String recordId, Result res) {
         try {
             asSystem(() -> tx.execute(s -> {
                 DeliveryRecord r = records.findById(recordId).orElse(null);
-                if (r == null) {
+                if (r == null || r.getStatus() != DeliveryRecord.Status.QUEUED) {
                     return null;
                 }
-                r.setAttempts(tries);
-                if (ok != null) {
+                if (res.from() != null) {
+                    r.setFromName(cut(res.from().name(), 200));
+                    r.setReplyTo(cut(res.from().replyTo(), 255));
+                }
+                if (res.retry()) {
+                    r.setError(cut(res.error(), 500));
+                    r.setNextAttemptAt(Instant.now().plusMillis(backoff(r.getAttempts())));
+                    records.save(r);
+                    return null;
+                }
+                if (res.sent()) {
                     r.setStatus(DeliveryRecord.Status.SENT);
                     r.setSentAt(Instant.now());
-                    priced(r, "EMAIL");
-                    r.setProviderMessageId(cut(ok.messageId() + (ok.reply() == null ? "" : " · " + ok.reply()), 255));
-                    r.setError(null);
+                    priced(r, res.via());
+                    r.setProviderMessageId(cut(res.providerRef(), 255));
+                    r.setError(cut(res.error(), 500));
                 } else {
                     r.setStatus(DeliveryRecord.Status.FAILED);
-                    r.setError(cut(err, 500));
+                    r.setError(cut(res.error(), 500));
                 }
+                // Finished: what was sent is not kept (temporary passwords travel in it).
+                r.setNextAttemptAt(null);
+                r.setBodyText(null);
+                r.setBodyHtml(null);
+                r.setWaParams(null);
                 records.save(r);
                 follow(r);
                 return null;
             }));
         } catch (RuntimeException ex) {
+            // The row stays QUEUED under its lease and is tried again when the lease runs out.
             log.error("Could not record the answer for delivery {}: {}", recordId, ex.getMessage());
         }
     }
 
-    /** Sends one SMS or WhatsApp (a WhatsApp without an approved template goes as an SMS) and records the answer. */
-    void deliverText(String recordId, String channel, String to, String text, String template, List<String> params) {
-        com.hospio.messaging.text.TextSender.Outcome out;
-        try {
-            out = texts.send(channel, to, text, template, params);
-        } catch (RuntimeException ex) {
-            out = new com.hospio.messaging.text.TextSender.Outcome(false, channel, null, ex.getClass().getSimpleName() + ": " + ex.getMessage());
-        }
-        com.hospio.messaging.text.TextSender.Outcome done = out;
-        if (done.sent()) {
-            log.info("{} to {} sent as {} {}{}", channel, to, done.channel(), done.providerRef(), done.note() == null ? "" : " (" + done.note() + ")");
-        } else {
-            log.warn("{} to {} not sent: {}", channel, to, done.note());
-        }
-        try {
-            asSystem(() -> tx.execute(s -> {
-                DeliveryRecord r = records.findById(recordId).orElse(null);
-                if (r == null) {
-                    return null;
-                }
-                r.setAttempts(r.getAttempts() + 1);
-                if (done.sent()) {
-                    r.setStatus(DeliveryRecord.Status.SENT);
-                    r.setSentAt(Instant.now());
-                    priced(r, done.channel());
-                    r.setProviderMessageId(cut(done.providerRef(), 255));
-                    // Sent, but not the way asked (a WhatsApp that went as an SMS): the reason stays on the record.
-                    r.setError(cut(done.note(), 500));
-                } else {
-                    r.setStatus(DeliveryRecord.Status.FAILED);
-                    r.setError(cut(done.note(), 500));
-                }
-                records.save(r);
-                follow(r);
-                return null;
-            }));
-        } catch (RuntimeException ex) {
-            log.error("Could not record the answer for delivery {}: {}", recordId, ex.getMessage());
-        }
+    /** retry-delay-ms after the first attempt, then four times longer each time (5 s, 20 s, 80 s…), at most an hour. */
+    private long backoff(int attempts) {
+        double factor = Math.pow(4, Math.max(0, attempts - 1));
+        return (long) Math.min(Duration.ofHours(1).toMillis(), retryDelayMs * factor);
     }
 
     /**
@@ -338,23 +460,6 @@ public class MailDispatcher {
         }));
     }
 
-    /** A record still QUEUED after 15 minutes lost its worker (a restart): it is marked FAILED, not left waiting. */
-    @Scheduled(fixedDelayString = "${hospio.mail.sweep-interval-ms:300000}", initialDelay = 60000)
-    public void sweep() {
-        try {
-            asSystem(() -> tx.execute(s -> {
-                for (DeliveryRecord r : records.findTop100ByStatusAndCreatedAtBefore(DeliveryRecord.Status.QUEUED, Instant.now().minus(15, ChronoUnit.MINUTES))) {
-                    r.setStatus(DeliveryRecord.Status.FAILED);
-                    r.setError("Interrupted before it was sent (service restarted)");
-                    records.save(r);
-                }
-                return null;
-            }));
-        } catch (RuntimeException ex) {
-            log.warn("Delivery sweep failed: {}", ex.getMessage());
-        }
-    }
-
     /** Runs after the surrounding transaction commits (now, when there is none), so the worker always finds the record. */
     private static void afterCommit(Runnable work) {
         if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
@@ -384,11 +489,27 @@ public class MailDispatcher {
         }
     }
 
-    private static void sleep(long ms) {
+    private static String trimmed(String s) {
+        return notBlank(s) ? s.trim() : null;
+    }
+
+    private static String nz(String s) {
+        return s == null ? "" : s;
+    }
+
+    private static String json(List<String> params) {
         try {
-            Thread.sleep(Math.max(0, ms));
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
+            return JSON.writeValueAsString(params);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+            throw new IllegalArgumentException("WhatsApp values could not be kept: " + ex.getMessage());
+        }
+    }
+
+    private static List<String> readParams(String json) {
+        try {
+            return JSON.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<List<String>>() { });
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+            throw new IllegalArgumentException("WhatsApp values could not be read: " + ex.getMessage());
         }
     }
 

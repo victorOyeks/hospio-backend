@@ -19,7 +19,20 @@ public interface DeliveryRecordRepository extends JpaRepository<DeliveryRecord, 
     /** The SMS or WhatsApp a delivery report is about ("sms:<id>" / "whatsapp:<id>"). */
     Optional<DeliveryRecord> findFirstByProviderMessageId(String providerMessageId);
 
-    List<DeliveryRecord> findTop100ByStatusAndCreatedAtBefore(DeliveryRecord.Status status, Instant before);
+    // ---- the send queue (docs/email.md, "Sending") ----
+
+    /**
+     * Up to {@code limit} QUEUED deliveries that are due, locked for this transaction; rows another worker (or instance) holds
+     * are skipped, not waited for. The caller leases them ({@link #lease}) before committing.
+     */
+    @Query(value = "SELECT id FROM messaging.deliveries WHERE status = 'QUEUED' AND next_attempt_at <= :now ORDER BY next_attempt_at "
+            + "LIMIT :limit FOR UPDATE SKIP LOCKED", nativeQuery = true)
+    List<String> lockDue(@Param("now") Instant now, @Param("limit") int limit);
+
+    /** Claims locked rows until {@code until}: no one else picks them up before then; a worker that died lets them go again. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update DeliveryRecord d set d.nextAttemptAt = :until, d.attempts = d.attempts + 1 where d.id in :ids")
+    int lease(@Param("ids") java.util.Collection<String> ids, @Param("until") Instant until);
 
     // ---- guest-message billing (docs/guest-message-billing.md) ----
 

@@ -64,6 +64,9 @@ public class GuestInboxService {
     public static final List<String> PLACEHOLDERS = List.of("guest", "first_name", "hotel", "room", "room_type", "check_in", "check_out", "nights", "reference");
 
     private final ConversationRepository conversations;
+
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager em;
     private final MessageRepository messages;
     private final TemplateRepository templates;
     private final DeliveryRecordRepository deliveryRecords;
@@ -510,11 +513,27 @@ public class GuestInboxService {
             spec = base.and((root, cq, cb) -> cb.equal(root.get("status"), st));
         }
         Page<DeliveryRecord> result = deliveryRecords.findAll(spec, Paging.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id"))));
-        Map<String, Long> counts = new LinkedHashMap<>();
-        for (DeliveryRecord.Status st : DeliveryRecord.Status.values()) {
-            counts.put(st.name().toLowerCase(Locale.ROOT), deliveryRecords.count(base.and((root, cq, cb) -> cb.equal(root.get("status"), st))));
+        // One grouped query for every status count (same filters, no status filter), not a count per status.
+        Map<DeliveryRecord.Status, Long> byStatus = new java.util.EnumMap<>(DeliveryRecord.Status.class);
+        jakarta.persistence.criteria.CriteriaBuilder cb = em.getCriteriaBuilder();
+        jakarta.persistence.criteria.CriteriaQuery<Object[]> cq = cb.createQuery(Object[].class);
+        jakarta.persistence.criteria.Root<DeliveryRecord> root = cq.from(DeliveryRecord.class);
+        Predicate where = base.toPredicate(root, cq, cb);
+        cq.multiselect(root.get("status"), cb.count(root)).groupBy(root.get("status"));
+        if (where != null) {
+            cq.where(where);
         }
-        counts.put("all", deliveryRecords.count(base));
+        for (Object[] row : em.createQuery(cq).getResultList()) {
+            byStatus.put((DeliveryRecord.Status) row[0], ((Number) row[1]).longValue());
+        }
+        Map<String, Long> counts = new LinkedHashMap<>();
+        long all = 0;
+        for (DeliveryRecord.Status st : DeliveryRecord.Status.values()) {
+            long n = byStatus.getOrDefault(st, 0L);
+            counts.put(st.name().toLowerCase(Locale.ROOT), n);
+            all += n;
+        }
+        counts.put("all", all);
         return PageWithCounts.of(result, x -> x, counts, Map.of());
     }
 
