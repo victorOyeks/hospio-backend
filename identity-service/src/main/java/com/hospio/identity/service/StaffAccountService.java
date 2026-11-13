@@ -194,18 +194,26 @@ public class StaffAccountService {
                         + "Open My profile & security, Security");
     }
 
-    /** Timed pauses whose last day has passed: active again, logged and the person told. Runs as the system. */
+    /**
+     * Timed pauses whose last day has passed: active again, logged and the person told. Runs as the system. Each account is
+     * resumed with a guarded update, so one resumed meanwhile (another run, a manager) is neither changed nor told twice.
+     */
     @Transactional
     public int resumeDuePauses() {
         return TenantContext.runWith(Tenant.system("pause-expiry"), () -> {
-            List<UserAccount> due = users.findByStatusAndPausedUntilLessThanEqual(UserAccount.Status.PAUSED, Instant.now());
+            Instant now = Instant.now();
+            List<UserAccount> due = users.findByStatusAndPausedUntilLessThanEqual(UserAccount.Status.PAUSED, now);
+            int resumed = 0;
             for (UserAccount user : due) {
-                markActive(user);
-                users.save(user);
+                if (users.resumeIfDue(user.getId(), now, UserAccount.Status.PAUSED, UserAccount.Status.ACTIVE) != 1) {
+                    continue;
+                }
+                markActive(user); // the loaded copy is detached by the update; this only keeps it in step for the events
                 publish(user, "RESUMED", null, "Hospio");
                 notice(List.of(user.getId()), user.getBusinessId(), null, "Your pause has ended", "You can sign in and work again");
+                resumed++;
             }
-            return due.size();
+            return resumed;
         });
     }
 

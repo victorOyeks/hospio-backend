@@ -153,7 +153,10 @@ public class CommBilling {
     }
 
     private Prices effective(CommPlan plan) {
-        Prices d = defaults();
+        return effective(plan, defaults());
+    }
+
+    private static Prices effective(CommPlan plan, Prices d) {
         if (plan == null) {
             return d;
         }
@@ -167,11 +170,17 @@ public class CommBilling {
         CommPlan plan = plans.findByHotelId(hotelId).orElse(null);
         YearMonth month = YearMonth.now(LAGOS);
         Usage usage = usage(hotelId, month);
-        List<CommInvoice> open = invoices.findByHotelIdAndStatusIn(hotelId, List.of(CommInvoice.Status.DUE, CommInvoice.Status.OVERDUE));
+        List<CommInvoice> open = invoices.findByHotelIdAndStatusIn(hotelId, OPEN);
+        return view(hotelId, plan, month, usage, open, defaults());
+    }
+
+    private static final List<CommInvoice.Status> OPEN = List.of(CommInvoice.Status.DUE, CommInvoice.Status.OVERDUE);
+
+    private PlanView view(String hotelId, CommPlan plan, YearMonth month, Usage usage, List<CommInvoice> open, Prices defaults) {
         BigDecimal outstanding = open.stream().map(CommInvoice::getTotalAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         boolean custom = plan != null && (plan.getEmailPrice() != null || plan.getSmsPrice() != null || plan.getWhatsappPrice() != null);
         return new PlanView(hotelId, tenants.hotel(hotelId).map(TenantClient.Sender::name).orElse(null), plan != null && plan.isEnabled(),
-                effective(plan), custom, defaults(), plan != null && plan.getSuspendedAt() != null, plan == null ? null : plan.getSuspendedReason(),
+                effective(plan, defaults), custom, defaults, plan != null && plan.getSuspendedAt() != null, plan == null ? null : plan.getSuspendedReason(),
                 plan == null ? null : plan.getSuspendedAt(), plan == null ? null : plan.getChangedBy(), plan == null ? null : plan.getChangedAt(),
                 month.toString(), usage, outstanding, open.size(), paystack.configured());
     }
@@ -192,12 +201,17 @@ public class CommBilling {
     public Usage usage(String hotelId, YearMonth month) {
         Instant from = month.atDay(1).atStartOfDay(LAGOS).toInstant();
         Instant to = month.plusMonths(1).atDay(1).atStartOfDay(LAGOS).toInstant();
+        return usageOf(deliveries.unbilledUsage(hotelId, CHARGED, from, to), 0);
+    }
+
+    /** Rows of [..., via, count, amount] (the via at {@code at}) summed per channel. */
+    private static Usage usageOf(List<Object[]> rows, int at) {
         int[] counts = new int[3];
         BigDecimal[] amounts = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
-        for (Object[] row : deliveries.unbilledUsage(hotelId, CHARGED, from, to)) {
-            int i = index((String) row[0]);
-            counts[i] += ((Number) row[1]).intValue();
-            amounts[i] = amounts[i].add(money(row[2]));
+        for (Object[] row : rows) {
+            int i = index((String) row[at]);
+            counts[i] += ((Number) row[at + 1]).intValue();
+            amounts[i] = amounts[i].add(money(row[at + 2]));
         }
         return new Usage(counts[0], counts[1], counts[2], amounts[0], amounts[1], amounts[2], amounts[0].add(amounts[1]).add(amounts[2]));
     }
@@ -249,8 +263,8 @@ public class CommBilling {
                 : hotelAppUrl + "/dashboard/hotel-setup/guest-messages?invoice=" + inv.getId();
         PaystackClient.Checkout checkout = paystack.initialize(me.getEmail(), inv.getTotalAmount(), reference, back,
                 Map.of("invoice_id", inv.getId(), "invoice_number", inv.getNumber(), "hotel_id", inv.getHotelId(), "paid_by", nz(me.getFullName())));
-        inv.setPaymentReference(checkout.reference());
-        invoices.save(inv);
+        // A guarded update, not a save of the copy read above: a payment settled meanwhile (webhook) must stay PAID.
+        tx.execute(s -> invoices.setPaymentReference(inv.getId(), checkout.reference(), OPEN, Instant.now()));
         return checkout;
     }
 
@@ -282,11 +296,14 @@ public class CommBilling {
 
     /** Marks an invoice paid (Paystack, or Hospio360 by hand for a transfer) and lifts a suspension it caused. */
     public CommInvoice settle(String invoiceId, String via, String reference, String paidByName, String note) {
-        return asSystem(() -> tx.execute(s -> {
-            CommInvoice inv = invoices.findById(invoiceId).orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
+        boolean[] changed = {false, false};
+        CommInvoice settled = asSystem(() -> tx.execute(s -> {
+            // Locked: the payer's redirect and Paystack's webhook arriving together settle (and notify) once.
+            CommInvoice inv = invoices.lockById(invoiceId).orElseThrow(() -> new ResourceNotFoundException("Invoice not found"));
             if (inv.getStatus() == CommInvoice.Status.PAID) {
                 return inv;
             }
+            changed[0] = true;
             inv.setStatus(CommInvoice.Status.PAID);
             inv.setPaidAt(Instant.now());
             inv.setPaidVia(via);
@@ -304,10 +321,15 @@ public class CommBilling {
                 plans.save(p);
                 log.info("Guest messages resumed for hotel {}: invoice {} paid", inv.getHotelId(), inv.getNumber());
             });
-            notifyHotel(inv, "COMM_INVOICE_PAID", "Invoice " + inv.getNumber() + " paid", naira(inv.getTotalAmount()) + " for guest messages in "
-                    + monthName(inv.getMonth()) + (stillOverdue ? "" : " · guest messages are on"));
+            changed[1] = stillOverdue;
             return inv;
         }));
+        if (changed[0]) {
+            // After the commit, and never undoing it.
+            notifyHotel(settled, "COMM_INVOICE_PAID", "Invoice " + settled.getNumber() + " paid", naira(settled.getTotalAmount())
+                    + " for guest messages in " + monthName(settled.getMonth()) + (changed[1] ? "" : " · guest messages are on"));
+        }
+        return settled;
     }
 
     // ---- invoicing -------------------------------------------------------------------------------------------------
@@ -320,10 +342,9 @@ public class CommBilling {
 
     /** One invoice per hotel with billable messages in {@code month} not yet invoiced. Returns the invoices made. */
     public List<CommInvoice> issueAll(YearMonth month) {
-        Instant from = month.atDay(1).atStartOfDay(LAGOS).toInstant();
         Instant to = month.plusMonths(1).atDay(1).atStartOfDay(LAGOS).toInstant();
         List<CommInvoice> out = new ArrayList<>();
-        for (Object[] h : asSystem(() -> deliveries.hotelsToBill(CHARGED, from, to))) {
+        for (Object[] h : asSystem(() -> deliveries.hotelsToBill(CHARGED, to))) {
             try {
                 issue((String) h[0], (String) h[1], month).ifPresent(out::add);
             } catch (RuntimeException e) {
@@ -334,59 +355,99 @@ public class CommBilling {
         return out;
     }
 
-    /** The invoice of one hotel's {@code month} (empty when nothing billable is left to invoice). */
+    /**
+     * The invoice of one hotel's {@code month} (empty when nothing billable is left to invoice). It takes every billable message
+     * that went out before the month's end and is on no invoice yet, whatever its month: one that only turned SENT/DELIVERED
+     * after its own month was invoiced (a late delivery report) rolls into the next invoice instead of never being billed.
+     * The counts and amounts are summed from the messages actually attached, so the invoice and its lines always agree.
+     * Numbers are per month under an advisory lock (two instances, or an admin "issue now" racing the cron, never collide).
+     */
     public Optional<CommInvoice> issue(String hotelId, String businessId, YearMonth month) {
-        Instant from = month.atDay(1).atStartOfDay(LAGOS).toInstant();
         Instant to = month.plusMonths(1).atDay(1).atStartOfDay(LAGOS).toInstant();
-        CommInvoice made = asSystem(() -> tx.execute(s -> {
-            Usage u = usage(hotelId, month);
-            if (u.emailCount() + u.smsCount() + u.whatsappCount() == 0) {
-                return null;
-            }
-            if (invoices.findByHotelIdAndMonth(hotelId, month.toString()).isPresent()) {
-                // A second run for the month (late reports): the stragglers wait for next month's invoice.
-                return null;
-            }
-            String number = "MSG-" + month.toString().replace("-", "") + "-" + String.format("%04d", invoices.countByMonth(month.toString()) + 1);
-            LocalDate issued = LocalDate.now(LAGOS);
-            CommInvoice inv = CommInvoice.builder().businessId(businessId).hotelId(hotelId).number(number).month(month.toString())
-                    .hotelName(tenants.hotel(hotelId).map(TenantClient.Sender::name).orElse(null))
-                    .emailCount(u.emailCount()).smsCount(u.smsCount()).whatsappCount(u.whatsappCount())
-                    .emailAmount(u.emailAmount()).smsAmount(u.smsAmount()).whatsappAmount(u.whatsappAmount()).totalAmount(u.total())
-                    .status(CommInvoice.Status.DUE).issuedAt(Instant.now()).dueOn(issued.plusDays(GRACE_DAYS)).build();
-            inv = invoices.save(inv);
-            deliveries.attachToInvoice(inv.getId(), hotelId, CHARGED, from, to);
-            return inv;
-        }));
+        String hotelName = tenants.hotel(hotelId).map(TenantClient.Sender::name).orElse(null); // over HTTP: before the transaction
+        CommInvoice made;
+        try {
+            made = asSystem(() -> tx.execute(s -> {
+                invoices.lock("comm-invoice-number:" + month);
+                if (invoices.findByHotelIdAndMonth(hotelId, month.toString()).isPresent()) {
+                    // A second run for the month: the stragglers wait for next month's invoice.
+                    return null;
+                }
+                String number = "MSG-" + month.toString().replace("-", "") + "-" + String.format("%04d", invoices.lastNumber(month.toString()) + 1);
+                LocalDate issued = LocalDate.now(LAGOS);
+                CommInvoice inv = CommInvoice.builder().businessId(businessId).hotelId(hotelId).number(number).month(month.toString()).hotelName(hotelName)
+                        .emailAmount(BigDecimal.ZERO).smsAmount(BigDecimal.ZERO).whatsappAmount(BigDecimal.ZERO).totalAmount(BigDecimal.ZERO)
+                        .status(CommInvoice.Status.DUE).issuedAt(Instant.now()).dueOn(issued.plusDays(GRACE_DAYS)).build();
+                CommInvoice saved = invoices.saveAndFlush(inv);
+                if (deliveries.attachToInvoice(saved.getId(), hotelId, CHARGED, to) == 0) {
+                    throw new NothingToBill(); // rolls the empty invoice back
+                }
+                Usage u = usageOf(deliveries.invoiceUsage(saved.getId()), 0);
+                saved.setEmailCount(u.emailCount());
+                saved.setSmsCount(u.smsCount());
+                saved.setWhatsappCount(u.whatsappCount());
+                saved.setEmailAmount(u.emailAmount());
+                saved.setSmsAmount(u.smsAmount());
+                saved.setWhatsappAmount(u.whatsappAmount());
+                saved.setTotalAmount(u.total());
+                return invoices.save(saved);
+            }));
+        } catch (NothingToBill e) {
+            return Optional.empty();
+        }
         if (made != null) {
             log.info("Guest-message invoice {} for hotel {}: {}", made.getNumber(), hotelId, made.getTotalAmount());
-            tellIssued(made);
+            try {
+                tellIssued(made); // after the commit; a failure here never undoes the invoice
+            } catch (RuntimeException e) {
+                log.warn("Invoice {} issued but the hotel could not be told: {}", made.getNumber(), e.getMessage());
+            }
         }
         return Optional.ofNullable(made);
     }
 
-    /** 09:00 daily (Lagos): an invoice past its due date is overdue and its hotel's guest messages are suspended. */
+    private static final class NothingToBill extends RuntimeException {
+        NothingToBill() {
+            super(null, null, false, false);
+        }
+    }
+
+    /**
+     * 09:00 daily (Lagos): an invoice past its due date is overdue and its hotel's guest messages are suspended. Each invoice
+     * moves DUE → OVERDUE only if it is still DUE (a payment in the meantime wins), in its own transaction; one failure does not
+     * stop the rest. Safe to run twice.
+     */
     @Scheduled(cron = "${hospio.billing.overdue-cron:0 0 9 * * *}", zone = "Africa/Lagos")
     public int suspendOverdue() {
         List<CommInvoice> late = asSystem(() -> invoices.findByStatusAndDueOnBefore(CommInvoice.Status.DUE, LocalDate.now(LAGOS)));
+        int done = 0;
         for (CommInvoice inv : late) {
-            asSystem(() -> tx.execute(s -> {
-                inv.setStatus(CommInvoice.Status.OVERDUE);
-                invoices.save(inv);
-                CommPlan plan = plans.findByHotelId(inv.getHotelId())
-                        .orElseGet(() -> CommPlan.builder().businessId(inv.getBusinessId()).hotelId(inv.getHotelId()).build());
-                if (plan.getSuspendedAt() == null) {
-                    plan.setSuspendedAt(Instant.now());
-                    plan.setSuspendedReason("invoice " + inv.getNumber() + " (" + naira(inv.getTotalAmount()) + ") was due on " + inv.getDueOn());
-                    plans.save(plan);
+            try {
+                Boolean moved = asSystem(() -> tx.execute(s -> {
+                    if (invoices.moveStatus(inv.getId(), CommInvoice.Status.DUE, CommInvoice.Status.OVERDUE, Instant.now()) != 1) {
+                        return false;
+                    }
+                    CommPlan plan = plans.findByHotelId(inv.getHotelId())
+                            .orElseGet(() -> CommPlan.builder().businessId(inv.getBusinessId()).hotelId(inv.getHotelId()).build());
+                    if (plan.getSuspendedAt() == null) {
+                        plan.setSuspendedAt(Instant.now());
+                        plan.setSuspendedReason("invoice " + inv.getNumber() + " (" + naira(inv.getTotalAmount()) + ") was due on " + inv.getDueOn());
+                        plans.save(plan);
+                    }
+                    return true;
+                }));
+                if (!Boolean.TRUE.equals(moved)) {
+                    continue;
                 }
+                done++;
+                log.warn("Guest messages suspended for hotel {}: invoice {} overdue", inv.getHotelId(), inv.getNumber());
                 notifyHotel(inv, "COMM_SUSPENDED", "Guest messages suspended", "Invoice " + inv.getNumber() + " (" + naira(inv.getTotalAmount())
                         + ") is overdue. Pay it to turn guest messages back on.");
-                return null;
-            }));
-            log.warn("Guest messages suspended for hotel {}: invoice {} overdue", inv.getHotelId(), inv.getNumber());
+            } catch (RuntimeException e) {
+                log.error("Overdue invoice {} of hotel {} not processed: {}", inv.getNumber(), inv.getHotelId(), e.getMessage());
+            }
         }
-        return late.size();
+        return done;
     }
 
     private void tellIssued(CommInvoice inv) {
@@ -496,10 +557,26 @@ public class CommBilling {
         return asSystem(() -> plan(hotelId));
     }
 
+    /** Several hotels' plans for the admin portal: three queries for all of them (hotel names come from the cached tenant lookup). */
     public List<PlanView> plansOf(String businessId, List<String> hotelIds) {
+        if (hotelIds.isEmpty()) {
+            return List.of();
+        }
+        YearMonth month = YearMonth.now(LAGOS);
+        Instant from = month.atDay(1).atStartOfDay(LAGOS).toInstant();
+        Instant to = month.plusMonths(1).atDay(1).atStartOfDay(LAGOS).toInstant();
+        Map<String, CommPlan> byHotel = new java.util.HashMap<>();
+        Map<String, List<Object[]>> usage = new java.util.HashMap<>();
+        Map<String, List<CommInvoice>> open = new java.util.HashMap<>();
+        Prices d = asSystem(() -> {
+            plans.findByHotelIdIn(hotelIds).forEach(p -> byHotel.put(p.getHotelId(), p));
+            deliveries.unbilledUsageOf(hotelIds, CHARGED, from, to).forEach(r -> usage.computeIfAbsent((String) r[0], k -> new ArrayList<>()).add(r));
+            invoices.findByHotelIdInAndStatusIn(hotelIds, OPEN).forEach(i -> open.computeIfAbsent(i.getHotelId(), k -> new ArrayList<>()).add(i));
+            return defaults();
+        });
         List<PlanView> out = new ArrayList<>();
         for (String h : hotelIds) {
-            out.add(asSystem(() -> plan(h)));
+            out.add(view(h, byHotel.get(h), month, usageOf(usage.getOrDefault(h, List.of()), 1), open.getOrDefault(h, List.of()), d));
         }
         return out;
     }

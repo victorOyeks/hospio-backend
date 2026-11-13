@@ -106,11 +106,11 @@ public class BillService {
         Sort order = Paging.sort(sort, SORTS, Sort.by(Sort.Direction.ASC, "dueDate").and(Sort.by(Sort.Direction.DESC, "createdAt"))
                 .and(Sort.by(Sort.Direction.DESC, "id")));
         Page<Bill> result = bills.findAll(spec, Paging.of(page, size, order));
-        Map<String, Long> counts = new LinkedHashMap<>();
-        counts.put("all", bills.count(base));
+        Map<String, Specification<Bill>> tabs = new LinkedHashMap<>();
         for (String s : List.of("UNPAID", "OVERDUE", "PAID", "CANCELLED")) {
-            counts.put(s, bills.count(base.and(status(s, today))));
+            tabs.put(s, status(s, today));
         }
+        Map<String, Long> counts = TabCounts.of(em, Bill.class, base, tabs);
         YearMonth month = YearMonth.from(today);
         Map<String, BigDecimal> totals = new LinkedHashMap<>();
         totals.put("unpaid", sum(base.and(status("UNPAID", today))));

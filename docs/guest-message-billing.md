@@ -34,12 +34,22 @@ rejected (e.g. DND) is `FAILED` and costs nothing.
 
 - At **00:30 on the 1st (Lagos)** each hotel's billable messages of the month before become **one invoice**
   (`comm_invoices`, number `MSG-YYYYMM-0001`).
-  - The invoice lists counts and amounts per channel, and has lines per kind of message.
+  - The invoice takes every billable message that went out **before the month's end** and is on no invoice yet, whatever
+    its month. A message from the last day that only turns `SENT`/`DELIVERED` after its month was invoiced (a late
+    delivery report) is not lost: it rolls into the next month's invoice.
+  - The invoice lists counts and amounts per channel, and has lines per kind of message. Counts and amounts are summed
+    from the messages actually put on it, so they always match its lines.
   - Every message carries `deliveries.invoice_id`, so the invoice shows each one.
+  - Numbers are taken per month under a database lock, so two instances (or Hospio360's "issue now" racing the 1st) never
+    pick the same number. A second run for a month that already has the hotel's invoice issues nothing; leftovers wait.
+  - The emails and notifications go out after the invoice is saved; one that fails never undoes the invoice.
 - Each invoice is **due 10 days after issue**. The owner and the hotel get an email, and owners and managers get an in-app
   notification.
-- **09:00 daily:** an invoice past its due date becomes `OVERDUE` and the hotel's guest messages are **suspended**.
-- **Paying it** (`PAID`) lifts the suspension, unless another invoice is still overdue.
+- **09:00 daily:** an invoice past its due date becomes `OVERDUE` and the hotel's guest messages are **suspended**. Only
+  an invoice still `DUE` at that moment moves (one paid meanwhile stays `PAID`); each invoice is handled on its own, so
+  one failure does not stop the rest.
+- **Paying it** (`PAID`) lifts the suspension, unless another invoice is still overdue. The invoice is locked while it is
+  settled, so the payer's return and Paystack's webhook arriving together settle it, and notify, once.
 
 ## Paying
 

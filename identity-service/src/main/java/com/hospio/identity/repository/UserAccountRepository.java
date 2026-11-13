@@ -4,6 +4,7 @@ import com.hospio.identity.entity.UserAccount;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -31,4 +32,14 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, String
 
     /** Platform staff and marketers: the accounts with no business. */
     List<UserAccount> findByBusinessIdIsNullOrderByFullName();
+
+    /**
+     * Ends a timed pause only if it is still a pause that has run out: 1 when this call resumed the account, 0 when it was
+     * already resumed (another run, a manager) or changed. Clears the persistence context, so loaded accounts are detached.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update UserAccount u set u.status = :active, u.pausedUntil = null, u.statusReason = null, u.statusChangedBy = null, "
+            + "u.statusChangedAt = :now, u.updatedAt = :now where u.id = :id and u.status = :paused and u.pausedUntil <= :now")
+    int resumeIfDue(@Param("id") String id, @Param("now") java.time.Instant now,
+                    @Param("paused") UserAccount.Status paused, @Param("active") UserAccount.Status active);
 }

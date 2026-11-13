@@ -16,5 +16,6 @@
     <include file="db/changelog/004-delivery-reports.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/005-guest-message-billing.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/006-scale-indexes.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/007-delivery-queue.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

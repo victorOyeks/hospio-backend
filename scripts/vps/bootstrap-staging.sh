@@ -118,8 +118,10 @@ FINANCE_HOST=localhost
 MESSAGING_HOST=localhost
 PLATFORM_HOST=localhost
 
-# Keeps 15 JVMs inside the box's memory: ~350 MB each at the cap.
-JAVA_OPTS=-Xms64m -Xmx320m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC -Xss512k -XX:TieredStopAtLevel=1 -Djava.security.egd=file:/dev/./urandom
+# Keeps 15 JVMs inside the box's memory (systemd MemoryMax=768M per unit is the hard cap). Full JIT (no
+# TieredStopAtLevel=1: C1-only code is several times slower under load); a JVM that runs out of memory exits and
+# systemd restarts it instead of limping on.
+JAVA_OPTS=-Xms64m -Xmx320m -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=64m -XX:MaxDirectMemorySize=64m -XX:+UseSerialGC -Xss512k -XX:+ExitOnOutOfMemoryError -Djava.security.egd=file:/dev/./urandom
 EOF
   chmod 600 "$ENV_FILE"
   ok "written with generated DB password, JWT secret and internal key (chmod 600)"

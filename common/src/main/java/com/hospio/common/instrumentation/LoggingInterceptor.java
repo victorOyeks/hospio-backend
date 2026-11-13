@@ -9,6 +9,10 @@ import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+/**
+ * One INFO line per request, when it ends: method, path, status, time and the user id (no names in the log). The
+ * line when it starts is DEBUG.
+ */
 @Component
 public class LoggingInterceptor implements HandlerInterceptor {
 
@@ -18,8 +22,10 @@ public class LoggingInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         MDC.put("reqId", UUID.randomUUID().toString());
         request.setAttribute("startTime", System.currentTimeMillis());
-        log.info(">>> {} {} from {} | user: {}", request.getMethod(), request.getRequestURI(),
-                RequestLoggingSupport.getClientIp(request), RequestLoggingSupport.resolveUser());
+        if (log.isDebugEnabled()) {
+            log.debug(">>> {} {} from {} | user: {}", request.getMethod(), request.getRequestURI(),
+                    RequestLoggingSupport.getClientIp(request), RequestLoggingSupport.resolveUserId());
+        }
         return true;
     }
 
@@ -31,7 +37,7 @@ public class LoggingInterceptor implements HandlerInterceptor {
         if (ex != null && status < HttpServletResponse.SC_BAD_REQUEST) {
             status = HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
         }
-        String user = RequestLoggingSupport.resolveUser();
+        String user = RequestLoggingSupport.resolveUserId();
         if (status >= 500) {
             log.error("<<< {} {} -> {} ({}ms) | user: {}{}", request.getMethod(), request.getRequestURI(), status, elapsed, user,
                     ex == null ? "" : " | " + ex.getClass().getSimpleName() + ": " + ex.getMessage());

@@ -8,14 +8,18 @@ import com.hospio.messaging.entity.Notification;
 import com.hospio.messaging.repository.NotificationRepository;
 import com.hospio.common.paging.Paging;
 import com.hospio.common.response.PageWithCounts;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.util.StringUtils;
@@ -30,13 +34,28 @@ public class NotificationService {
 
     private final NotificationRepository notifications;
 
-    /** Idempotent per (event, user, role) so a replayed Kafka event never shows twice. */
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager em;
+
+    /**
+     * Idempotent per (event, user, role) so a replayed Kafka event never shows twice: with an event id the row is inserted with
+     * ON CONFLICT DO NOTHING against the unique index (messaging-007), so two instances handling the same event at once still
+     * make one notice, and the losing insert does not abort the caller's transaction. Null when it was already there.
+     */
     @Transactional
     public Notification notify(String eventId, String userId, String role, String kind, String title, String body, String link) {
-        if (eventId != null && notifications.findFirstByEventIdAndUserIdAndRole(eventId, userId, role).isPresent()) {
-            return null;
+        Notification n = Notification.builder().userId(userId).role(role).kind(kind).title(title).body(body).link(link).eventId(eventId).build();
+        if (eventId == null) {
+            return notifications.save(n);
         }
-        return notifications.save(Notification.builder().userId(userId).role(role).kind(kind).title(title).body(body).link(link).eventId(eventId).build());
+        Instant now = Instant.now();
+        n.setId(java.util.UUID.randomUUID().toString());
+        n.setBusinessId(TenantContext.current().map(t -> t.businessId()).orElse(null));
+        n.setHotelId(TenantContext.current().map(t -> t.hotelId()).orElse(null));
+        n.setCreatedAt(now);
+        n.setUpdatedAt(now);
+        int inserted = notifications.insertOnce(n.getId(), n.getBusinessId(), n.getHotelId(), userId, role, kind, title, body, link, eventId, now);
+        return inserted == 1 ? n : null;
     }
 
     @Transactional
@@ -46,20 +65,17 @@ public class NotificationService {
         }
     }
 
-    /** Mine: addressed to me, plus everything for any role I hold at this hotel. */
+    /** How many the unpaged list (the bell's dropdown, older screens) returns at most. */
+    public static final int MINE_LIMIT = 50;
+
+    /** Mine: addressed to me, plus everything for any role I hold at this hotel; the newest {@link #MINE_LIMIT}, newest first. */
     @Transactional(readOnly = true)
     public List<Notification> mine(boolean unreadOnly) {
-        HospioUserDetails user = CurrentUser.require();
-        List<Notification> out = new ArrayList<>(unreadOnly ? notifications.findByUserIdAndReadAtIsNullOrderByCreatedAtDesc(user.getUserId())
-                : notifications.findByUserIdOrderByCreatedAtDesc(user.getUserId()));
-        TenantContext.current().map(t -> t.hotelId()).ifPresent(hotelId -> {
-            List<String> roles = user.roleSet().stream().map(Enum::name).toList();
-            notifications.findByHotelIdAndRoleInOrderByCreatedAtDesc(hotelId, roles).stream()
-                    .filter(n -> !unreadOnly || n.getReadAt() == null).forEach(out::add);
-        });
-        out.sort((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()));
-        return out;
+        Specification<Notification> spec = unreadOnly ? mineSpec().and(unread(true)) : mineSpec();
+        return notifications.findAll(spec, PageRequest.of(0, MINE_LIMIT, NEWEST)).getContent();
     }
+
+    private static final Sort NEWEST = Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id"));
 
     /** The filters of the paged list ({@code unread} true or false narrows; null is every one). */
     public record Filter(Boolean unread, String kind, String q, LocalDate from, LocalDate to) {
@@ -73,11 +89,38 @@ public class NotificationService {
     public PageWithCounts<Notification> page(Filter f, Integer page, Integer size) {
         Specification<Notification> base = mineSpec().and(filtered(f.kind(), f.q(), Paging.windowFrom(f.from()), f.to()));
         Specification<Notification> spec = f.unread() == null ? base : base.and(unread(f.unread()));
-        Page<Notification> result = notifications.findAll(spec, Paging.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id"))));
+        PageRequest pageable = Paging.of(page, size, NEWEST);
+        // One query for both counts (count(*) and the unread ones); the page's total follows from them, so no third count.
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        CriteriaQuery<Object[]> cq = cb.createQuery(Object[].class);
+        Root<Notification> root = cq.from(Notification.class);
+        Predicate where = base.toPredicate(root, cq, cb);
+        cq.multiselect(cb.count(root), cb.sum(cb.<Long>selectCase().when(cb.isNull(root.get("readAt")), 1L).otherwise(0L)));
+        if (where != null) {
+            cq.where(where);
+        }
+        Object[] row = em.createQuery(cq).getSingleResult();
+        long all = row[0] == null ? 0 : ((Number) row[0]).longValue();
+        long unread = row[1] == null ? 0 : ((Number) row[1]).longValue();
+        long total = f.unread() == null ? all : f.unread() ? unread : all - unread;
+        List<Notification> content = total <= pageable.getOffset() ? List.of() : pageOf(spec, pageable);
         Map<String, Long> counts = new LinkedHashMap<>();
-        counts.put("all", notifications.count(base));
-        counts.put("unread", notifications.count(base.and(unread(true))));
-        return PageWithCounts.of(result, n -> n, counts, Map.of());
+        counts.put("all", all);
+        counts.put("unread", unread);
+        return PageWithCounts.of(new PageImpl<>(content, pageable, total), n -> n, counts, Map.of());
+    }
+
+    /** One page of rows without Spring Data's extra count query. */
+    private List<Notification> pageOf(Specification<Notification> spec, PageRequest pageable) {
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        CriteriaQuery<Notification> cq = cb.createQuery(Notification.class);
+        Root<Notification> root = cq.from(Notification.class);
+        Predicate where = spec.toPredicate(root, cq, cb);
+        if (where != null) {
+            cq.where(where);
+        }
+        cq.orderBy(cb.desc(root.get("createdAt")), cb.desc(root.get("id")));
+        return em.createQuery(cq).setFirstResult((int) pageable.getOffset()).setMaxResults(pageable.getPageSize()).getResultList();
     }
 
     /** How many of mine are unread, any age: the bell's badge without loading the list. */
@@ -131,14 +174,16 @@ public class NotificationService {
         return notifications.save(n);
     }
 
+    /** Every unread one of mine (any age) read, in one UPDATE. */
     @Transactional
     public int markAllRead() {
-        int count = 0;
-        for (Notification n : mine(true)) {
-            n.setReadAt(Instant.now());
-            notifications.save(n);
-            count++;
+        HospioUserDetails user = CurrentUser.require();
+        String hotelId = TenantContext.current().map(t -> t.hotelId()).orElse(null);
+        List<String> roles = user.roleSet().stream().map(Enum::name).toList();
+        Instant now = Instant.now();
+        if (hotelId == null || roles.isEmpty()) {
+            return notifications.markAllReadForUser(user.getUserId(), now);
         }
-        return count;
+        return notifications.markAllRead(user.getUserId(), hotelId, roles, now);
     }
 }

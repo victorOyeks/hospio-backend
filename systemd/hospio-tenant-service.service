@@ -13,6 +13,8 @@ ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/hospio-staging/tenant-service/app.j
 SuccessExitStatus=143
 Restart=always
 RestartSec=10
+# Hard cap: heap 320m + metaspace 160m + code cache 64m + direct 64m + thread stacks and GC ≈ 700M.
+MemoryMax=768M
 StandardOutput=journal
 StandardError=journal
 
