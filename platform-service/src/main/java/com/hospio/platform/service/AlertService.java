@@ -60,7 +60,7 @@ public class AlertService {
 
     @Transactional(readOnly = true)
     public List<Alert> newestOpen(int limit) {
-        return alerts.findByDismissedAtIsNullOrderByOpenedAtDesc().stream().limit(limit).toList();
+        return alerts.findByDismissedAtIsNullOrderByOpenedAtDesc(org.springframework.data.domain.PageRequest.of(0, Math.max(limit, 1)));
     }
 
     @Transactional
@@ -225,8 +225,9 @@ public class AlertService {
         Set<String> quiet = new HashSet<>();
         Set<String> noAudit = new HashSet<>();
         for (TenantClient.Business b : live) {
-            long recent = activity.countByBusinessIdAndOccurredAtAfter(b.id(), now.minus(QUIET_DAYS, ChronoUnit.DAYS));
-            if (recent == 0) {
+            // "Any?" questions answered with exists (stops at the first row, served by the business/time and business/type/time indexes).
+            boolean recent = activity.existsByBusinessIdAndOccurredAtAfter(b.id(), now.minus(QUIET_DAYS, ChronoUnit.DAYS));
+            if (!recent) {
                 quiet.add(b.id());
                 Alert a = raise(Alert.NO_ACTIVITY, b.id(), null, "No activity", "Nothing happened in this business for " + QUIET_DAYS + " days", "grey");
                 if (a.getBusinessName() == null) {
@@ -235,9 +236,9 @@ public class AlertService {
                 }
                 continue;
             }
-            long closes = activity.countByBusinessIdAndEventTypeAndOccurredAtAfter(b.id(), "DayClosed", now.minus(AUDIT_DAYS, ChronoUnit.DAYS));
-            boolean everClosed = activity.existsByBusinessIdAndEventType(b.id(), "DayClosed");
-            if (everClosed && closes == 0) {
+            boolean closedLately = activity.existsByBusinessIdAndEventTypeAndOccurredAtAfter(b.id(), "DayClosed", now.minus(AUDIT_DAYS, ChronoUnit.DAYS));
+            // "Ever closed a day" only matters when none was closed lately; the log itself keeps auditRetentionDays.
+            if (!closedLately && activity.existsByBusinessIdAndEventType(b.id(), "DayClosed")) {
                 noAudit.add(b.id());
                 raise(Alert.NIGHT_AUDIT_MISSED, b.id(), null, "Night audit missed", "No day has been closed for " + AUDIT_DAYS + " days", "warning");
             }

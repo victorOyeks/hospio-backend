@@ -147,6 +147,28 @@ public class TenantClient {
         }
     }
 
+    /**
+     * Onboarding drafts per status (IN_PROGRESS, READY_FOR_HANDOVER, …) from the paged board's counts (GET /onboarding?page=0&size=1),
+     * without downloading every draft. Null when the counts could not be read (the caller may fall back to {@link #onboarding}).
+     */
+    public Map<String, Long> onboardingCounts() {
+        try {
+            JsonNode body = restClient.get().uri(b -> b.path("/onboarding").queryParam("page", 0).queryParam("size", 1).build())
+                    .retrieve().body(JsonNode.class);
+            JsonNode d = data(body);
+            JsonNode counts = d == null ? null : d.path("counts");
+            if (counts == null || !counts.isObject()) {
+                return null;
+            }
+            Map<String, Long> out = new LinkedHashMap<>();
+            counts.fields().forEachRemaining(f -> out.put(f.getKey(), f.getValue().asLong()));
+            return out;
+        } catch (Exception e) {
+            warn("GET /onboarding?page=0&size=1", e);
+            return null;
+        }
+    }
+
     /** PUT /internal/businesses/{id}/fee {feeModel, feeValue} (tenant, new). Returns false when it could not be written. */
     public boolean setFee(String businessId, String feeModel, BigDecimal feeValue) {
         try {
