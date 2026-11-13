@@ -1,0 +1,41 @@
+{
+  "baseUrl": "https://d84pml.api.infobip.com",
+  "sender": "2348148849797",
+  "defaults": {
+    "language": "en_GB",
+    "category": "UTILITY",
+    "footer": "Hospio360 by Oyeks Global"
+  },
+  "templates": [
+    {
+      "name": "hospio_booking_confirmation",
+      "header": "Booking confirmed",
+      "body": "Hospio360 · Hello {{1}}, your booking {{2}} at {{3}} is confirmed for {{4}} to {{5}} ({{6}}). Reply to this message if anything needs changing.",
+      "examples": ["Adaeze", "HB77XKEJ", "Royal Suites Ikeja", "Fri 13 Nov", "Sat 14 Nov", "Deluxe room"]
+    },
+    {
+      "name": "hospio_checkin_reminder",
+      "header": "See you tomorrow",
+      "body": "Hospio360 · Hello {{1}}, {{2}} looks forward to welcoming you tomorrow. Check-in is from {{3}} and your booking reference is {{4}}. See you soon.",
+      "examples": ["Adaeze", "Royal Suites Ikeja", "14:00", "HB77XKEJ"]
+    },
+    {
+      "name": "hospio_payment_receipt",
+      "header": "Payment received",
+      "body": "Hospio360 · Hello {{1}}, {{2}} received {{3}} for booking {{4}}. Thank you for your payment.",
+      "examples": ["Adaeze", "Royal Suites Ikeja", "₦45,000", "HB77XKEJ"]
+    },
+    {
+      "name": "hospio_booking_changed",
+      "header": "Booking updated",
+      "body": "Hospio360 · Hello {{1}}, your booking {{2}} at {{3}} has changed to {{4}} to {{5}}. Reply to this message if this is not right.",
+      "examples": ["Adaeze", "HB77XKEJ", "Royal Suites Ikeja", "Sat 14 Nov", "Mon 16 Nov"]
+    },
+    {
+      "name": "hospio_booking_cancelled",
+      "header": "Booking cancelled",
+      "body": "Hospio360 · Hello {{1}}, your booking {{2}} at {{3}} has been cancelled. {{4}} Reply to this message if you have any questions.",
+      "examples": ["Adaeze", "HB77XKEJ", "Royal Suites Ikeja", "Any payment will be refunded within 5 working days."]
+    }
+  ]
+}
