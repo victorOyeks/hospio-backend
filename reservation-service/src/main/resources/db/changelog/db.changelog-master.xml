@@ -16,5 +16,6 @@
     <include file="db/changelog/004-room-in-house-unique.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/005-expected-arrival.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/006-scale-indexes.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/007-booking-version-and-payments.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

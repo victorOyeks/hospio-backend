@@ -24,10 +24,15 @@ public class RoomReadiness {
         this.settings = new HotelSettingsReader(hotelConfigUrl, jwtUtil, internalApiKey);
     }
 
-    /** True when housekeeping says the room is DIRTY. A room with no status, or an unreachable housekeeping, is not dirty. */
+    /**
+     * True when housekeeping says the room is DIRTY. A room with no status, or an unreachable housekeeping, is not dirty. Called before
+     * check-in opens its transaction, never while a lock is held.
+     * TODO housekeeping has no single-room read yet: this downloads the hotel's whole board to find one room. {@code roomId} is sent
+     * already so housekeeping can answer just that room once /internal/room-status accepts it (the loop below still picks the room out).
+     */
     public boolean isDirty(String hotelId, String roomId) {
         try {
-            JsonNode body = housekeeping.get().uri("/internal/room-status?hotelId={h}", hotelId).retrieve().body(JsonNode.class);
+            JsonNode body = housekeeping.get().uri("/internal/room-status?hotelId={h}&roomId={r}", hotelId, roomId).retrieve().body(JsonNode.class);
             if (body != null) {
                 for (JsonNode r : body.path("data")) {
                     if (roomId.equals(r.path("roomId").asText())) {

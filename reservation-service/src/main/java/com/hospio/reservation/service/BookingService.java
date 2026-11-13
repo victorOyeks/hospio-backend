@@ -42,27 +42,43 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Bookings, availability, check-in and check-out. Reservations alone owns availability: every
  * booking or change takes a per-hotel-and-type advisory lock so two desks can never double-book.
+ * Every state change locks the booking's row first and checks its status after the lock; calls to
+ * property and housekeeping are made before the transaction opens, never while a lock is held.
  */
 @Service
-@RequiredArgsConstructor
 public class BookingService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    static final String STALE = "Someone else changed this booking just now; reload and try again";
+    /** Longest from..to the plain (unpaged) list answers. */
+    public static final int MAX_LIST_DAYS = 93;
 
     private final BookingRepository bookings;
     private final GuestService guestService;
     private final PropertyClient property;
     private final EventPublisher events;
     private final RoomReadiness readiness;
+    private final TransactionTemplate tx;
+
+    public BookingService(BookingRepository bookings, GuestService guestService, PropertyClient property, EventPublisher events,
+                          RoomReadiness readiness, PlatformTransactionManager transactions) {
+        this.bookings = bookings;
+        this.guestService = guestService;
+        this.property = property;
+        this.events = events;
+        this.readiness = readiness;
+        this.tx = new TransactionTemplate(transactions);
+    }
 
     @Transactional(readOnly = true)
     public TodayResponse today() {
@@ -79,6 +95,9 @@ public class BookingService {
     public List<BookingResponse> list(LocalDate from, LocalDate to, BookingStatus status) {
         LocalDate f = from == null ? Occupancy.today().minusDays(7) : from;
         LocalDate t = to == null ? Occupancy.today().plusDays(30) : to;
+        if (java.time.temporal.ChronoUnit.DAYS.between(f, t) > MAX_LIST_DAYS) {
+            throw new BadRequestException("Choose at most " + MAX_LIST_DAYS + " days between from and to, or ask for a page");
+        }
         return bookings.between(TenantContext.requireHotel(), f, t, status).stream().map(BookingResponse::of).toList();
     }
 
@@ -125,7 +144,10 @@ public class BookingService {
                 property.price(roomTypeId, from), free, turnover);
     }
 
-    @Transactional
+    /**
+     * Property's rooms and price are read first; the advisory lock and the transaction are held only for the database checks and the insert,
+     * never across a call to another service.
+     */
     public BookingResponse create(CreateBookingRequest request) {
         validateDates(request.checkInDate(), request.checkOutDate());
         // The party and arrival before anything is saved (the same checks the web makes).
@@ -142,67 +164,135 @@ public class BookingService {
         if (plan == PaymentPlan.ORGANIZATION && request.organizationId() == null) {
             throw new BadRequestException("Choose the organization this stay is billed to");
         }
-        Guest guest = request.guestId() != null ? guestService.get(request.guestId())
-                : guestService.findOrCreate(requireGuest(request));
-        if (guest.isBlacklisted() && !user.isManagerOrOwner()) {
-            throw new ForbiddenException("This guest is blacklisted. A manager has to book them");
+        if (request.guestId() == null) {
+            requireGuest(request);
         }
+        // Remote reads, outside any transaction or lock. A failure is raised where the read used to be, so the messages keep their order.
+        Fetched<List<PropertyClient.RoomSummary>> inService = Fetched.of(() -> property.rooms(hotelId, request.roomTypeId()).stream()
+                .filter(PropertyClient.RoomSummary::inService).toList());
+        Fetched<BigDecimal> listPrice = kind == PriceKind.NORMAL && inService.ok() && !inService.value().isEmpty()
+                ? Fetched.of(() -> property.price(request.roomTypeId(), request.checkInDate())) : Fetched.none();
 
-        bookings.lock(hotelId + ":" + request.roomTypeId());
-        List<PropertyClient.RoomSummary> rooms = property.rooms(hotelId, request.roomTypeId()).stream().filter(PropertyClient.RoomSummary::inService).toList();
-        if (rooms.isEmpty()) {
-            throw new BadRequestException("No rooms of that type are in service");
-        }
-        PropertyClient.RoomSummary room = null;
-        if (request.roomId() != null) {
-            room = rooms.stream().filter(r -> r.id().equals(request.roomId())).findFirst()
-                    .orElseThrow(() -> new BadRequestException("That room is not of this type or is out of order"));
-            // A walk-in is checked in straight after: refuse a room somebody is still in before the booking (and any payment) is taken.
-            boolean walkIn = Boolean.TRUE.equals(request.walkIn());
-            if (walkIn && request.checkInDate().isAfter(Occupancy.today())) {
-                throw new BadRequestException("A walk-in arrives today");
+        return tx.execute(status -> {
+            Guest guest = request.guestId() != null ? guestService.get(request.guestId()) : guestService.findOrCreate(requireGuest(request));
+            if (guest.isBlacklisted() && !user.isManagerOrOwner()) {
+                throw new ForbiddenException("This guest is blacklisted. A manager has to book them");
             }
-            requireRoomFree(null, room.id(), room.number(), request.checkInDate(), request.checkOutDate(), walkIn);
-        }
-        long overlapping = Occupancy.countBlocking(bookings.activeOnType(hotelId, request.roomTypeId(), request.checkInDate(), request.checkOutDate()),
-                request.checkInDate(), request.checkOutDate(), Occupancy.today(), null);
-        if (overlapping >= rooms.size()) {
-            throw new ConflictException("No " + rooms.get(0).roomTypeName() + " room is free for those nights");
-        }
 
-        BigDecimal nightly = switch (kind) {
-            case NORMAL -> property.price(request.roomTypeId(), request.checkInDate());
-            case SPECIAL -> {
-                if (!Money.isPositive(request.specialRate())) {
-                    throw new BadRequestException("Enter the special price");
+            bookings.lock(hotelId + ":" + request.roomTypeId());
+            List<PropertyClient.RoomSummary> rooms = inService.get();
+            if (rooms.isEmpty()) {
+                throw new BadRequestException("No rooms of that type are in service");
+            }
+            PropertyClient.RoomSummary room = null;
+            if (request.roomId() != null) {
+                room = rooms.stream().filter(r -> r.id().equals(request.roomId())).findFirst()
+                        .orElseThrow(() -> new BadRequestException("That room is not of this type or is out of order"));
+                // A walk-in is checked in straight after: refuse a room somebody is still in before the booking (and any payment) is taken.
+                boolean walkIn = Boolean.TRUE.equals(request.walkIn());
+                if (walkIn && request.checkInDate().isAfter(Occupancy.today())) {
+                    throw new BadRequestException("A walk-in arrives today");
                 }
-                yield Money.of(request.specialRate());
+                requireRoomFree(null, room.id(), room.number(), request.checkInDate(), request.checkOutDate(), walkIn);
             }
-            case COMPLIMENTARY -> BigDecimal.ZERO;
-        };
-        Booking booking = Booking.builder()
-                .reference(newReference()).guestId(guest.getId()).guestName(guest.getFullName())
-                .roomTypeId(request.roomTypeId()).roomTypeName(rooms.get(0).roomTypeName())
-                .roomId(room == null ? null : room.id()).roomNumber(room == null ? null : room.number())
-                .checkInDate(request.checkInDate()).checkOutDate(request.checkOutDate())
-                .adults(GuestRules.adults(request.adults())).children(GuestRules.children(request.children()))
-                .expectedArrival(Boolean.TRUE.equals(request.walkIn()) ? null : GuestRules.arrival(request.expectedArrival()))
-                .priceKind(kind).nightlyRate(Money.of(nightly)).paymentPlan(plan).organizationId(request.organizationId())
-                .source(request.source() == null ? "FRONT_DESK" : request.source()).notes(request.notes()).createdBy(user.getUserId())
-                .build();
-        booking.setTotalAmount(Money.of(nightly.multiply(BigDecimal.valueOf(booking.nights()))));
-        bookings.save(booking);
-        events.publish(KafkaTopics.BOOKING_CREATED, BookingCreatedEvent.builder()
-                .bookingId(booking.getId()).guestId(guest.getId()).guestName(guest.getFullName())
-                .roomId(booking.getRoomId()).roomNumber(booking.getRoomNumber()).checkInDate(booking.getCheckInDate())
-                .checkOutDate(booking.getCheckOutDate()).amount(booking.getTotalAmount()).paymentPlan(plan.name())
-                .priceKind(kind.name()).organizationId(request.organizationId()).build());
-        return BookingResponse.of(booking);
+            long overlapping = Occupancy.countBlocking(bookings.activeOnType(hotelId, request.roomTypeId(), request.checkInDate(), request.checkOutDate()),
+                    request.checkInDate(), request.checkOutDate(), Occupancy.today(), null);
+            if (overlapping >= rooms.size()) {
+                throw new ConflictException("No " + rooms.get(0).roomTypeName() + " room is free for those nights");
+            }
+
+            BigDecimal nightly = switch (kind) {
+                case NORMAL -> listPrice.get();
+                case SPECIAL -> {
+                    if (!Money.isPositive(request.specialRate())) {
+                        throw new BadRequestException("Enter the special price");
+                    }
+                    yield Money.of(request.specialRate());
+                }
+                case COMPLIMENTARY -> BigDecimal.ZERO;
+            };
+            Booking booking = Booking.builder()
+                    .reference(newReference()).guestId(guest.getId()).guestName(guest.getFullName())
+                    .roomTypeId(request.roomTypeId()).roomTypeName(rooms.get(0).roomTypeName())
+                    .roomId(room == null ? null : room.id()).roomNumber(room == null ? null : room.number())
+                    .checkInDate(request.checkInDate()).checkOutDate(request.checkOutDate())
+                    .adults(GuestRules.adults(request.adults())).children(GuestRules.children(request.children()))
+                    .expectedArrival(Boolean.TRUE.equals(request.walkIn()) ? null : GuestRules.arrival(request.expectedArrival()))
+                    .priceKind(kind).nightlyRate(Money.of(nightly)).paymentPlan(plan).organizationId(request.organizationId())
+                    .source(request.source() == null ? "FRONT_DESK" : request.source()).notes(request.notes()).createdBy(user.getUserId())
+                    .build();
+            booking.setTotalAmount(Money.of(nightly.multiply(BigDecimal.valueOf(booking.nights()))));
+            bookings.save(booking);
+            events.publish(KafkaTopics.BOOKING_CREATED, BookingCreatedEvent.builder()
+                    .bookingId(booking.getId()).guestId(guest.getId()).guestName(guest.getFullName())
+                    .roomId(booking.getRoomId()).roomNumber(booking.getRoomNumber()).checkInDate(booking.getCheckInDate())
+                    .checkOutDate(booking.getCheckOutDate()).amount(booking.getTotalAmount()).paymentPlan(plan.name())
+                    .priceKind(kind.name()).organizationId(request.organizationId()).build());
+            return BookingResponse.of(booking);
+        });
     }
 
-    @Transactional
+    /** New dates, room or type. Property is read first; then the booking row and the type lock(s) are held only for the checks and the save. */
     public BookingResponse change(String id, ChangeBookingRequest request) {
-        Booking b = find(id);
+        Booking seen = find(id);
+        LocalDate[] dates = changeAllowed(seen, request);
+        LocalDate in = dates[0];
+        String requestedType = request.roomTypeId() == null ? seen.getRoomTypeId() : request.roomTypeId();
+        Fetched<PropertyClient.RoomSummary> newRoom = request.roomId() == null ? null : Fetched.of(() -> property.room(request.roomId()));
+        boolean roomUsable = newRoom == null || (newRoom.ok() && newRoom.value().inService());
+        // The type the stay ends up in: the new room's type when a room is given, else the type asked for.
+        String typeId = newRoom != null && newRoom.ok() ? newRoom.value().roomTypeId() : requestedType;
+        Fetched<Long> roomsOfType = roomUsable
+                ? Fetched.of(() -> property.rooms(seen.getHotelId(), typeId).stream().filter(PropertyClient.RoomSummary::inService).count())
+                : Fetched.none();
+        Fetched<BigDecimal> newPrice = newRoom != null && roomUsable && seen.getPriceKind() == PriceKind.NORMAL
+                ? Fetched.of(() -> property.price(newRoom.value().roomTypeId(), in)) : Fetched.none();
+
+        return tx.execute(status -> {
+            Booking b = lockBooking(seen.getId());
+            changeAllowed(b, request);
+            requireUnchanged(seen, b);
+            LocalDate out = dates[1];
+            // Both types when the stay moves between types, always in the same order so two moves can't wait on each other.
+            new java.util.TreeSet<>(java.util.Arrays.asList(b.getRoomTypeId(), typeId)).forEach(t -> bookings.lock(b.getHotelId() + ":" + t));
+            PropertyClient.RoomSummary room = null;
+            if (newRoom != null) {
+                room = newRoom.get();
+                if (!room.inService()) {
+                    throw new BadRequestException("Room " + room.number() + " is out of order");
+                }
+                // An in-house guest moves into the room now: nobody else may be checked in to it, whatever their dates.
+                requireRoomFree(b.getId(), room.id(), room.number(), in, out, b.getStatus() == BookingStatus.CHECKED_IN && !room.id().equals(b.getRoomId()));
+            } else if (b.getRoomId() != null) {
+                requireRoomFree(b.getId(), b.getRoomId(), b.getRoomNumber(), in, out, false);
+            }
+            long rooms = roomsOfType.get();
+            if (Occupancy.countBlocking(bookings.activeOnType(b.getHotelId(), typeId, in, out), in, out, Occupancy.today(), b.getId()) >= rooms) {
+                throw new ConflictException("No room of that type is free for those nights");
+            }
+            String change = describeChange(b, in, out, room);
+            b.setCheckInDate(in);
+            b.setCheckOutDate(out);
+            if (room != null) {
+                b.setRoomId(room.id());
+                b.setRoomNumber(room.number());
+                b.setRoomTypeId(room.roomTypeId());
+                b.setRoomTypeName(room.roomTypeName());
+                if (b.getPriceKind() == PriceKind.NORMAL) {
+                    b.setNightlyRate(newPrice.get());
+                }
+            }
+            b.setTotalAmount(Money.of(b.getNightlyRate().multiply(BigDecimal.valueOf(b.nights()))));
+            saveInHouse(b);
+            events.publish(KafkaTopics.BOOKING_CHANGED, BookingChangedEvent.builder()
+                    .bookingId(b.getId()).guestName(b.getGuestName()).change(change + (request.reason() == null ? "" : " (" + request.reason() + ")"))
+                    .roomId(b.getRoomId()).roomNumber(b.getRoomNumber()).checkInDate(in).checkOutDate(out).build());
+            return BookingResponse.of(b);
+        });
+    }
+
+    /** The checks a change passes, on the booking as read: the new check-in and check-out dates. */
+    private static LocalDate[] changeAllowed(Booking b, ChangeBookingRequest request) {
         if (!b.isActive()) {
             throw new BadRequestException("This booking is " + b.getStatus().name().toLowerCase());
         }
@@ -212,118 +302,101 @@ public class BookingService {
             throw new BadRequestException("The guest is already in; only the check-out date or room can change");
         }
         validateDates(in, out, b.getStatus() == BookingStatus.CHECKED_IN);
-        String typeId = request.roomTypeId() == null ? b.getRoomTypeId() : request.roomTypeId();
-        bookings.lock(b.getHotelId() + ":" + typeId);
-        PropertyClient.RoomSummary room = null;
-        if (request.roomId() != null) {
-            room = property.room(request.roomId());
-            if (!room.inService()) {
-                throw new BadRequestException("Room " + room.number() + " is out of order");
-            }
-            typeId = room.roomTypeId();
-            // An in-house guest moves into the room now: nobody else may be checked in to it, whatever their dates.
-            requireRoomFree(b.getId(), room.id(), room.number(), in, out, b.getStatus() == BookingStatus.CHECKED_IN && !room.id().equals(b.getRoomId()));
-        } else if (b.getRoomId() != null) {
-            requireRoomFree(b.getId(), b.getRoomId(), b.getRoomNumber(), in, out, false);
-        }
-        long rooms = property.rooms(b.getHotelId(), typeId).stream().filter(PropertyClient.RoomSummary::inService).count();
-        if (Occupancy.countBlocking(bookings.activeOnType(b.getHotelId(), typeId, in, out), in, out, Occupancy.today(), b.getId()) >= rooms) {
-            throw new ConflictException("No room of that type is free for those nights");
-        }
-        String change = describeChange(b, in, out, room);
-        b.setCheckInDate(in);
-        b.setCheckOutDate(out);
-        if (room != null) {
-            b.setRoomId(room.id());
-            b.setRoomNumber(room.number());
-            b.setRoomTypeId(room.roomTypeId());
-            b.setRoomTypeName(room.roomTypeName());
-            if (b.getPriceKind() == PriceKind.NORMAL) {
-                b.setNightlyRate(property.price(room.roomTypeId(), in));
-            }
-        }
-        b.setTotalAmount(Money.of(b.getNightlyRate().multiply(BigDecimal.valueOf(b.nights()))));
-        saveInHouse(b);
-        events.publish(KafkaTopics.BOOKING_CHANGED, BookingChangedEvent.builder()
-                .bookingId(b.getId()).guestName(b.getGuestName()).change(change + (request.reason() == null ? "" : " (" + request.reason() + ")"))
-                .roomId(b.getRoomId()).roomNumber(b.getRoomNumber()).checkInDate(in).checkOutDate(out).build());
-        return BookingResponse.of(b);
+        return new LocalDate[] {in, out};
     }
 
-    @Transactional
+    /**
+     * Property and housekeeping are read first (the room, whether it is clean, the hotel's inspection rule); then the booking row is locked,
+     * its status checked again, and the room locks and the save happen in a short transaction. A second check-in of the same booking waits
+     * for the first and is then refused ("This booking is checked in"), so the stay is counted and announced once.
+     */
     public BookingResponse checkIn(String id, CheckInRequest request) {
-        Booking b = find(id);
+        HospioUserDetails user = CurrentUser.require();
+        Booking seen = find(id);
+        checkInAllowed(seen, request, user);
+        boolean assigning = seen.getRoomId() == null || request.roomId() != null;
+        String roomId = request.roomId() == null ? seen.getRoomId() : request.roomId();
+        if (roomId == null) {
+            throw new BadRequestException("Choose a room for the guest");
+        }
+        Fetched<PropertyClient.RoomSummary> room = Fetched.of(() -> property.room(roomId));
+        boolean dirty = room.ok() && room.value().inService() && readiness.isDirty(seen.getHotelId(), roomId);
+        boolean inspect = dirty && readiness.inspectDepartures(seen.getHotelId());
+
+        return tx.execute(status -> {
+            Booking b = lockBooking(seen.getId());
+            checkInAllowed(b, request, user);
+            requireUnchanged(seen, b);
+            if (assigning) {
+                PropertyClient.RoomSummary r = room.get();
+                if (!r.inService()) {
+                    throw new BadRequestException("Room " + r.number() + " is out of order");
+                }
+                bookings.lock(b.getHotelId() + ":" + r.roomTypeId());
+                requireRoomFree(b.getId(), r.id(), r.number(), b.getCheckInDate(), b.getCheckOutDate(), true);
+                b.setRoomId(r.id());
+                b.setRoomNumber(r.number());
+            } else if (!room.get().inService()) {
+                // The room given at booking went out of order since (a work order): the desk picks another room.
+                throw new BadRequestException("Room " + b.getRoomNumber() + " is out of order · choose another room");
+            } else {
+                // The room given at booking (or a same-day turnover): the guest before must have been checked out.
+                requireRoomFree(b.getId(), b.getRoomId(), b.getRoomNumber(), b.getCheckInDate(), b.getCheckOutDate(), true);
+            }
+            String warning = null;
+            if (dirty) {
+                warning = "Room not cleaned yet";
+                if (inspect) {
+                    if (!Boolean.TRUE.equals(request.overrideDirty())) {
+                        throw new BadRequestException("Room " + b.getRoomNumber() + " hasn't been cleaned yet. A manager can check the guest in anyway");
+                    }
+                    if (!user.isManagerOrOwner() && !user.isPlatform()) {
+                        throw new ForbiddenException("Only a manager can check a guest into a room that hasn't been cleaned");
+                    }
+                }
+            }
+            Guest guest = guestService.get(b.getGuestId());
+            if (request.guestEmail() != null || request.guestPhone() != null || request.idNumber() != null) {
+                if (request.guestEmail() != null) {
+                    guest.setEmail(request.guestEmail());
+                }
+                if (request.guestPhone() != null) {
+                    guest.setPhone(GuestRules.phone(request.guestPhone()));
+                }
+                if (request.idNumber() != null) {
+                    guest.setIdType(request.idType());
+                    guest.setIdNumber(request.idNumber());
+                }
+            }
+            guestService.countStay(guest.getId());
+            b.setStatus(BookingStatus.CHECKED_IN);
+            b.setCheckedInAt(Instant.now());
+            saveInHouse(b);
+            events.publish(KafkaTopics.GUEST_CHECKED_IN, GuestCheckedInEvent.builder()
+                    .bookingId(b.getId()).guestId(guest.getId()).guestName(guest.getFullName()).guestPhone(guest.getPhone())
+                    .guestEmail(guest.getEmail()).roomId(b.getRoomId()).roomNumber(b.getRoomNumber()).checkOutDate(b.getCheckOutDate())
+                    .nightlyRate(b.getNightlyRate()).nights(b.nights()).paymentPlan(b.getPaymentPlan().name()).organizationId(b.getOrganizationId()).build());
+            BookingResponse response = BookingResponse.of(b);
+            return warning == null ? response : response.withWarning(warning);
+        });
+    }
+
+    private static void checkInAllowed(Booking b, CheckInRequest request, HospioUserDetails user) {
         if (b.getStatus() != BookingStatus.BOOKED) {
             throw new BadRequestException("This booking is " + b.getStatus().name().toLowerCase().replace('_', ' '));
         }
         if (Occupancy.today().isBefore(b.getCheckInDate())) {
             throw new BadRequestException("Check-in is on " + b.getCheckInDate());
         }
-        HospioUserDetails user = CurrentUser.require();
         if (Boolean.TRUE.equals(request.withoutPayment()) && !user.isManagerOrOwner()
                 && b.getPaymentPlan() != PaymentPlan.PAY_AT_CHECKOUT && b.getPaymentPlan() != PaymentPlan.ORGANIZATION) {
             throw new ForbiddenException("Only a manager can check a guest in without payment");
         }
-        if (b.getRoomId() == null || request.roomId() != null) {
-            String roomId = request.roomId() == null ? b.getRoomId() : request.roomId();
-            if (roomId == null) {
-                throw new BadRequestException("Choose a room for the guest");
-            }
-            PropertyClient.RoomSummary room = property.room(roomId);
-            if (!room.inService()) {
-                throw new BadRequestException("Room " + room.number() + " is out of order");
-            }
-            bookings.lock(b.getHotelId() + ":" + room.roomTypeId());
-            requireRoomFree(b.getId(), room.id(), room.number(), b.getCheckInDate(), b.getCheckOutDate(), true);
-            b.setRoomId(room.id());
-            b.setRoomNumber(room.number());
-        } else if (!property.room(b.getRoomId()).inService()) {
-            // The room given at booking went out of order since (a work order): the desk picks another room.
-            throw new BadRequestException("Room " + b.getRoomNumber() + " is out of order · choose another room");
-        } else {
-            // The room given at booking (or a same-day turnover): the guest before must have been checked out.
-            requireRoomFree(b.getId(), b.getRoomId(), b.getRoomNumber(), b.getCheckInDate(), b.getCheckOutDate(), true);
-        }
-        String warning = null;
-        if (b.getRoomId() != null && readiness.isDirty(b.getHotelId(), b.getRoomId())) {
-            warning = "Room not cleaned yet";
-            if (readiness.inspectDepartures(b.getHotelId())) {
-                if (!Boolean.TRUE.equals(request.overrideDirty())) {
-                    throw new BadRequestException("Room " + b.getRoomNumber() + " hasn't been cleaned yet. A manager can check the guest in anyway");
-                }
-                if (!user.isManagerOrOwner() && !user.isPlatform()) {
-                    throw new ForbiddenException("Only a manager can check a guest into a room that hasn't been cleaned");
-                }
-            }
-        }
-        Guest guest = guestService.get(b.getGuestId());
-        if (request.guestEmail() != null || request.guestPhone() != null || request.idNumber() != null) {
-            if (request.guestEmail() != null) {
-                guest.setEmail(request.guestEmail());
-            }
-            if (request.guestPhone() != null) {
-                guest.setPhone(GuestRules.phone(request.guestPhone()));
-            }
-            if (request.idNumber() != null) {
-                guest.setIdType(request.idType());
-                guest.setIdNumber(request.idNumber());
-            }
-        }
-        guestService.countStay(guest.getId());
-        b.setStatus(BookingStatus.CHECKED_IN);
-        b.setCheckedInAt(Instant.now());
-        saveInHouse(b);
-        events.publish(KafkaTopics.GUEST_CHECKED_IN, GuestCheckedInEvent.builder()
-                .bookingId(b.getId()).guestId(guest.getId()).guestName(guest.getFullName()).guestPhone(guest.getPhone())
-                .guestEmail(guest.getEmail()).roomId(b.getRoomId()).roomNumber(b.getRoomNumber()).checkOutDate(b.getCheckOutDate())
-                .nightlyRate(b.getNightlyRate()).nights(b.nights()).paymentPlan(b.getPaymentPlan().name()).organizationId(b.getOrganizationId()).build());
-        BookingResponse response = BookingResponse.of(b);
-        return warning == null ? response : response.withWarning(warning);
     }
 
     @Transactional
     public BookingResponse checkOut(String id, CheckOutRequest request) {
-        Booking b = find(id);
+        Booking b = lockBooking(id);
         if (b.getStatus() != BookingStatus.CHECKED_IN) {
             throw new BadRequestException("The guest is not checked in");
         }
@@ -344,7 +417,7 @@ public class BookingService {
 
     @Transactional
     public BookingResponse lateCheckOut(String id, LocalTime until) {
-        Booking b = find(id);
+        Booking b = lockBooking(id);
         if (b.getStatus() != BookingStatus.CHECKED_IN) {
             throw new BadRequestException("The guest is not checked in");
         }
@@ -358,7 +431,7 @@ public class BookingService {
 
     @Transactional
     public BookingResponse cancel(String id, CancelBookingRequest request) {
-        Booking b = find(id);
+        Booking b = lockBooking(id);
         if (b.getStatus() == BookingStatus.CHECKED_IN) {
             throw new BadRequestException("The guest is already in; check them out instead");
         }
@@ -414,15 +487,21 @@ public class BookingService {
     /** Night audit close with markNoShows: every BOOKED arrival up to the date becomes NO_SHOW. Returns how many. */
     @Transactional
     public int markNoShows(String hotelId, LocalDate date) {
-        List<Booking> pending = bookings.unresolvedArrivals(hotelId, date);
-        for (Booking b : pending) {
+        int marked = 0;
+        for (String id : bookings.unresolvedArrivalIds(hotelId, date)) {
+            // Locked and checked again: a guest checked in or cancelled at the desk meanwhile is left alone.
+            Booking b = bookings.lockById(id).orElse(null);
+            if (b == null || b.getStatus() != BookingStatus.BOOKED || b.getCheckInDate().isAfter(date)) {
+                continue;
+            }
             b.setStatus(BookingStatus.NO_SHOW);
             bookings.save(b);
             events.publish(KafkaTopics.BOOKING_CHANGED, BookingChangedEvent.builder()
                     .bookingId(b.getId()).guestName(b.getGuestName()).change("Marked no-show by the night audit")
                     .roomId(b.getRoomId()).roomNumber(b.getRoomNumber()).checkInDate(b.getCheckInDate()).checkOutDate(b.getCheckOutDate()).build());
+            marked++;
         }
-        return pending.size();
+        return marked;
     }
 
     private static DaySummary.Stay stay(Booking b) {
@@ -462,6 +541,52 @@ public class BookingService {
 
     private Booking find(String id) {
         return bookings.findById(id).or(() -> bookings.findByReference(id)).orElseThrow(() -> new ResourceNotFoundException("Booking not found"));
+    }
+
+    /**
+     * The booking by id or reference with its row locked (SELECT ... FOR UPDATE) until the transaction ends. Every state change starts
+     * here, before its status checks, so two desks (or the desk and the night audit) act on the booking one after the other.
+     */
+    private Booking lockBooking(String id) {
+        return bookings.lockById(id).or(() -> bookings.idByReference(id).flatMap(bookings::lockById))
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found"));
+    }
+
+    /** What the remote reads were based on must still hold once the row is locked; otherwise the desk reloads and tries again. */
+    private static void requireUnchanged(Booking seen, Booking now) {
+        if (!java.util.Objects.equals(seen.getRoomId(), now.getRoomId()) || !java.util.Objects.equals(seen.getRoomTypeId(), now.getRoomTypeId())
+                || !java.util.Objects.equals(seen.getCheckInDate(), now.getCheckInDate())
+                || !java.util.Objects.equals(seen.getCheckOutDate(), now.getCheckOutDate())
+                || seen.getPriceKind() != now.getPriceKind() || seen.getStatus() != now.getStatus()) {
+            throw new ConflictException(STALE);
+        }
+    }
+
+    /** A remote read done before the transaction: its value, or the error it raised, given back where the read used to be. */
+    record Fetched<T>(T value, RuntimeException error) {
+
+        static <T> Fetched<T> of(java.util.function.Supplier<T> read) {
+            try {
+                return new Fetched<>(read.get(), null);
+            } catch (RuntimeException e) {
+                return new Fetched<>(null, e);
+            }
+        }
+
+        static <T> Fetched<T> none() {
+            return new Fetched<>(null, new IllegalStateException("Not read"));
+        }
+
+        boolean ok() {
+            return error == null;
+        }
+
+        T get() {
+            if (error != null) {
+                throw error;
+            }
+            return value;
+        }
     }
 
     private static com.hospio.reservation.dto.GuestRequest requireGuest(CreateBookingRequest request) {

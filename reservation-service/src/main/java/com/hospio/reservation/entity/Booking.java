@@ -9,6 +9,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -121,6 +122,11 @@ public class Booking extends TenantEntity {
 
     @Column(name = "cancellation_reason", length = 300)
     private String cancellationReason;
+
+    /** Optimistic lock: a stale copy saved over a newer row fails instead of undoing a check-in or a cancellation. */
+    @Version
+    @Column(nullable = false)
+    private Long version;
 
     public int nights() {
         return (int) Math.max(1, ChronoUnit.DAYS.between(checkInDate, checkOutDate));

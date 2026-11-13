@@ -5,9 +5,9 @@ import com.hospio.common.kafka.events.PaymentApprovedEvent;
 import com.hospio.common.kafka.events.RefundApprovedEvent;
 import com.hospio.common.tenancy.TenantBinder;
 import com.hospio.common.tenancy.TenantContext;
-import com.hospio.reservation.entity.Booking;
 import com.hospio.reservation.repository.BookingRepository;
 import java.math.BigDecimal;
+import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -35,8 +35,9 @@ public class ReservationEventListener {
         }
         tenant.bind(e);
         try {
-            bookings.findById(e.getBookingId()).ifPresentOrElse(b -> add(b, e.getAmount()),
-                    () -> log.warn("PaymentApproved {} names booking {} which does not exist", e.getPaymentId(), e.getBookingId()));
+            if (!add(e.getBookingId(), e.getPaymentId() == null ? null : "payment:" + e.getPaymentId(), e.getAmount())) {
+                log.warn("PaymentApproved {} names booking {} which does not exist", e.getPaymentId(), e.getBookingId());
+            }
         } finally {
             TenantContext.clear();
         }
@@ -50,15 +51,25 @@ public class ReservationEventListener {
         }
         tenant.bind(e);
         try {
-            bookings.findById(e.getBookingId()).ifPresent(b -> add(b, e.getAmount().negate()));
+            add(e.getBookingId(), e.getRefundId() == null ? null : "refund:" + e.getRefundId(), e.getAmount().negate());
         } finally {
             TenantContext.clear();
         }
     }
 
-    private void add(Booking b, BigDecimal delta) {
-        BigDecimal current = b.getAmountPaid() == null ? BigDecimal.ZERO : b.getAmountPaid();
-        b.setAmountPaid(current.add(delta).max(BigDecimal.ZERO));
-        bookings.save(b);
+    /**
+     * Adds {@code delta} to the booking's amount paid in one statement (never below zero), so it can't overwrite a check-in or
+     * cancellation saved meanwhile. With a {@code ref} the payment or refund is recorded in booking_payments in the same transaction and
+     * applied only the first time: a redelivered event changes nothing. False when the booking does not exist.
+     */
+    boolean add(String bookingId, String ref, BigDecimal delta) {
+        if (ref != null && bookings.recordPayment(ref, bookingId, delta) == 0) {
+            if (!bookings.existsById(bookingId)) {
+                return false;
+            }
+            log.info("{} was already applied to booking {}; ignoring the repeat", ref, bookingId);
+            return true;
+        }
+        return bookings.addPaid(bookingId, delta, Instant.now()) > 0;
     }
 }
