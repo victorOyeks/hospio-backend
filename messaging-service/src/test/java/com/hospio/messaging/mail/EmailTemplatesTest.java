@@ -15,8 +15,7 @@ class EmailTemplatesTest {
                 "Hello Ada,\n\nTemporary password: Xy7#kQ\n\nSign in at https://web.example/sign-in.");
         assertThat(r.html()).contains(">Royal Suites Ikeja</td>").contains(">RS</div>").contains(">Security</span>")
                 .contains("Your password was reset").contains(">Temporary password</div>").contains(">Xy7#kQ</div>")
-                .contains("href=\"https://web.example/sign-in\"").contains(">Sign in</a>").contains("Sent by Royal Suites Ikeja with Hospio360")
-                .contains("Reply to this email to reach Royal Suites Ikeja");
+                .contains("href=\"https://web.example/sign-in\"").contains(">Sign in</a>").contains("Hospio360 · hotel management by Oyeks Global");
         assertThat(r.text()).startsWith("Royal Suites Ikeja").contains("Temporary password: Xy7#kQ").doesNotContain("<");
         assertThat(r.subject()).isEqualTo("Your Hospio360 password was reset");
     }
@@ -60,7 +59,10 @@ class EmailTemplatesTest {
     }
 
     @Test
-    void platformMailHasNoReplyLine() {
-        assertThat(templates.render("INVITE", "Hospio360", "s", "x").html()).doesNotContain("Reply to this email").contains("by Oyeks Global");
+    void everyEmailHasTheSameFooter() {
+        assertThat(templates.render("INVITE", "Hospio360", "s", "x").html()).contains("Hospio360 · hotel management by Oyeks Global");
+        assertThat(templates.render("RECEIPT", "Royal Suites Ikeja", "s", "x").html()).contains("Hospio360 · hotel management by Oyeks Global")
+                .doesNotContain("Sent by");
+        assertThat(templates.render("RECEIPT", "Royal Suites Ikeja", "s", "x").text()).endsWith("Hospio360 · hotel management by Oyeks Global\n");
     }
 }
