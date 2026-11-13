@@ -2,7 +2,7 @@
   "baseUrl": "https://d84pml.api.infobip.com",
   "sender": "2348148849797",
   "defaults": {
-    "language": "en_GB",
+    "language": "en",
     "category": "UTILITY",
     "footer": "Hospio360 by Oyeks Global"
   },
