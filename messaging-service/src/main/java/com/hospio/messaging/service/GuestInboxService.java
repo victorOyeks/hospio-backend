@@ -73,6 +73,13 @@ public class GuestInboxService {
     private final ReservationClient reservations;
     private final FinanceClient finance;
     private final TenantClient tenants;
+    private com.hospio.messaging.billing.CommBilling billing;
+
+    /** Guest messages are a paid service (docs/guest-message-billing.md): a hotel that is off or suspended is told so here. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setBilling(@org.springframework.context.annotation.Lazy com.hospio.messaging.billing.CommBilling billing) {
+        this.billing = billing;
+    }
 
     public record Filter(String tab, String q, NotificationChannel channel) {
     }
@@ -295,6 +302,12 @@ public class GuestInboxService {
         if (channel == null || channel == NotificationChannel.IN_APP) {
             throw new BadRequestException("Pick email, WhatsApp or SMS for a guest");
         }
+        if (billing != null) {
+            com.hospio.messaging.billing.CommBilling.Gate gate = billing.gate(TenantContext.requireHotel(), Delivery.Kind.MESSAGE.name());
+            if (!gate.allowed()) {
+                throw new BadRequestException(gate.reason());
+            }
+        }
         String body = text.trim();
         String to = channel == NotificationChannel.EMAIL ? c.getGuestEmail() : c.getGuestPhone();
         if (!StringUtils.hasText(to)) {
@@ -319,7 +332,7 @@ public class GuestInboxService {
         String status = deliveries.marked(d).status();
         Message m = messages.save(Message.builder().conversationId(c.getId()).direction(Message.Direction.OUT).senderId(me.getUserId())
                 .senderName(me.getFullName()).body(body).channel(channel.name())
-                .status(Delivery.EMAIL_SENT.equals(status) ? DeliveryRecord.Status.QUEUED.name() : DeliveryRecord.Status.NOT_CONNECTED.name()).build());
+                .status(java.util.Set.of(Delivery.EMAIL_SENT, Delivery.SMS_SENT, Delivery.WHATSAPP_SENT).contains(status) ? DeliveryRecord.Status.QUEUED.name() : DeliveryRecord.Status.NOT_CONNECTED.name()).build());
         List<Delivery> echoed = deliveries.send(new Delivery(d.channel(), d.to(), d.subject(), d.text(), d.kind(), m.getId()));
         return new GuestInbox.Sent(view(c), view(m), echoed);
     }
