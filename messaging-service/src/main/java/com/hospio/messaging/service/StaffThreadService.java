@@ -243,7 +243,8 @@ public class StaffThreadService {
             if (StringUtils.hasText(p.phone())) {
                 out.add(new Delivery(Delivery.Channel.WHATSAPP, p.phone(), c.getSubject(),
                         "Message from " + me.getFullName() + " on Hospio360: " + body.trim() + "\nReply in the app: Inbox",
-                        Delivery.Kind.MESSAGE, c.getId()));
+                        // Staff to staff: never billed (docs/guest-message-billing.md), unlike MESSAGE to guests.
+                        Delivery.Kind.NOTICE, c.getId()));
             }
         }
         return deliveries.send(out);

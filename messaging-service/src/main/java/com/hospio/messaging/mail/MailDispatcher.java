@@ -44,6 +44,7 @@ public class MailDispatcher {
     private final long maxEventAgeMinutes;
     private com.hospio.messaging.text.TextSender texts;
     private com.hospio.messaging.client.HotelBrandClient brands;
+    private com.hospio.messaging.billing.CommBilling billing;
     private Executor executor = Executors.newFixedThreadPool(2, r -> {
         Thread t = new Thread(r, "mail-sender");
         t.setDaemon(true);
@@ -82,6 +83,12 @@ public class MailDispatcher {
         this.brands = brands;
     }
 
+    /** Guest-message billing (docs/guest-message-billing.md); absent in tests: nothing is billable. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setBilling(@org.springframework.context.annotation.Lazy com.hospio.messaging.billing.CommBilling billing) {
+        this.billing = billing;
+    }
+
     /** Tests run the send on the calling thread. */
     void runInline() {
         this.executor = Runnable::run;
@@ -118,8 +125,15 @@ public class MailDispatcher {
             boolean email = "EMAIL".equals(channel);
             boolean text = !email && texts != null && texts.live(channel);
             From sender = email || text ? senderFor(e.getBusinessId(), e.getHotelId(), e.getFromName(), e.getReplyTo()) : new From(null, null);
-            DeliveryRecord.Status status = !email ? (text ? DeliveryRecord.Status.QUEUED : DeliveryRecord.Status.NOT_CONNECTED)
+            DeliveryRecord.Status wanted = !email ? (text ? DeliveryRecord.Status.QUEUED : DeliveryRecord.Status.NOT_CONNECTED)
                     : !enabled ? DeliveryRecord.Status.DISABLED : DeliveryRecord.Status.QUEUED;
+            // A message the hotel pays for goes only while its guest-message service is on and not suspended.
+            com.hospio.messaging.billing.CommBilling.Gate gate = billing == null ? com.hospio.messaging.billing.CommBilling.Gate.FREE
+                    : billing.gate(e.getHotelId(), e.getKind());
+            DeliveryRecord.Status status = gate.billable() && !gate.allowed() ? DeliveryRecord.Status.SKIPPED : wanted;
+            if (status == DeliveryRecord.Status.SKIPPED) {
+                log.info("{} {} to {} not sent: {}", channel, e.getKind(), e.getTo(), gate.reason());
+            }
             DeliveryRecord saved = asSystem(() -> tx.execute(s -> {
                 if (e.getEventId() != null) {
                     Optional<DeliveryRecord> existing = records.findByEventId(e.getEventId());
@@ -130,7 +144,7 @@ public class MailDispatcher {
                 return records.save(DeliveryRecord.builder().eventId(e.getEventId()).businessId(e.getBusinessId()).hotelId(e.getHotelId())
                         .channel(channel).toAddress(cut(e.getTo() == null ? "" : e.getTo().trim(), 255)).subject(cut(e.getSubject(), 300))
                         .kind(cut(e.getKind(), 40)).ref(cut(e.getRef(), 80)).fromName(cut(sender.name(), 200)).replyTo(cut(sender.replyTo(), 255))
-                        .status(status).build());
+                        .status(status).billable(gate.billable() && gate.allowed()).error(gate.allowed() ? null : cut(gate.reason(), 500)).build());
             }));
             if (saved == null) {
                 log.info("Delivery event {} already recorded; not sent again", e.getEventId());
@@ -202,6 +216,7 @@ public class MailDispatcher {
                 if (ok != null) {
                     r.setStatus(DeliveryRecord.Status.SENT);
                     r.setSentAt(Instant.now());
+                    priced(r, "EMAIL");
                     r.setProviderMessageId(cut(ok.messageId() + (ok.reply() == null ? "" : " · " + ok.reply()), 255));
                     r.setError(null);
                 } else {
@@ -241,6 +256,7 @@ public class MailDispatcher {
                 if (done.sent()) {
                     r.setStatus(DeliveryRecord.Status.SENT);
                     r.setSentAt(Instant.now());
+                    priced(r, done.channel());
                     r.setProviderMessageId(cut(done.providerRef(), 255));
                     // Sent, but not the way asked (a WhatsApp that went as an SMS): the reason stays on the record.
                     r.setError(cut(done.note(), 500));
@@ -295,6 +311,14 @@ public class MailDispatcher {
         } catch (RuntimeException ex) {
             log.warn("Delivery report for {} not applied: {}", providerRef, ex.getMessage());
             return false;
+        }
+    }
+
+    /** How a message went, and (when the hotel pays for it) its price by that channel at the hotel's prices today. */
+    private void priced(DeliveryRecord r, String via) {
+        r.setSentVia(via);
+        if (r.isBillable() && billing != null && r.getHotelId() != null) {
+            r.setUnitPrice(billing.price(r.getHotelId(), via));
         }
     }
 

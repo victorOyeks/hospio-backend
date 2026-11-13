@@ -14,5 +14,6 @@
     <include file="db/changelog/002-staff-threads.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/003-email-and-guest-inbox.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/004-delivery-reports.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/005-guest-message-billing.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>
