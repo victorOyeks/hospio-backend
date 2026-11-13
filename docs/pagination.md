@@ -43,7 +43,11 @@ before today (Lagos) when it isn't given. Asking for an earlier `from` reaches o
 Where an endpoint used to answer a plain list and something other than a screen still reads it (another
 service, an operations script), the endpoint keeps that answer when **neither** `page` nor `size` is sent,
 and answers a page as soon as either is. Screens always send `page` and `size`. No caps (`Top300` and the
-like) remain on either form: the unpaged form is for internal callers only and returns every match.
+like) remain on the paged form. The unpaged form is for internal callers only and, since the scale audit
+(docs/scale-audit-2026-11.md), is bounded by a date window so it can't read a whole history: payments, refunds and
+disputes 90 days (plus anything still open), inventory requests, purchase orders, counts and deliveries 90 days (plus
+anything still open), plain bookings at most 93 days between `from` and `to` (else 400), notifications `mine()` the
+newest 50.
 
 ### Exports
 
@@ -64,7 +68,7 @@ with the same filters and writes one CSV, so its row count equals `totalElements
 
 Every endpoint below takes `page`, `size` (1 to 100, else 400) and `sort`, filters in the database and keeps
 the counts and totals the same on every page. "Legacy" means the plain list still answers when neither `page`
-nor `size` is sent (internal callers and operations scripts; no caps on it any more).
+nor `size` is sent (internal callers and operations scripts; bounded as described above).
 
 | Service | Endpoint | Filters | Answer | Legacy |
 |---|---|---|---|---|
