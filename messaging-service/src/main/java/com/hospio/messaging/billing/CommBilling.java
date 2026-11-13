@@ -100,6 +100,13 @@ public class CommBilling {
     private final TransactionTemplate tx;
     private final com.hospio.messaging.mail.MailDispatcher mail;
     private final String hotelAppUrl;
+    private com.hospio.messaging.client.IdentityClient identity;
+
+    /** The hotel's owners and managers also get the invoice by email (a hotel often has no email of its own). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setIdentity(com.hospio.messaging.client.IdentityClient identity) {
+        this.identity = identity;
+    }
 
     public CommBilling(CommPlanRepository plans, CommPricesRepository prices, CommInvoiceRepository invoices, DeliveryRecordRepository deliveries,
                        TenantClient tenants, NotificationService notifications, PaystackClient paystack, TransactionTemplate tx,
@@ -385,6 +392,20 @@ public class CommBilling {
         List<String> to = new ArrayList<>();
         tenants.hotel(inv.getHotelId()).map(TenantClient.Sender::email).ifPresent(to::add);
         tenants.business(inv.getBusinessId()).map(TenantClient.Sender::email).filter(e -> !to.contains(e)).ifPresent(to::add);
+        if (identity != null) {
+            for (String role : List.of("OWNER", "MANAGER")) {
+                try {
+                    identity.withRole(inv.getHotelId(), role).stream().map(com.hospio.messaging.client.IdentityClient.Contact::email)
+                            .filter(StringUtils::hasText).map(String::trim).filter(e -> to.stream().noneMatch(e::equalsIgnoreCase)).forEach(to::add);
+                } catch (RuntimeException e) {
+                    log.warn("Could not look up the {}s of hotel {} for invoice {}: {}", role.toLowerCase(Locale.ROOT), inv.getHotelId(), inv.getNumber(),
+                            e.getMessage());
+                }
+            }
+        }
+        if (to.isEmpty()) {
+            log.warn("Invoice {} for hotel {}: no email for the hotel, the business, its owners or managers", inv.getNumber(), inv.getHotelId());
+        }
         for (String email : to) {
             mail.accept(DeliveryRequestedEvent.builder().eventId(UUID.nameUUIDFromBytes(("INVOICE-" + inv.getId() + "-" + email).getBytes()).toString())
                     .occurredAt(Instant.now()).businessId(inv.getBusinessId()).channel("EMAIL").to(email)
@@ -393,10 +414,15 @@ public class CommBilling {
         }
     }
 
+    /** notifications.event_id is 36 characters: one stable id per notice and invoice. */
+    static String eventId(String kind, String invoiceId) {
+        return UUID.nameUUIDFromBytes((kind + ":" + invoiceId).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+    }
+
     private void notifyHotel(CommInvoice inv, String kind, String title, String body) {
         try {
             TenantContext.runWith(Tenant.systemFor(inv.getBusinessId(), inv.getHotelId(), null, "system:billing"), () ->
-                    notifications.notifyRoles(kind + ":" + inv.getId(), kind, title, body, "/hotel-setup/guest-messages?invoice=" + inv.getId(),
+                    notifications.notifyRoles(eventId(kind, inv.getId()), kind, title, body, "/hotel-setup/guest-messages?invoice=" + inv.getId(),
                             "OWNER", "MANAGER"));
         } catch (RuntimeException e) {
             log.warn("Could not notify hotel {} about invoice {}: {}", inv.getHotelId(), inv.getNumber(), e.getMessage());
