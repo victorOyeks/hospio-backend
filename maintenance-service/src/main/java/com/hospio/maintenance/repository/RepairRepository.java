@@ -5,7 +5,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -17,6 +19,15 @@ public interface RepairRepository extends JpaRepository<Repair, String>, org.spr
     List<Repair> findByHotelIdAndRoomIdAndStatusIn(String hotelId, String roomId, Collection<Repair.Status> statuses);
 
     List<Repair> findByStatusInAndDueAtBeforeAndOverdueNotifiedFalse(Collection<Repair.Status> statuses, Instant before);
+
+    /** One page of open work orders past their due time whose overdue notice has not gone out yet, oldest due first. */
+    @Query("select r from Repair r where r.status in :statuses and r.dueAt < :before and r.overdueNotified = false order by r.dueAt, r.id")
+    List<Repair> findOverdueToNotify(@Param("statuses") Collection<Repair.Status> statuses, @Param("before") Instant before, Pageable page);
+
+    /** Marks the overdue notice as sent; 1 only for the call that flipped it, so the notice goes out once. */
+    @Modifying
+    @Query("update Repair r set r.overdueNotified = true where r.id = :id and r.overdueNotified = false")
+    int markOverdueNotified(@Param("id") String id);
 
     List<Repair> findByHotelIdAndStatusAndDoneAtBetween(String hotelId, Repair.Status status, Instant from, Instant to);
 

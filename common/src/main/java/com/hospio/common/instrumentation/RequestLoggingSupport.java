@@ -17,6 +17,11 @@ public final class RequestLoggingSupport {
         return real != null && !real.isBlank() ? real : request.getRemoteAddr();
     }
 
+    /** The signed-in user's id, or "anonymous": what the request log shows. */
+    public static String resolveUserId() {
+        return CurrentUser.get().map(u -> String.valueOf(u.getUserId())).orElse("anonymous");
+    }
+
     public static String resolveUser() {
         return CurrentUser.get().map(u -> u.getUserId() + " (" + u.getFullName() + ")").orElse("anonymous");
     }

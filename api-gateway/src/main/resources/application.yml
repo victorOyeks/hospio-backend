@@ -7,6 +7,11 @@ spring:
     name: api-gateway
   cloud:
     gateway:
+      # A service that is down fails fast (2s to connect); one that hangs answers 504 after 20s instead of holding the
+      # connection for ever. Report routes below get longer.
+      httpclient:
+        connect-timeout: 2000
+        response-timeout: 20s
       # Browsers call the API from the web app's origin; the tablet app and admin portal too.
       globalcors:
         cors-configurations:
@@ -17,6 +22,24 @@ spring:
             allow-credentials: true
             max-age: 3600
       routes:
+        # Reports and exports are built on request and can take longer than the 20s every other call gets.
+        # Listed before their services' catch-all routes so they match first.
+        - id: platform-reports
+          uri: http://${PLATFORM_HOST:localhost}:9214
+          order: -1
+          predicates:
+            - Path=/platform/reports/**,/platform/reports
+          metadata:
+            response-timeout: 60000
+
+        - id: fnb-sales-export
+          uri: http://${FNB_HOST:localhost}:9208
+          order: -1
+          predicates:
+            - Path=/fnb/sales/history/export
+          metadata:
+            response-timeout: 60000
+
         - id: identity-service
           uri: http://${IDENTITY_HOST:localhost}:9201
           predicates:

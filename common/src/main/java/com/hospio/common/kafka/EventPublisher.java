@@ -40,11 +40,17 @@ public class EventPublisher {
 
     private void send(String topic, HospioEvent event) {
         String key = event.getHotelId() != null ? event.getHotelId() : event.getBusinessId();
-        kafkaTemplate.send(topic, key, event).whenComplete((result, ex) -> {
-            if (ex != null) {
-                log.error("Failed to publish {} to {}", event.type(), topic, ex);
-            }
-        });
+        try {
+            kafkaTemplate.send(topic, key, event).whenComplete((result, ex) -> {
+                if (ex != null) {
+                    log.error("Failed to publish {} {} to {}", event.type(), event.getEventId(), topic, ex);
+                }
+            });
+        } catch (RuntimeException e) {
+            // The broker could not be reached within max.block.ms (5s). The write has already committed, so the caller
+            // must not see a failure for it; the event is lost and logged with its id (a transactional outbox would keep it).
+            log.error("Failed to publish {} {} to {}: {}", event.type(), event.getEventId(), topic, e.getMessage());
+        }
     }
 
     private static void stamp(HospioEvent event) {

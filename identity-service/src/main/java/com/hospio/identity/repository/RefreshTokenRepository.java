@@ -5,8 +5,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, String> {
     Optional<RefreshToken> findByTokenHash(String tokenHash);
@@ -24,4 +26,14 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Stri
     /** True when the session was signed out, read from the database (not the persistence context). */
     @Query("select count(t) > 0 from RefreshToken t where t.sessionId = :sessionId and t.endedAt is not null")
     boolean sessionEnded(@Param("sessionId") String sessionId);
+
+    /**
+     * Deletes up to {@code batch} tokens that expired or were revoked before {@code cutoff}, in their own transaction;
+     * returns how many. Called in a loop by the nightly clean-up so no single statement locks the whole table.
+     */
+    @Modifying
+    @Transactional
+    @Query(value = "DELETE FROM identity.refresh_tokens WHERE id IN (SELECT id FROM identity.refresh_tokens "
+            + "WHERE expires_at < :cutoff OR revoked_at < :cutoff LIMIT :batch)", nativeQuery = true)
+    int deleteStale(@Param("cutoff") Instant cutoff, @Param("batch") int batch);
 }

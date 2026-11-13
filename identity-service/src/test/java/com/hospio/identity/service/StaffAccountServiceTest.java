@@ -168,11 +168,24 @@ class StaffAccountServiceTest {
         due.setStatus(UserAccount.Status.PAUSED);
         due.setPausedUntil(Instant.now().minusSeconds(60));
         when(users.findByStatusAndPausedUntilLessThanEqual(eq(UserAccount.Status.PAUSED), any())).thenReturn(List.of(due));
+        when(users.resumeIfDue(eq("bola"), any(), eq(UserAccount.Status.PAUSED), eq(UserAccount.Status.ACTIVE))).thenReturn(1);
 
         assertThat(service.resumeDuePauses()).isEqualTo(1);
         assertThat(due.getStatus()).isEqualTo(UserAccount.Status.ACTIVE);
         assertThat(due.getPausedUntil()).isNull();
         verify(events, atLeastOnce()).publish(eq(KafkaTopics.ACCESS_CHANGED), any());
+    }
+
+    @Test
+    void aPauseAlreadyEndedByAnotherRunIsNotToldTwice() {
+        UserAccount due = account("bola", "b1", "Bola Ade", "bola@x.ng");
+        due.setStatus(UserAccount.Status.PAUSED);
+        due.setPausedUntil(Instant.now().minusSeconds(60));
+        when(users.findByStatusAndPausedUntilLessThanEqual(eq(UserAccount.Status.PAUSED), any())).thenReturn(List.of(due));
+        when(users.resumeIfDue(eq("bola"), any(), any(), any())).thenReturn(0);
+
+        assertThat(service.resumeDuePauses()).isZero();
+        verify(events, never()).publish(any(), any());
     }
 
     @Test
