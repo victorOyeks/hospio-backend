@@ -1,10 +1,20 @@
 server:
   port: 9212
   forward-headers-strategy: framework
+  # Fewer threads than Tomcat's 200: more would only queue on the connection pool.
+  tomcat:
+    threads:
+      max: 50
+    accept-count: 50
   servlet:
     context-path: /finance
 
 spring:
+  task:
+    scheduling:
+      # One slow job no longer holds up the others (each job still runs on one instance at a time).
+      pool:
+        size: 3
   config:
     import: optional:file:.env[.properties]
   application:
@@ -17,8 +27,12 @@ spring:
       # Liquibase writes its changelog table into this schema before the first changeset runs, so the
       # schema has to exist before Liquibase gets a connection. Idempotent, runs once per pooled connection.
       connection-init-sql: CREATE SCHEMA IF NOT EXISTS finance
+      # Budget: every service's pool together stays under ~80 of Postgres' 100 connections (another product uses ~10).
       maximum-pool-size: 5
       minimum-idle: 2
+      # Fail a request after 3s waiting for a connection instead of 30s; log a connection held over 20s.
+      connection-timeout: 3000
+      leak-detection-threshold: 20000
       idle-timeout: 30000
       max-lifetime: 600000
   jpa:
