@@ -104,7 +104,9 @@ public class TenantClient {
             }
             return out;
         }
-        for (int page = 0; page < 20; page++) {
+        // Every page, however many businesses there are. A page that fails fails the whole list: a short list read as complete
+        // would skip businesses' fee statements and dismiss their alerts.
+        for (int page = 0; page < 100_000; page++) {
             final int p = page;
             try {
                 JsonNode body = restClient.get().uri(b -> b.path("/businesses").queryParamIfPresent("stage", Optional.ofNullable(stage))
@@ -120,7 +122,7 @@ public class TenantClient {
                 }
             } catch (Exception e) {
                 warn("GET /businesses?stage=" + stage, e);
-                break;
+                throw new IllegalStateException("tenant-service didn't list every business (page " + p + "): " + e.getMessage(), e);
             }
         }
         return out;

@@ -48,7 +48,7 @@ public class PaymentClient {
             return new Summary(new BigDecimal(d.path("gross").asText("0")), d.path("count").asLong(), hotels);
         } catch (Exception e) {
             warn("GET /internal/admin/summary", e);
-            return Summary.empty();
+            throw new IllegalStateException("payment-service didn't answer the payment summary: " + e.getMessage(), e);
         }
     }
 

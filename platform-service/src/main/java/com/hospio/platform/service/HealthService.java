@@ -33,6 +33,7 @@ public class HealthService {
     private final ActivityEntryRepository activity;
     private final SupportTicketRepository tickets;
     private final FeeStatementRepository feeStatements;
+    private final org.springframework.transaction.support.TransactionTemplate tx;
 
     public record Factors(long activeUsers7d, long bookings7d, long payments7d, long openTickets, long overdueStatements, long nightAuditsMissed7d) {
     }
@@ -64,13 +65,12 @@ public class HealthService {
         return healthScores.save(h);
     }
 
-    /** Nightly: every LIVE business tenant lists. */
-    @Transactional
+    /** Nightly: every LIVE business tenant lists, each in its own transaction (one failure doesn't undo the others). */
     public int computeAll(List<TenantClient.Business> live) {
         int n = 0;
         for (TenantClient.Business b : live) {
             try {
-                compute(b.id());
+                tx.executeWithoutResult(s -> compute(b.id()));
                 n++;
             } catch (RuntimeException e) {
                 log.warn("Health not computed for business {}: {}", b.id(), e.getMessage());
