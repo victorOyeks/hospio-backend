@@ -6,6 +6,7 @@ import com.hospio.property.dto.AreaRequest;
 import com.hospio.property.dto.BulkRoomsRequest;
 import com.hospio.property.dto.BulkRoomsResponse;
 import com.hospio.property.dto.OutOfOrderRequest;
+import com.hospio.property.dto.RoomNoteRequest;
 import com.hospio.property.dto.RoomRequest;
 import com.hospio.property.dto.RoomResponse;
 import com.hospio.property.dto.RoomTypeRequest;
@@ -92,6 +93,14 @@ public class PropertyController {
     @PreAuthorize("@access.manager()")
     public ApiResponse<RoomResponse> updateRoom(@PathVariable String id, @Valid @RequestBody RoomRequest request) {
         return ApiResponse.ok("Saved", service.saveRoom(id, request));
+    }
+
+    /** The note on the room board, from the front desk, housekeeping or a manager; blank clears it (DEF-053). */
+    @PutMapping("/rooms/{id}/note")
+    @PreAuthorize("@access.manager() or @access.atLeast('FRONT_OFFICE','EDIT') or @access.atLeast('HOUSEKEEPING','EDIT')")
+    public ApiResponse<RoomResponse> roomNote(@PathVariable String id, @Valid @RequestBody RoomNoteRequest request) {
+        RoomResponse saved = service.roomNote(id, request.note());
+        return ApiResponse.ok(saved.notes() == null ? "Note removed" : "Note saved", saved);
     }
 
     @Operation(summary = "Delete a room made by mistake; 409 when it has ever had a booking")
