@@ -67,15 +67,20 @@ public class FolioEventListener {
     public void onChargePosted(ChargePostedEvent e) {
         tenant.bind(e);
         try {
+            // Every candidate is locked before it is looked at: a folio being closed right now is seen after the close, not before.
             Folio folio = null;
             if (e.getFolioId() != null) {
-                folio = folios.findById(e.getFolioId()).orElse(null);
+                folio = folios.lockById(e.getFolioId()).orElse(null);
+                if (folio != null && !folio.isOpen()) {
+                    log.warn("ChargePosted {} from {} is for folio {} which is closed", e.getSourceRef(), e.getSourceModule(), e.getFolioId());
+                    return;
+                }
             }
             if (folio == null && e.getBookingId() != null) {
-                folio = folios.findFirstByBookingIdAndStatus(e.getBookingId(), Folio.Status.OPEN).orElse(null);
+                folio = firstOpen(folios.openIdsForBooking(e.getBookingId()));
             }
             if (folio == null && e.getRoomId() != null) {
-                folio = folioService.activeForRoom(e.getRoomId()).orElse(null);
+                folio = firstOpen(folios.openIdsForRoom(e.getRoomId()));
             }
             if (folio == null) {
                 log.warn("ChargePosted {} from {} has no open folio (booking {}, room {})", e.getSourceRef(), e.getSourceModule(), e.getBookingId(), e.getRoomId());
@@ -93,9 +98,9 @@ public class FolioEventListener {
     public void onPaymentApproved(PaymentApprovedEvent e) {
         tenant.bind(e);
         try {
-            Folio folio = e.getFolioId() == null ? null : folios.findById(e.getFolioId()).orElse(null);
+            Folio folio = e.getFolioId() == null ? null : folios.lockById(e.getFolioId()).orElse(null);
             if (folio == null && e.getBookingId() != null) {
-                folio = folios.findFirstByBookingIdAndStatus(e.getBookingId(), Folio.Status.OPEN).orElse(null);
+                folio = firstOpen(folios.openIdsForBooking(e.getBookingId()));
             }
             if (folio == null) {
                 // No folio yet (a deposit before check-in): the check-in handler picks it up when the folio opens.
@@ -115,7 +120,7 @@ public class FolioEventListener {
             if (e.getFolioId() == null) {
                 return;
             }
-            folios.findById(e.getFolioId()).ifPresent(f -> folioService.recordRefund(f, e.getRefundId(), e.getAmount(), e.getActorName()));
+            folios.lockById(e.getFolioId()).ifPresent(f -> folioService.recordRefund(f, e.getRefundId(), e.getAmount(), e.getActorName()));
         } finally {
             TenantContext.clear();
         }
@@ -132,6 +137,17 @@ public class FolioEventListener {
         }
     }
 
+    /** The first of these folios that is still open once locked; null when none is. */
+    private Folio firstOpen(java.util.List<String> ids) {
+        for (String id : ids) {
+            Folio f = folios.lockById(id).orElse(null);
+            if (f != null && f.isOpen()) {
+                return f;
+            }
+        }
+        return null;
+    }
+
     /** The owner decided on a discount over the manager's limit. */
     @Transactional
     @KafkaListener(topics = KafkaTopics.APPROVAL_DECIDED)
@@ -145,15 +161,15 @@ public class FolioEventListener {
                 organizationService.applyCreditDecision(e.getApprovalId(), e.getDecision());
                 return;
             }
-            PendingDiscount pending = pendingDiscounts.findByApprovalId(e.getApprovalId()).orElse(null);
+            PendingDiscount pending = pendingDiscounts.lockByApprovalId(e.getApprovalId()).orElse(null);
             if (pending == null || !"PENDING".equals(pending.getStatus())) {
                 return;
             }
             pending.setStatus(e.getDecision());
             pendingDiscounts.save(pending);
-            if ("APPROVED".equals(e.getDecision())) {
-                folios.findById(pending.getFolioId()).ifPresent(f -> folioService.applyDiscount(f, pending.getAmount(), pending.getReason(),
-                        e.getDecidedBy(), e.getDecidedByName()));
+            if ("APPROVED".equals(e.getDecision())
+                    && !folioService.applyApprovedDiscount(pending, e.getDecidedBy(), e.getDecidedByName())) {
+                log.warn("Approved discount {} on folio {} no longer fits the balance; not applied", e.getApprovalId(), pending.getFolioId());
             }
         } finally {
             TenantContext.clear();

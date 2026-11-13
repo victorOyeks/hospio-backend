@@ -67,6 +67,9 @@ class OrganizationPagingIT {
     @Autowired OrganizationMemberRepository members;
     @Autowired FolioRepository folios;
     @Autowired InvoiceRepository invoices;
+    @Autowired OrganizationService organizationService;
+    @Autowired FolioService folioService;
+    @Autowired com.hospio.folio.repository.FolioLineRepository folioLines;
 
     String acme;
 
@@ -110,6 +113,36 @@ class OrganizationPagingIT {
     private void invoice(String number, String org, String amount, String paid, LocalDate due, Invoice.Status status) {
         invoices.save(Invoice.builder().businessId(BIZ).hotelId(HOTEL).organizationId(org).number(number).periodFrom(due.minusDays(60))
                 .periodTo(due.minusDays(30)).amount(new BigDecimal(amount)).paidAmount(new BigDecimal(paid)).dueDate(due).status(status).build());
+    }
+
+    @Test
+    void postingsLockTheFolioAndTotalItInTheDatabase() {
+        Folio f = folios.save(Folio.builder().businessId(BIZ).hotelId(HOTEL).guestName("Lock Test").openedAt(Instant.now()).build());
+        folioService.postCharge(f, "BAR", "ORDER-it-1", "Bar", new BigDecimal("13000"), new BigDecimal("650"), "BAR", null, "Segun");
+        folioService.postCharge(f, "BAR", "ORDER-it-2", "Bar", new BigDecimal("2000"), BigDecimal.ZERO, "BAR", null, "Segun");
+        folioService.recordPayment(f, "pay-it-1", new BigDecimal("5000"), "CARD", "Victor");
+
+        Folio saved = folios.findById(f.getId()).orElseThrow();
+        assertThat(saved.getTotalCharges()).isEqualByComparingTo("15000");
+        assertThat(saved.getTotalTax()).isEqualByComparingTo("650");
+        assertThat(saved.getTotalPayments()).isEqualByComparingTo("5000");
+        assertThat(saved.getBalance()).isEqualByComparingTo("10650");
+        assertThat(saved.getVersion()).isGreaterThan(0L);
+        folioLines.deleteAll(folioLines.findByFolioIdOrderByPostedAt(f.getId()));
+    }
+
+    @Test
+    void invoiceNumbersFollowTheHotelsHighestThisYearAndRepeatOnlyAcrossHotels() {
+        String prefix = "INV-" + LocalDate.now().getYear() + "-";
+        invoice(prefix + "00007", acme, "1000", "0", LocalDate.now(LAGOS).plusDays(5), Invoice.Status.SENT);
+
+        assertThat(organizationService.nextInvoiceNumber(HOTEL)).isEqualTo(prefix + "00008");
+        assertThat(organizationService.nextInvoiceNumber("h2")).isEqualTo(prefix + "00001");
+        // The same number at another hotel is fine; twice at one hotel is not.
+        invoices.save(Invoice.builder().businessId(BIZ).hotelId("h2").organizationId(acme).number(prefix + "00007").periodFrom(LocalDate.now())
+                .periodTo(LocalDate.now()).amount(BigDecimal.TEN).paidAmount(BigDecimal.ZERO).dueDate(LocalDate.now()).status(Invoice.Status.SENT).build());
+        assertThatThrownBy(() -> invoice(prefix + "00007", acme, "1000", "0", LocalDate.now(LAGOS), Invoice.Status.SENT))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
     }
 
     @Test

@@ -133,6 +133,12 @@ public class Order extends TenantEntity {
     @lombok.Builder.Default
     private BigDecimal paidAmount = BigDecimal.ZERO;
 
+    /** Backstop for the row lock every writer takes: a save from a stale copy fails instead of overwriting a settle or a payment. */
+    @jakarta.persistence.Version
+    @Column(nullable = false)
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private Long version;
+
     public boolean isSettled() {
         return paid || chargedToRoom;
     }

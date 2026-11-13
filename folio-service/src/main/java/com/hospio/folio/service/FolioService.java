@@ -101,12 +101,16 @@ public class FolioService {
         return folios.findFirstByRoomIdAndStatus(roomId, Folio.Status.OPEN);
     }
 
+    /** The booking's open folio (locked), or a new one. A replayed or concurrent check-in of the same booking waits and reuses it. */
     @Transactional
     public Folio open(String bookingId, String guestId, String guestName, String guestPhone, String guestEmail, String roomId,
                       String roomNumber, String organizationId) {
-        Folio existing = folios.findFirstByBookingIdAndStatus(bookingId, Folio.Status.OPEN).orElse(null);
-        if (existing != null) {
-            return existing;
+        if (bookingId != null) {
+            folios.advisoryLock("folio-open:" + bookingId);
+            List<String> existing = folios.openIdsForBooking(bookingId);
+            if (!existing.isEmpty()) {
+                return lock(existing.get(0));
+            }
         }
         Folio f = folios.save(Folio.builder().bookingId(bookingId).guestId(guestId).guestName(guestName).guestPhone(guestPhone)
                 .guestEmail(guestEmail).roomId(roomId).roomNumber(roomNumber).organizationId(organizationId).build());
@@ -114,10 +118,14 @@ public class FolioService {
         return f;
     }
 
-    /** Idempotent on (sourceModule, sourceRef): a replayed event never posts twice. */
+    /**
+     * Idempotent on (sourceModule, sourceRef): a replayed event never posts twice. The folio row is locked first, so a charge and a
+     * close (or two postings) never interleave: the charge is either on the bill the close totals, or refused because it closed.
+     */
     @Transactional
     public FolioLine postCharge(Folio folio, String sourceModule, String sourceRef, String description, BigDecimal amount,
                                 BigDecimal tax, String category, String postedBy, String postedByName) {
+        folio = lock(folio.getId());
         if (sourceRef != null) {
             Optional<FolioLine> dup = lines.findBySourceModuleAndSourceRef(sourceModule, sourceRef);
             if (dup.isPresent()) {
@@ -137,7 +145,7 @@ public class FolioService {
     @Transactional
     public FolioResponse postManualCharge(String folioId, ChargeRequest request) {
         HospioUserDetails user = CurrentUser.require();
-        Folio f = find(folioId);
+        Folio f = lock(folioId);
         postCharge(f, "FRONT_OFFICE", null, request.description(), request.amount(), request.taxAmount(), request.category(),
                 user.getUserId(), user.getFullName());
         return get(folioId);
@@ -145,6 +153,7 @@ public class FolioService {
 
     @Transactional
     public void recordPayment(Folio folio, String paymentId, BigDecimal amount, String method, String postedByName) {
+        folio = lock(folio.getId());
         if (lines.findBySourceModuleAndSourceRef("PAYMENT", paymentId).isPresent()) {
             return;
         }
@@ -155,6 +164,7 @@ public class FolioService {
 
     @Transactional
     public void recordRefund(Folio folio, String refundId, BigDecimal amount, String postedByName) {
+        folio = lock(folio.getId());
         if (lines.findBySourceModuleAndSourceRef("REFUND", refundId).isPresent()) {
             return;
         }
@@ -179,7 +189,7 @@ public class FolioService {
         if (!manager && !user.has(com.hospio.common.enums.Role.FRONT_OFFICE, com.hospio.common.enums.AccessLevel.EDIT)) {
             throw new ForbiddenException("Discounts are for managers");
         }
-        Folio f = find(folioId);
+        Folio f = lock(folioId);
         BigDecimal amount = Money.of(request.amount());
         if (amount.signum() <= 0 || amount.compareTo(f.getBalance()) > 0) {
             throw new BadRequestException("The discount has to be between 0 and the balance of " + f.getBalance());
@@ -208,13 +218,39 @@ public class FolioService {
                 .description("Discount of " + amount + " for " + f.getGuestName() + ": " + reason).build());
     }
 
+    /** Locks the folio and re-checks the balance there: two discounts at once can't take it below zero. */
     @Transactional
-    public void applyDiscount(Folio f, BigDecimal amount, String reason, String by, String byName) {
+    public void applyDiscount(Folio folio, BigDecimal amount, String reason, String by, String byName) {
+        Folio f = lock(folio.getId());
+        if (!fitsBalance(f, amount)) {
+            throw new BadRequestException("The discount has to be between 0 and the balance of " + f.getBalance());
+        }
         FolioLine line = lines.save(FolioLine.builder().folioId(f.getId()).kind(FolioLine.Kind.DISCOUNT).sourceModule("FOLIO")
                 .description("Discount: " + reason).amount(Money.of(amount)).postedBy(by).postedByName(byName).build());
         recalculate(f);
         events.publish(KafkaTopics.DISCOUNT_APPLIED, DiscountAppliedEvent.builder()
                 .folioId(f.getId()).lineId(line.getId()).amount(amount).reason(reason).kind("DISCOUNT").build());
+    }
+
+    /**
+     * An approved discount (the owner or manager said yes on a request made earlier). Applied when it still fits the balance; when
+     * the bill has since been paid down below it, it is marked NOT_APPLIED instead of driving the balance negative. True when applied.
+     */
+    @Transactional
+    public boolean applyApprovedDiscount(PendingDiscount pending, String by, String byName) {
+        Folio f = folios.lockById(pending.getFolioId()).orElse(null);
+        if (f == null || !fitsBalance(f, Money.of(pending.getAmount()))) {
+            pending.setStatus("NOT_APPLIED");
+            pendingDiscounts.save(pending);
+            return false;
+        }
+        applyDiscount(f, pending.getAmount(), pending.getReason(), by, byName);
+        return true;
+    }
+
+    private static boolean fitsBalance(Folio f, BigDecimal amount) {
+        BigDecimal a = Money.of(amount);
+        return a.signum() > 0 && a.compareTo(f.getBalance()) <= 0;
     }
 
     @Transactional
@@ -223,11 +259,14 @@ public class FolioService {
         if (!user.isManagerOrOwner()) {
             throw new ForbiddenException("Voids are for managers");
         }
-        Folio f = find(folioId);
+        Folio f = lock(folioId);
         FolioLine line = lines.findById(lineId).filter(l -> l.getFolioId().equals(f.getId()))
                 .orElseThrow(() -> new ResourceNotFoundException("Line not found"));
         if (line.getKind() != FolioLine.Kind.CHARGE) {
             throw new BadRequestException("Only charges can be voided");
+        }
+        if (line.isVoided()) {
+            throw new BadRequestException("That charge is already voided");
         }
         line.setVoided(true);
         line.setVoidReason(request.reason());
@@ -246,13 +285,24 @@ public class FolioService {
         if (!user.has(com.hospio.common.enums.Role.FRONT_OFFICE, com.hospio.common.enums.AccessLevel.FULL) && !user.isManagerOrOwner()) {
             throw new ForbiddenException("Moving charges needs Full access");
         }
-        Folio from = find(folioId);
+        String targetId = request.targetFolioId();
+        if (targetId == null && request.targetRoomId() != null) {
+            targetId = folios.openIdsForRoom(request.targetRoomId()).stream().findFirst()
+                    .orElseThrow(() -> new BadRequestException("Nobody is checked in to that room"));
+        }
+        Folio from;
         Folio to;
-        if (request.targetFolioId() != null) {
-            to = find(request.targetFolioId());
-        } else if (request.targetRoomId() != null) {
-            to = activeForRoom(request.targetRoomId()).orElseThrow(() -> new BadRequestException("Nobody is checked in to that room"));
+        if (targetId != null) {
+            // Both rows locked, always in id order, so two moves between the same folios in opposite directions can't deadlock.
+            if (folioId.compareTo(targetId) <= 0) {
+                from = lock(folioId);
+                to = lock(targetId);
+            } else {
+                to = lock(targetId);
+                from = lock(folioId);
+            }
         } else {
+            from = lock(folioId);
             to = folios.save(Folio.builder().bookingId(from.getBookingId()).guestId(from.getGuestId()).guestName(from.getGuestName())
                     .guestPhone(from.getGuestPhone()).guestEmail(from.getGuestEmail()).roomId(from.getRoomId())
                     .roomNumber(from.getRoomNumber()).organizationId(from.getOrganizationId()).build());
@@ -274,14 +324,18 @@ public class FolioService {
 
     @Transactional
     public void close(String bookingId) {
-        folios.findByBookingIdOrderByOpenedAt(bookingId).stream().filter(Folio::isOpen).forEach(f -> {
+        for (String id : folios.openIdsForBooking(bookingId)) {
+            Folio f = lock(id);
+            if (!f.isOpen()) {
+                continue;
+            }
             recalculate(f);
             f.setStatus(f.getBalance().signum() > 0 && f.getOrganizationId() == null ? Folio.Status.CLOSED_WITH_BALANCE : Folio.Status.CLOSED);
             f.setClosedAt(Instant.now());
             folios.save(f);
             events.publish(KafkaTopics.FOLIO_CLOSED, FolioClosedEvent.builder().folioId(f.getId()).bookingId(bookingId).guestName(f.getGuestName())
                     .total(f.getTotalCharges().add(f.getTotalTax())).paid(f.getTotalPayments()).balance(f.getBalance()).build());
-        });
+        }
     }
 
     /** The stay summary sent at check-out: every line and the totals, as plain text. */
@@ -305,20 +359,20 @@ public class FolioService {
         return sb.toString();
     }
 
+    /** Totals from one grouped query over the lines that are not voided (callers hold the folio's row lock). */
     void recalculate(Folio f) {
         BigDecimal charges = BigDecimal.ZERO, tax = BigDecimal.ZERO, discounts = BigDecimal.ZERO, payments = BigDecimal.ZERO;
-        for (FolioLine l : lines.findByFolioIdOrderByPostedAt(f.getId())) {
-            if (l.isVoided()) {
-                continue;
-            }
-            switch (l.getKind()) {
+        for (Object[] row : lines.totalsByKind(f.getId())) {
+            FolioLine.Kind kind = row[0] instanceof FolioLine.Kind k ? k : FolioLine.Kind.valueOf(String.valueOf(row[0]));
+            BigDecimal amount = decimal(row[1]);
+            switch (kind) {
                 case CHARGE -> {
-                    charges = charges.add(l.getAmount());
-                    tax = tax.add(l.getTaxAmount());
+                    charges = charges.add(amount);
+                    tax = tax.add(decimal(row[2]));
                 }
-                case DISCOUNT -> discounts = discounts.add(l.getAmount());
-                case PAYMENT -> payments = payments.add(l.getAmount());
-                case REFUND -> payments = payments.subtract(l.getAmount());
+                case DISCOUNT -> discounts = discounts.add(amount);
+                case PAYMENT -> payments = payments.add(amount);
+                case REFUND -> payments = payments.subtract(amount);
             }
         }
         f.setTotalCharges(Money.of(charges));
@@ -327,6 +381,18 @@ public class FolioService {
         f.setTotalPayments(Money.of(payments));
         f.setBalance(Money.of(charges.add(tax).subtract(discounts).subtract(payments)));
         folios.save(f);
+    }
+
+    private static BigDecimal decimal(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        return value instanceof BigDecimal b ? b : new BigDecimal(value.toString());
+    }
+
+    /** The folio with its row locked for the rest of the transaction: taken before any status or balance check. */
+    Folio lock(String id) {
+        return folios.lockById(id).orElseThrow(() -> new ResourceNotFoundException("Folio not found"));
     }
 
     Folio find(String id) {
