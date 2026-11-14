@@ -317,7 +317,8 @@ public class MessagingEventListener {
     @KafkaListener(topics = KafkaTopics.LEAVE_REQUESTED)
     public void onLeave(LeaveRequestedEvent e) {
         bound(e, () -> {
-            notifications.notifyRoles(e.getEventId(), "LEAVE", e.getStaffName() + " asked for leave", e.getFromDate() + " to " + e.getToDate(), "/staff/leave", "MANAGER");
+            notifications.notifyRoles(e.getEventId(), "LEAVE", e.getStaffName() + " asked for leave", e.getFromDate() + " to " + e.getToDate()
+                    + (e.getReason() == null || e.getReason().isBlank() ? "" : " · " + e.getReason()), "/staff/leave", "MANAGER", "OWNER");
             return null;
         });
     }

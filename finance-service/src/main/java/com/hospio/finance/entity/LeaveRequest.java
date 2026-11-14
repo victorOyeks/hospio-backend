@@ -25,7 +25,7 @@ import lombok.experimental.SuperBuilder;
 @Table(name = "leave_requests")
 public class LeaveRequest extends TenantEntity {
 
-    public enum Status { PENDING, APPROVED, DECLINED, CHANGE_REQUESTED }
+    public enum Status { PENDING, APPROVED, DECLINED, CHANGE_REQUESTED, WITHDRAWN }
 
     @Column(name = "user_id", nullable = false, length = 36)
     private String userId;
