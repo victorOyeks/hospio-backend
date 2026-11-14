@@ -40,4 +40,8 @@ public class ClockEntry extends TenantEntity {
 
     @Column(length = 300)
     private String note;
+
+    /** When the person and the managers were reminded this entry was never clocked out (once). */
+    @Column(name = "reminded_at")
+    private java.time.Instant remindedAt;
 }

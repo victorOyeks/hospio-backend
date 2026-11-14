@@ -49,4 +49,8 @@ public class Shift extends TenantEntity {
     @Column(nullable = false, length = 20)
     @lombok.Builder.Default
     private Status status = Status.SCHEDULED;
+
+    /** When the managers were told nobody had clocked in for this shift (once per shift). */
+    @Column(name = "not_in_notified_at")
+    private java.time.Instant notInNotifiedAt;
 }

@@ -87,6 +87,11 @@ public class WorkforceController {
         return ApiResponse.ok("Leave request sent", service.askForLeave(request));
     }
 
+    @PostMapping("/leave/{id}/withdraw")
+    public ApiResponse<LeaveRequest> withdrawLeave(@PathVariable String id) {
+        return ApiResponse.ok("Leave request withdrawn", service.withdrawLeave(id));
+    }
+
     @GetMapping("/leave/mine")
     public ApiResponse<List<LeaveRequest>> myLeave() {
         return ApiResponse.ok(service.myLeave());

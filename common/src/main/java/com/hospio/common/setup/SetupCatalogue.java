@@ -64,7 +64,7 @@ public final class SetupCatalogue {
         s.put(HOUSEKEEPING, section("inspectDepartures", b(true), "minibarToFolio", b(true), "lostFoundHoldDays", n(90)));
         s.put(OUTLETS, section("roomCharge", b(true), "tabs", b(true), "tabLimit", n(50000)));
         s.put(MESSAGING, section("whatsappNumber", t(""), "sendConfirmation", b(true), "arrivalMessage", b(true), "sendReceipts", b(true)));
-        s.put(STAFF, section("lateMinutes", n(15)));
+        s.put(STAFF, section("lateMinutes", n(15), "notifyEveryClockIn", b(false)));
         s.put(NIGHT_AUDIT, section("closeTime", t("23:00"), "tillsClosedFirst", b(true), "arrivalsResolvedFirst", b(true)));
         s.put(POS, section("provider", t("logging"), "offlineCash", b(true), "receiptChannel", t("PRINT")));
         SECTIONS = Collections.unmodifiableMap(s);

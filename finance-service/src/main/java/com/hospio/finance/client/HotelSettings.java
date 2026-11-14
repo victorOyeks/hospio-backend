@@ -43,6 +43,11 @@ public class HotelSettings {
         return reader.section(hotelId, SetupCatalogue.STAFF).map(n -> n.path("lateMinutes").asInt(15)).orElse(15);
     }
 
+    /** Hotel setup → Staff & shifts: tell the managers about every clock-in, not only late ones (off by default). */
+    public boolean notifyEveryClockIn(String hotelId) {
+        return reader.section(hotelId, SetupCatalogue.STAFF).map(n -> n.path("notifyEveryClockIn").asBoolean(false)).orElse(false);
+    }
+
     public boolean arrivalsResolvedFirst(String hotelId) {
         return reader.section(hotelId, SetupCatalogue.NIGHT_AUDIT).map(n -> n.path("arrivalsResolvedFirst").asBoolean(true)).orElse(true);
     }

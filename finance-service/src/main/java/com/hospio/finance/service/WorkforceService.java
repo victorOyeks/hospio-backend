@@ -229,7 +229,47 @@ public class WorkforceService {
         clocks.findFirstByUserIdAndClockOutIsNullOrderByClockInDesc(user.getUserId()).ifPresent(c -> {
             throw new BadRequestException("You're already clocked in");
         });
-        return clocks.save(ClockEntry.builder().userId(user.getUserId()).userName(user.getFullName()).note(request == null ? null : request.note()).build());
+        String hotelId = TenantContext.requireHotel();
+        int lateMinutes = settings.lateMinutes(hotelId);
+        boolean everyClockIn = settings.notifyEveryClockIn(hotelId);
+        ClockEntry saved = clocks.save(ClockEntry.builder().userId(user.getUserId()).userName(user.getFullName()).note(request == null ? null : request.note()).build());
+        // The managers hear about a late clock-in always, and about every clock-in when Hotel setup says so.
+        Instant at = saved.getClockIn();
+        LocalDate today = LocalDate.now(MoneyService.LAGOS);
+        Shift shift = shifts.findByUserIdAndShiftDateBetween(user.getUserId(), today.minusDays(1), today).stream()
+                .filter(s -> s.getStatus() != Shift.Status.CANCELLED && Attendance.covers(s, at, MoneyService.LAGOS))
+                .min(java.util.Comparator.comparing(s -> Attendance.start(s, MoneyService.LAGOS))).orElse(null);
+        long lateBy = shift == null ? 0 : java.time.Duration.between(Attendance.start(shift, MoneyService.LAGOS), at).toMinutes();
+        boolean late = shift != null && lateBy > lateMinutes;
+        if (late || everyClockIn) {
+            String body = hm(at) + (shift == null ? " · not on today's rota" : " · shift " + shift.getStartsAt() + "–" + shift.getEndsAt()
+                    + (late ? " · " + lateBy + " min late" : "")) + (saved.getNote() == null || saved.getNote().isBlank() ? "" : " · " + saved.getNote());
+            events.publish(KafkaTopics.NOTICE, com.hospio.common.kafka.events.NoticeEvent.builder().kind("ATTENDANCE")
+                    .title(user.getFullName() + (late ? " clocked in late" : " clocked in")).body(body).link("/staff").roles(List.of("MANAGER")).build());
+        }
+        return saved;
+    }
+
+    /** "08:05" in the hotel's time. */
+    static String hm(Instant at) {
+        return java.time.format.DateTimeFormatter.ofPattern("HH:mm").withZone(MoneyService.LAGOS).format(at);
+    }
+
+    /** The person takes back a leave request nobody has approved or declined yet; the managers and owners are told. */
+    @Transactional
+    public LeaveRequest withdrawLeave(String id) {
+        HospioUserDetails user = CurrentUser.require();
+        LeaveRequest l = leaves.findById(id).filter(x -> user.getUserId().equals(x.getUserId()))
+                .orElseThrow(() -> new ResourceNotFoundException("Leave request not found"));
+        if (l.getStatus() != LeaveRequest.Status.PENDING && l.getStatus() != LeaveRequest.Status.CHANGE_REQUESTED) {
+            throw new BadRequestException("This leave request was already " + l.getStatus().name().toLowerCase().replace('_', ' ') + ", so it can't be withdrawn");
+        }
+        l.setStatus(LeaveRequest.Status.WITHDRAWN);
+        leaves.save(l);
+        events.publish(KafkaTopics.NOTICE, com.hospio.common.kafka.events.NoticeEvent.builder().kind("LEAVE")
+                .title(l.getUserName() + " withdrew a leave request").body(l.getFromDate() + " to " + l.getToDate()).link("/staff/leave")
+                .roles(List.of("MANAGER", "OWNER")).build());
+        return l;
     }
 
     @Transactional

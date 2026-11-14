@@ -19,6 +19,22 @@ public final class Attendance {
 
     public enum Status { PRESENT, LATE, ABSENT }
 
+    /** When the shift starts, in the hotel's zone. */
+    public static Instant start(Shift shift, ZoneId zone) {
+        return LocalDateTime.of(shift.getShiftDate(), shift.getStartsAt()).atZone(zone).toInstant();
+    }
+
+    /** When the shift ends; one ending at or before its start time ends the next morning (night shift). */
+    public static Instant end(Shift shift, ZoneId zone) {
+        return LocalDateTime.of(shift.getEndsAt().isAfter(shift.getStartsAt()) ? shift.getShiftDate() : shift.getShiftDate().plusDays(1), shift.getEndsAt())
+                .atZone(zone).toInstant();
+    }
+
+    /** Whether a clock-in at {@code at} belongs to this shift (from 3 hours before it starts until it ends). */
+    public static boolean covers(Shift shift, Instant at, ZoneId zone) {
+        return !at.isBefore(start(shift, zone).minus(EARLY)) && !at.isAfter(end(shift, zone));
+    }
+
     public static Status of(Shift shift, List<ClockEntry> entries, Instant now, int lateMinutes, ZoneId zone) {
         if (shift.getStatus() == Shift.Status.CANCELLED) {
             return null;
