@@ -89,7 +89,7 @@ public class TextSender {
                     whyNotWhatsApp = "template " + template + " is " + t.status().toLowerCase();
                 } else {
                     InfobipClient.Sent w = infobip.whatsAppTemplate(number, template, StringUtils.hasText(t.language()) ? t.language() : language,
-                            params, "AUTHENTICATION".equalsIgnoreCase(t.category()));
+                            params, t);
                     if (w.ok()) {
                         return new Outcome(true, "WHATSAPP", "whatsapp:" + w.messageId(), null);
                     }

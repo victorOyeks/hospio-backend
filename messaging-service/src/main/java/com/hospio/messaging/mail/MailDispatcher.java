@@ -329,10 +329,14 @@ public class MailDispatcher {
         }
         try {
             From sender = senderFor(r.getBusinessId(), r.getHotelId(), r.getFromName(), r.getReplyTo());
-            // @hotel in a WhatsApp template's values (and the text) is the sending hotel's name, as an email's From name.
+            // @hotel in a WhatsApp template's values (and the text) is the sending hotel's name, as an email's From name;
+            // @hotelPhone its phone, or "its front desk number" when it has none ("Call the hotel on its front desk number").
+            // @hotelPhone first: @hotel is its prefix.
+            String phone = tenants.hotel(r.getHotelId()).map(TenantClient.Sender::phone).filter(MailDispatcher::notBlank).orElse("its front desk number");
             List<String> params = r.getWaParams() == null ? null
-                    : readParams(r.getWaParams()).stream().map(p -> "@hotel".equals(p) ? sender.name() : p == null ? "" : p).toList();
-            String body = r.getBodyText().replace("@hotel", sender.name() == null ? "Hospio360" : sender.name());
+                    : readParams(r.getWaParams()).stream()
+                            .map(p -> "@hotel".equals(p) ? sender.name() : "@hotelPhone".equals(p) ? phone : p == null ? "" : p).toList();
+            String body = r.getBodyText().replace("@hotelPhone", phone).replace("@hotel", sender.name() == null ? "Hospio360" : sender.name());
             com.hospio.messaging.text.TextSender.Outcome out = texts.send(r.getChannel(), r.getToAddress(), body, r.getWaTemplate(), params);
             if (out.sent()) {
                 log.info("{} to {} sent as {} {}{}", r.getChannel(), r.getToAddress(), out.channel(), out.providerRef(), out.note() == null ? "" : " (" + out.note() + ")");

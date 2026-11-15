@@ -2,7 +2,6 @@ package com.hospio.messaging.text;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -26,7 +25,7 @@ class TextSenderTest {
         when(infobip.configured()).thenReturn(true);
         when(infobip.whatsAppConfigured()).thenReturn(true);
         when(infobip.sms(anyString(), anyString())).thenReturn(new InfobipClient.Sent(true, "s1", null));
-        when(infobip.whatsAppTemplate(anyString(), anyString(), anyString(), any(), anyBoolean())).thenReturn(new InfobipClient.Sent(true, "w1", null));
+        when(infobip.whatsAppTemplate(anyString(), anyString(), anyString(), any(), any(InfobipClient.TemplateInfo.class))).thenReturn(new InfobipClient.Sent(true, "w1", null));
     }
 
     private TextSender sender(String allowOnly) {
@@ -39,7 +38,7 @@ class TextSenderTest {
         TextSender.Outcome o = sender("").send("WHATSAPP", "08031110001", "fallback", "hospio_booking_changed", List.of("Ada", "BK-1", "Royal", "a", "b"));
         assertThat(o.sent()).isTrue();
         assertThat(o.channel()).isEqualTo("WHATSAPP");
-        verify(infobip).whatsAppTemplate(eq("2348031110001"), eq("hospio_booking_changed"), eq("en"), any(), eq(false));
+        verify(infobip).whatsAppTemplate(eq("2348031110001"), eq("hospio_booking_changed"), eq("en"), any(), any(InfobipClient.TemplateInfo.class));
         verify(infobip, never()).sms(anyString(), anyString());
     }
 
@@ -61,7 +60,8 @@ class TextSenderTest {
     void aCodeTemplateCarriesTheCodeOnItsButton() {
         when(infobip.templates()).thenReturn(Map.of("oyeks_otp", new InfobipClient.TemplateInfo("APPROVED", "AUTHENTICATION", "en")));
         sender("").send("WHATSAPP", "2348031110001", "Your code is 123456", "oyeks_otp", List.of("123456"));
-        verify(infobip).whatsAppTemplate(eq("2348031110001"), eq("oyeks_otp"), eq("en"), eq(List.of("123456")), eq(true));
+        verify(infobip).whatsAppTemplate(eq("2348031110001"), eq("oyeks_otp"), eq("en"), eq(List.of("123456")),
+                org.mockito.ArgumentMatchers.argThat((InfobipClient.TemplateInfo t) -> "AUTHENTICATION".equals(t.category())));
     }
 
     @Test
