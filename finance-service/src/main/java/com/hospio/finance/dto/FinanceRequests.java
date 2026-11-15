@@ -63,6 +63,10 @@ public final class FinanceRequests {
                                   @NotNull LocalTime startsAt, @NotNull LocalTime endsAt) {
     }
 
+    /** Copy the week starting {@code fromWeek} to the week starting {@code toWeek}, leaving out {@code skipUserIds}. */
+    public record CopyWeekRequest(@NotNull LocalDate fromWeek, @NotNull LocalDate toWeek, java.util.List<String> skipUserIds) {
+    }
+
     public record ShiftChangeRequest(@NotNull ShiftRequest.Kind kind, String withUserId, String reason) {
     }
 
