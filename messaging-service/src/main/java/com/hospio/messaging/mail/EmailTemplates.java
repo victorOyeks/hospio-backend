@@ -113,6 +113,7 @@ public class EmailTemplates {
             Map.entry("HANDOVER_PACK", new Look("Welcome", Tone.BRAND, "Your hotel is ready on Hospio360", "Sign in")),
             Map.entry("BOOKING_CONFIRMATION", new Look("Booking confirmed", Tone.SUCCESS, "Your booking is confirmed", "View booking")),
             Map.entry("BOOKING_CHANGED", new Look("Booking updated", Tone.INFO, "Your stay has changed", "View booking")),
+            Map.entry("ARRIVAL_REMINDER", new Look("See you tomorrow", Tone.INFO, "See you tomorrow", "View booking")),
             Map.entry("BOOKING_CANCELLED", new Look("Booking cancelled", Tone.DANGER, "Your booking is cancelled", "View booking")),
             Map.entry("RECEIPT", new Look("Payment received", Tone.SUCCESS, "Your receipt", "View receipt")),
             Map.entry("FOLIO", new Look("Your bill", Tone.INFO, "Your folio", "View folio")),

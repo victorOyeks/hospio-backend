@@ -97,6 +97,14 @@ public class MailDispatcher {
         this.maxBacklogHours = maxBacklogHours;
     }
 
+    /** Hotel setup → Guest messaging: the hotel's own WhatsApp, the fallback for @hotelPhone (absent in tests). */
+    private com.hospio.messaging.client.GuestMessagingSettings guestMessaging;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setGuestMessaging(com.hospio.messaging.client.GuestMessagingSettings guestMessaging) {
+        this.guestMessaging = guestMessaging;
+    }
+
     /** SMS and WhatsApp (absent in the email-only tests: they are then recorded as NOT_CONNECTED). */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setTexts(com.hospio.messaging.text.TextSender texts) {
@@ -333,9 +341,12 @@ public class MailDispatcher {
         try {
             From sender = senderFor(r.getBusinessId(), r.getHotelId(), r.getFromName(), r.getReplyTo());
             // @hotel in a WhatsApp template's values (and the text) is the sending hotel's name, as an email's From name;
-            // @hotelPhone its phone, or "its front desk number" when it has none ("Call the hotel on its front desk number").
-            // @hotelPhone first: @hotel is its prefix.
-            String phone = tenants.hotel(r.getHotelId()).map(TenantClient.Sender::phone).filter(MailDispatcher::notBlank).orElse("its front desk number");
+            // @hotelPhone its phone, else its own WhatsApp number (Hotel setup → Guest messaging), else "its front desk number"
+            // ("Call the hotel on its front desk number"). @hotelPhone first: @hotel is its prefix.
+            String phone = tenants.hotel(r.getHotelId()).map(TenantClient.Sender::phone).filter(MailDispatcher::notBlank)
+                    .or(() -> java.util.Optional.ofNullable(guestMessaging == null ? null
+                            : com.hospio.common.setup.GuestMessaging.shown(guestMessaging.forHotel(r.getHotelId()).whatsappNumber())))
+                    .orElse("its front desk number");
             List<String> params = r.getWaParams() == null ? null
                     : readParams(r.getWaParams()).stream()
                             .map(p -> "@hotel".equals(p) ? sender.name() : "@hotelPhone".equals(p) ? phone : p == null ? "" : p).toList();

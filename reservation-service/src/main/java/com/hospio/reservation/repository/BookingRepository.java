@@ -18,6 +18,16 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
 
     Optional<Booking> findByReference(String reference);
 
+    /** Bookings arriving on {@code day} still to be told (the day-before-arrival message), in every hotel: read as the system. */
+    @Query("select b from Booking b where b.status = com.hospio.common.enums.BookingStatus.BOOKED and b.checkInDate = :day "
+            + "and b.arrivalRemindedAt is null order by b.hotelId")
+    List<Booking> arrivalsToRemind(@Param("day") LocalDate day);
+
+    /** Claims a booking's arrival message: 1 when this run is the one to send it, 0 when it was already sent. */
+    @Modifying
+    @Query("update Booking b set b.arrivalRemindedAt = :now where b.id = :id and b.arrivalRemindedAt is null")
+    int markArrivalReminded(@Param("id") String id, @Param("now") Instant now);
+
     /** The booking, its row locked until the transaction ends: every state change starts here, before its status checks. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select b from Booking b where b.id = :id")

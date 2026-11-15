@@ -47,7 +47,7 @@ import org.springframework.util.StringUtils;
 public class CommBilling {
 
     /** What a hotel pays for: everything it sends outside. Everything else (codes, sign-in, staff, platform) is free. */
-    public static final Set<String> BILLABLE_KINDS = Set.of("BOOKING_CONFIRMATION", "BOOKING_CHANGED", "BOOKING_CANCELLED", "RECEIPT",
+    public static final Set<String> BILLABLE_KINDS = Set.of("BOOKING_CONFIRMATION", "BOOKING_CHANGED", "BOOKING_CANCELLED", "ARRIVAL_REMINDER", "RECEIPT",
             "FOLIO", "STAY_SUMMARY", "MESSAGE", "STATEMENT", "PAYMENT_REMINDER", "PURCHASE_ORDER");
 
     /** What counts as gone out (a FAILED one, e.g. rejected for DND, is not charged). */
@@ -633,6 +633,7 @@ public class CommBilling {
             case "BOOKING_CONFIRMATION" -> "Booking confirmations";
             case "BOOKING_CHANGED" -> "Booking date changes";
             case "BOOKING_CANCELLED" -> "Booking cancellations";
+            case "ARRIVAL_REMINDER" -> "Arrival reminders";
             case "RECEIPT" -> "Payment receipts";
             case "FOLIO" -> "Folios";
             case "STAY_SUMMARY" -> "Stay summaries";
