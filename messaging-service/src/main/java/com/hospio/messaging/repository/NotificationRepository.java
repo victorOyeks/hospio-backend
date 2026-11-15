@@ -28,4 +28,11 @@ public interface NotificationRepository extends JpaRepository<Notification, Stri
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update Notification n set n.readAt = :now, n.updatedAt = :now where n.readAt is null and n.userId = :user")
     int markAllReadForUser(@Param("user") String userId, @Param("now") Instant now);
+
+    /** Retention (docs/retention.md): up to {@code batch} notifications created before {@code cutoff}, read or not. */
+    @Modifying
+    @org.springframework.transaction.annotation.Transactional
+    @Query(value = "DELETE FROM messaging.notifications WHERE id IN (SELECT id FROM messaging.notifications WHERE created_at < :cutoff LIMIT :batch)",
+            nativeQuery = true)
+    int deleteCreatedBefore(@Param("cutoff") Instant cutoff, @Param("batch") int batch);
 }

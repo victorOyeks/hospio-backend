@@ -47,7 +47,8 @@ public final class PlatformSettingsCatalogue {
         security.put("require2Step", false);
         security.put("sessionHours", 12);
         security.put("adminIpAllowlist", false);
-        security.put("auditRetentionDays", 365);
+        // Activity log kept six months (2026-11-15); the admin portal can set more or less (at least 30 days).
+        security.put("auditRetentionDays", 183);
         all.put(SECURITY, security);
         return all;
     }
