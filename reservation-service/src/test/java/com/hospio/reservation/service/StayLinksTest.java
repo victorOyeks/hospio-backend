@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 /** docs/sms-whatsapp.md: the booking page link can't be guessed, altered or carried to another environment. */
 class StayLinksTest {
 
-    private final StayLinks links = new StayLinks("secret-a");
+    private final StayLinks links = new StayLinks("secret-a", "https://hospio360.com/stay");
     private static final String ID = "4bd3010f-0111-4707-b189-1caeaf78a143";
 
     @Test
@@ -24,10 +24,15 @@ class StayLinksTest {
         assertThat(links.bookingId(t.substring(0, 30) + (sig == 'A' ? 'B' : 'A') + t.substring(31))).isEmpty();
         char first = t.charAt(0);
         assertThat(links.bookingId((first == 'A' ? 'B' : 'A') + t.substring(1))).isEmpty();
-        assertThat(new StayLinks("secret-b").bookingId(t)).isEmpty();
+        assertThat(new StayLinks("secret-b", null).bookingId(t)).isEmpty();
         assertThat(links.bookingId("short")).isEmpty();
         assertThat(links.bookingId(null)).isEmpty();
         assertThat(links.bookingId("../../../../etc/passwd/xxxxxxxxxxxxxxxx")).isEmpty();
+    }
+
+    @Test
+    void theWholeLinkIsTheBookingPage() {
+        assertThat(links.url(ID)).contains("https://hospio360.com/stay/" + links.token(ID).orElseThrow());
     }
 
     @Test
