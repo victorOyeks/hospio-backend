@@ -14,6 +14,12 @@ into in-app notifications. See also `docs/operating-day.md` for the rota, leave 
 The manager's Rota tab lists every active member of staff by department (owners only when they hold a shift); a `+` in an
 empty day from today on adds a shift for that person and day.
 
+The shifts offered and the department headings come from Hotel setup → Staff & shifts, the hotel-config lists `SHIFTS`
+("Early 07:00–15:00") and `DEPARTMENTS` ("Food & drink: Kitchen, Bar", or a bare role name). The console reads and
+checks them (`packages/api/src/data/rota-setup.ts` in the frontend). With no valid shift it offers Morning 06:00–14:00,
+Afternoon 14:00–22:00 and Night 22:00–06:00, and roles in no department keep their own heading. Shifts still carry their
+own times, so changing the list never moves a shift already on the rota.
+
 ## Clock
 
 Staff clock in and out on **My shifts**, and the front desk can also do it from **Today**.
