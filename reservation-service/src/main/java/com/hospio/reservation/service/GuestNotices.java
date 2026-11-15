@@ -15,9 +15,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 /**
- * What the guest is told about their booking: confirmed (new booking), dates changed, cancelled. An email when the guest
- * has one (sent for real through messaging-service, from the hotel's name, docs/email.md) and a WhatsApp message when they
- * have a phone: the approved hospio_booking_* template, else a one-page SMS (docs/sms-whatsapp.md). {@code @hotel} is the
+ * What the guest is told about their booking: confirmed (new booking, unless Hotel setup → Guest messaging turns it off), dates
+ * changed, cancelled, and the day before arrival ({@link ArrivalReminders}). An email when the guest has one (sent for real
+ * through messaging-service, from the hotel's name, docs/email.md) and a WhatsApp message when they have a phone: the
+ * approved hospio_* template, never an SMS (docs/sms-whatsapp.md). The hotel's own WhatsApp number, when set, is offered in
+ * the email as "Chat with the hotel on WhatsApp". {@code @hotel} is the
  * hotel's name and {@code @hotelPhone} its phone, filled in by messaging-service. The template's last value is the booking page
  * link's ending ({@link StayLinks}), for its "View booking" button. Never fails the booking action.
  */
@@ -31,8 +33,13 @@ public class GuestNotices {
     private final GuestService guests;
     private final DeliveryService deliveries;
     private final StayLinks stayLinks;
+    private final com.hospio.reservation.client.GuestMessagingSettings settings;
 
     public List<Delivery> confirmed(BookingResponse b) {
+        if (!settings.forHotel(b.hotelId()).sendConfirmation()) {
+            log.info("Booking {}: confirmation not sent (switched off in Hotel setup → Guest messaging)", b.reference());
+            return List.of();
+        }
         return tell(b, "Your booking " + b.reference() + " is confirmed", Delivery.Kind.BOOKING_CONFIRMATION,
                 first -> new Text("hospio_booking_confirmation_v2",
                         List.of(first, "@hotel", b.reference(), DAY.format(b.checkInDate()), DAY.format(b.checkOutDate()),
@@ -74,7 +81,22 @@ public class GuestNotices {
                         + "\n\nReply to this email if you have any questions. We hope to welcome you another time.");
     }
 
-    /** The WhatsApp side: its template and values, and the one-page SMS it falls back to. */
+    /**
+     * The day before arrival: "we look forward to welcoming you tomorrow", the check-in time ({@code checkInFrom}, e.g.
+     * "14:00", or null) and the booking page with directions. Sent by {@link ArrivalReminders} when the hotel's switch is on.
+     */
+    public List<Delivery> arrivalReminder(BookingResponse b, String checkInFrom) {
+        String from = StringUtils.hasText(checkInFrom) ? checkInFrom : "the hotel's check-in time";
+        return tell(b, "See you tomorrow", Delivery.Kind.ARRIVAL_REMINDER,
+                first -> new Text("hospio_checkin_reminder_v2", List.of(first, "@hotel", b.reference(), from, "@hotelPhone"),
+                        "@hotel: Hello " + first + ", we look forward to welcoming you tomorrow. Booking " + b.reference() + "."),
+                first -> "Hello " + first + ",\n\nWe look forward to welcoming you tomorrow.\n\nReference: " + b.reference()
+                        + "\nCheck-in: " + DAY.format(b.checkInDate()) + (StringUtils.hasText(checkInFrom) ? ", from " + checkInFrom : "")
+                        + "\nCheck-out: " + DAY.format(b.checkOutDate()) + "\nNights: " + b.nights()
+                        + "\n\nReply to this email if your plans have changed. See you soon.");
+    }
+
+    /** The WhatsApp side: its template and values, and the text kept on the delivery record. */
     record Text(String template, List<String> params, String sms) {
     }
 
@@ -90,8 +112,13 @@ public class GuestNotices {
             // button, the SMS's link and WhatsApp's View booking button. A booking without a link (id not a UUID) goes without.
             java.util.Optional<String> token = stayLinks.token(b.id());
             java.util.Optional<String> url = stayLinks.url(b.id());
+            // The hotel's own WhatsApp (Hotel setup → Guest messaging): a wa.me chat with the booking reference typed in. After the
+            // booking page, so the page stays the email's button.
+            String hotelWhatsApp = settings.forHotel(b.hotelId()).whatsappNumber();
+            String chat = hotelWhatsApp == null ? "" : "\n\nChat with the hotel on WhatsApp: https://wa.me/" + hotelWhatsApp + "?text="
+                    + java.net.URLEncoder.encode("Hello, about my booking " + b.reference(), java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
             String body = text.apply(first)
-                    + url.map(u -> "\n\nDirections and the hotel's contact details are on your booking page: " + u).orElse("");
+                    + url.map(u -> "\n\nDirections and the hotel's contact details are on your booking page: " + u).orElse("") + chat;
             List<Delivery> out = new ArrayList<>();
             if (StringUtils.hasText(g.getEmail())) {
                 out.add(Delivery.email(g.getEmail().trim(), subject, body, kind, b.id()));

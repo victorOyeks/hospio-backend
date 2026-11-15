@@ -70,6 +70,10 @@ public class Booking extends TenantEntity {
     @Column(name = "expected_arrival", length = 5)
     private String expectedArrival;
 
+    /** When the day-before-arrival message went out (docs/sms-whatsapp.md); null until then. */
+    @Column(name = "arrival_reminded_at")
+    private java.time.Instant arrivalRemindedAt;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @lombok.Builder.Default

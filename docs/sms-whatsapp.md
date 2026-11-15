@@ -65,7 +65,7 @@ Templates are in `scripts/whatsapp/templates.json` and submitted with `scripts/w
 | Cancelled | `hospio_booking_cancelled_v2` | first name, `@hotel`, reference, "was" dates, reason, `@hotelPhone`, **link** | reservation `GuestNotices` |
 | Receipt (guest without email) | `hospio_payment_receipt_v2` | first name, `@hotel`, amount, paid by, reference | messaging `MessagingEventListener` |
 | Phone code, "Send on WhatsApp instead" | `oyeks_otp` (authentication: the code also goes on the copy button) | code | identity `DeliveryComposer` |
-| Check-in reminder | `hospio_checkin_reminder_v2` | — not sent yet (no reminder job) | — |
+| Day before arrival | `hospio_checkin_reminder_v2` | first name, `@hotel`, reference, check-in time, `@hotelPhone`, **link** | reservation `ArrivalReminders` |
 
 The `_v2` templates (November 2026) have the **Hospio360 banner** as an image header, one detail per line, and (bookings) a
 **View booking** button. Their shape is read from Infobip with the approval, so the sender needs no list of them:
@@ -80,6 +80,19 @@ message": guest replies to the WhatsApp number are not connected yet, so the v2 
 
 `@hotelPhone` is the hotel's phone from tenant-service, or "its front desk number" when it has none, so the text still reads
 ("Call the hotel on its front desk number").
+
+## Hotel setup → Guest messaging
+
+One platform WhatsApp number (Oyeks Global, `INFOBIP_WHATSAPP_SENDER`) sends every hotel's automatic messages. Each hotel's
+section (`SetupCatalogue` MESSAGING, read with `GuestMessaging` through the shared `HotelSettingsReader`, cached 60 s; all on
+when hotel-config can't be read):
+
+| Setting | Effect |
+|---|---|
+| `whatsappNumber` | The hotel's own WhatsApp, where guests chat with it: **Chat with the hotel on WhatsApp** on the booking page and a `wa.me` line in the booking emails (with "Hello, about my booking <ref>" typed in), and `@hotelPhone` when the hotel has no phone. Replies to the platform number are not connected; this is how guests reach the hotel. |
+| `sendConfirmation` | Off: no booking confirmation (email or WhatsApp). Date changes and cancellations always go. |
+| `arrivalMessage` | On: `ArrivalReminders` (reservation, every hour 09:00–20:00 Lagos) tells each guest arriving tomorrow, once (`bookings.arrival_reminded_at`): "we look forward to welcoming you tomorrow", the hotel's check-in time and the booking page, by `hospio_checkin_reminder_v2` and email (`ARRIVAL_REMINDER`, billed as "Arrival reminders"). |
+| `sendReceipts` | Off: no automatic receipt after a payment (messaging `MessagingEventListener`); the desk can still resend one. |
 
 ## The guest's booking page
 

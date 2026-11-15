@@ -35,6 +35,7 @@ import com.hospio.messaging.service.OutboundService;
 import java.util.Map;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,12 +47,20 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class MessagingEventListener {
 
     private final NotificationService notifications;
     private final OutboundService outbound;
     private final TenantBinder tenant;
     private final com.hospio.messaging.mail.MailDispatcher mail;
+    /** Hotel setup → Guest messaging ("Send receipts automatically"); absent in tests: always on. */
+    private com.hospio.messaging.client.GuestMessagingSettings guestMessaging;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setGuestMessaging(com.hospio.messaging.client.GuestMessagingSettings guestMessaging) {
+        this.guestMessaging = guestMessaging;
+    }
 
     /** Every email, SMS and WhatsApp any service asked for (docs/email.md): recorded here, emails sent through SMTP. */
     @KafkaListener(topics = KafkaTopics.DELIVERY_REQUESTED)
@@ -63,9 +72,14 @@ public class MessagingEventListener {
     @KafkaListener(topics = KafkaTopics.PAYMENT_APPROVED)
     public void onPaymentApproved(PaymentApprovedEvent e) {
         bound(e, () -> {
-            // "Don't send" (NONE, or NEVER from older screens) sends nothing; otherwise email when the guest has one (sent for
-            // real), else a WhatsApp copy that is recorded, not sent (coming soon).
+            // "Don't send" (NONE, or NEVER from older screens) sends nothing, and neither does a hotel that switched automatic
+            // receipts off (the desk can still resend one from the payment); otherwise email when the guest has one, else the
+            // WhatsApp receipt template (never SMS: SMS is only for sign-in codes).
             if (!sendsReceipt(e.getReceiptPreference())) {
+                return null;
+            }
+            if (guestMessaging != null && !guestMessaging.forHotel(e.getHotelId()).sendReceipts()) {
+                log.info("Receipt for payment {} not sent: automatic receipts are off in Hotel setup → Guest messaging", e.getPaymentId());
                 return null;
             }
             String body = outbound.render(e.getHotelId(), "RECEIPT", NotificationChannel.WHATSAPP,
@@ -75,7 +89,7 @@ public class MessagingEventListener {
             if (e.getGuestEmail() != null && !e.getGuestEmail().isBlank()) {
                 outbound.queue(NotificationChannel.EMAIL, e.getGuestEmail().trim(), "Your receipt", body, "RECEIPT", "RECEIPT-E-" + e.getPaymentId());
             } else if (e.getGuestPhone() != null && !e.getGuestPhone().isBlank()) {
-                // WhatsApp as the approved hospio_payment_receipt_v2 template, with the banner (an SMS of the same text until it is approved).
+                // WhatsApp as the approved hospio_payment_receipt_v2 template, with the banner (not sent until it is approved).
                 String first = nz(e.getGuestName()).trim().split("\\s+")[0];
                 mail.accept(com.hospio.common.kafka.events.DeliveryRequestedEvent.builder()
                         .eventId(java.util.UUID.nameUUIDFromBytes(("RECEIPT-W-" + e.getPaymentId()).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString())
