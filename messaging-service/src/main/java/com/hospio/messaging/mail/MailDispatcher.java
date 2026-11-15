@@ -159,7 +159,9 @@ public class MailDispatcher {
         try {
             String channel = e.getChannel() == null ? "EMAIL" : e.getChannel().toUpperCase();
             boolean email = "EMAIL".equals(channel);
-            boolean text = !email && texts != null && texts.live(channel);
+            // SMS is only for one-time codes (docs/sms-whatsapp.md): any other SMS is recorded, never sent.
+            boolean smsRefused = "SMS".equals(channel) && !com.hospio.common.delivery.Delivery.smsAllowed(e.getKind());
+            boolean text = !email && !smsRefused && texts != null && texts.live(channel, e.getKind());
             DeliveryRecord.Status wanted = !email ? (text ? DeliveryRecord.Status.QUEUED : DeliveryRecord.Status.NOT_CONNECTED)
                     : !enabled ? DeliveryRecord.Status.DISABLED : DeliveryRecord.Status.QUEUED;
             // A message the hotel pays for goes only while its guest-message service is on and not suspended.
@@ -183,7 +185,8 @@ public class MailDispatcher {
                         .channel(channel).toAddress(cut(e.getTo() == null ? "" : e.getTo().trim(), 255)).subject(cut(e.getSubject(), 300))
                         .kind(cut(e.getKind(), 40)).ref(cut(e.getRef(), 80)).fromName(cut(trimmed(e.getFromName()), 200))
                         .replyTo(cut(trimmed(e.getReplyTo()), 255)).status(status).billable(gate.billable() && gate.allowed())
-                        .error(gate.allowed() ? null : cut(gate.reason(), 500))
+                        .error(!gate.allowed() ? cut(gate.reason(), 500)
+                                : smsRefused ? "Not sent: SMS is only used for sign-in codes. Send by WhatsApp or email." : null)
                         .nextAttemptAt(queued ? Instant.now() : null).bodyText(queued ? nz(e.getText()) : null)
                         .bodyHtml(queued && email && notBlank(e.getHtml()) ? e.getHtml() : null)
                         .waTemplate(queued && text ? cut(e.getTemplate(), 100) : null).waParams(params).build());
@@ -337,7 +340,8 @@ public class MailDispatcher {
                     : readParams(r.getWaParams()).stream()
                             .map(p -> "@hotel".equals(p) ? sender.name() : "@hotelPhone".equals(p) ? phone : p == null ? "" : p).toList();
             String body = r.getBodyText().replace("@hotelPhone", phone).replace("@hotel", sender.name() == null ? "Hospio360" : sender.name());
-            com.hospio.messaging.text.TextSender.Outcome out = texts.send(r.getChannel(), r.getToAddress(), body, r.getWaTemplate(), params);
+            com.hospio.messaging.text.TextSender.Outcome out = texts.send(r.getChannel(), r.getToAddress(), body, r.getWaTemplate(), params,
+                    com.hospio.common.delivery.Delivery.smsAllowed(r.getKind()));
             if (out.sent()) {
                 log.info("{} to {} sent as {} {}{}", r.getChannel(), r.getToAddress(), out.channel(), out.providerRef(), out.note() == null ? "" : " (" + out.note() + ")");
             } else {

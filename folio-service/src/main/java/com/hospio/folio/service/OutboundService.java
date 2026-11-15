@@ -83,12 +83,11 @@ public class OutboundService {
 
     private Sent toContact(Organization org, String subject, String text, Delivery.Kind kind) {
         Delivery d;
+        // By email only: SMS is only for one-time codes (docs/sms-whatsapp.md).
         if (!blank(org.getContactEmail())) {
             d = Delivery.email(org.getContactEmail(), subject, text, kind, org.getId());
-        } else if (!blank(org.getContactPhone())) {
-            d = Delivery.sms(org.getContactPhone(), text, kind, org.getId());
         } else {
-            throw new BadRequestException("Add a contact email or phone for " + org.getName() + " first");
+            throw new BadRequestException("Add a contact email for " + org.getName() + " first");
         }
         return new Sent(d.to(), d.channel().name(), deliveries.send(d));
     }

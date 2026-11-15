@@ -115,8 +115,9 @@ public class OutboundService {
         try {
             if (m.getChannel() == NotificationChannel.EMAIL || m.getChannel() == NotificationChannel.SMS || m.getChannel() == NotificationChannel.WHATSAPP) {
                 // One sender for email, SMS and WhatsApp (docs/email.md, docs/sms-whatsapp.md): it records the delivery (its own
-                // queue sends it). A WhatsApp here has no template, so it goes as an SMS of the same text. The message id is
-                // the delivery's event id, so a second run never records it twice.
+                // queue sends it). SMS is only for one-time codes, so any other SMS here is recorded and not sent; a WhatsApp
+                // here has no template and waits for one. The message id is the delivery's event id, so a second run never
+                // records it twice.
                 var record = mail.accept(com.hospio.common.kafka.events.DeliveryRequestedEvent.builder().eventId(m.getId()).occurredAt(m.getCreatedAt())
                         .businessId(m.getBusinessId()).hotelId(m.getHotelId()).channel(m.getChannel().name()).to(m.getRecipient())
                         .subject(m.getSubject()).text(m.getBody()).kind(m.getKind()).ref(m.getReference()).build());

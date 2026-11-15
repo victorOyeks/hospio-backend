@@ -144,9 +144,6 @@ public class MarketerService {
                     "Hello " + p.getFullName() + ",\n\nOpen this link to choose your password and sign in to the marketer portal:\n" + link + "\n"
                             + (login.inviteExpiresAt() == null ? "" : "\nThe link works until " + WHEN.format(login.inviteExpiresAt()) + ".\n"),
                     Delivery.Kind.INVITE, p.getUserId()));
-            if (StringUtils.hasText(p.getPhone())) {
-                out.add(Delivery.sms(p.getPhone(), "Hospio360 marketer: set your password here " + link, Delivery.Kind.INVITE, p.getUserId()));
-            }
         }
         return out;
     }

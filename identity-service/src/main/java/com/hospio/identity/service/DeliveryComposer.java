@@ -11,7 +11,6 @@ import java.util.Collection;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 /**
  * The messages identity would send: a temporary password, an invite link, a phone code. Pure text building;
@@ -64,15 +63,12 @@ public class DeliveryComposer {
                             + "Open this link to choose your password and sign in:\n" + link + "\n"
                             + (inviteExpiresAt == null ? "" : "\nThe link works until " + WHEN.format(inviteExpiresAt) + ".\n"),
                     Delivery.Kind.INVITE, user.getId()));
-            if (StringUtils.hasText(user.getPhone())) {
-                // One SMS page: the link (about 95 characters) must stay whole, so the words around it are few.
-                out.add(Delivery.sms(user.getPhone(), "Hospio360: set your password here " + link, Delivery.Kind.INVITE, user.getId()));
-            }
+            // Email only: SMS is only for one-time codes (docs/sms-whatsapp.md).
         }
         return out;
     }
 
-    /** A password reset: the temporary password by email and, with a phone, by SMS; no invite. */
+    /** A password reset: the temporary password by email (SMS is only for one-time codes); no invite. */
     public List<Delivery> forPasswordReset(UserAccount user, Collection<Role> roles, String temporaryPassword, Instant expiresAt) {
         List<Delivery> out = new ArrayList<>();
         out.add(Delivery.email(user.getEmail(), "Your Hospio360 password was reset",
@@ -82,11 +78,6 @@ public class DeliveryComposer {
                         + (expiresAt == null ? "" : "It works until " + WHEN.format(expiresAt) + ".\n")
                         + "\nSign in at " + appUrl(roles) + "\n",
                 Delivery.Kind.PASSWORD_RESET, user.getId()));
-        if (StringUtils.hasText(user.getPhone())) {
-            out.add(Delivery.sms(user.getPhone(),
-                    "Hospio360: password reset. Temporary password: " + temporaryPassword + " - change it when you sign in at " + appUrl(roles),
-                    Delivery.Kind.PASSWORD_RESET, user.getId()));
-        }
         return out;
     }
 

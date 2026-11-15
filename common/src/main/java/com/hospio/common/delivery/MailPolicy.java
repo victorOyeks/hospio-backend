@@ -30,14 +30,16 @@ public class MailPolicy {
 
     /**
      * What the echo says about a delivery: an email, SMS or WhatsApp on its way, or not sent (that channel switched off).
-     * A WhatsApp with SMS on but WhatsApp off still goes, as an SMS. On staging only allow-listed numbers really receive
+     * SMS is only for phone codes ({@link Delivery#smsAllowed}): any other SMS is never sent, and only a phone code's
+     * WhatsApp falls back to SMS when WhatsApp is off. On staging only allow-listed numbers really receive
      * SMS and WhatsApp (docs/sms-whatsapp.md); the echo can't tell, so it says what the sender will try.
      */
     public String statusFor(Delivery d) {
         return switch (d.channel()) {
             case EMAIL -> enabled ? Delivery.EMAIL_SENT : Delivery.NOT_CONNECTED;
-            case SMS -> sms ? Delivery.SMS_SENT : Delivery.NOT_CONNECTED;
-            case WHATSAPP -> whatsApp ? Delivery.WHATSAPP_SENT : sms ? Delivery.SMS_SENT : Delivery.NOT_CONNECTED;
+            case SMS -> sms && Delivery.smsAllowed(d.kind()) ? Delivery.SMS_SENT : Delivery.NOT_CONNECTED;
+            case WHATSAPP -> whatsApp ? Delivery.WHATSAPP_SENT
+                    : sms && Delivery.smsAllowed(d.kind()) ? Delivery.SMS_SENT : Delivery.NOT_CONNECTED;
         };
     }
 }

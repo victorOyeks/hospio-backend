@@ -4,13 +4,32 @@ Every SMS and WhatsApp the platform sends goes the same way as email (docs/email
 it to `DeliveryService`, and messaging-service records it (`messaging.delivery_records`) and sends it. The provider is
 Infobip, from the Oyeks Global account.
 
+## SMS is only for one-time codes
+
+Since November 2026 SMS carries **one thing: the phone verification code** (`Delivery.Kind.PHONE_CODE`, `Delivery.smsAllowed`).
+Everything else (bookings, receipts, folios, statements, invites, temporary passwords, purchase orders, staff notices,
+guest messages) goes by **WhatsApp or email only**:
+
+- an SMS of any other kind is recorded `NOT_CONNECTED`, "Not sent: SMS is only used for sign-in codes", and never sent;
+- a WhatsApp whose template isn't approved (or that WhatsApp refuses) is **not** swapped for an SMS any more; it is recorded
+  as not sent with the reason. Only a phone code's WhatsApp falls back to SMS;
+- the services that used to text when someone had no email (finance notices, folio statements, approvals, purchase orders,
+  invites, password resets) now email only.
+
+Codes go through **Termii**, as CoRyd's notification-service does: `POST {TERMII_BASE_URL}/api/sms/send` on the **`dnd`**
+route (the `generic` route is promotional and never reaches a number on Nigeria's DND list, while Termii still says
+"sent") from the approved sender ID `Hospio360`. Until `TERMII_ENABLED` is on, codes go by Infobip SMS as before.
+Termii's delivery reports post to `POST /messaging/webhooks/termii/reports`, believed only with a valid
+`X-Termii-Signature` (HMAC-SHA512 of the body under `TERMII_SECRET_KEY`); records are `termii:<message_id>`.
+
 ## How a text is sent
 
 | Asked for | What happens |
 |---|---|
-| **SMS** | Sent by Infobip SMS (`/sms/2/text/advanced`), one page always (below). |
+| **SMS (a phone code)** | Termii, DND route, sender ID Hospio360 (Infobip SMS while Termii is off). One page always (below). |
+| **SMS (anything else)** | Not sent, recorded with the reason. |
 | **WhatsApp with an approved template** | Sent as that template (`/whatsapp/1/message/template`) from the Oyeks Global sender. |
-| **WhatsApp whose template isn't approved yet, has none, or that WhatsApp refuses** | The same message goes as an SMS of its `text`. The record keeps why (`error`: "Sent by SMS: template … is pending"). |
+| **WhatsApp without an approved template, or that WhatsApp refuses** | Not sent, recorded with the reason; a phone code goes by SMS instead. |
 
 Which templates are approved is read from Infobip every ten minutes, so a template starts being used **on its own** the
 moment Meta approves it: nothing to deploy or switch.
@@ -32,8 +51,8 @@ is approved (and set in `INFOBIP_SMS_SENDER`), SMS goes from Infobip's shared se
   outside it would make the whole SMS Unicode with 70 characters a page;
 - over 160 characters it is cut at a word with "...", and a link is never cut in half (the words before it go first).
 
-Write SMS texts to fit anyway: the important part first, a link last. A WhatsApp's `text` is its SMS fallback, so it is a
-short SMS too; the long version lives in the template.
+Write code texts to fit anyway: the code first. A WhatsApp's `text` is kept on its delivery record (and is a phone code's
+SMS fallback); the long version lives in the template.
 
 ## Templates in use
 
@@ -79,17 +98,20 @@ opens Google Maps at the hotel's name and address, or its name and city when it 
 neither says "Contact the hotel for directions".
 
 `@hotel` is replaced by messaging-service with the sending hotel's name (the same name an email is from), in the values
-and in the SMS fallback text. Everything else on WhatsApp (folios, stay summaries, staff messages to guests) has no
-template and goes as SMS.
+and in the text kept on the record. Everything else on WhatsApp (folios, stay summaries, staff messages to guests) has no
+template yet, so it is not sent on WhatsApp (and never by SMS); it goes by email when there is one.
 
 ## Settings (environment, `/opt/hospio-staging/.env.staging` on staging)
 
 | Variable | Meaning |
 |---|---|
-| `SMS_ENABLED`, `WHATSAPP_ENABLED` | Switch each channel on (default off). Every service reads them for the echo. |
+| `SMS_ENABLED`, `WHATSAPP_ENABLED` | Switch each channel on (default off). Every service reads them for the echo. SMS only ever carries codes. |
+| `TERMII_ENABLED`, `TERMII_API_KEY`, `TERMII_SENDER_ID` | Codes by Termii (sender ID default `Hospio360`, approved in Termii). The key is only in the environment. |
+| `TERMII_BASE_URL` | Default `https://api.ng.termii.com` (the account's base URL from the Termii dashboard). |
+| `TERMII_SECRET_KEY` | Checks Termii's delivery-report signature; set the webhook in Termii to `https://<api>/messaging/webhooks/termii/reports`. |
 | `INFOBIP_BASE_URL`, `INFOBIP_API_KEY` | The Infobip account. The key is only ever in the environment. |
 | `INFOBIP_WHATSAPP_SENDER` | The WhatsApp number, digits only (2348148849797). |
-| `INFOBIP_SMS_SENDER` | The approved alphanumeric sender (e.g. `Hospio360`). Empty uses Infobip's default; set it once approved. |
+| `INFOBIP_SMS_SENDER` | Infobip's SMS sender, used for codes only while Termii is off. Empty uses Infobip's shared sender. |
 | `INFOBIP_NOTIFY_URL`, `INFOBIP_WEBHOOK_KEY` | Where Infobip posts delivery reports, and the key it must quote. Both empty: no reports. |
 | `WHATSAPP_HEADER_IMAGE_URL` | The banner sent with image-header templates (default the landing site's). |
 | `STAY_LINK_SECRET` | Signs the booking page links (default the internal API key). Changing it breaks every link already sent. |

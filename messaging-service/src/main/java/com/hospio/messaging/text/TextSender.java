@@ -11,8 +11,9 @@ import org.springframework.util.StringUtils;
 
 /**
  * Sends SMS and WhatsApp (docs/sms-whatsapp.md). A WhatsApp goes as its approved template when it names one Meta has
- * approved; otherwise (no template, not approved yet, or WhatsApp refused it) the same text goes as an SMS, so the person
- * still hears. When a template is approved later it is used from then on with no change here.
+ * approved. SMS is only for one-time codes: an SMS goes through Termii ({@link TermiiClient}, DND route, approved sender ID)
+ * when it is switched on, else Infobip; and only a code's WhatsApp falls back to SMS when WhatsApp can't take it. Any other
+ * WhatsApp without an approved template is not sent, with the reason, and goes once the template is approved.
  *
  * <p>{@code hospio.texts.allow-only} (env {@code TEXTS_ALLOW_ONLY}) is a comma-separated list of numbers: when set, only
  * those receive SMS or WhatsApp and every other number is held back and recorded as such. Staging sets it, so test guests
@@ -27,17 +28,19 @@ public class TextSender {
     }
 
     private final InfobipClient infobip;
+    private final TermiiClient termii;
     private final boolean smsEnabled;
     private final boolean whatsAppEnabled;
     private final String language;
     private final Set<String> allowOnly;
 
-    public TextSender(InfobipClient infobip,
+    public TextSender(InfobipClient infobip, TermiiClient termii,
                       @Value("${hospio.sms.enabled:false}") boolean smsEnabled,
                       @Value("${hospio.whatsapp.enabled:false}") boolean whatsAppEnabled,
                       @Value("${hospio.whatsapp.language:en}") String language,
                       @Value("${hospio.texts.allow-only:}") String allowOnly) {
         this.infobip = infobip;
+        this.termii = termii;
         this.smsEnabled = smsEnabled;
         this.whatsAppEnabled = whatsAppEnabled;
         this.language = StringUtils.hasText(language) ? language.trim() : "en";
@@ -45,10 +48,11 @@ public class TextSender {
                 .map(TextSender::number).filter(StringUtils::hasText).collect(Collectors.toUnmodifiableSet());
     }
 
-    /** Whether this channel goes out at all (switched on and the account configured). */
-    public boolean live(String channel) {
-        return "SMS".equals(channel) ? smsEnabled && infobip.configured()
-                : "WHATSAPP".equals(channel) && ((whatsAppEnabled && infobip.whatsAppConfigured()) || (smsEnabled && infobip.configured()));
+    /** Whether this channel goes out at all for this kind of message (switched on and the account configured). */
+    public boolean live(String channel, String kind) {
+        boolean codes = com.hospio.common.delivery.Delivery.smsAllowed(kind);
+        return "SMS".equals(channel) ? codes && smsLive()
+                : "WHATSAPP".equals(channel) && ((whatsAppEnabled && infobip.whatsAppConfigured()) || (codes && smsLive()));
     }
 
     /** Whether a code can go on WhatsApp right now: WhatsApp on and the code template approved. */
@@ -60,14 +64,16 @@ public class TextSender {
         return t != null && t.approved();
     }
 
+    /** SMS can go: switched on, through Termii when it is on, else Infobip. */
     public boolean smsLive() {
-        return smsEnabled && infobip.configured();
+        return smsEnabled && (termii.configured() || infobip.configured());
     }
 
     /**
-     * Sends one text. {@code params} already have {@code @hotel} filled in. Never throws.
+     * Sends one text. {@code params} already have {@code @hotel} filled in. {@code smsAllowed}: a one-time code, which may go
+     * (or fall back) by SMS; nothing else ever does. Never throws.
      */
-    public Outcome send(String channel, String to, String text, String template, List<String> params) {
+    public Outcome send(String channel, String to, String text, String template, List<String> params, boolean smsAllowed) {
         String number = number(to);
         if (!StringUtils.hasText(number) || number.length() < 10) {
             return new Outcome(false, channel, null, "Not a phone number: " + to);
@@ -98,13 +104,20 @@ public class TextSender {
                 }
             }
         }
-        if (!smsEnabled || !infobip.configured()) {
+        if (!smsAllowed) {
+            return new Outcome(false, channel, null, (whyNotWhatsApp == null ? "" : whyNotWhatsApp + "; ")
+                    + "not sent by SMS: SMS is only used for sign-in codes");
+        }
+        if (!smsLive()) {
             return new Outcome(false, channel, null, (whyNotWhatsApp == null ? "" : whyNotWhatsApp + "; ") + "SMS is off");
         }
         // One page, always (docs/sms-whatsapp.md): GSM characters, 160 at most, links whole.
-        InfobipClient.Sent s = infobip.sms(number, com.hospio.common.delivery.SmsText.fit(text));
+        String page = com.hospio.common.delivery.SmsText.fit(text);
+        boolean viaTermii = termii.configured();
+        InfobipClient.Sent s = viaTermii ? termii.sms(number, page) : infobip.sms(number, page);
         if (s.ok()) {
-            return new Outcome(true, "SMS", "sms:" + s.messageId(), whyNotWhatsApp == null ? null : "Sent by SMS: " + whyNotWhatsApp);
+            return new Outcome(true, "SMS", (viaTermii ? "termii:" : "sms:") + s.messageId(),
+                    whyNotWhatsApp == null ? null : "Sent by SMS: " + whyNotWhatsApp);
         }
         return new Outcome(false, channel, null, (whyNotWhatsApp == null ? "" : whyNotWhatsApp + "; ") + "SMS refused (" + s.error() + ")");
     }
