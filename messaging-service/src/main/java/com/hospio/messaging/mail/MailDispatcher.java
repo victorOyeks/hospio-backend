@@ -62,6 +62,9 @@ public class MailDispatcher {
     private final long maxBacklogHours;
     private com.hospio.messaging.text.TextSender texts;
     private com.hospio.messaging.client.HotelBrandClient brands;
+    /** Where the landing site draws a hotel's WhatsApp banner (docs/sms-whatsapp.md). */
+    @org.springframework.beans.factory.annotation.Value("${hospio.whatsapp.banner-url:https://hospio360.com/whatsapp/banner}")
+    private String bannerUrl = "https://hospio360.com/whatsapp/banner";
     private com.hospio.messaging.billing.CommBilling billing;
     /**
      * Two sender threads; a "kick" asks one of them to drain the queue. At most one kick waits (the queue holds one), the
@@ -352,7 +355,7 @@ public class MailDispatcher {
                             .map(p -> "@hotel".equals(p) ? sender.name() : "@hotelPhone".equals(p) ? phone : p == null ? "" : p).toList();
             String body = r.getBodyText().replace("@hotelPhone", phone).replace("@hotel", sender.name() == null ? "Hospio360" : sender.name());
             com.hospio.messaging.text.TextSender.Outcome out = texts.send(r.getChannel(), r.getToAddress(), body, r.getWaTemplate(), params,
-                    com.hospio.common.delivery.Delivery.smsAllowed(r.getKind()));
+                    com.hospio.common.delivery.Delivery.smsAllowed(r.getKind()), banner(r.getHotelId(), sender.name()));
             if (out.sent()) {
                 log.info("{} to {} sent as {} {}{}", r.getChannel(), r.getToAddress(), out.channel(), out.providerRef(), out.note() == null ? "" : " (" + out.note() + ")");
             } else {
@@ -363,6 +366,23 @@ public class MailDispatcher {
         } catch (RuntimeException ex) {
             return new Result(false, false, null, null, ex.getClass().getSimpleName() + ": " + ex.getMessage(), null);
         }
+    }
+
+    /**
+     * The WhatsApp banner in the hotel's colour with its name (Hotel setup → Brand & colours), drawn by the landing site at
+     * {@code hospio.whatsapp.banner-url}?c=rrggbb&n=name; null (the Hospio360 banner) when the hotel kept Hospio360's colour.
+     */
+    String banner(String hotelId, String hotelName) {
+        if (brands == null || hotelId == null || bannerUrl.isBlank()) {
+            return null;
+        }
+        EmailTemplates.Brand b = brands.brand(hotelId);
+        if (b == null || EmailTemplates.Brand.HOSPIO.colour().equalsIgnoreCase(b.colour())) {
+            return null;
+        }
+        String name = hotelName == null || hotelName.isBlank() ? "" : hotelName.trim();
+        return bannerUrl + "?c=" + b.colour().replace("#", "") + "&n="
+                + java.net.URLEncoder.encode(name.length() > 40 ? name.substring(0, 40) : name, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     /** Writes the answer, unless the row was finished meanwhile (its lease ran out and another worker got there first). */

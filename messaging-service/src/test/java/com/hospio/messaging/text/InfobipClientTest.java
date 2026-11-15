@@ -68,6 +68,13 @@ class InfobipClientTest {
     }
 
     @Test
+    void aHotelsOwnBannerReplacesTheHospio360One() throws Exception {
+        client().whatsAppTemplate("2349035911994", "hospio_booking_confirmation_v2", "en", List.of("Victor", "TOKEN"),
+                new InfobipClient.TemplateInfo("APPROVED", "UTILITY", "en", true, true), "https://hospio360.com/whatsapp/banner?c=0b4f50&n=Simpas");
+        assertThat(sentData().path("header").path("mediaUrl").asText()).isEqualTo("https://hospio360.com/whatsapp/banner?c=0b4f50&n=Simpas");
+    }
+
+    @Test
     void aPlainTemplateSendsOnlyItsBody() throws Exception {
         client().whatsAppTemplate("2349035911994", "hospio_booking_changed", "en", List.of("Ada", "BK-1"), false);
         JsonNode d = sentData();

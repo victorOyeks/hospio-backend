@@ -18,7 +18,8 @@ import org.springframework.web.client.RestClient;
 @Component
 public class HotelBrandClient {
 
-    private static final Duration TTL = Duration.ofMinutes(10);
+    /** One minute, as the app and the booking page: a new brand colour reaches emails and WhatsApp banners within a minute. */
+    private static final Duration TTL = Duration.ofMinutes(1);
 
     private final RestClient restClient;
     /** At most 10,000 hotels; a failed read falls back to Hospio360's look and is retried after 30 seconds. */

@@ -26,7 +26,7 @@ class TextSenderTest {
         when(infobip.configured()).thenReturn(true);
         when(infobip.whatsAppConfigured()).thenReturn(true);
         when(infobip.sms(anyString(), anyString())).thenReturn(new InfobipClient.Sent(true, "s1", null));
-        when(infobip.whatsAppTemplate(anyString(), anyString(), anyString(), any(), any(InfobipClient.TemplateInfo.class))).thenReturn(new InfobipClient.Sent(true, "w1", null));
+        when(infobip.whatsAppTemplate(anyString(), anyString(), anyString(), any(), any(InfobipClient.TemplateInfo.class), any())).thenReturn(new InfobipClient.Sent(true, "w1", null));
     }
 
     private TextSender sender(String allowOnly) {
@@ -39,7 +39,7 @@ class TextSenderTest {
         TextSender.Outcome o = sender("").send("WHATSAPP", "08031110001", "fallback", "hospio_booking_changed", List.of("Ada", "BK-1", "Royal", "a", "b"), false);
         assertThat(o.sent()).isTrue();
         assertThat(o.channel()).isEqualTo("WHATSAPP");
-        verify(infobip).whatsAppTemplate(eq("2348031110001"), eq("hospio_booking_changed"), eq("en"), any(), any(InfobipClient.TemplateInfo.class));
+        verify(infobip).whatsAppTemplate(eq("2348031110001"), eq("hospio_booking_changed"), eq("en"), any(), any(InfobipClient.TemplateInfo.class), any());
         verify(infobip, never()).sms(anyString(), anyString());
     }
 
@@ -89,7 +89,7 @@ class TextSenderTest {
         when(infobip.templates()).thenReturn(Map.of("oyeks_otp", new InfobipClient.TemplateInfo("APPROVED", "AUTHENTICATION", "en")));
         sender("").send("WHATSAPP", "2348031110001", "Your code is 123456", "oyeks_otp", List.of("123456"), true);
         verify(infobip).whatsAppTemplate(eq("2348031110001"), eq("oyeks_otp"), eq("en"), eq(List.of("123456")),
-                org.mockito.ArgumentMatchers.argThat((InfobipClient.TemplateInfo t) -> "AUTHENTICATION".equals(t.category())));
+                org.mockito.ArgumentMatchers.argThat((InfobipClient.TemplateInfo t) -> "AUTHENTICATION".equals(t.category())), any());
     }
 
     @Test

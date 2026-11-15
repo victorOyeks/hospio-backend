@@ -74,6 +74,12 @@ public class TextSender {
      * (or fall back) by SMS; nothing else ever does. Never throws.
      */
     public Outcome send(String channel, String to, String text, String template, List<String> params, boolean smsAllowed) {
+        return send(channel, to, text, template, params, smsAllowed, null);
+    }
+
+    /** As above; {@code headerImage} is this message's banner (the hotel's colours), null for the Hospio360 one. */
+    public Outcome send(String channel, String to, String text, String template, List<String> params, boolean smsAllowed,
+                        String headerImage) {
         String number = number(to);
         if (!StringUtils.hasText(number) || number.length() < 10) {
             return new Outcome(false, channel, null, "Not a phone number: " + to);
@@ -95,7 +101,7 @@ public class TextSender {
                     whyNotWhatsApp = "template " + template + " is " + t.status().toLowerCase();
                 } else {
                     InfobipClient.Sent w = infobip.whatsAppTemplate(number, template, StringUtils.hasText(t.language()) ? t.language() : language,
-                            params, t);
+                            params, t, headerImage);
                     if (w.ok()) {
                         return new Outcome(true, "WHATSAPP", "whatsapp:" + w.messageId(), null);
                     }

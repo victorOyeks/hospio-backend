@@ -94,6 +94,18 @@ when hotel-config can't be read):
 | `arrivalMessage` | On: `ArrivalReminders` (reservation, every hour 09:00–20:00 Lagos) tells each guest arriving tomorrow, once (`bookings.arrival_reminded_at`): "we look forward to welcoming you tomorrow", the hotel's check-in time and the booking page, by `hospio_checkin_reminder_v2` and email (`ARRIVAL_REMINDER`, billed as "Arrival reminders"). |
 | `sendReceipts` | Off: no automatic receipt after a payment (messaging `MessagingEventListener`); the desk can still resend one. |
 
+## The hotel's brand everywhere
+
+Hotel setup → **Brand & colours** (`BRAND`: `primaryColour`, `darkSidebar`, `shortName`, `logoUrl`) is the one source of a
+hotel's look, read within a minute of saving by every place it shows:
+
+| Where | How |
+|---|---|
+| Hotel app (every role) | The dashboard shell renders `brandStyle` (FE `packages/api/src/brand.ts`): brand tokens, the sidebar in the colour or white (Dark sidebar off, or a colour too pale for white text), the short name and logo at the top of the sidebar. The Brand section previews it live on the page before saving. |
+| Booking page | `GET /reservation/public/stays/{token}` returns `brand`; the page takes the colour and shows the hotel's name or logo, "with Hospio360". |
+| Emails | messaging `HotelBrandClient` (cached 1 minute): header band, buttons, links, logo (docs/email.md). |
+| WhatsApp banner | For a hotel with its own colour, each image-header message's banner is `hospio.whatsapp.banner-url` (default `https://hospio360.com/whatsapp/banner`)`?c=rrggbb&n=<hotel name>`, drawn by the landing site; Hospio360's colour keeps `hospio360-banner.png`. Meta approved the template with the example image; the image itself may differ per message. |
+
 ## The guest's booking page
 
 **View booking** opens `https://hospio360.com/stay/<token>` (landing app, `apps/landing/src/app/stay/[token]`), which reads
