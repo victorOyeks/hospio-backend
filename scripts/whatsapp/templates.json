@@ -78,7 +78,7 @@
       "button": {
         "text": "View booking",
         "url": "https://hospio360.com/stay/{{1}}",
-        "example": "https://hospio360.com/stay/EXAMPLE_TOKEN"
+        "example": "https://hospio360.com/stay/S9MBDwERRwexiRyur3ihQ079SqCBu_ACJAPSsA"
       },
       "body": "Hello {{1}}, your stay at *{{2}}* is confirmed.\n\n*Reference:* {{3}}\n*Check-in:* {{4}}\n*Check-out:* {{5}}\n*Room:* {{6}}\n\nNeed to change something? Call the hotel on {{7}}. Tap View booking for directions and details.",
       "examples": [
@@ -97,7 +97,7 @@
       "button": {
         "text": "View booking",
         "url": "https://hospio360.com/stay/{{1}}",
-        "example": "https://hospio360.com/stay/EXAMPLE_TOKEN"
+        "example": "https://hospio360.com/stay/S9MBDwERRwexiRyur3ihQ079SqCBu_ACJAPSsA"
       },
       "body": "Hello {{1}}, your stay at *{{2}}* has new dates.\n\n*Reference:* {{3}}\n*Check-in:* {{4}}\n*Check-out:* {{5}}\n\nNot right? Call the hotel on {{6}}. Tap View booking for the details.",
       "examples": [
@@ -115,7 +115,7 @@
       "button": {
         "text": "View booking",
         "url": "https://hospio360.com/stay/{{1}}",
-        "example": "https://hospio360.com/stay/EXAMPLE_TOKEN"
+        "example": "https://hospio360.com/stay/S9MBDwERRwexiRyur3ihQ079SqCBu_ACJAPSsA"
       },
       "body": "Hello {{1}}, your booking at *{{2}}* has been cancelled.\n\n*Reference:* {{3}}\n*Was:* {{4}}\n*Reason:* {{5}}\n\nQuestions? Call the hotel on {{6}}. We hope to welcome you another time.",
       "examples": [
@@ -145,7 +145,7 @@
       "button": {
         "text": "View booking",
         "url": "https://hospio360.com/stay/{{1}}",
-        "example": "https://hospio360.com/stay/EXAMPLE_TOKEN"
+        "example": "https://hospio360.com/stay/S9MBDwERRwexiRyur3ihQ079SqCBu_ACJAPSsA"
       },
       "body": "Hello {{1}}, *{{2}}* looks forward to welcoming you tomorrow.\n\n*Reference:* {{3}}\n*Check-in from:* {{4}}\n\nNeed directions? Tap View booking, or call the hotel on {{5}}. See you soon.",
       "examples": [
