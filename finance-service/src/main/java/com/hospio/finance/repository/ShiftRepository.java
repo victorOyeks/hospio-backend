@@ -22,4 +22,8 @@ public interface ShiftRepository extends JpaRepository<Shift, String> {
     @org.springframework.data.jpa.repository.Modifying
     @org.springframework.data.jpa.repository.Query("update Shift s set s.notInNotifiedAt = :at where s.id = :id and s.notInNotifiedAt is null")
     int markNotInNotified(@org.springframework.data.repository.query.Param("id") String id, @org.springframework.data.repository.query.Param("at") java.time.Instant at);
+
+    /** Serialises "copy last week" per hotel until the transaction ends, so two clicks can't add a week twice. */
+    @org.springframework.data.jpa.repository.Query(value = "select pg_advisory_xact_lock(hashtext(:key))", nativeQuery = true)
+    Object lock(@org.springframework.data.repository.query.Param("key") String key);
 }

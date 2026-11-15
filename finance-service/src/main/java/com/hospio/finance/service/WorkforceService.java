@@ -76,8 +76,34 @@ public class WorkforceService {
     public Shift addShift(FinanceRequests.ShiftRequestDto request) {
         requireManager();
         requireTimes(request);
+        boolean onLeave = leaves.approvedBetween(TenantContext.requireHotel(), request.shiftDate(), request.shiftDate()).stream()
+                .anyMatch(l -> l.getUserId().equals(request.userId()));
+        if (onLeave) {
+            throw new BadRequestException((request.userName() == null ? "They are" : request.userName() + " is") + " on approved leave on " + request.shiftDate());
+        }
         return shifts.save(Shift.builder().userId(request.userId()).userName(request.userName()).role(request.role().toUpperCase())
                 .shiftDate(request.shiftDate()).startsAt(request.startsAt()).endsAt(request.endsAt()).build());
+    }
+
+    /** Copies one week of the rota onto another (RotaCopy), in one transaction and one at a time per hotel. */
+    @Transactional
+    public WorkforceViews.RotaCopyResult copyWeek(FinanceRequests.CopyWeekRequest request) {
+        requireManager();
+        String hotelId = TenantContext.requireHotel();
+        long days = RotaCopy.days(request.fromWeek(), request.toWeek());
+        if (Math.abs(days) < 7) {
+            throw new BadRequestException("Pick two different weeks to copy between");
+        }
+        shifts.lock("rota-copy:" + hotelId);
+        LocalDate to = request.toWeek();
+        RotaCopy.Plan plan = RotaCopy.plan(
+                shifts.findByHotelIdAndShiftDateBetweenOrderByShiftDateAscStartsAtAsc(hotelId, request.fromWeek(), request.fromWeek().plusDays(6)),
+                shifts.findByHotelIdAndShiftDateBetweenOrderByShiftDateAscStartsAtAsc(hotelId, to, to.plusDays(6)),
+                leaves.approvedBetween(hotelId, to, to.plusDays(6)),
+                request.skipUserIds() == null ? Set.of() : new HashSet<>(request.skipUserIds()),
+                days, LocalDate.now(MoneyService.LAGOS));
+        shifts.saveAll(plan.add());
+        return new WorkforceViews.RotaCopyResult(plan.add().size(), plan.alreadyOnRota(), plan.onLeave(), plan.past(), plan.left());
     }
 
     /** A shift ending at or before its start time runs over midnight (a night shift); the same start and end is refused. */

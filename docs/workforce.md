@@ -3,6 +3,17 @@
 Lives in finance-service, alongside the rota and tills; notices go out as `NoticeEvent`s that messaging-service turns
 into in-app notifications. See also `docs/operating-day.md` for the rota, leave and clock endpoints.
 
+## Rota
+
+| Endpoint | Who | What it does |
+|---|---|---|
+| `GET /workforce/rota?from&to` | manager, finance | The shifts in the range with attendance (cancelled ones left out). |
+| `POST /workforce/shifts {userId, userName, role, shiftDate, startsAt, endsAt}` | manager, owner | Adds one shift. Refused (400) when the person is on approved leave that day. An end before the start runs past midnight. |
+| `POST /workforce/rota/copy {fromWeek, toWeek, skipUserIds?}` | manager, owner | "Copy last week": every shift of the 7 days from `fromWeek` is added on the same weekday from `toWeek`, same person and times. Skipped: a person who already has a shift that day (so copying twice adds nothing), approved leave, days already gone, and `skipUserIds` (the console sends suspended and paused staff). Returns `{added, alreadyOnRota, onLeave, past, skipped}`. Runs in one transaction under a per-hotel advisory lock, so two clicks can't add a week twice. |
+
+The manager's Rota tab lists every active member of staff by department (owners only when they hold a shift); a `+` in an
+empty day from today on adds a shift for that person and day.
+
 ## Clock
 
 Staff clock in and out on **My shifts**, and the front desk can also do it from **Today**.

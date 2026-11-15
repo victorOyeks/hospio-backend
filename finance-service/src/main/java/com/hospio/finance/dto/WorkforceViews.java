@@ -24,6 +24,10 @@ public final class WorkforceViews {
         }
     }
 
+    /** What "copy last week" did: shifts added, and those left out because the person already had one, was on leave, the day had gone, or was skipped. */
+    public record RotaCopyResult(int added, int alreadyOnRota, int onLeave, int past, int skipped) {
+    }
+
     public record ClockStatus(boolean clockedIn, Instant since, long todayMinutes) {
     }
 

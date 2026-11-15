@@ -52,6 +52,14 @@ public class WorkforceController {
         return ApiResponse.ok("Shift added", service.addShift(request));
     }
 
+    /** "Copy last week": the source week's shifts onto the target week, skipping people already on, on leave, or past days. */
+    @PostMapping("/rota/copy")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<WorkforceViews.RotaCopyResult> copyWeek(@Valid @RequestBody FinanceRequests.CopyWeekRequest request) {
+        WorkforceViews.RotaCopyResult r = service.copyWeek(request);
+        return ApiResponse.ok(r.added() == 0 ? "Nothing new to copy" : r.added() + (r.added() == 1 ? " shift" : " shifts") + " copied", r);
+    }
+
     @PutMapping("/shifts/{id}")
     @PreAuthorize("@access.manager()")
     public ApiResponse<Shift> changeShift(@PathVariable String id, @Valid @RequestBody FinanceRequests.ShiftRequestDto request) {
