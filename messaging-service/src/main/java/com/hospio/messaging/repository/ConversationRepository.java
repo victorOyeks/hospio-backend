@@ -37,4 +37,17 @@ public interface ConversationRepository extends JpaRepository<Conversation, Stri
                                                                    org.springframework.data.domain.Pageable pageable);
 
     Optional<Conversation> findFirstByHotelIdAndGuestContactAndStatus(String hotelId, String guestContact, Conversation.Status status);
+
+    /**
+     * Retention (docs/retention.md): up to {@code batch} conversations (staff Inbox threads and guest chats) with no message since
+     * {@code cutoff}, and their messages, in one statement so a chat is never half deleted. Returns the conversations deleted.
+     */
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Query(value = "WITH old AS (SELECT id FROM messaging.conversations "
+            + "WHERE COALESCE(last_message_at, created_at) < :cutoff LIMIT :batch), "
+            + "gone AS (DELETE FROM messaging.messages WHERE conversation_id IN (SELECT id FROM old)) "
+            + "DELETE FROM messaging.conversations WHERE id IN (SELECT id FROM old)", nativeQuery = true)
+    int deleteQuietSince(@org.springframework.data.repository.query.Param("cutoff") java.time.Instant cutoff,
+                         @org.springframework.data.repository.query.Param("batch") int batch);
 }

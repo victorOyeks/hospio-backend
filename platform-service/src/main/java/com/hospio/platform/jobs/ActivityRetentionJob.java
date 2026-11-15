@@ -14,7 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Every night at 02:15 Lagos: activity-log entries older than the security setting {@code auditRetentionDays} (default 365) are
+ * Every night at 02:15 Lagos: activity-log entries older than the security setting {@code auditRetentionDays} (default 183, six months) are
  * deleted, 5,000 at a time, each batch its own short transaction so the log stays writable while it runs. Never keeps less than
  * {@link #MIN_DAYS} days whatever the setting says. Runs as the platform; off with WORKER_ENABLED=false, like the nightly job.
  */
@@ -24,7 +24,7 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(name = "hospio.worker.enabled", havingValue = "true", matchIfMissing = true)
 public class ActivityRetentionJob {
 
-    static final int DEFAULT_DAYS = 365;
+    static final int DEFAULT_DAYS = 183;
     static final int MIN_DAYS = 30;
     static final int BATCH = 5000;
     /** A safety stop: 10,000 batches is 50 million rows in one night; what is left goes the next night. */

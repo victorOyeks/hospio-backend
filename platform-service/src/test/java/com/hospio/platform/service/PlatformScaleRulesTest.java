@@ -64,8 +64,9 @@ class PlatformScaleRulesTest {
         assertThat(ActivityRetentionJob.retentionDays(365)).isEqualTo(365);
         assertThat(ActivityRetentionJob.retentionDays("90")).isEqualTo(90);
         assertThat(ActivityRetentionJob.retentionDays(7)).isEqualTo(30);
-        assertThat(ActivityRetentionJob.retentionDays(null)).isEqualTo(365);
-        assertThat(ActivityRetentionJob.retentionDays("forever")).isEqualTo(365);
+        // Six months unless an admin sets otherwise.
+        assertThat(ActivityRetentionJob.retentionDays(null)).isEqualTo(183);
+        assertThat(ActivityRetentionJob.retentionDays("forever")).isEqualTo(183);
     }
 
     @Test

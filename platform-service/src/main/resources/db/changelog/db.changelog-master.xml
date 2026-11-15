@@ -16,5 +16,6 @@
     <include file="db/changelog/004-owner-portal.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/005-scale-indexes.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/006-activity-retention.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/007-activity-six-months.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>
