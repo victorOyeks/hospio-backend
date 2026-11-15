@@ -162,8 +162,9 @@ public class GuestInboxService {
         HospioUserDetails me = writer();
         String hotel = TenantContext.requireHotel();
         NotificationChannel channel = r.channel() == null ? NotificationChannel.EMAIL : r.channel();
-        if (channel == NotificationChannel.IN_APP) {
-            throw new BadRequestException("Pick email, WhatsApp or SMS for a guest");
+        if (channel == NotificationChannel.IN_APP || channel == NotificationChannel.SMS) {
+            // SMS is only for one-time codes (docs/sms-whatsapp.md).
+            throw new BadRequestException("Pick email or WhatsApp for a guest");
         }
         Conversation c;
         if (StringUtils.hasText(r.bookingId())) {
@@ -302,8 +303,8 @@ public class GuestInboxService {
     }
 
     private GuestInbox.Sent send(Conversation c, HospioUserDetails me, NotificationChannel channel, String text, String subject) {
-        if (channel == null || channel == NotificationChannel.IN_APP) {
-            throw new BadRequestException("Pick email, WhatsApp or SMS for a guest");
+        if (channel == null || channel == NotificationChannel.IN_APP || channel == NotificationChannel.SMS) {
+            throw new BadRequestException("Pick email or WhatsApp for a guest");
         }
         if (billing != null) {
             com.hospio.messaging.billing.CommBilling.Gate gate = billing.gate(TenantContext.requireHotel(), Delivery.Kind.MESSAGE.name());
@@ -316,7 +317,7 @@ public class GuestInboxService {
         if (!StringUtils.hasText(to)) {
             throw new BadRequestException(channel == NotificationChannel.EMAIL
                     ? nz(c.getGuestName()) + " has no email; add it to the guest or pick WhatsApp (coming soon)"
-                    : nz(c.getGuestName()) + " has no phone number for " + (channel == NotificationChannel.SMS ? "SMS" : "WhatsApp"));
+                    : nz(c.getGuestName()) + " has no phone number for WhatsApp");
         }
         if (channel == NotificationChannel.EMAIL && !to.contains("@")) {
             throw new BadRequestException(to + " is not an email address");
@@ -330,8 +331,7 @@ public class GuestInboxService {
         c.setDoneAt(null);
         c.setDoneByName(null);
         c = conversations.save(c);
-        Delivery d = new Delivery(channel == NotificationChannel.EMAIL ? Delivery.Channel.EMAIL : channel == NotificationChannel.SMS ? Delivery.Channel.SMS
-                : Delivery.Channel.WHATSAPP, to, StringUtils.hasText(subject) ? subject : "A message from your hotel", body, Delivery.Kind.MESSAGE, null);
+        Delivery d = new Delivery(channel == NotificationChannel.EMAIL ? Delivery.Channel.EMAIL : Delivery.Channel.WHATSAPP, to, StringUtils.hasText(subject) ? subject : "A message from your hotel", body, Delivery.Kind.MESSAGE, null);
         String status = deliveries.marked(d).status();
         Message m = messages.save(Message.builder().conversationId(c.getId()).direction(Message.Direction.OUT).senderId(me.getUserId())
                 .senderName(me.getFullName()).body(body).channel(channel.name())

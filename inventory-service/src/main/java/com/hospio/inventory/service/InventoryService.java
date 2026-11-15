@@ -1000,7 +1000,10 @@ public class InventoryService {
         return orderView(po, sup, storeMap(), itemMap(), null, sent);
     }
 
-    /** Marks the order sent and sends it to the supplier: email when they have one, else SMS. Echoed on staging. */
+    /**
+     * Marks the order sent and emails it to the supplier when they have an email (SMS is only for one-time codes,
+     * docs/sms-whatsapp.md); without one it is marked sent for the hotel to pass on itself. Echoed on staging.
+     */
     private List<Delivery> send(PurchaseOrder po, Map<String, Supplier> sup) {
         po.setStatus(PurchaseOrder.Status.SENT);
         po.setSentAt(Instant.now());
@@ -1025,9 +1028,6 @@ public class InventoryService {
         if (s != null && StringUtils.hasText(s.getEmail())) {
             po.setSentTo(s.getEmail());
             out = deliveryService.send(Delivery.email(s.getEmail(), "Purchase order " + po.getNumber(), text.toString(), Delivery.Kind.PURCHASE_ORDER, po.getId()));
-        } else if (s != null && StringUtils.hasText(s.getPhone())) {
-            po.setSentTo(s.getPhone());
-            out = deliveryService.send(Delivery.sms(s.getPhone(), text.toString(), Delivery.Kind.PURCHASE_ORDER, po.getId()));
         }
         orders.save(po);
         return out;

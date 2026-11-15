@@ -176,6 +176,19 @@ class MailDispatcherTest {
     }
 
     @Test
+    void anSmsThatIsNotACodeIsRecordedAndNeverSentEvenWithSmsOn() {
+        // SMS is only for one-time codes (docs/sms-whatsapp.md): a receipt by SMS is refused with the reason.
+        com.hospio.messaging.text.TextSender texts = mock(com.hospio.messaging.text.TextSender.class);
+        when(texts.live(any(), any())).thenReturn(true);
+        dispatcher.setTexts(texts);
+        DeliveryRecord r = dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-sms-r").businessId("b-royal").hotelId("h-royal").channel("SMS")
+                .to("+2348030000000").text("Thanks for your payment").kind("RECEIPT").build());
+        assertThat(r.getStatus()).isEqualTo(DeliveryRecord.Status.NOT_CONNECTED);
+        assertThat(r.getError()).contains("SMS is only used for sign-in codes");
+        verify(texts, never()).send(any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    @Test
     void switchedOffRecordsWithoutSending() {
         DeliveryRecord r = dispatcher(false).accept(email("b-royal", "h-royal", "ada@gmail.example"));
         assertThat(r.getStatus()).isEqualTo(DeliveryRecord.Status.DISABLED);
@@ -307,28 +320,28 @@ class MailDispatcherTest {
     @Test
     void aWhatsAppKeepsItsTemplateValuesUntilTheWorkerSendsIt() {
         com.hospio.messaging.text.TextSender texts = mock(com.hospio.messaging.text.TextSender.class);
-        when(texts.live("WHATSAPP")).thenReturn(true);
-        when(texts.send(any(), any(), any(), any(), any())).thenReturn(new com.hospio.messaging.text.TextSender.Outcome(true, "WHATSAPP", "wa-1", null));
+        when(texts.live(org.mockito.ArgumentMatchers.eq("WHATSAPP"), any())).thenReturn(true);
+        when(texts.send(any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean())).thenReturn(new com.hospio.messaging.text.TextSender.Outcome(true, "WHATSAPP", "wa-1", null));
         dispatcher.setTexts(texts);
         dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-wa").businessId("b-royal").hotelId("h-royal").channel("WHATSAPP").to("+2348030000000")
                 .text("Thanks from @hotel").kind("RECEIPT").template("hospio_payment_receipt").params(java.util.List.of("Ada", "@hotel", "₦5,000")).build());
         verify(texts).send("WHATSAPP", "+2348030000000", "Thanks from Royal Suites Ikeja", "hospio_payment_receipt",
-                java.util.List.of("Ada", "Royal Suites Ikeja", "₦5,000"));
+                java.util.List.of("Ada", "Royal Suites Ikeja", "₦5,000"), false);
     }
 
     @Test
     void hotelPhoneIsTheHotelsPhoneOrItsFrontDesk() {
         com.hospio.messaging.text.TextSender texts = mock(com.hospio.messaging.text.TextSender.class);
-        when(texts.live("WHATSAPP")).thenReturn(true);
-        when(texts.send(any(), any(), any(), any(), any())).thenReturn(new com.hospio.messaging.text.TextSender.Outcome(true, "WHATSAPP", "wa-1", null));
+        when(texts.live(org.mockito.ArgumentMatchers.eq("WHATSAPP"), any())).thenReturn(true);
+        when(texts.send(any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean())).thenReturn(new com.hospio.messaging.text.TextSender.Outcome(true, "WHATSAPP", "wa-1", null));
         dispatcher.setTexts(texts);
         when(tenants.hotel("h-royal")).thenReturn(Optional.of(new TenantClient.Sender("Royal Suites Ikeja", "frontdesk@royal.example", "+234 803 000 0000")));
         dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-ph").businessId("b-royal").hotelId("h-royal").channel("WHATSAPP").to("+2348030000000")
                 .text("@hotel: call @hotelPhone").kind("BOOKING_CONFIRMATION").template("t").params(java.util.List.of("@hotel", "@hotelPhone", "tok")).build());
         verify(texts).send("WHATSAPP", "+2348030000000", "Royal Suites Ikeja: call +234 803 000 0000", "t",
-                java.util.List.of("Royal Suites Ikeja", "+234 803 000 0000", "tok"));
+                java.util.List.of("Royal Suites Ikeja", "+234 803 000 0000", "tok"), false);
         dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-ph2").businessId("b-b").hotelId("h-b1").channel("WHATSAPP").to("+2348030000000")
                 .text("Call @hotelPhone").kind("BOOKING_CONFIRMATION").template("t").params(java.util.List.of("@hotelPhone")).build());
-        verify(texts).send("WHATSAPP", "+2348030000000", "Call its front desk number", "t", java.util.List.of("its front desk number"));
+        verify(texts).send("WHATSAPP", "+2348030000000", "Call its front desk number", "t", java.util.List.of("its front desk number"), false);
     }
 }

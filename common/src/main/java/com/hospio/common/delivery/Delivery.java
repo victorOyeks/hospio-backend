@@ -26,12 +26,24 @@ public record Delivery(Channel channel, String to, String subject, String text, 
         BOOKING_CHANGED, BOOKING_CANCELLED
     }
 
+    /**
+     * SMS is only for one-time codes (docs/sms-whatsapp.md): a phone code may go by SMS, or fall back to SMS when WhatsApp
+     * can't take it. Every other message goes by WhatsApp or email and never by SMS.
+     */
+    public static boolean smsAllowed(Kind kind) {
+        return kind == Kind.PHONE_CODE;
+    }
+
+    public static boolean smsAllowed(String kind) {
+        return Kind.PHONE_CODE.name().equals(kind);
+    }
+
     /** The echo's status values (see the class comment). */
     public static final String EMAIL_SENT = "EMAIL_SENT";
     public static final String NOT_CONNECTED = "NOT_CONNECTED";
     /** An SMS handed to the SMS provider (docs/sms-whatsapp.md). */
     public static final String SMS_SENT = "SMS_SENT";
-    /** A WhatsApp handed to the sender: its approved template, else the same text by SMS. */
+    /** A WhatsApp handed to the sender as its approved template (a phone code falls back to SMS). */
     public static final String WHATSAPP_SENT = "WHATSAPP_SENT";
 
     public Delivery(Channel channel, String to, String subject, String text, Kind kind, String ref) {

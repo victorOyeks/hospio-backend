@@ -46,7 +46,7 @@ public class MessagingController {
     /** Which text channels go out here, and whether a code can go on WhatsApp (its template approved), for "Send on WhatsApp instead". */
     @GetMapping("/channels")
     public ApiResponse<java.util.Map<String, Boolean>> channels() {
-        return ApiResponse.ok(java.util.Map.of("sms", texts.smsLive(), "whatsapp", texts.live("WHATSAPP"), "whatsappCodes", texts.whatsAppTemplateReady("oyeks_otp")));
+        return ApiResponse.ok(java.util.Map.of("sms", texts.smsLive(), "whatsapp", texts.live("WHATSAPP", null), "whatsappCodes", texts.whatsAppTemplateReady("oyeks_otp")));
     }
 
     @GetMapping("/notifications")

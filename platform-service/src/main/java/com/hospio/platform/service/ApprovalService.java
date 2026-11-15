@@ -166,8 +166,8 @@ public class ApprovalService {
             String text = a.getDecidedByName() + " " + verdict + " your " + what + (a.getDescription() == null ? "" : " (" + a.getDescription() + ")")
                     + (a.getNote() == null || a.getNote().isBlank() ? "." : ". " + a.getNote());
             String subject = "Your " + what + " was " + (status == ApprovalStatus.APPROVED ? "approved" : status == ApprovalStatus.DECLINED ? "declined" : "queried");
-            Delivery d = contact.email() != null ? Delivery.email(contact.email(), subject, text, Delivery.Kind.DECISION, a.getId())
-                    : contact.phone() != null ? Delivery.sms(contact.phone(), text, Delivery.Kind.DECISION, a.getId()) : null;
+            // By email only: SMS is only for one-time codes (docs/sms-whatsapp.md).
+            Delivery d = contact.email() != null ? Delivery.email(contact.email(), subject, text, Delivery.Kind.DECISION, a.getId()) : null;
             return d == null ? List.of() : deliveries.send(d);
         } catch (RuntimeException e) {
             log.warn("Could not tell the requester about approval {}: {}", a.getId(), e.getMessage());

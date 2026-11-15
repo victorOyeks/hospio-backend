@@ -18,7 +18,7 @@ public class Notifier {
     private final PeerServices peers;
     private final DeliveryService deliveries;
 
-    /** Emails (or texts) one person. Never throws; answers what echoes back to the caller when deliveries echo is on. */
+    /** Emails one person (never by SMS). Never throws; answers what echoes back to the caller when deliveries echo is on. */
     public List<Delivery> toUser(String userId, String subject, String text, Delivery.Kind kind, String ref) {
         return peers.contact(userId).map(c -> send(c.email(), c.phone(), subject, text, kind, ref)).orElse(List.of());
     }
@@ -41,9 +41,7 @@ public class Notifier {
             if (email != null && !email.isBlank()) {
                 return deliveries.send(Delivery.email(email, subject, text, kind, ref));
             }
-            if (phone != null && !phone.isBlank()) {
-                return deliveries.send(Delivery.sms(phone, text, kind, ref));
-            }
+            // No email, nothing sent: SMS is only for one-time codes (docs/sms-whatsapp.md).
         } catch (RuntimeException e) {
             log.warn("Could not send {} {}: {}", kind, ref, e.getMessage());
         }

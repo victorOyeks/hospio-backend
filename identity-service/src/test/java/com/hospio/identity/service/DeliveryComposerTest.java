@@ -30,18 +30,17 @@ class DeliveryComposerTest {
     }
 
     @Test
-    void loginDeliveriesCarryPasswordInviteAndSmsWhenThereIsAPhone() {
+    void loginDeliveriesAreEmailOnlyEvenWithAPhone() {
+        // SMS is only for one-time codes (docs/sms-whatsapp.md): the password and the invite go by email.
         Instant pw = Instant.now().plusSeconds(72 * 3600);
         Instant inv = Instant.now().plusSeconds(7 * 86400);
         List<Delivery> out = composer.forLogin(user("+2348010000001"), Set.of(Role.MANAGER), "Abc12345", pw, "tok123", inv);
 
-        assertThat(out).extracting(Delivery::kind).containsExactly(Delivery.Kind.TEMP_PASSWORD, Delivery.Kind.INVITE, Delivery.Kind.INVITE);
-        assertThat(out).extracting(Delivery::channel).containsExactly(Delivery.Channel.EMAIL, Delivery.Channel.EMAIL, Delivery.Channel.SMS);
+        assertThat(out).extracting(Delivery::kind).containsExactly(Delivery.Kind.TEMP_PASSWORD, Delivery.Kind.INVITE);
+        assertThat(out).extracting(Delivery::channel).containsExactly(Delivery.Channel.EMAIL, Delivery.Channel.EMAIL);
         assertThat(out.get(0).to()).isEqualTo("tunde@x.ng");
         assertThat(out.get(0).text()).contains("Temporary password: Abc12345").contains("https://web-staging.hospio360.com");
         assertThat(out.get(1).text()).contains("/accept-invite?token=tok123");
-        assertThat(out.get(2).to()).isEqualTo("+2348010000001");
-        assertThat(out.get(2).text()).contains("/accept-invite?token=tok123");
         assertThat(out).allSatisfy(d -> assertThat(d.ref()).isEqualTo("u1"));
     }
 
@@ -62,11 +61,9 @@ class DeliveryComposerTest {
     }
 
     @Test
-    void aResetGoesBySmsTooWhenThereIsAPhone() {
+    void aResetIsEmailOnlyEvenWithAPhone() {
         List<Delivery> reset = composer.forPasswordReset(user("+2348010000001"), Set.of(Role.FRONT_OFFICE), "Newpass1", Instant.now().plusSeconds(60));
-        assertThat(reset).extracting(Delivery::channel).containsExactly(Delivery.Channel.EMAIL, Delivery.Channel.SMS);
-        assertThat(reset.get(1).to()).isEqualTo("+2348010000001");
-        assertThat(reset.get(1).text()).contains("Temporary password: Newpass1");
-        assertThat(reset).allSatisfy(d -> assertThat(d.kind()).isEqualTo(Delivery.Kind.PASSWORD_RESET));
+        assertThat(reset).extracting(Delivery::channel).containsExactly(Delivery.Channel.EMAIL);
+        assertThat(reset.get(0).text()).contains("Temporary password: Newpass1");
     }
 }
