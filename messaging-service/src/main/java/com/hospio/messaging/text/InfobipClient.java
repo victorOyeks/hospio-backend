@@ -39,8 +39,15 @@ public class InfobipClient {
         }
     }
 
-    /** A template's approval and category, as Meta reports it through Infobip. */
-    public record TemplateInfo(String status, String category, String language) {
+    /**
+     * A template's approval and category, as Meta reports it through Infobip, and its shape: an image header (sent with the
+     * Hospio360 banner) and a link button whose ending is a value (the template's last value, docs/sms-whatsapp.md).
+     */
+    public record TemplateInfo(String status, String category, String language, boolean imageHeader, boolean linkButton) {
+        public TemplateInfo(String status, String category, String language) {
+            this(status, category, language, false, false);
+        }
+
         public boolean approved() {
             return "APPROVED".equalsIgnoreCase(status);
         }
@@ -55,6 +62,7 @@ public class InfobipClient {
     private final String smsSender;
     private final String whatsAppSender;
     private final String notifyUrl;
+    private final String headerImageUrl;
     private volatile Map<String, TemplateInfo> templates = Map.of();
     private volatile Instant templatesReadAt = Instant.EPOCH;
 
@@ -63,7 +71,9 @@ public class InfobipClient {
                          @Value("${hospio.infobip.sms-sender:}") String smsSender,
                          @Value("${hospio.infobip.whatsapp-sender:}") String whatsAppSender,
                          @Value("${hospio.infobip.notify-url:}") String notifyUrl,
-                         @Value("${hospio.infobip.webhook-key:}") String webhookKey) {
+                         @Value("${hospio.infobip.webhook-key:}") String webhookKey,
+                         @Value("${hospio.whatsapp.header-image-url:https://hospio360.com/whatsapp/hospio360-banner.png}") String headerImageUrl) {
+        this.headerImageUrl = headerImageUrl == null ? "" : headerImageUrl.trim();
         this.baseUrl = baseUrl == null ? "" : baseUrl.trim().replaceAll("/+$", "");
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         this.smsSender = smsSender == null ? "" : smsSender.trim();
@@ -105,13 +115,29 @@ public class InfobipClient {
      * carries the code as its copy-code button's parameter, as Infobip's guide does.
      */
     public Sent whatsAppTemplate(String to, String template, String language, List<String> params, boolean codeButton) {
+        return whatsAppTemplate(to, template, language, params, new TemplateInfo("APPROVED", codeButton ? "AUTHENTICATION" : "UTILITY", language));
+    }
+
+    /**
+     * A WhatsApp template message shaped as the template is: an image header gets the Hospio360 banner
+     * ({@code hospio.whatsapp.header-image-url}); a link button takes the last value as its link's ending and the body the
+     * rest; an authentication template's code also goes on its copy-code button.
+     */
+    public Sent whatsAppTemplate(String to, String template, String language, List<String> params, TemplateInfo shape) {
         if (!whatsAppConfigured()) {
             return Sent.failed("WhatsApp sender not configured");
         }
+        List<String> values = params == null ? List.of() : params;
+        boolean link = shape.linkButton() && !values.isEmpty();
         Map<String, Object> data = new HashMap<>();
-        data.put("body", Map.of("placeholders", params == null ? List.of() : params));
-        if (codeButton && params != null && !params.isEmpty()) {
-            data.put("buttons", List.of(Map.of("type", "URL", "parameter", params.get(0))));
+        data.put("body", Map.of("placeholders", link ? values.subList(0, values.size() - 1) : values));
+        if (shape.imageHeader() && StringUtils.hasText(headerImageUrl)) {
+            data.put("header", Map.of("type", "IMAGE", "mediaUrl", headerImageUrl));
+        }
+        if ("AUTHENTICATION".equalsIgnoreCase(shape.category()) && !values.isEmpty()) {
+            data.put("buttons", List.of(Map.of("type", "URL", "parameter", values.get(0))));
+        } else if (link) {
+            data.put("buttons", List.of(Map.of("type", "URL", "parameter", values.get(values.size() - 1))));
         }
         Map<String, Object> message = new HashMap<>(Map.of("from", whatsAppSender, "to", to, "messageId", UUID.randomUUID().toString(),
                 "content", Map.of("templateName", template, "templateData", data, "language", language)));
@@ -139,7 +165,14 @@ public class InfobipClient {
             }
             Map<String, TemplateInfo> read = new HashMap<>();
             for (JsonNode t : json.readTree(res.body()).path("templates")) {
-                read.put(t.path("name").asText(), new TemplateInfo(t.path("status").asText(), t.path("category").asText(), t.path("language").asText()));
+                JsonNode st = t.path("structure");
+                boolean image = "IMAGE".equalsIgnoreCase(st.path("header").path("format").asText(""));
+                boolean link = false;
+                for (JsonNode b : st.path("buttons")) {
+                    link |= "URL".equalsIgnoreCase(b.path("type").asText("")) && b.path("url").asText("").contains("{{");
+                }
+                read.put(t.path("name").asText(), new TemplateInfo(t.path("status").asText(), t.path("category").asText(),
+                        t.path("language").asText(), image, link));
             }
             templates = Map.copyOf(read);
             templatesReadAt = Instant.now();

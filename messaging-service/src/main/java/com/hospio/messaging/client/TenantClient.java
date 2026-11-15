@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 /**
- * Who a message is from: a hotel's name and email (the From name and the Reply-To), else the business's. Read from
+ * Who a message is from: a hotel's name and email (the From name and the Reply-To), else the business's; and the hotel's phone. Read from
  * tenant-service as the system and kept for 10 minutes (at most 10,000 entries); empty when tenant-service can't be reached
  * (retried after 30 seconds).
  */
@@ -21,7 +21,11 @@ public class TenantClient {
 
     private static final Duration TTL = Duration.ofMinutes(10);
 
-    public record Sender(String name, String email) {
+    /** {@code phone}: the hotel's phone, for {@code @hotelPhone} in a guest's WhatsApp (docs/sms-whatsapp.md); null when not set. */
+    public record Sender(String name, String email, String phone) {
+        public Sender(String name, String email) {
+            this(name, email, null);
+        }
     }
 
     private final RestClient restClient;
@@ -47,7 +51,8 @@ public class TenantClient {
                 JsonNode body = restClient.get().uri(uri, id).retrieve().body(JsonNode.class);
                 JsonNode d = body == null ? null : body.path("data");
                 return TtlCache.Loaded.ok(d == null || d.isMissingNode() || d.isNull() || !d.hasNonNull("name") ? Optional.<Sender>empty()
-                        : Optional.of(new Sender(d.path("name").asText(), blankToNull(d.path("email").asText(null)))));
+                        : Optional.of(new Sender(d.path("name").asText(), blankToNull(d.path("email").asText(null)),
+                                blankToNull(d.path("phone").asText(null)))));
             } catch (Exception e) {
                 log.warn("Could not read {} from tenant-service: {}", key, e.getMessage());
                 return TtlCache.Loaded.failed(Optional.<Sender>empty());

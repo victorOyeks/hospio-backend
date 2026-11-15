@@ -315,4 +315,20 @@ class MailDispatcherTest {
         verify(texts).send("WHATSAPP", "+2348030000000", "Thanks from Royal Suites Ikeja", "hospio_payment_receipt",
                 java.util.List.of("Ada", "Royal Suites Ikeja", "₦5,000"));
     }
+
+    @Test
+    void hotelPhoneIsTheHotelsPhoneOrItsFrontDesk() {
+        com.hospio.messaging.text.TextSender texts = mock(com.hospio.messaging.text.TextSender.class);
+        when(texts.live("WHATSAPP")).thenReturn(true);
+        when(texts.send(any(), any(), any(), any(), any())).thenReturn(new com.hospio.messaging.text.TextSender.Outcome(true, "WHATSAPP", "wa-1", null));
+        dispatcher.setTexts(texts);
+        when(tenants.hotel("h-royal")).thenReturn(Optional.of(new TenantClient.Sender("Royal Suites Ikeja", "frontdesk@royal.example", "+234 803 000 0000")));
+        dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-ph").businessId("b-royal").hotelId("h-royal").channel("WHATSAPP").to("+2348030000000")
+                .text("@hotel: call @hotelPhone").kind("BOOKING_CONFIRMATION").template("t").params(java.util.List.of("@hotel", "@hotelPhone", "tok")).build());
+        verify(texts).send("WHATSAPP", "+2348030000000", "Royal Suites Ikeja: call +234 803 000 0000", "t",
+                java.util.List.of("Royal Suites Ikeja", "+234 803 000 0000", "tok"));
+        dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-ph2").businessId("b-b").hotelId("h-b1").channel("WHATSAPP").to("+2348030000000")
+                .text("Call @hotelPhone").kind("BOOKING_CONFIRMATION").template("t").params(java.util.List.of("@hotelPhone")).build());
+        verify(texts).send("WHATSAPP", "+2348030000000", "Call its front desk number", "t", java.util.List.of("its front desk number"));
+    }
 }

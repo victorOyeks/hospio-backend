@@ -22,12 +22,14 @@ class GuestNoticesTest {
 
     private final GuestService guests = mock(GuestService.class);
     private final DeliveryService deliveries = mock(DeliveryService.class);
-    private final GuestNotices notices = new GuestNotices(guests, deliveries);
+    private final StayLinks links = new StayLinks("test-secret");
+    private final GuestNotices notices = new GuestNotices(guests, deliveries, links);
+    private static final String ID = "4bd3010f-0111-4707-b189-1caeaf78a143";
 
     private static BookingResponse booking(LocalDate in, LocalDate out) {
         Booking b = Booking.builder().reference("BK-1001").guestId("g1").guestName("Ada Okeke").roomTypeName("Deluxe")
                 .checkInDate(in).checkOutDate(out).nightlyRate(new BigDecimal("45000")).totalAmount(new BigDecimal("90000")).build();
-        b.setId("b1");
+        b.setId(ID);
         return BookingResponse.of(b);
     }
 
@@ -44,10 +46,13 @@ class GuestNoticesTest {
         assertThat(sent.get(0).channel()).isEqualTo(Delivery.Channel.WHATSAPP);
         assertThat(sent.get(0).to()).isEqualTo("+2348030000001");
         // WhatsApp goes as the approved template; its text is the one-page SMS it falls back to (@hotel = the hotel's name).
-        assertThat(sent.get(0).template()).isEqualTo("hospio_booking_changed");
-        assertThat(sent.get(0).params()).containsExactly("Ada", "BK-1001", "@hotel", "Sat 21 Nov", "Tue 24 Nov");
-        assertThat(sent.get(0).text()).isEqualTo("@hotel: Hello Ada, booking BK-1001 is now Sat 21 Nov to Tue 24 Nov. Reply here if that is not right.");
-        assertThat(com.hospio.common.delivery.SmsText.length(sent.get(0).text().replace("@hotel", "Royal Suites Ikeja Victoria Island"))).isLessThanOrEqualTo(160);
+        // The last value is the booking page link's ending, for the "View booking" button; @hotelPhone the hotel's phone.
+        assertThat(sent.get(0).template()).isEqualTo("hospio_booking_changed_v2");
+        assertThat(sent.get(0).params()).containsExactly("Ada", "@hotel", "BK-1001", "Sat 21 Nov", "Tue 24 Nov", "@hotelPhone", links.token(ID).orElseThrow());
+        assertThat(links.bookingId(sent.get(0).params().get(6))).contains(ID);
+        assertThat(sent.get(0).text()).isEqualTo("@hotel: Hello Ada, booking BK-1001 is now Sat 21 Nov to Tue 24 Nov. Call @hotelPhone if that is not right.");
+        assertThat(com.hospio.common.delivery.SmsText.length(sent.get(0).text().replace("@hotelPhone", "+234 803 000 0000")
+                .replace("@hotel", "Royal Suites Ikeja Victoria Island"))).isLessThanOrEqualTo(160);
     }
 
     @Test

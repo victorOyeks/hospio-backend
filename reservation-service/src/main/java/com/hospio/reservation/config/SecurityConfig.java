@@ -32,6 +32,7 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http, InternalApiKeyFilter internalApiKeyFilter) throws Exception {
-        return SecurityChains.standard(http, jwtFilter, internalApiKeyFilter, authenticationEntryPoint, accessDeniedHandler);
+        return SecurityChains.standard(http, jwtFilter, internalApiKeyFilter, authenticationEntryPoint, accessDeniedHandler,
+                "/public/stays/**");
     }
 }

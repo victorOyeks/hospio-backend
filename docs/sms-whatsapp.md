@@ -41,12 +41,36 @@ Templates are in `scripts/whatsapp/templates.json` and submitted with `scripts/w
 
 | Message | Template | Values (in order) | Built in |
 |---|---|---|---|
-| Booking confirmed | `hospio_booking_confirmation` | first name, reference, `@hotel`, check-in, check-out, room type | reservation `GuestNotices` |
-| Dates changed | `hospio_booking_changed` | first name, reference, `@hotel`, check-in, check-out | reservation `GuestNotices` |
-| Cancelled | `hospio_booking_cancelled` | first name, reference, `@hotel`, reason sentence | reservation `GuestNotices` |
-| Receipt (guest without email) | `hospio_payment_receipt` | first name, `@hotel`, amount, reference | messaging `MessagingEventListener` |
+| Booking confirmed | `hospio_booking_confirmation_v2` | first name, `@hotel`, reference, check-in, check-out, room type, `@hotelPhone`, **link** | reservation `GuestNotices` |
+| Dates changed | `hospio_booking_changed_v2` | first name, `@hotel`, reference, check-in, check-out, `@hotelPhone`, **link** | reservation `GuestNotices` |
+| Cancelled | `hospio_booking_cancelled_v2` | first name, `@hotel`, reference, "was" dates, reason, `@hotelPhone`, **link** | reservation `GuestNotices` |
+| Receipt (guest without email) | `hospio_payment_receipt_v2` | first name, `@hotel`, amount, paid by, reference | messaging `MessagingEventListener` |
 | Phone code, "Send on WhatsApp instead" | `oyeks_otp` (authentication: the code also goes on the copy button) | code | identity `DeliveryComposer` |
-| Check-in reminder | `hospio_checkin_reminder` | — not sent yet (no reminder job) | — |
+| Check-in reminder | `hospio_checkin_reminder_v2` | — not sent yet (no reminder job) | — |
+
+The `_v2` templates (November 2026) have the **Hospio360 banner** as an image header, one detail per line, and (bookings) a
+**View booking** button. Their shape is read from Infobip with the approval, so the sender needs no list of them:
+
+- an **image header** gets the banner, `hospio.whatsapp.header-image-url` (env `WHATSAPP_HEADER_IMAGE_URL`, default
+  `https://hospio360.com/whatsapp/hospio360-banner.png`, served by the landing site);
+- a **link button** (`https://hospio360.com/stay/{{1}}`) takes the template's **last value** as the link's ending, and the body
+  the values before it.
+
+The first versions (`hospio_booking_confirmation` …) stay approved but are no longer sent. They said "reply to this
+message": guest replies to the WhatsApp number are not connected yet, so the v2 texts point to the hotel's phone instead.
+
+`@hotelPhone` is the hotel's phone from tenant-service, or "its front desk number" when it has none, so the text still reads
+("Call the hotel on its front desk number").
+
+## The guest's booking page
+
+**View booking** opens `https://hospio360.com/stay/<token>` (landing app, `apps/landing/src/app/stay/[token]`), which reads
+`GET /reservation/public/stays/{token}` — public, no sign-in. The token (`StayLinks`) is the booking id plus an HMAC of it
+(38 characters, base64url) under `hospio.stay-links.secret` (env `STAY_LINK_SECRET`, default the internal API key), so it
+can't be guessed or changed and nothing is stored. An altered or unknown token is 404 "This link is not valid"; 60 days after
+check-out it is 410 "expired". The page shows the status, reference, dates with the hotel's check-in/out times, nights, room
+type, guests, a cancellation's reason, and the hotel's address (Get directions), phone (Call the hotel) and email — never the
+room number, prices or notes.
 
 `@hotel` is replaced by messaging-service with the sending hotel's name (the same name an email is from), in the values
 and in the SMS fallback text. Everything else on WhatsApp (folios, stay summaries, staff messages to guests) has no
@@ -61,6 +85,8 @@ template and goes as SMS.
 | `INFOBIP_WHATSAPP_SENDER` | The WhatsApp number, digits only (2348148849797). |
 | `INFOBIP_SMS_SENDER` | The approved alphanumeric sender (e.g. `Hospio360`). Empty uses Infobip's default; set it once approved. |
 | `INFOBIP_NOTIFY_URL`, `INFOBIP_WEBHOOK_KEY` | Where Infobip posts delivery reports, and the key it must quote. Both empty: no reports. |
+| `WHATSAPP_HEADER_IMAGE_URL` | The banner sent with image-header templates (default the landing site's). |
+| `STAY_LINK_SECRET` | Signs the booking page links (default the internal API key). Changing it breaks every link already sent. |
 | `TEXTS_ALLOW_ONLY` | Comma-separated numbers. When set only these receive SMS/WhatsApp; others are recorded as held back. **Staging sets it** (test data holds real-looking numbers); production leaves it empty. |
 
 While the Infobip account is on its free trial it only delivers to the numbers verified in Infobip.

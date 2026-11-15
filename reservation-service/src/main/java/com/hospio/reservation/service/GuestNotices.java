@@ -18,7 +18,8 @@ import org.springframework.util.StringUtils;
  * What the guest is told about their booking: confirmed (new booking), dates changed, cancelled. An email when the guest
  * has one (sent for real through messaging-service, from the hotel's name, docs/email.md) and a WhatsApp message when they
  * have a phone: the approved hospio_booking_* template, else a one-page SMS (docs/sms-whatsapp.md). {@code @hotel} is the
- * hotel's name, filled in by messaging-service. Never fails the booking action.
+ * hotel's name and {@code @hotelPhone} its phone, filled in by messaging-service. The template's last value is the booking page
+ * link's ending ({@link StayLinks}), for its "View booking" button. Never fails the booking action.
  */
 @Slf4j
 @Component
@@ -29,14 +30,15 @@ public class GuestNotices {
 
     private final GuestService guests;
     private final DeliveryService deliveries;
+    private final StayLinks stayLinks;
 
     public List<Delivery> confirmed(BookingResponse b) {
         return tell(b, "Your booking " + b.reference() + " is confirmed", Delivery.Kind.BOOKING_CONFIRMATION,
-                first -> new Text("hospio_booking_confirmation",
-                        List.of(first, b.reference(), "@hotel", DAY.format(b.checkInDate()), DAY.format(b.checkOutDate()),
-                                b.roomTypeName() == null ? "your room" : b.roomTypeName()),
+                first -> new Text("hospio_booking_confirmation_v2",
+                        List.of(first, "@hotel", b.reference(), DAY.format(b.checkInDate()), DAY.format(b.checkOutDate()),
+                                b.roomTypeName() == null ? "To be assigned" : b.roomTypeName(), "@hotelPhone"),
                         "@hotel: Hello " + first + ", booking " + b.reference() + " is confirmed, " + DAY.format(b.checkInDate()) + " to "
-                                + DAY.format(b.checkOutDate()) + ". Reply here if anything needs changing."),
+                                + DAY.format(b.checkOutDate()) + ". Call @hotelPhone if anything needs changing."),
                 first -> "Hello " + first
                 + ",\n\nYour booking is confirmed.\n\nReference: " + b.reference() + "\n" + stay(b)
                 + (b.roomTypeName() == null ? "" : "\nRoom: " + b.roomTypeName() + (b.roomNumber() == null ? "" : " · " + b.roomNumber()))
@@ -48,10 +50,10 @@ public class GuestNotices {
             return List.of();
         }
         return tell(after, "Your stay has changed", Delivery.Kind.BOOKING_CHANGED,
-                first -> new Text("hospio_booking_changed",
-                        List.of(first, after.reference(), "@hotel", DAY.format(after.checkInDate()), DAY.format(after.checkOutDate())),
+                first -> new Text("hospio_booking_changed_v2",
+                        List.of(first, "@hotel", after.reference(), DAY.format(after.checkInDate()), DAY.format(after.checkOutDate()), "@hotelPhone"),
                         "@hotel: Hello " + first + ", booking " + after.reference() + " is now " + DAY.format(after.checkInDate()) + " to "
-                                + DAY.format(after.checkOutDate()) + ". Reply here if that is not right."),
+                                + DAY.format(after.checkOutDate()) + ". Call @hotelPhone if that is not right."),
                 // "Label: value" lines become the email's details card (docs/email.md).
                 first -> "Hello " + first + ",\n\nYour stay has new dates.\n\nReference: " + after.reference()
                         + "\nCheck-in: " + DAY.format(after.checkInDate()) + "\nCheck-out: " + DAY.format(after.checkOutDate())
@@ -60,11 +62,13 @@ public class GuestNotices {
     }
 
     public List<Delivery> cancelled(BookingResponse b) {
-        String why = StringUtils.hasText(b.cancellationReason()) ? "Reason: " + b.cancellationReason().trim().replaceAll("[.\\s]+$", "") + "."
-                : "We hope to welcome you another time.";
+        String why = StringUtils.hasText(b.cancellationReason()) ? b.cancellationReason().trim().replaceAll("[.\\s]+$", "")
+                : "Not given";
         return tell(b, "Your booking " + b.reference() + " is cancelled", Delivery.Kind.BOOKING_CANCELLED,
-                first -> new Text("hospio_booking_cancelled", List.of(first, b.reference(), "@hotel", why),
-                        "@hotel: Hello " + first + ", booking " + b.reference() + " has been cancelled. " + why),
+                first -> new Text("hospio_booking_cancelled_v2",
+                        List.of(first, "@hotel", b.reference(), DAY.format(b.checkInDate()) + " to " + DAY.format(b.checkOutDate()), why, "@hotelPhone"),
+                        "@hotel: Hello " + first + ", booking " + b.reference() + " has been cancelled."
+                                + (StringUtils.hasText(b.cancellationReason()) ? " Reason: " + why + "." : " We hope to welcome you another time.")),
                 first -> "Hello " + first + ",\n\nYour booking has been cancelled.\n\nReference: " + b.reference()
                         + "\nWas: " + DAY.format(b.checkInDate()) + " to " + DAY.format(b.checkOutDate())
                         + (StringUtils.hasText(b.cancellationReason()) ? "\nReason: " + b.cancellationReason().trim() : "")
@@ -90,7 +94,16 @@ public class GuestNotices {
             }
             if (StringUtils.hasText(g.getPhone())) {
                 Text w = whatsApp.apply(first.isBlank() ? "there" : first);
-                out.add(Delivery.whatsApp(g.getPhone(), subject, w.sms(), kind, b.id()).withTemplate(w.template(), w.params()));
+                // The template's "View booking" button: its link's ending is the template's last value (docs/sms-whatsapp.md).
+                // A booking without a link (id not a UUID) goes without the template, so as the SMS text.
+                java.util.Optional<String> link = stayLinks.token(b.id());
+                Delivery d = Delivery.whatsApp(g.getPhone(), subject, w.sms(), kind, b.id());
+                if (link.isPresent()) {
+                    List<String> values = new ArrayList<>(w.params());
+                    values.add(link.get());
+                    d = d.withTemplate(w.template(), values);
+                }
+                out.add(d);
             }
             return out.isEmpty() ? List.of() : deliveries.send(out);
         } catch (RuntimeException e) {

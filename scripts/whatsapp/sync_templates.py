@@ -79,6 +79,18 @@ def problems(t: dict) -> list:
         out.append("body over 1024 characters")
     if t.get("header") and (len(t["header"]) > 60 or VAR.search(t["header"])):
         out.append("header: up to 60 characters, no variables")
+    if t.get("header") and t.get("headerImage"):
+        out.append("header or headerImage, not both")
+    if t.get("headerImage") and not re.match(r"^https://\S+\.(png|jpe?g)$", t["headerImage"]):
+        out.append("headerImage: a public https .png or .jpg")
+    b = t.get("button")
+    if b:
+        if not 1 <= len(b.get("text", "")) <= 25:
+            out.append("button.text: 1 to 25 characters")
+        if not re.match(r"^https://\S+\{\{1\}\}$", b.get("url", "")):
+            out.append("button.url: https, ending in {{1}}")
+        elif not b.get("example", "").startswith(b["url"].replace("{{1}}", "")):
+            out.append("button.example: the url with a real ending")
     if t.get("footer") and len(t["footer"]) > 60:
         out.append("footer: up to 60 characters")
     if any(not str(e).strip() for e in t.get("examples", [])):
@@ -99,6 +111,13 @@ def payload(t: dict) -> dict:
         structure["body"]["examples"] = t["examples"]
     if t.get("header"):
         structure["header"] = {"format": "TEXT", "text": t["header"]}
+    if t.get("headerImage"):
+        # The image is only the example Meta reviews; each message sends its own (messaging-service sends the banner).
+        structure["header"] = {"format": "IMAGE", "example": t["headerImage"]}
+    if t.get("button"):
+        # A link button whose ending is the template's last value when sent (docs/sms-whatsapp.md).
+        b = t["button"]
+        structure["buttons"] = [{"type": "URL", "text": b["text"], "url": b["url"], "example": b["example"]}]
     if t.get("footer"):
         structure["footer"] = {"text": t["footer"]}
     return {"name": t["name"], "language": t["language"], "category": t["category"],
