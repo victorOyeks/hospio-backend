@@ -38,7 +38,7 @@ public class GuestNotices {
                         List.of(first, "@hotel", b.reference(), DAY.format(b.checkInDate()), DAY.format(b.checkOutDate()),
                                 b.roomTypeName() == null ? "To be assigned" : b.roomTypeName(), "@hotelPhone"),
                         "@hotel: Hello " + first + ", booking " + b.reference() + " is confirmed, " + DAY.format(b.checkInDate()) + " to "
-                                + DAY.format(b.checkOutDate()) + ". Call @hotelPhone if anything needs changing."),
+                                + DAY.format(b.checkOutDate()) + "."),
                 first -> "Hello " + first
                 + ",\n\nYour booking is confirmed.\n\nReference: " + b.reference() + "\n" + stay(b)
                 + (b.roomTypeName() == null ? "" : "\nRoom: " + b.roomTypeName() + (b.roomNumber() == null ? "" : " · " + b.roomNumber()))
@@ -53,7 +53,7 @@ public class GuestNotices {
                 first -> new Text("hospio_booking_changed_v2",
                         List.of(first, "@hotel", after.reference(), DAY.format(after.checkInDate()), DAY.format(after.checkOutDate()), "@hotelPhone"),
                         "@hotel: Hello " + first + ", booking " + after.reference() + " is now " + DAY.format(after.checkInDate()) + " to "
-                                + DAY.format(after.checkOutDate()) + ". Call @hotelPhone if that is not right."),
+                                + DAY.format(after.checkOutDate()) + "."),
                 // "Label: value" lines become the email's details card (docs/email.md).
                 first -> "Hello " + first + ",\n\nYour stay has new dates.\n\nReference: " + after.reference()
                         + "\nCheck-in: " + DAY.format(after.checkInDate()) + "\nCheck-out: " + DAY.format(after.checkOutDate())
@@ -67,8 +67,7 @@ public class GuestNotices {
         return tell(b, "Your booking " + b.reference() + " is cancelled", Delivery.Kind.BOOKING_CANCELLED,
                 first -> new Text("hospio_booking_cancelled_v2",
                         List.of(first, "@hotel", b.reference(), DAY.format(b.checkInDate()) + " to " + DAY.format(b.checkOutDate()), why, "@hotelPhone"),
-                        "@hotel: Hello " + first + ", booking " + b.reference() + " has been cancelled."
-                                + (StringUtils.hasText(b.cancellationReason()) ? " Reason: " + why + "." : " We hope to welcome you another time.")),
+                        "@hotel: Hello " + first + ", booking " + b.reference() + " has been cancelled."),
                 first -> "Hello " + first + ",\n\nYour booking has been cancelled.\n\nReference: " + b.reference()
                         + "\nWas: " + DAY.format(b.checkInDate()) + " to " + DAY.format(b.checkOutDate())
                         + (StringUtils.hasText(b.cancellationReason()) ? "\nReason: " + b.cancellationReason().trim() : "")
@@ -87,7 +86,12 @@ public class GuestNotices {
                 return List.of();
             }
             String first = b.guestName() == null ? "" : b.guestName().trim().split("\\s+")[0];
-            String body = text.apply(first);
+            // The guest's booking page (dates, the hotel's address with directions, its phone) goes in every channel: the email's
+            // button, the SMS's link and WhatsApp's View booking button. A booking without a link (id not a UUID) goes without.
+            java.util.Optional<String> token = stayLinks.token(b.id());
+            java.util.Optional<String> url = stayLinks.url(b.id());
+            String body = text.apply(first)
+                    + url.map(u -> "\n\nDirections and the hotel's contact details are on your booking page: " + u).orElse("");
             List<Delivery> out = new ArrayList<>();
             if (StringUtils.hasText(g.getEmail())) {
                 out.add(Delivery.email(g.getEmail().trim(), subject, body, kind, b.id()));
@@ -95,12 +99,12 @@ public class GuestNotices {
             if (StringUtils.hasText(g.getPhone())) {
                 Text w = whatsApp.apply(first.isBlank() ? "there" : first);
                 // The template's "View booking" button: its link's ending is the template's last value (docs/sms-whatsapp.md).
-                // A booking without a link (id not a UUID) goes without the template, so as the SMS text.
-                java.util.Optional<String> link = stayLinks.token(b.id());
-                Delivery d = Delivery.whatsApp(g.getPhone(), subject, w.sms(), kind, b.id());
-                if (link.isPresent()) {
+                // The SMS it falls back to ends with the whole link (SmsText.fit never cuts a link; words before it go first).
+                String sms = w.sms() + url.map(u -> " Details and directions: " + u).orElse("");
+                Delivery d = Delivery.whatsApp(g.getPhone(), subject, sms, kind, b.id());
+                if (token.isPresent()) {
                     List<String> values = new ArrayList<>(w.params());
-                    values.add(link.get());
+                    values.add(token.get());
                     d = d.withTemplate(w.template(), values);
                 }
                 out.add(d);

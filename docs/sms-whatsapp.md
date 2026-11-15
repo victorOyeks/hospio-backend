@@ -72,6 +72,12 @@ check-out it is 410 "expired". The page shows the status, reference, dates with 
 type, guests, a cancellation's reason, and the hotel's address (Get directions), phone (Call the hotel) and email — never the
 room number, prices or notes.
 
+**Every channel carries the link** (`StayLinks.url`, base `hospio.stay-links.base-url`, default `https://hospio360.com/stay/`):
+WhatsApp's View booking button, the end of the SMS it falls back to ("Details and directions: <link>", kept whole by
+`SmsText.fit`), and the confirmation / change / cancellation email, whose button says **View booking**. **Get directions**
+opens Google Maps at the hotel's name and address, or its name and city when it has no street address; a hotel with
+neither says "Contact the hotel for directions".
+
 `@hotel` is replaced by messaging-service with the sending hotel's name (the same name an email is from), in the values
 and in the SMS fallback text. Everything else on WhatsApp (folios, stay summaries, staff messages to guests) has no
 template and goes as SMS.

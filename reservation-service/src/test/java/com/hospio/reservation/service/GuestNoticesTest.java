@@ -22,7 +22,7 @@ class GuestNoticesTest {
 
     private final GuestService guests = mock(GuestService.class);
     private final DeliveryService deliveries = mock(DeliveryService.class);
-    private final StayLinks links = new StayLinks("test-secret");
+    private final StayLinks links = new StayLinks("test-secret", "https://hospio360.com/stay/");
     private final GuestNotices notices = new GuestNotices(guests, deliveries, links);
     private static final String ID = "4bd3010f-0111-4707-b189-1caeaf78a143";
 
@@ -50,9 +50,12 @@ class GuestNoticesTest {
         assertThat(sent.get(0).template()).isEqualTo("hospio_booking_changed_v2");
         assertThat(sent.get(0).params()).containsExactly("Ada", "@hotel", "BK-1001", "Sat 21 Nov", "Tue 24 Nov", "@hotelPhone", links.token(ID).orElseThrow());
         assertThat(links.bookingId(sent.get(0).params().get(6))).contains(ID);
-        assertThat(sent.get(0).text()).isEqualTo("@hotel: Hello Ada, booking BK-1001 is now Sat 21 Nov to Tue 24 Nov. Call @hotelPhone if that is not right.");
-        assertThat(com.hospio.common.delivery.SmsText.length(sent.get(0).text().replace("@hotelPhone", "+234 803 000 0000")
-                .replace("@hotel", "Royal Suites Ikeja Victoria Island"))).isLessThanOrEqualTo(160);
+        // The SMS it falls back to ends with the booking page link, kept whole on one page even for a long hotel name.
+        String link = "https://hospio360.com/stay/" + links.token(ID).orElseThrow();
+        assertThat(sent.get(0).text()).isEqualTo("@hotel: Hello Ada, booking BK-1001 is now Sat 21 Nov to Tue 24 Nov. Details and directions: " + link);
+        String sms = com.hospio.common.delivery.SmsText.fit(sent.get(0).text().replace("@hotel", "Royal Suites Ikeja Victoria Island"));
+        assertThat(com.hospio.common.delivery.SmsText.length(sms)).isLessThanOrEqualTo(160);
+        assertThat(sms).endsWith(link).contains("BK-1001");
     }
 
     @Test
@@ -72,7 +75,9 @@ class GuestNoticesTest {
         assertThat(sent).extracting(Delivery::channel).containsExactly(Delivery.Channel.EMAIL, Delivery.Channel.WHATSAPP);
         assertThat(sent.get(0).kind()).isEqualTo(Delivery.Kind.BOOKING_CONFIRMATION);
         assertThat(sent.get(0).subject()).isEqualTo("Your booking BK-1001 is confirmed");
-        assertThat(sent.get(0).text()).contains("Reference: BK-1001").contains("Fri 20 Nov to Sun 22 Nov");
+        assertThat(sent.get(0).text()).contains("Reference: BK-1001").contains("Fri 20 Nov to Sun 22 Nov")
+                .contains("Directions and the hotel's contact details are on your booking page: https://hospio360.com/stay/" + links.token(ID).orElseThrow());
+        assertThat(sent.get(1).text()).contains("https://hospio360.com/stay/");
         assertThat(notices.cancelled(booking(LocalDate.of(2026, 11, 20), LocalDate.of(2026, 11, 22))).get(0).subject()).isEqualTo("Your booking BK-1001 is cancelled");
     }
 }

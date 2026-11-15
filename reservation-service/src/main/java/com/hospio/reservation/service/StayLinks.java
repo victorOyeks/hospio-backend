@@ -29,8 +29,11 @@ public class StayLinks {
     private static final Base64.Decoder DEC = Base64.getUrlDecoder();
 
     private final SecretKeySpec key;
+    private final String baseUrl;
 
-    public StayLinks(@Value("${hospio.stay-links.secret:${services.internal.api-key}}") String secret) {
+    public StayLinks(@Value("${hospio.stay-links.secret:${services.internal.api-key}}") String secret,
+                     @Value("${hospio.stay-links.base-url:https://hospio360.com/stay/}") String baseUrl) {
+        this.baseUrl = baseUrl == null || baseUrl.isBlank() ? "https://hospio360.com/stay/" : baseUrl.trim().replaceAll("/+$", "") + "/";
         if (!StringUtils.hasText(secret)) {
             throw new IllegalStateException("hospio.stay-links.secret (or services.internal.api-key) must be set");
         }
@@ -46,6 +49,11 @@ public class StayLinks {
         byte[] out = Arrays.copyOf(id, id.length + SIG_BYTES);
         System.arraycopy(sign(id), 0, out, id.length, SIG_BYTES);
         return Optional.of(ENC.encodeToString(out));
+    }
+
+    /** The whole link, for the SMS and email (WhatsApp's button holds the address and takes only the token). */
+    public Optional<String> url(String bookingId) {
+        return token(bookingId).map(t -> baseUrl + t);
     }
 
     /** The booking id a token was made for, or empty when the token is malformed or its signature doesn't match. */
