@@ -65,4 +65,11 @@ public interface PaymentRequestRepository extends JpaRepository<PaymentRequest, 
     List<Object[]> approvedCountAndSumForHotel(@Param("status") PaymentStatus status, @Param("hotelId") String hotelId,
                                                @Param("from") Instant from, @Param("to") Instant to);
 
+
+    /**
+     * Card payments still waiting at the POS, sent between {@code from} and {@code to}, oldest first (PendingPaymentCheckJob).
+     * Read as the system: they may be at any hotel.
+     */
+    List<PaymentRequest> findTop200ByMethodAndStatusInAndProviderRefIsNotNullAndCreatedAtBetweenOrderByCreatedAtAsc(
+            com.hospio.common.enums.PaymentMethod method, Collection<PaymentStatus> statuses, Instant from, Instant to);
 }

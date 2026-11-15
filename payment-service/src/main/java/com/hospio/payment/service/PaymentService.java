@@ -228,6 +228,10 @@ public class PaymentService {
                     p.getDescription() == null ? "Hospio payment" : p.getDescription());
             p.setProviderRef(ref);
             p.setStatus(PaymentStatus.PROCESSING);
+        } catch (com.hospio.common.integrations.PosNotConnectedException e) {
+            // A provider not integrated yet (Moniepoint / OPay placeholder): say so; the terminal isn't at fault, so it stays online.
+            p.setStatus(PaymentStatus.FAILED);
+            p.setFailureReason(e.getMessage());
         } catch (Exception e) {
             log.error("POS request failed for payment {}", p.getId(), e);
             terminals.markOffline(terminal, role);
