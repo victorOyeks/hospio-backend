@@ -124,6 +124,11 @@ public class InfobipClient {
      * rest; an authentication template's code also goes on its copy-code button.
      */
     public Sent whatsAppTemplate(String to, String template, String language, List<String> params, TemplateInfo shape) {
+        return whatsAppTemplate(to, template, language, params, shape, null);
+    }
+
+    /** As above, with this message's own header image (the hotel's banner); null uses the Hospio360 banner. */
+    public Sent whatsAppTemplate(String to, String template, String language, List<String> params, TemplateInfo shape, String headerImage) {
         if (!whatsAppConfigured()) {
             return Sent.failed("WhatsApp sender not configured");
         }
@@ -131,8 +136,9 @@ public class InfobipClient {
         boolean link = shape.linkButton() && !values.isEmpty();
         Map<String, Object> data = new HashMap<>();
         data.put("body", Map.of("placeholders", link ? values.subList(0, values.size() - 1) : values));
-        if (shape.imageHeader() && StringUtils.hasText(headerImageUrl)) {
-            data.put("header", Map.of("type", "IMAGE", "mediaUrl", headerImageUrl));
+        String image = StringUtils.hasText(headerImage) ? headerImage : headerImageUrl;
+        if (shape.imageHeader() && StringUtils.hasText(image)) {
+            data.put("header", Map.of("type", "IMAGE", "mediaUrl", image));
         }
         if ("AUTHENTICATION".equalsIgnoreCase(shape.category()) && !values.isEmpty()) {
             data.put("buttons", List.of(Map.of("type", "URL", "parameter", values.get(0))));

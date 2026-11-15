@@ -321,27 +321,37 @@ class MailDispatcherTest {
     void aWhatsAppKeepsItsTemplateValuesUntilTheWorkerSendsIt() {
         com.hospio.messaging.text.TextSender texts = mock(com.hospio.messaging.text.TextSender.class);
         when(texts.live(org.mockito.ArgumentMatchers.eq("WHATSAPP"), any())).thenReturn(true);
-        when(texts.send(any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean())).thenReturn(new com.hospio.messaging.text.TextSender.Outcome(true, "WHATSAPP", "wa-1", null));
+        when(texts.send(any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any())).thenReturn(new com.hospio.messaging.text.TextSender.Outcome(true, "WHATSAPP", "wa-1", null));
         dispatcher.setTexts(texts);
         dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-wa").businessId("b-royal").hotelId("h-royal").channel("WHATSAPP").to("+2348030000000")
                 .text("Thanks from @hotel").kind("RECEIPT").template("hospio_payment_receipt").params(java.util.List.of("Ada", "@hotel", "₦5,000")).build());
         verify(texts).send("WHATSAPP", "+2348030000000", "Thanks from Royal Suites Ikeja", "hospio_payment_receipt",
-                java.util.List.of("Ada", "Royal Suites Ikeja", "₦5,000"), false);
+                java.util.List.of("Ada", "Royal Suites Ikeja", "₦5,000"), false, null);
     }
 
     @Test
     void hotelPhoneIsTheHotelsPhoneOrItsFrontDesk() {
         com.hospio.messaging.text.TextSender texts = mock(com.hospio.messaging.text.TextSender.class);
         when(texts.live(org.mockito.ArgumentMatchers.eq("WHATSAPP"), any())).thenReturn(true);
-        when(texts.send(any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean())).thenReturn(new com.hospio.messaging.text.TextSender.Outcome(true, "WHATSAPP", "wa-1", null));
+        when(texts.send(any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any())).thenReturn(new com.hospio.messaging.text.TextSender.Outcome(true, "WHATSAPP", "wa-1", null));
         dispatcher.setTexts(texts);
         when(tenants.hotel("h-royal")).thenReturn(Optional.of(new TenantClient.Sender("Royal Suites Ikeja", "frontdesk@royal.example", "+234 803 000 0000")));
         dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-ph").businessId("b-royal").hotelId("h-royal").channel("WHATSAPP").to("+2348030000000")
                 .text("@hotel: call @hotelPhone").kind("BOOKING_CONFIRMATION").template("t").params(java.util.List.of("@hotel", "@hotelPhone", "tok")).build());
         verify(texts).send("WHATSAPP", "+2348030000000", "Royal Suites Ikeja: call +234 803 000 0000", "t",
-                java.util.List.of("Royal Suites Ikeja", "+234 803 000 0000", "tok"), false);
+                java.util.List.of("Royal Suites Ikeja", "+234 803 000 0000", "tok"), false, null);
         dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-ph2").businessId("b-b").hotelId("h-b1").channel("WHATSAPP").to("+2348030000000")
                 .text("Call @hotelPhone").kind("BOOKING_CONFIRMATION").template("t").params(java.util.List.of("@hotelPhone")).build());
-        verify(texts).send("WHATSAPP", "+2348030000000", "Call its front desk number", "t", java.util.List.of("its front desk number"), false);
+        verify(texts).send("WHATSAPP", "+2348030000000", "Call its front desk number", "t", java.util.List.of("its front desk number"), false, null);
+    }
+
+    @Test
+    void theWhatsAppBannerIsDrawnInTheHotelsColourOrIsHospio360s() {
+        com.hospio.messaging.client.HotelBrandClient brands = mock(com.hospio.messaging.client.HotelBrandClient.class);
+        dispatcher.setBrands(brands);
+        when(brands.brand("h-royal")).thenReturn(EmailTemplates.Brand.of("#0B4F50", null));
+        when(brands.brand("h-plain")).thenReturn(EmailTemplates.Brand.HOSPIO);
+        assertThat(dispatcher.banner("h-royal", "Royal Suites & Spa")).isEqualTo("https://hospio360.com/whatsapp/banner?c=0b4f50&n=Royal%20Suites%20%26%20Spa");
+        assertThat(dispatcher.banner("h-plain", "Plain Hotel")).isNull();
     }
 }

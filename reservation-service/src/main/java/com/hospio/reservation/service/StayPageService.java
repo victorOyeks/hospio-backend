@@ -27,11 +27,13 @@ public class StayPageService {
 
     /**
      * What the page shows. {@code hotel} is null when tenant-service can't be reached. {@code hotelWhatsApp}: the hotel's own
-     * WhatsApp from Hotel setup → Guest messaging, as wa.me digits ("Chat on WhatsApp"), or null.
+     * WhatsApp from Hotel setup → Guest messaging, as wa.me digits ("Chat on WhatsApp"), or null. {@code brand}: the hotel's colour,
+     * short name and logo (Hotel setup → Brand & colours), so the page is in the hotel's look.
      */
     public record StayPage(String reference, String status, String guestFirstName, LocalDate checkInDate, LocalDate checkOutDate,
                            int nights, int adults, int children, String roomType, String cancellationReason,
-                           TenantHotelClient.HotelCard hotel, String hotelWhatsApp) {
+                           TenantHotelClient.HotelCard hotel, String hotelWhatsApp,
+                           com.hospio.reservation.client.GuestMessagingSettings.Brand brand) {
     }
 
     private final StayLinks links;
@@ -54,6 +56,6 @@ public class StayPageService {
         BookingStatus s = b.getStatus();
         return new StayPage(b.getReference(), s == null ? null : s.name(), first, b.getCheckInDate(), b.getCheckOutDate(), b.nights(),
                 b.getAdults(), b.getChildren(), b.getRoomTypeName(), s == BookingStatus.CANCELLED ? b.getCancellationReason() : null,
-                hotels.hotel(b.getHotelId()).orElse(null), settings.forHotel(b.getHotelId()).whatsappNumber());
+                hotels.hotel(b.getHotelId()).orElse(null), settings.forHotel(b.getHotelId()).whatsappNumber(), settings.brand(b.getHotelId()));
     }
 }
