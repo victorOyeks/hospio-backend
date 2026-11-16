@@ -18,5 +18,6 @@
     <include file="db/changelog/006-scale-indexes.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/007-booking-version-and-payments.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/008-arrival-reminder.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/009-folio-totals.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

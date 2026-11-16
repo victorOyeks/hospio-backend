@@ -121,6 +121,21 @@ class BookingPaymentsSqlTest {
     }
 
     @Test
+    void theFolioTotalsKeepTheNewestAndAreReadBack() {
+        Instant t1 = Instant.parse("2026-11-16T13:00:00Z");
+        Instant t0 = Instant.parse("2026-11-16T12:00:00Z");
+        int applied = inTx(r -> r.setFolioTotals("p2", new BigDecimal("87650"), new BigDecimal("87650"), BigDecimal.ZERO, t1));
+        assertThat(applied).isEqualTo(1);
+        // An older event arriving late changes nothing.
+        int stale = inTx(r -> r.setFolioTotals("p2", new BigDecimal("70000"), BigDecimal.ZERO, new BigDecimal("70000"), t0));
+        assertThat(stale).isZero();
+        var b = inTx(r -> r.findById("p2").orElseThrow());
+        assertThat(b.getFolioTotal()).isEqualByComparingTo("87650");
+        assertThat(b.getFolioPaid()).isEqualByComparingTo("87650");
+        assertThat(b.getFolioBalance()).isEqualByComparingTo("0");
+    }
+
+    @Test
     void theRowLockReadsTheBookingByIdAndReference() {
         String status = inTx(r -> r.lockById("p2").map(b -> b.getStatus().name()).orElseThrow());
         String id = inTx(r -> r.idByReference("RP2").orElseThrow());

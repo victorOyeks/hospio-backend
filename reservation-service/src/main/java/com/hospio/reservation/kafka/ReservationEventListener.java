@@ -1,6 +1,7 @@
 package com.hospio.reservation.kafka;
 
 import com.hospio.common.kafka.KafkaTopics;
+import com.hospio.common.kafka.events.FolioTotalsEvent;
 import com.hospio.common.kafka.events.PaymentApprovedEvent;
 import com.hospio.common.kafka.events.RefundApprovedEvent;
 import com.hospio.common.tenancy.TenantBinder;
@@ -52,6 +53,22 @@ public class ReservationEventListener {
         tenant.bind(e);
         try {
             add(e.getBookingId(), e.getRefundId() == null ? null : "refund:" + e.getRefundId(), e.getAmount().negate());
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    /** The stay's bill changed on its folios: keep a copy on the booking, so lists, totals and "due" match the folio. */
+    @Transactional
+    @KafkaListener(topics = KafkaTopics.FOLIO_TOTALS)
+    public void onFolioTotals(FolioTotalsEvent e) {
+        if (e.getBookingId() == null || e.getTotal() == null) {
+            return;
+        }
+        tenant.bind(e);
+        try {
+            bookings.setFolioTotals(e.getBookingId(), e.getTotal(), e.getPaid(), e.getBalance(),
+                    e.getOccurredAt() == null ? Instant.now() : e.getOccurredAt());
         } finally {
             TenantContext.clear();
         }

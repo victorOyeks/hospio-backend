@@ -52,6 +52,16 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
     @Query("update Booking b set b.amountPaid = greatest(b.amountPaid + :delta, 0), b.version = b.version + 1, b.updatedAt = :now where b.id = :id")
     int addPaid(@Param("id") String bookingId, @Param("delta") BigDecimal delta, @Param("now") Instant now);
 
+    /**
+     * The stay's bill as its folios have it now, unless a newer one was already applied (events can arrive out of order across a
+     * partition change). Doesn't touch the version: it never conflicts with a check-in or a change saved meanwhile.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(value = "update reservation.bookings set folio_total = :total, folio_paid = :paid, folio_balance = :balance, folio_totals_at = :at "
+            + "where id = :id and (folio_totals_at is null or folio_totals_at <= :at)", nativeQuery = true)
+    int setFolioTotals(@Param("id") String bookingId, @Param("total") BigDecimal total, @Param("paid") BigDecimal paid,
+                       @Param("balance") BigDecimal balance, @Param("at") Instant at);
+
     /** Ids of BOOKED stays whose arrival date is on or before {@code date} (the night audit locks each before marking it). */
     @Query("select b.id from Booking b where b.hotelId = :hotelId and b.status = 'BOOKED' and b.checkInDate <= :date")
     List<String> unresolvedArrivalIds(@Param("hotelId") String hotelId, @Param("date") LocalDate date);
