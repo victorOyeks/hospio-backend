@@ -62,6 +62,18 @@ public class HotelPosService {
                 c.getUpdatedAt(), box.ready());
     }
 
+    /** Every hotel's POS status for the admin portal's lists: provider, keys complete, paused. Never any key. */
+    public record Status(String hotelId, String provider, boolean complete, boolean posPaused) {
+    }
+
+    @Transactional(readOnly = true)
+    public List<Status> statuses() {
+        return configs.findAll().stream()
+                .map(c -> new Status(c.getHotelId(), c.getProvider(), c.getProvider() != null && complete(c.getProvider(), readMap(c.getMasked())),
+                        c.isPosPaused()))
+                .toList();
+    }
+
     @Transactional
     public View save(String businessId, String hotelId, String provider, Map<String, String> values) {
         String p = provider == null ? null : provider.trim().toUpperCase(Locale.ROOT);

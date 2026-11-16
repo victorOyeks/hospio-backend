@@ -40,6 +40,13 @@ public class PosConfigController {
     public record PosConfigRequest(String businessId, String provider, Map<String, String> fields) {
     }
 
+    @Operation(summary = "Money admins: every hotel's POS provider, whether its keys are complete and whether POS is paused (no keys)")
+    @GetMapping("/admin/pos-configs")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FINANCE_ADMIN')")
+    public ApiResponse<List<HotelPosService.Status>> adminStatuses() {
+        return ApiResponse.ok(hotels.statuses());
+    }
+
     @Operation(summary = "SUPER_ADMIN: a hotel's POS provider and its keys, masked")
     @GetMapping("/admin/hotels/{hotelId}/pos-config")
     @PreAuthorize("hasRole('SUPER_ADMIN')")

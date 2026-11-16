@@ -267,6 +267,25 @@ public class DailyFeeService {
         return view(again);
     }
 
+    /** Every hotel's fee state in one call (the admin portal's Hotels page): provider, debit, POS pause, latest day. */
+    public record HotelFeeState(String hotelId, String provider, boolean debitEnabled, boolean posPaused, DailyFeeView lastFee) {
+    }
+
+    public List<HotelFeeState> hotelStates() {
+        java.util.Map<String, FeeCollection> byHotel = new java.util.HashMap<>();
+        collections.findAll().forEach(c -> byHotel.put(c.getHotelId(), c));
+        java.util.Map<String, DailyFee> last = new java.util.HashMap<>();
+        fees.latestPerHotel().forEach(f -> last.put(f.getHotelId(), f));
+        java.util.Set<String> ids = new java.util.TreeSet<>(byHotel.keySet());
+        ids.addAll(last.keySet());
+        return ids.stream().map(id -> {
+            FeeCollection c = byHotel.get(id);
+            DailyFee f = last.get(id);
+            return new HotelFeeState(id, c == null ? null : c.getProvider(), c != null && c.isDebitEnabled(), c != null && c.isPosPaused(),
+                    f == null ? null : view(f));
+        }).toList();
+    }
+
     // ---- collection settings (SUPER_ADMIN) ------------------------------------------------------------
 
     public record CollectionView(String hotelId, String provider, boolean debitEnabled, boolean posPaused, String changedByName, Instant changedAt,

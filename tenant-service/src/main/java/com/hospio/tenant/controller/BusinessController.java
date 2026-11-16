@@ -56,6 +56,13 @@ public class BusinessController {
         return ApiResponse.ok(service.mine().hotels());
     }
 
+    @Operation(summary = "Platform: every hotel across businesses, by name (the admin portal's Hotels page)")
+    @GetMapping("/admin/hotels")
+    @org.springframework.security.access.prepost.PreAuthorize("@access.platform()")
+    public ApiResponse<List<HotelResponse>> allHotels() {
+        return ApiResponse.ok(service.allHotels());
+    }
+
     @Operation(summary = "One hotel: its owner, someone granted it, or the platform")
     @GetMapping("/hotels/{id}")
     public ApiResponse<HotelResponse> hotel(@PathVariable String id) {

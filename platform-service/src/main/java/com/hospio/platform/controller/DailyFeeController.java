@@ -42,6 +42,13 @@ public class DailyFeeController {
         return ApiResponse.ok(fees.forAdmin(businessId, hotelId, from, to));
     }
 
+    @Operation(summary = "Admin: every hotel's fee state (provider, debit on, POS paused, latest day) in one call")
+    @GetMapping("/admin/fees/hotels")
+    @PreAuthorize(AdminFeesController.MONEY)
+    public ApiResponse<List<DailyFeeService.HotelFeeState>> hotelStates() {
+        return ApiResponse.ok(fees.hotelStates());
+    }
+
     @Operation(summary = "Admin: work a day out now for every hotel billed daily (what the 00:05 job does); days already done are left alone")
     @PostMapping("/admin/fees/daily/run")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
