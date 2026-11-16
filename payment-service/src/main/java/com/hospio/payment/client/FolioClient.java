@@ -1,11 +1,13 @@
 package com.hospio.payment.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -13,6 +15,14 @@ import org.springframework.web.client.RestClient;
 @Slf4j
 @Component
 public class FolioClient {
+
+    /** The part of folio-service's folio this client reads. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record FolioRef(String bookingId) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<FolioRef>> FOLIO = new ParameterizedTypeReference<>() {
+    };
 
     private final RestClient restClient;
 
@@ -24,8 +34,8 @@ public class FolioClient {
     /** Empty when the folio has no booking (a company account) or folio-service can't be reached. */
     public Optional<String> bookingOf(String folioId) {
         try {
-            JsonNode body = restClient.get().uri("/internal/folios/{id}", folioId).retrieve().body(JsonNode.class);
-            String id = body == null ? null : body.path("data").path("bookingId").asText(null);
+            ApiResponse<FolioRef> body = restClient.get().uri("/internal/folios/{id}", folioId).retrieve().body(FOLIO);
+            String id = body == null || body.data() == null ? null : body.data().bookingId();
             return Optional.ofNullable(id == null || id.isBlank() ? null : id);
         } catch (Exception e) {
             log.warn("Could not read folio {} from folio-service: {}", folioId, e.getMessage());

@@ -1,6 +1,7 @@
 package com.hospio.folio.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import java.math.BigDecimal;
@@ -8,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -26,17 +28,25 @@ public class PaymentClient {
     public record ApprovedPayment(String id, BigDecimal amount, String method, String takenBy) {
     }
 
+    /** The part of payment-service's payment this client reads. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record PaymentRow(String id, String status, BigDecimal amount, String method, String requestedByName) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<List<PaymentRow>>> PAYMENTS = new ParameterizedTypeReference<>() {
+    };
+
     /** Approved payments for the booking (deposits taken before check-in). Empty when payment-service is unreachable. */
     public List<ApprovedPayment> approvedForBooking(String bookingId) {
         try {
-            JsonNode body = restClient.get().uri("/internal/payments/by-booking/{id}", bookingId).retrieve().body(JsonNode.class);
-            JsonNode data = body == null ? null : body.path("data");
+            ApiResponse<List<PaymentRow>> body = restClient.get().uri("/internal/payments/by-booking/{id}", bookingId).retrieve().body(PAYMENTS);
+            List<PaymentRow> data = body == null ? null : body.data();
             List<ApprovedPayment> out = new ArrayList<>();
-            if (data != null && data.isArray()) {
-                for (JsonNode p : data) {
-                    if ("APPROVED".equals(p.path("status").asText())) {
-                        out.add(new ApprovedPayment(p.path("id").asText(), new BigDecimal(p.path("amount").asText("0")),
-                                p.path("method").asText("CASH"), p.path("requestedByName").asText(null)));
+            if (data != null) {
+                for (PaymentRow p : data) {
+                    if (p != null && "APPROVED".equals(p.status())) {
+                        out.add(new ApprovedPayment(p.id() == null ? "" : p.id(), p.amount() == null ? BigDecimal.ZERO : p.amount(),
+                                p.method() == null ? "CASH" : p.method(), p.requestedByName()));
                     }
                 }
             }

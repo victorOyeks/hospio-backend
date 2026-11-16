@@ -1,12 +1,14 @@
 package com.hospio.housekeeping.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
@@ -19,6 +21,19 @@ import org.springframework.web.client.RestClient;
 @Slf4j
 @Component
 public class MaintenanceClient {
+
+    /** The part of maintenance-service's work order this client reads. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record RepairRef(String id) {
+    }
+
+    /** The envelope of a refusal: only its sentence is read. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Refusal(String message) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<RepairRef>> REPAIR = new ParameterizedTypeReference<>() {
+    };
 
     private final RestClient restClient;
 
@@ -44,14 +59,15 @@ public class MaintenanceClient {
                 request.put("area", roomNumber.length() > 100 ? roomNumber.substring(0, 100) : roomNumber);
                 request.put("roomNumber", "");
             }
-            JsonNode body = restClient.post().uri("/internal/repairs?outOfOrder={o}", outOfOrder)
+            ApiResponse<RepairRef> body = restClient.post().uri("/internal/repairs?outOfOrder={o}", outOfOrder)
                     .body(request)
-                    .retrieve().body(JsonNode.class);
-            return body == null ? null : body.path("data").path("id").asText(null);
+                    .retrieve().body(REPAIR);
+            return body == null || body.data() == null ? null : body.data().id();
         } catch (HttpClientErrorException e) {
             String message = null;
             try {
-                message = e.getResponseBodyAs(JsonNode.class).path("message").asText(null);
+                Refusal refusal = e.getResponseBodyAs(Refusal.class);
+                message = refusal == null ? null : refusal.message();
             } catch (Exception ignored) {
                 // no readable body: fall through to the generic sentence
             }

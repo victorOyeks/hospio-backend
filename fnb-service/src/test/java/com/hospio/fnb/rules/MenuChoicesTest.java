@@ -30,4 +30,23 @@ class MenuChoicesTest {
         assertThat(MenuChoices.extra("Jollof", "Grilled, Fried", "Grilled")).isEqualByComparingTo("0");
         assertThat(MenuChoices.extra("Jollof", "not json [", "x")).isEqualByComparingTo("0");
     }
+
+    @Test
+    void storedChoicesWithExtraFieldsAndOddValuesReadAsBefore() {
+        // A price difference stored as text, or missing, adds nothing; unknown fields are ignored; a group without a name is "the choice".
+        String stored = "[{\"group\":\"Sides\",\"choices\":[{\"name\":\" Rice \",\"priceDelta\":\"400\",\"id\":\"x\"},{\"name\":\"Beans\"},"
+                + "{\"name\":\"Yam\",\"priceDelta\":250.5}, null],\"required\":false,\"multiple\":true,\"colour\":\"red\"},"
+                + "{\"choices\":[{\"name\":\"Cold\",\"priceDelta\":0}],\"required\":true}]";
+        assertThat(MenuChoices.extra("Stew", stored, "rice, beans, yam, cold")).isEqualByComparingTo("250.5");
+        assertThatThrownBy(() -> MenuChoices.extra("Stew", stored, "rice")).isInstanceOf(BadRequestException.class).hasMessage("Choose the choice for Stew");
+        assertThat(MenuChoices.chosenWithExtra(stored, "rice, yam")).containsExactly(java.util.Map.entry("Rice", java.math.BigDecimal.ZERO),
+                java.util.Map.entry("Yam", new java.math.BigDecimal("250.5")));
+    }
+
+    @Test
+    void aListOfPlainNamesOrAnEmptyListIsNotStructured() {
+        assertThat(MenuChoices.extra("Jollof", "[\"Grilled\",\"Fried\"]", "Grilled")).isEqualByComparingTo("0");
+        assertThat(MenuChoices.extra("Jollof", "[]", "Grilled")).isEqualByComparingTo("0");
+        assertThat(MenuChoices.chosenWithExtra("[\"Grilled\"]", "Grilled")).isEmpty();
+    }
 }
