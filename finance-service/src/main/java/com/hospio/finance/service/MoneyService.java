@@ -440,6 +440,10 @@ public class MoneyService {
             throw new BadRequestException("The movement is either PAY_IN or PAY_OUT");
         }
         BigDecimal amount = Money.of(request.amount());
+        // DEF-070: a reason has to say what the cash was for, not "1234567-0-=-".
+        if (!com.hospio.common.util.Words.meaningful(request.reason())) {
+            throw new BadRequestException("Say what the cash was for in words, for example \"Diesel for the generator\"");
+        }
         return addEntry(t, kind, kind == TillEntry.Kind.PAY_OUT ? amount.negate() : amount, "CASH", request.reason().trim(), null, null);
     }
 
@@ -476,7 +480,7 @@ public class MoneyService {
         }
         recompute(t);
         BigDecimal variance = TillMath.variance(counted, t.getExpectedCash());
-        if (variance.signum() != 0 && (note == null || note.isBlank())) {
+        if (variance.signum() != 0 && !com.hospio.common.util.Words.meaningful(note)) {
             throw new BadRequestException("The count is " + variance.abs().toPlainString() + (variance.signum() < 0 ? " short" : " over") + ". Add a note saying why");
         }
         t.setCountedCash(Money.of(counted));
@@ -492,7 +496,7 @@ public class MoneyService {
         }
         tills.save(t);
         events.publish(KafkaTopics.TILL_CLOSED, TillClosedEvent.builder().tillId(t.getId()).role(t.getRole()).expectedCash(t.getExpectedCash())
-                .countedCash(t.getCountedCash()).variance(variance).build());
+                .countedCash(t.getCountedCash()).variance(variance).note(note).closedByName(user.getFullName()).build());
         if (variance.signum() != 0) {
             String subject = "Till variance: " + label(roleOf(t)) + " " + (variance.signum() < 0 ? "short " : "over ") + variance.abs().toPlainString();
             String text = "The " + label(roleOf(t)) + " till closed by " + user.getFullName() + " should hold " + t.getExpectedCash().toPlainString() + " but "
