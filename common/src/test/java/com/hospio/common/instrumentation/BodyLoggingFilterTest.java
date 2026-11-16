@@ -27,6 +27,17 @@ class BodyLoggingFilterTest {
     }
 
     @Test
+    void apiAndProviderKeysAreMaskedAndTheIntegrationSettingsAreNeverLogged() {
+        String masked = BodyLoggingFilter.mask("{\"fields\":{\"apiKey\":\"xkeysib-1\",\"webhookKey\":\"wh-1\",\"merchantPrivateKey\":\"MII\","
+                + "\"clientAuthKey\":\"cak\",\"fromName\":\"Hospio360\"}}");
+        assertThat(masked).doesNotContain("xkeysib-1").doesNotContain("wh-1").doesNotContain("MII").doesNotContain("cak").contains("Hospio360");
+
+        org.springframework.mock.web.MockHttpServletRequest put = new org.springframework.mock.web.MockHttpServletRequest("PUT",
+                "/platform/admin/integrations/INFOBIP");
+        assertThat(new BodyLoggingFilter().shouldNotFilter(put)).isTrue();
+    }
+
+    @Test
     void anErrorResponseIsStreamedThroughAndOnlyItsHeadIsKept() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
         BodyLoggingFilter.ErrorBodyCapture capture = new BodyLoggingFilter.ErrorBodyCapture(response);

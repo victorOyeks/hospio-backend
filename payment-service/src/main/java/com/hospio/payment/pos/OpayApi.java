@@ -15,6 +15,9 @@ import java.time.Duration;
 import java.util.Base64;
 import javax.crypto.Cipher;
 import lombok.extern.slf4j.Slf4j;
+import com.hospio.common.integrations.settings.IntegrationSettings;
+import com.hospio.common.integrations.settings.IntegrationSettingsReader;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -24,7 +27,8 @@ import org.springframework.web.client.RestClient;
  * OPay's open API (docs/pos-providers.md, ported from StationMag's OpayCryptoService and PaymentService). Every request: the JSON
  * (keys sorted at every level, nulls left out) encrypted in chunks with OPay's public key (RSA/ECB/PKCS1Padding), then
  * {@code sign = SHA256withRSA(paramContent + timestamp)} with the merchant's private key (PKCS#8). The answer's {@code data} is
- * decrypted in chunks with the merchant's private key. Each hotel's keys are passed in; nothing is held here.
+ * decrypted in chunks with the merchant's private key. Each hotel's keys are passed in; nothing is held here. The base URL is saved in
+ * the admin portal (Settings · Integrations · OPay POS), else OPAY_BASE_URL, read per call.
  */
 @Slf4j
 @Component
@@ -43,20 +47,48 @@ public class OpayApi {
     private static final String RSA = "RSA/ECB/PKCS1Padding";
     private static final String SIGNATURE = "SHA256withRSA";
 
+    /** A client for one base URL, rebuilt only when the URL in force changes. */
+    private record Client(String baseUrl, RestClient http) {
+    }
+
     private final ObjectMapper mapper;
     /** Writes keys in alphabetical order at every level (records and maps), as OPay's signature expects. */
     private final ObjectMapper sorted;
-    private final RestClient http;
+    private final String envUrl;
+    private IntegrationSettingsReader integrations;
+    private volatile Client client;
 
     public OpayApi(ObjectMapper mapper, @Value("${hospio.pos.opay.base-url:https://payapi.opayweb.com/openApi}") String baseUrl) {
         this.mapper = mapper;
         this.sorted = mapper.copy().configure(com.fasterxml.jackson.databind.MapperFeature.SORT_PROPERTIES_ALPHABETICALLY, true)
                 .configure(com.fasterxml.jackson.databind.SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true)
                 .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL);
-        SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
-        f.setConnectTimeout((int) Duration.ofSeconds(15).toMillis());
-        f.setReadTimeout((int) Duration.ofSeconds(30).toMillis());
-        this.http = RestClient.builder().baseUrl(baseUrl).requestFactory(f).build();
+        this.envUrl = baseUrl;
+    }
+
+    @Autowired(required = false)
+    public void setIntegrations(IntegrationSettingsReader integrations) {
+        this.integrations = integrations;
+    }
+
+    /** The base URL in force: the portal's, else OPAY_BASE_URL. */
+    public String baseUrl() {
+        IntegrationSettings.Opay env = new IntegrationSettings.Opay(envUrl);
+        String url = (integrations == null ? env : integrations.effective(env)).baseUrl();
+        return url == null ? "" : url;
+    }
+
+    private RestClient http() {
+        String url = baseUrl();
+        Client c = client;
+        if (c == null || !c.baseUrl().equals(url)) {
+            SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
+            f.setConnectTimeout((int) Duration.ofSeconds(15).toMillis());
+            f.setReadTimeout((int) Duration.ofSeconds(30).toMillis());
+            c = new Client(url, RestClient.builder().baseUrl(url).requestFactory(f).build());
+            client = c;
+        }
+        return c.http();
     }
 
     /** Push to terminal: amount in naira as a plain string ("5000", "5000.5"); answers OPay's orderNo. */
@@ -86,7 +118,7 @@ public class OpayApi {
         String paramContent = encryptJson(payload, publicKey(k.opayPublicKey()));
         String sign = sign(paramContent + timestamp, privateKey(k.merchantPrivateKey()));
         ProviderDtos.OpayRequest body = new ProviderDtos.OpayRequest(paramContent, sign);
-        String raw = http.post().uri(path).header("Content-Type", "application/json").header("version", "V1.0.1").header("bodyFormat", "JSON")
+        String raw = http().post().uri(path).header("Content-Type", "application/json").header("version", "V1.0.1").header("bodyFormat", "JSON")
                 .header("clientAuthKey", k.clientAuthKey()).header("timestamp", String.valueOf(timestamp)).body(body).retrieve().body(String.class);
         if (raw == null || raw.isBlank()) {
             throw new IllegalStateException("OPay answered nothing");

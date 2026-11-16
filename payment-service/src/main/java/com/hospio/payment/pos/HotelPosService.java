@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.security.CurrentUser;
+import com.hospio.common.security.SecretBox;
 import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import java.time.Instant;
@@ -59,6 +60,18 @@ public class HotelPosService {
         }
         return new View(hotelId, c.getProvider(), shown, complete(c.getProvider(), masked), c.isPosPaused(), c.getUpdatedByName(),
                 c.getUpdatedAt(), box.ready());
+    }
+
+    /** Every hotel's POS status for the admin portal's lists: provider, keys complete, paused. Never any key. */
+    public record Status(String hotelId, String provider, boolean complete, boolean posPaused) {
+    }
+
+    @Transactional(readOnly = true)
+    public List<Status> statuses() {
+        return configs.findAll().stream()
+                .map(c -> new Status(c.getHotelId(), c.getProvider(), c.getProvider() != null && complete(c.getProvider(), readMap(c.getMasked())),
+                        c.isPosPaused()))
+                .toList();
     }
 
     @Transactional

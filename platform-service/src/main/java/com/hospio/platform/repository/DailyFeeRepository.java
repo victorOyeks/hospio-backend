@@ -16,6 +16,10 @@ public interface DailyFeeRepository extends JpaRepository<DailyFee, String> {
 
     List<DailyFee> findByFeeDateBetweenOrderByFeeDateDescHotelNameAsc(LocalDate from, LocalDate to);
 
+    /** Each hotel's latest worked-out day. */
+    @org.springframework.data.jpa.repository.Query("select f from DailyFee f where f.feeDate = (select max(g.feeDate) from DailyFee g where g.hotelId = f.hotelId)")
+    List<DailyFee> latestPerHotel();
+
     List<DailyFee> findByStatusInAndFeeDateLessThanEqualOrderByFeeDateAsc(List<String> statuses, LocalDate upTo);
 
     /** The hotel's earlier days in these statuses (what they left unpaid is carried in). */

@@ -122,4 +122,10 @@ public final class InfobipDtos {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ReportError(String name, String description) {
     }
+
+    // ---- GET /account/1/balance (the admin portal's test) ------------------------------------------------------------
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Balance(java.math.BigDecimal balance, String currency) {
+    }
 }

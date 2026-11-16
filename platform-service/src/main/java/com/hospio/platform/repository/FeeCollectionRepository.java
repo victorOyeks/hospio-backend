@@ -10,4 +10,6 @@ public interface FeeCollectionRepository extends JpaRepository<FeeCollection, St
     Optional<FeeCollection> findByHotelId(String hotelId);
 
     List<FeeCollection> findByBusinessId(String businessId);
+
+    List<FeeCollection> findAll();
 }

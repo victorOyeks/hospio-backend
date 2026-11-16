@@ -7,6 +7,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface HotelRepository extends JpaRepository<Hotel, String> {
     List<Hotel> findByBusinessIdOrderByName(String businessId);
 
+    /** Every hotel, by name (platform staff only; row security still applies). */
+    List<Hotel> findAllByOrderByName();
+
     int countByBusinessId(String businessId);
 
     /** Another hotel of this business with this name (trimmed, single-spaced, any case); {@code id} is the one being edited, or ''. */

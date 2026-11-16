@@ -380,6 +380,12 @@ public class BusinessService {
         return HotelResponse.of(hotels.save(h));
     }
 
+    /** Every hotel across businesses: the admin portal's Hotels page reads them in one call. */
+    @Transactional(readOnly = true)
+    public List<HotelResponse> allHotels() {
+        return hotels.findAllByOrderByName().stream().map(HotelResponse::of).toList();
+    }
+
     @Transactional(readOnly = true)
     public List<HotelResponse> hotelsOf(String businessId) {
         return hotels.findByBusinessIdOrderByName(businessId).stream().map(HotelResponse::of).toList();

@@ -9,4 +9,6 @@ public interface HotelPosConfigRepository extends JpaRepository<HotelPosConfig, 
     Optional<HotelPosConfig> findByHotelId(String hotelId);
 
     List<HotelPosConfig> findByProvider(String provider);
+
+    List<HotelPosConfig> findAll();
 }

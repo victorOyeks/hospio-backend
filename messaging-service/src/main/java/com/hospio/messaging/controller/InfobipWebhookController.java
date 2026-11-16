@@ -21,7 +21,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Infobip posts each SMS's and WhatsApp's delivery report here (docs/sms-whatsapp.md): the address is given on every
- * message we send, with {@code key} (INFOBIP_WEBHOOK_KEY) so only Infobip's posts are believed. One post can carry many
+ * message we send, with {@code key} (the webhook key saved in the admin portal, else INFOBIP_WEBHOOK_KEY) so only Infobip's
+ * posts are believed. One post can carry many
  * reports ({@code results[]}); each moves its delivery record to DELIVERED or FAILED with the reason.
  */
 @Slf4j
@@ -35,8 +36,23 @@ public class InfobipWebhookController {
     @Value("${hospio.infobip.webhook-key:}")
     private String webhookKey;
 
+    /** The admin portal's saved value wins over the environment's (absent in tests). */
+    private com.hospio.common.integrations.settings.IntegrationSettingsReader integrations;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setIntegrations(com.hospio.common.integrations.settings.IntegrationSettingsReader integrations) {
+        this.integrations = integrations;
+    }
+
+    private String webhookKey() {
+        var env = new com.hospio.common.integrations.settings.IntegrationSettings.Infobip(null, null, null, null, null, webhookKey, null, null);
+        String v = (integrations == null ? env : integrations.effective(env)).webhookKey();
+        return v == null ? "" : v;
+    }
+
     @PostMapping("/reports")
     public ResponseEntity<Void> reports(@RequestParam(required = false) String key, @RequestBody Reports body) {
+        String webhookKey = webhookKey();
         if (!StringUtils.hasText(webhookKey) || key == null
                 || !MessageDigest.isEqual(webhookKey.trim().getBytes(StandardCharsets.UTF_8), key.getBytes(StandardCharsets.UTF_8))) {
             return ResponseEntity.status(401).build();
