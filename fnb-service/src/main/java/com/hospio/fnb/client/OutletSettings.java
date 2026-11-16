@@ -2,7 +2,7 @@ package com.hospio.fnb.client;
 
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.setup.HotelSettingsReader;
-import com.hospio.common.setup.SetupCatalogue;
+import com.hospio.common.setup.SetupSection;
 import java.math.BigDecimal;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -28,13 +28,13 @@ public class OutletSettings {
 
     public Settings get(String hotelId) {
         Settings d = Settings.defaults();
-        var outlets = reader.section(hotelId, SetupCatalogue.OUTLETS);
-        var taxes = reader.section(hotelId, SetupCatalogue.TAXES_CURRENCY);
+        var outlets = reader.section(hotelId, SetupSection.Outlets.class);
+        var taxes = reader.section(hotelId, SetupSection.TaxesCurrency.class);
         return new Settings(
-                outlets.map(n -> n.path("roomCharge").asBoolean(d.roomCharge())).orElse(d.roomCharge()),
-                outlets.map(n -> n.path("tabs").asBoolean(d.tabs())).orElse(d.tabs()),
-                outlets.map(n -> n.path("tabLimit")).filter(n -> n.isNumber()).map(n -> n.decimalValue()).orElse(d.tabLimit()),
-                taxes.map(n -> n.path("pricesIncludeTax").asBoolean(d.pricesIncludeTax())).orElse(d.pricesIncludeTax()),
-                taxes.map(n -> n.path("vatPct")).filter(n -> n.isNumber()).map(n -> n.decimalValue()).orElse(d.vatPct()));
+                outlets.map(SetupSection.Outlets::roomCharge).orElse(d.roomCharge()),
+                outlets.map(SetupSection.Outlets::tabs).orElse(d.tabs()),
+                outlets.map(SetupSection.Outlets::tabLimit).orElse(d.tabLimit()),
+                taxes.map(SetupSection.TaxesCurrency::pricesIncludeTax).orElse(d.pricesIncludeTax()),
+                taxes.map(SetupSection.TaxesCurrency::vatPct).orElse(d.vatPct()));
     }
 }

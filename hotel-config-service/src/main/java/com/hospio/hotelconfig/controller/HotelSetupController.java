@@ -1,7 +1,8 @@
 package com.hospio.hotelconfig.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.hospio.common.response.ApiResponse;
+import com.hospio.common.setup.HotelSetup;
+import com.hospio.common.setup.SetupSection;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.hotelconfig.dto.ApplyTemplateRequest;
 import com.hospio.hotelconfig.dto.ListItemRequest;
@@ -13,7 +14,6 @@ import com.hospio.hotelconfig.service.ListsAndPricesService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import java.util.List;
-import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -37,26 +37,27 @@ public class HotelSetupController {
 
     @Operation(summary = "Every setup section for the hotel in X-Hotel-Id, stored values laid over the catalogue defaults")
     @GetMapping
-    public ApiResponse<Map<String, Map<String, JsonNode>>> all() {
+    public ApiResponse<HotelSetup> all() {
         return ApiResponse.ok(setup.all(TenantContext.requireHotel()));
     }
 
     @GetMapping("/{section}")
-    public ApiResponse<Map<String, JsonNode>> section(@PathVariable String section) {
+    public ApiResponse<SetupSection> section(@PathVariable String section) {
         return ApiResponse.ok(setup.section(section));
     }
 
     @Operation(summary = "Save a section's keys: manager or owner; TAXES_CURRENCY and APPROVAL_LIMITS owner only; platform allowed")
     @PutMapping("/{section}")
     @PreAuthorize("@access.manager()")
-    public ApiResponse<Map<String, JsonNode>> save(@PathVariable String section, @RequestBody Map<String, JsonNode> values) {
+    public ApiResponse<SetupSection> save(@PathVariable String section, @RequestBody String values) {
+        // Read as text, then into the section's own record (SetupSection.Payments for PAYMENTS, ...): the type depends on the path.
         return ApiResponse.ok("Saved", setup.save(section, values));
     }
 
     @Operation(summary = "Apply a setup template (by templateId from tenant-service, or inline settings) to the hotel in X-Hotel-Id")
     @PostMapping("/apply-template")
     @PreAuthorize("@access.manager()")
-    public ApiResponse<Map<String, Map<String, JsonNode>>> applyTemplate(@RequestBody ApplyTemplateRequest request) {
+    public ApiResponse<HotelSetup> applyTemplate(@RequestBody ApplyTemplateRequest request) {
         return ApiResponse.ok("Template applied", setup.applyTemplate(request));
     }
 

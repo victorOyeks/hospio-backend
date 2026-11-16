@@ -2,7 +2,7 @@ package com.hospio.inventory.client;
 
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.setup.HotelSettingsReader;
-import com.hospio.common.setup.SetupCatalogue;
+import com.hospio.common.setup.SetupSection;
 import java.math.BigDecimal;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,8 +35,8 @@ public class ApprovalLimit {
         if (settings == null) {
             return fallback;
         }
-        return settings.section(hotelId, SetupCatalogue.APPROVAL_LIMITS)
-                .map(n -> n.path("managerExpenseLimit").isNumber() ? n.path("managerExpenseLimit").decimalValue() : fallback)
+        return settings.section(hotelId, SetupSection.ApprovalLimits.class)
+                .map(SetupSection.ApprovalLimits::managerExpenseLimit)
                 .orElse(fallback);
     }
 }

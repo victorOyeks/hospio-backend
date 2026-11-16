@@ -1,21 +1,24 @@
 package com.hospio.common.setup;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.util.Optional;
 
 /**
  * Hotel setup → Guest messaging (SetupCatalogue MESSAGING), as the senders read it (docs/sms-whatsapp.md):
  * {@code whatsappNumber} is the hotel's own WhatsApp, where guests chat with the hotel ("Chat on WhatsApp" on the booking
  * page, a line in the emails); the switches turn the booking confirmation, the day-before-arrival message and automatic
- * receipts on or off. Every switch is on when hotel-config can't be read, as the catalogue's defaults are.
+ * receipts on or off. Every switch is on when hotel-config can't be read or leaves it out, as the catalogue's defaults are.
  */
 public record GuestMessaging(String whatsappNumber, boolean sendConfirmation, boolean arrivalMessage, boolean sendReceipts) {
 
     public static final GuestMessaging DEFAULTS = new GuestMessaging(null, true, true, true);
 
-    public static GuestMessaging of(Optional<JsonNode> section) {
-        return section.map(n -> new GuestMessaging(whatsApp(n.path("whatsappNumber").asText(null)), n.path("sendConfirmation").asBoolean(true),
-                n.path("arrivalMessage").asBoolean(true), n.path("sendReceipts").asBoolean(true))).orElse(DEFAULTS);
+    public static GuestMessaging of(Optional<SetupSection.Messaging> section) {
+        return section.map(m -> new GuestMessaging(whatsApp(m.whatsappNumber()), on(m.sendConfirmation()), on(m.arrivalMessage()),
+                on(m.sendReceipts()))).orElse(DEFAULTS);
+    }
+
+    private static boolean on(Boolean value) {
+        return value == null || value;
     }
 
     /**

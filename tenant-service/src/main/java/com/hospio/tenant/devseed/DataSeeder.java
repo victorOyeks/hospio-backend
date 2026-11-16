@@ -1,5 +1,7 @@
 package com.hospio.tenant.devseed;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospio.common.devseed.SeedFixtures;
 import com.hospio.common.setup.SetupCatalogue;
 import com.hospio.common.tenancy.Tenant;
@@ -36,6 +38,7 @@ public class DataSeeder implements ApplicationRunner {
     private final HotelRepository hotels;
     private final SetupTemplateRepository templates;
     private final PlatformTransactionManager transactionManager;
+    private final ObjectMapper objectMapper;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -68,11 +71,20 @@ public class DataSeeder implements ApplicationRunner {
                 SetupTemplate t = SetupTemplate.builder().name("Standard hotel")
                         .description("The Hotel setup defaults every new hotel starts from: check-in and check-out times, payments, "
                                 + "taxes, approval limits, reasons, shifts and departments.")
-                        .settings(SetupCatalogue.templateJson().toString()).active(true).build();
+                        .settings(standardTemplate()).active(true).build();
                 t.setId(STANDARD_TEMPLATE_ID);
                 templates.save(t);
             }
         }));
         log.info("Seeded {} / {} and the Standard hotel setup template", SeedFixtures.BUSINESS_NAME, SeedFixtures.HOTEL_NAME);
+    }
+
+    /** The catalogue as the template's JSON text: {"sections": {SECTION: {key: value}}, "lists": {LIST: [{code, label, sortOrder}]}}. */
+    String standardTemplate() {
+        try {
+            return objectMapper.writeValueAsString(SetupCatalogue.template());
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("The Standard hotel template could not be written", e);
+        }
     }
 }

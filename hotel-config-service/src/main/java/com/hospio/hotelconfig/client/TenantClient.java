@@ -1,12 +1,15 @@
 package com.hospio.hotelconfig.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
+import com.hospio.common.setup.SetupTemplateSettings;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -14,6 +17,21 @@ import org.springframework.web.client.RestClient;
 @Slf4j
 @Component
 public class TenantClient {
+
+    /** tenant-service's hotel, as far as hotel-config needs it. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record HotelRef(String businessId) {
+    }
+
+    /** tenant-service's setup template: {@code settings} is the template's JSON text. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record TemplateRef(String settings) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<HotelRef>> HOTEL = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<TemplateRef>> TEMPLATE = new ParameterizedTypeReference<>() {
+    };
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -26,24 +44,23 @@ public class TenantClient {
 
     public Optional<String> businessOf(String hotelId) {
         try {
-            JsonNode body = restClient.get().uri("/internal/hotels/{id}", hotelId).retrieve().body(JsonNode.class);
-            String businessId = body == null ? null : body.path("data").path("businessId").asText(null);
-            return Optional.ofNullable(businessId);
+            ApiResponse<HotelRef> body = restClient.get().uri("/internal/hotels/{id}", hotelId).retrieve().body(HOTEL);
+            return Optional.ofNullable(body == null || body.data() == null ? null : body.data().businessId());
         } catch (Exception e) {
             log.warn("Could not read hotel {}: {}", hotelId, e.getMessage());
             return Optional.empty();
         }
     }
 
-    /** The template's settings JSON, parsed; empty when unknown or unreachable. */
-    public Optional<JsonNode> template(String templateId) {
+    /** The template's settings, read; empty when unknown, unreadable or unreachable. */
+    public Optional<SetupTemplateSettings> template(String templateId) {
         try {
-            JsonNode body = restClient.get().uri("/internal/setup-templates/{id}", templateId).retrieve().body(JsonNode.class);
-            JsonNode settings = body == null ? null : body.path("data").path("settings");
-            if (settings == null || settings.isMissingNode() || settings.isNull()) {
+            ApiResponse<TemplateRef> body = restClient.get().uri("/internal/setup-templates/{id}", templateId).retrieve().body(TEMPLATE);
+            String settings = body == null || body.data() == null ? null : body.data().settings();
+            if (settings == null || settings.isBlank()) {
                 return Optional.empty();
             }
-            return Optional.of(settings.isTextual() ? objectMapper.readTree(settings.asText()) : settings);
+            return Optional.ofNullable(objectMapper.readValue(settings, SetupTemplateSettings.class));
         } catch (Exception e) {
             log.warn("Could not read setup template {}: {}", templateId, e.getMessage());
             return Optional.empty();

@@ -1,13 +1,15 @@
 package com.hospio.payment.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import com.hospio.common.setup.HotelSettingsReader;
 import com.hospio.common.setup.SetupCatalogue;
+import com.hospio.common.setup.SetupSection;
 import java.math.BigDecimal;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -15,6 +17,9 @@ import org.springframework.web.client.RestClient;
 @Slf4j
 @Component
 public class HotelConfigClient {
+
+    private static final ParameterizedTypeReference<ApiResponse<SetupSection.Payments>> PAYMENTS = new ParameterizedTypeReference<>() {
+    };
 
     private final RestClient restClient;
     private final HotelSettingsReader settings;
@@ -30,26 +35,30 @@ public class HotelConfigClient {
     }
 
     public ApprovalLimits approvalLimits(String hotelId) {
-        return settings.section(hotelId, SetupCatalogue.APPROVAL_LIMITS).map(n -> new ApprovalLimits(
-                n.path("managerExpenseLimit").isNumber() ? n.path("managerExpenseLimit").decimalValue() : null,
-                n.path("refundsNeedOwner").asBoolean(false))).orElse(new ApprovalLimits(null, false));
+        return settings.section(hotelId, SetupSection.ApprovalLimits.class).map(a -> new ApprovalLimits(a.managerExpenseLimit(),
+                Boolean.TRUE.equals(a.refundsNeedOwner()))).orElse(new ApprovalLimits(null, false));
     }
 
     public record PaymentSettings(boolean allowCash, boolean allowCard, boolean allowTransfer, String receipts) {
         public static PaymentSettings defaults() {
             return new PaymentSettings(true, true, true, "ASK");
         }
+
+        /** The hotel's PAYMENTS section, each key it lacks taking the default above. */
+        static PaymentSettings of(SetupSection.Payments p) {
+            if (SetupCatalogue.isEmpty(p)) {
+                return defaults();
+            }
+            return new PaymentSettings(p.allowCash() == null || p.allowCash(), p.allowCard() == null || p.allowCard(),
+                    p.allowTransfer() == null || p.allowTransfer(), p.receipts() == null ? "ASK" : p.receipts());
+        }
     }
 
+    /** Read fresh on every payment (not cached), as a payment must follow a method the manager has just switched off. */
     public PaymentSettings paymentSettings(String hotelId) {
         try {
-            JsonNode body = restClient.get().uri("/internal/settings/PAYMENTS?hotelId={h}", hotelId).retrieve().body(JsonNode.class);
-            JsonNode data = body == null ? null : body.path("data");
-            if (data == null || data.isMissingNode() || data.isEmpty()) {
-                return PaymentSettings.defaults();
-            }
-            return new PaymentSettings(data.path("allowCash").asBoolean(true), data.path("allowCard").asBoolean(true),
-                    data.path("allowTransfer").asBoolean(true), data.path("receipts").asText("ASK"));
+            ApiResponse<SetupSection.Payments> body = restClient.get().uri("/internal/settings/PAYMENTS?hotelId={h}", hotelId).retrieve().body(PAYMENTS);
+            return PaymentSettings.of(body == null ? null : body.data());
         } catch (Exception e) {
             log.warn("Could not read payment settings for hotel {}: {}", hotelId, e.getMessage());
             return PaymentSettings.defaults();
