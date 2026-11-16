@@ -89,6 +89,19 @@ public class HotelPosService {
         return view(hotelId);
     }
 
+    /** Removes the hotel's provider and keys: its card payments go back to the server's POS setting. A POS pause stays as it is. */
+    @Transactional
+    public View remove(String hotelId) {
+        configs.findByHotelId(hotelId).ifPresent(c -> {
+            c.setProvider(null);
+            c.setSecrets(null);
+            c.setMasked(null);
+            c.setUpdatedByName(CurrentUser.get().map(u -> u.getFullName()).orElse("Hospio360"));
+            configs.save(c);
+        });
+        return view(hotelId);
+    }
+
     /** Refuses keys that can't work: a PKCS#1 private key or one that isn't RSA, a public key that isn't X.509. */
     private static void checkOpayKeys(Map<String, String> s) {
         try {
