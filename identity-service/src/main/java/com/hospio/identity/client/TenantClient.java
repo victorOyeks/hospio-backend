@@ -1,7 +1,8 @@
 package com.hospio.identity.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.hospio.common.exception.ExternalServiceException;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import java.util.ArrayList;
@@ -11,6 +12,7 @@ import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -23,6 +25,13 @@ import org.springframework.web.client.RestClient;
 @Component
 public class TenantClient {
 
+    private static final ParameterizedTypeReference<ApiResponse<List<HotelInfo>>> HOTELS = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<HotelInfo>> HOTEL = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<BusinessName>> BUSINESS = new ParameterizedTypeReference<>() {
+    };
+
     private final RestClient restClient;
 
     public TenantClient(@Value("${services.tenant.url}") String tenantUrl, JwtUtil jwtUtil,
@@ -30,7 +39,14 @@ public class TenantClient {
         this.restClient = ServiceClients.system(tenantUrl, jwtUtil, internalApiKey);
     }
 
+    /** The fields identity reads of tenant's HotelResponse. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record HotelInfo(String id, String businessId, String name) {
+    }
+
+    /** The one field identity reads of tenant's BusinessResponse. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record BusinessName(String name) {
     }
 
     public record NewBusiness(String id, String name, String city, String ownerUserId, String ownerName, String ownerEmail,
@@ -59,10 +75,10 @@ public class TenantClient {
     /** Every hotel id of a business; empty Optional when tenant-service cannot be reached. */
     public Optional<List<String>> hotelIds(String businessId) {
         try {
-            JsonNode body = restClient.get().uri("/internal/businesses/{id}/hotels", businessId).retrieve().body(JsonNode.class);
+            ApiResponse<List<HotelInfo>> body = restClient.get().uri("/internal/businesses/{id}/hotels", businessId).retrieve().body(HOTELS);
             List<String> ids = new ArrayList<>();
-            if (body != null) {
-                body.path("data").forEach(h -> ids.add(h.path("id").asText()));
+            if (body != null && body.data() != null) {
+                body.data().forEach(h -> ids.add(h.id() == null ? "" : h.id()));
             }
             return Optional.of(ids);
         } catch (Exception e) {
@@ -73,12 +89,12 @@ public class TenantClient {
 
     public Optional<HotelInfo> hotel(String hotelId) {
         try {
-            JsonNode body = restClient.get().uri("/internal/hotels/{id}", hotelId).retrieve().body(JsonNode.class);
-            JsonNode data = body == null ? null : body.path("data");
-            if (data == null || data.isMissingNode() || data.isNull()) {
+            ApiResponse<HotelInfo> body = restClient.get().uri("/internal/hotels/{id}", hotelId).retrieve().body(HOTEL);
+            HotelInfo data = body == null ? null : body.data();
+            if (data == null) {
                 return Optional.empty();
             }
-            return Optional.of(new HotelInfo(data.path("id").asText(), data.path("businessId").asText(null), data.path("name").asText(null)));
+            return Optional.of(new HotelInfo(data.id() == null ? "" : data.id(), data.businessId(), data.name()));
         } catch (Exception e) {
             log.warn("Could not read hotel {}: {}", hotelId, e.getMessage());
             return Optional.empty();
@@ -87,8 +103,8 @@ public class TenantClient {
 
     public Optional<String> businessName(String businessId) {
         try {
-            JsonNode body = restClient.get().uri("/internal/businesses/{id}", businessId).retrieve().body(JsonNode.class);
-            return Optional.ofNullable(body == null ? null : body.path("data").path("name").asText(null));
+            ApiResponse<BusinessName> body = restClient.get().uri("/internal/businesses/{id}", businessId).retrieve().body(BUSINESS);
+            return Optional.ofNullable(body == null || body.data() == null ? null : body.data().name());
         } catch (Exception e) {
             log.warn("Could not read business {}: {}", businessId, e.getMessage());
             return Optional.empty();

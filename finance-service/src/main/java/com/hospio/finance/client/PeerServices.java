@@ -1,9 +1,11 @@
 package com.hospio.finance.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.hospio.common.exception.ExternalServiceException;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
+import com.hospio.finance.dto.OutletSalesSummary;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -11,6 +13,7 @@ import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -44,37 +47,94 @@ public class PeerServices {
         this.fnb = ServiceClients.system(fnbUrl, jwtUtil, key);
     }
 
+    private static final ParameterizedTypeReference<ApiResponse<Contact>> CONTACT = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<List<Contact>>> CONTACTS = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<Business>> BUSINESS = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<List<Hotel>>> HOTELS = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<Day>> DAY = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<Integer>> COUNT = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<List<RoomRef>>> ROOMS = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<List<Owing>>> OWING = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<OutletSalesSummary>> SALES = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<OpenOrders>> OPEN_ORDERS = new ParameterizedTypeReference<>() {
+    };
+
+    /** identity's UserContactResponse, the fields finance uses. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Contact(String id, String fullName, String email, String phone) {
     }
 
+    /** tenant's BusinessResponse, the fields finance uses. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Business(String id, String name, String ownerName, String ownerEmail, String ownerPhone) {
     }
 
+    /** tenant's HotelResponse, the fields finance uses. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Hotel(String id, String name) {
     }
 
+    /** One stay in reservation's DaySummary. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Stay(String bookingId, String reference, String guestName, String roomNumber) {
     }
 
+    /** reservation's DaySummary; a missing list reads as empty. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Day(int arrivals, int arrivalsPending, int departures, int departuresPending, int inHouse, int noShows, int roomsOccupied,
                       List<Stay> pendingArrivals, List<Stay> pendingDepartures, List<Stay> departingToday) {
+        public Day {
+            pendingArrivals = pendingArrivals == null ? List.of() : pendingArrivals;
+            pendingDepartures = pendingDepartures == null ? List.of() : pendingDepartures;
+            departingToday = departingToday == null ? List.of() : departingToday;
+        }
     }
 
-    /** Open tabs and unsettled orders at one outlet. */
+    /** Open tabs and unsettled orders at one outlet (fnb's OpenOrdersSummary.OutletOpen). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record OutletOpen(String outletId, String name, int openTabs, int unsettled, List<OpenOrder> orders) {
+        public OutletOpen {
+            orders = orders == null ? List.of() : orders;
+        }
+
         public OutletOpen(String outletId, String name, int openTabs, int unsettled) {
             this(outletId, name, openTabs, unsettled, List.of());
         }
     }
 
     /** One open tab or unsettled order: its number, kind (TAB, DINE_IN, ROOM_SERVICE…), where it is and its total. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record OpenOrder(String number, String kind, String tableNo, String roomNumber, BigDecimal total) {
     }
 
+    /** fnb's OpenOrdersSummary; a missing outlet list reads as empty. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record OpenOrders(int openTabs, int unsettled, List<OutletOpen> outlets) {
+        public OpenOrders {
+            outlets = outlets == null ? List.of() : outlets;
+        }
     }
 
+    /** folio's OpenBalance, the fields finance uses; a missing balance reads as zero. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Owing(String bookingId, String guestName, String roomNumber, BigDecimal balance) {
+        public Owing {
+            balance = balance == null ? BigDecimal.ZERO : balance;
+        }
+    }
+
+    /** One of property's rooms: only counted. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record RoomRef(String id) {
     }
 
     // ---- identity -------------------------------------------------------------------------------------
@@ -84,8 +144,7 @@ public class PeerServices {
             return Optional.empty();
         }
         try {
-            JsonNode d = data(identity.get().uri("/internal/users/{id}/contact", userId).retrieve().body(JsonNode.class));
-            return d == null ? Optional.empty() : Optional.of(contact(d));
+            return Optional.ofNullable(data(identity.get().uri("/internal/users/{id}/contact", userId).retrieve().body(CONTACT)));
         } catch (Exception e) {
             log.warn("identity-service contact {} failed: {}", userId, e.getMessage());
             return Optional.empty();
@@ -94,12 +153,8 @@ public class PeerServices {
 
     public List<Contact> withRole(String hotelId, String role) {
         try {
-            JsonNode d = data(identity.get().uri("/internal/users/with-role?hotelId={h}&role={r}", hotelId, role).retrieve().body(JsonNode.class));
-            List<Contact> out = new ArrayList<>();
-            if (d != null && d.isArray()) {
-                d.forEach(n -> out.add(contact(n)));
-            }
-            return out;
+            List<Contact> d = data(identity.get().uri("/internal/users/with-role?hotelId={h}&role={r}", hotelId, role).retrieve().body(CONTACTS));
+            return d == null ? new ArrayList<>() : new ArrayList<>(d);
         } catch (Exception e) {
             log.warn("identity-service with-role {} at {} failed: {}", role, hotelId, e.getMessage());
             return List.of();
@@ -110,9 +165,7 @@ public class PeerServices {
 
     public Optional<Business> business(String businessId) {
         try {
-            JsonNode d = data(tenant.get().uri("/internal/businesses/{id}", businessId).retrieve().body(JsonNode.class));
-            return d == null ? Optional.empty() : Optional.of(new Business(d.path("id").asText(null), d.path("name").asText(null), d.path("ownerName").asText(null),
-                    d.path("ownerEmail").asText(null), d.path("ownerPhone").asText(null)));
+            return Optional.ofNullable(data(tenant.get().uri("/internal/businesses/{id}", businessId).retrieve().body(BUSINESS)));
         } catch (Exception e) {
             log.warn("tenant-service business {} failed: {}", businessId, e.getMessage());
             return Optional.empty();
@@ -121,10 +174,10 @@ public class PeerServices {
 
     public List<Hotel> hotels(String businessId) {
         try {
-            JsonNode d = data(tenant.get().uri("/internal/businesses/{id}/hotels", businessId).retrieve().body(JsonNode.class));
+            List<Hotel> d = data(tenant.get().uri("/internal/businesses/{id}/hotels", businessId).retrieve().body(HOTELS));
             List<Hotel> out = new ArrayList<>();
-            if (d != null && d.isArray()) {
-                d.forEach(n -> out.add(new Hotel(n.path("id").asText(), n.path("name").asText(null))));
+            if (d != null) {
+                d.forEach(h -> out.add(new Hotel(h.id() == null ? "" : h.id(), h.name())));
             }
             return out;
         } catch (Exception e) {
@@ -137,13 +190,11 @@ public class PeerServices {
     /** Throws when reservation-service can't answer: the night audit must not close on a guess. */
     public Day day(String hotelId, LocalDate date) {
         try {
-            JsonNode d = data(reservation.get().uri("/internal/day-summary?hotelId={h}&date={d}", hotelId, date.toString()).retrieve().body(JsonNode.class));
+            Day d = data(reservation.get().uri("/internal/day-summary?hotelId={h}&date={d}", hotelId, date.toString()).retrieve().body(DAY));
             if (d == null) {
                 throw new ExternalServiceException("Reservations returned nothing for that day");
             }
-            return new Day(d.path("arrivals").asInt(), d.path("arrivalsPending").asInt(), d.path("departures").asInt(), d.path("departuresPending").asInt(),
-                    d.path("inHouse").asInt(), d.path("noShows").asInt(), d.path("roomsOccupied").asInt(), stays(d.path("pendingArrivals")),
-                    stays(d.path("pendingDepartures")), stays(d.path("departingToday")));
+            return d;
         } catch (ExternalServiceException e) {
             throw e;
         } catch (Exception e) {
@@ -162,8 +213,8 @@ public class PeerServices {
 
     public int markNoShows(String hotelId, LocalDate date) {
         try {
-            JsonNode body = reservation.post().uri("/internal/arrivals/no-show?hotelId={h}&date={d}", hotelId, date.toString()).retrieve().body(JsonNode.class);
-            return body == null ? 0 : body.path("data").asInt();
+            Integer marked = data(reservation.post().uri("/internal/arrivals/no-show?hotelId={h}&date={d}", hotelId, date.toString()).retrieve().body(COUNT));
+            return marked == null ? 0 : marked;
         } catch (Exception e) {
             throw new ExternalServiceException("The arrivals couldn't be marked as no-shows right now", e);
         }
@@ -174,7 +225,7 @@ public class PeerServices {
     /** Rooms the hotel has, or -1 when property-service can't be reached. */
     public int roomCount(String hotelId) {
         try {
-            JsonNode d = data(property.get().uri("/internal/rooms?hotelId={h}", hotelId).retrieve().body(JsonNode.class));
+            List<RoomRef> d = data(property.get().uri("/internal/rooms?hotelId={h}", hotelId).retrieve().body(ROOMS));
             return d == null ? 0 : d.size();
         } catch (Exception e) {
             log.warn("property-service rooms of {} failed: {}", hotelId, e.getMessage());
@@ -184,13 +235,8 @@ public class PeerServices {
 
     public List<Owing> openBalances(String hotelId) {
         try {
-            JsonNode d = data(folio.get().uri("/internal/folios/open-balances?hotelId={h}", hotelId).retrieve().body(JsonNode.class));
-            List<Owing> out = new ArrayList<>();
-            if (d != null && d.isArray()) {
-                d.forEach(n -> out.add(new Owing(n.path("bookingId").asText(null), n.path("guestName").asText(null), n.path("roomNumber").asText(null),
-                        new BigDecimal(n.path("balance").asText("0")))));
-            }
-            return out;
+            List<Owing> d = data(folio.get().uri("/internal/folios/open-balances?hotelId={h}", hotelId).retrieve().body(OWING));
+            return d == null ? new ArrayList<>() : new ArrayList<>(d);
         } catch (Exception e) {
             throw new ExternalServiceException("Guest balances can't be read right now", e);
         }
@@ -198,10 +244,10 @@ public class PeerServices {
 
     // ---- fnb ------------------------------------------------------------------------------------------
 
-    /** What the outlets sold on a day (fnb's day summary as it came), or empty when fnb-service can't be reached. */
-    public Optional<JsonNode> outletSales(String hotelId, LocalDate date) {
+    /** What the outlets sold on a day (fnb's day summary), or empty when fnb-service can't be reached. */
+    public Optional<OutletSalesSummary> outletSales(String hotelId, LocalDate date) {
         try {
-            return Optional.ofNullable(data(fnb.get().uri("/internal/sales?hotelId={h}&date={d}", hotelId, date.toString()).retrieve().body(JsonNode.class)));
+            return Optional.ofNullable(data(fnb.get().uri("/internal/sales?hotelId={h}&date={d}", hotelId, date.toString()).retrieve().body(SALES)));
         } catch (Exception e) {
             log.warn("fnb-service sales of {} on {} failed: {}", hotelId, date, e.getMessage());
             return Optional.empty();
@@ -211,18 +257,7 @@ public class PeerServices {
     /** Open tabs and unsettled orders at the outlets, or empty when fnb-service can't be reached: the night audit must not close on a guess. */
     public Optional<OpenOrders> openOrders(String hotelId, LocalDate date) {
         try {
-            JsonNode d = data(fnb.get().uri("/internal/orders/open?hotelId={h}&date={d}", hotelId, date.toString()).retrieve().body(JsonNode.class));
-            if (d == null) {
-                return Optional.empty();
-            }
-            List<OutletOpen> out = new ArrayList<>();
-            d.path("outlets").forEach(n -> {
-                List<OpenOrder> orders = new ArrayList<>();
-                n.path("orders").forEach(o -> orders.add(new OpenOrder(o.path("number").asText(null), o.path("kind").asText(null), o.path("tableNo").asText(null),
-                        o.path("roomNumber").asText(null), o.path("total").isNumber() ? o.path("total").decimalValue() : null)));
-                out.add(new OutletOpen(n.path("outletId").asText(null), n.path("name").asText(null), n.path("openTabs").asInt(), n.path("unsettled").asInt(), orders));
-            });
-            return Optional.of(new OpenOrders(d.path("openTabs").asInt(), d.path("unsettled").asInt(), out));
+            return Optional.ofNullable(data(fnb.get().uri("/internal/orders/open?hotelId={h}&date={d}", hotelId, date.toString()).retrieve().body(OPEN_ORDERS)));
         } catch (Exception e) {
             log.warn("fnb-service open orders of {} failed: {}", hotelId, e.getMessage());
             return Optional.empty();
@@ -232,28 +267,15 @@ public class PeerServices {
     /** Approvals waiting at the hotel, or null when platform-service can't be reached. */
     public Integer pendingApprovals(String hotelId) {
         try {
-            JsonNode body = platform.get().uri("/internal/approvals/pending-count?hotelId={h}", hotelId).retrieve().body(JsonNode.class);
-            return body == null ? null : body.path("data").asInt();
+            ApiResponse<Integer> body = platform.get().uri("/internal/approvals/pending-count?hotelId={h}", hotelId).retrieve().body(COUNT);
+            return body == null ? null : body.data() == null ? 0 : body.data();
         } catch (Exception e) {
             log.warn("platform-service pending approvals of {} failed: {}", hotelId, e.getMessage());
             return null;
         }
     }
 
-    private static List<Stay> stays(JsonNode array) {
-        List<Stay> out = new ArrayList<>();
-        if (array != null && array.isArray()) {
-            array.forEach(n -> out.add(new Stay(n.path("bookingId").asText(null), n.path("reference").asText(null), n.path("guestName").asText(null), n.path("roomNumber").asText(null))));
-        }
-        return out;
-    }
-
-    private static Contact contact(JsonNode n) {
-        return new Contact(n.path("id").asText(null), n.path("fullName").asText(null), n.path("email").asText(null), n.path("phone").asText(null));
-    }
-
-    private static JsonNode data(JsonNode body) {
-        JsonNode d = body == null ? null : body.path("data");
-        return d == null || d.isMissingNode() || d.isNull() ? null : d;
+    private static <T> T data(ApiResponse<T> body) {
+        return body == null ? null : body.data();
     }
 }

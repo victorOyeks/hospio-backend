@@ -5,8 +5,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The platform settings and their defaults, by group. What the admin saves is laid over these, so a fresh
- * environment answers fully. Fee percentages are percents (2 means 2%), amounts are naira.
+ * The platform settings groups and their defaults. What the admin saves is laid over these, key by key, so a fresh
+ * environment answers fully. Each group is a record ({@link GeneralSettings}, {@link FeeSettings}, {@link SecuritySettings});
+ * each of its fields is stored as one row (group, key = field name, value = the field as JSON).
  */
 public final class PlatformSettingsCatalogue {
 
@@ -19,43 +20,13 @@ public final class PlatformSettingsCatalogue {
     private PlatformSettingsCatalogue() {
     }
 
-    public static Map<String, Map<String, Object>> defaults() {
-        Map<String, Map<String, Object>> all = new LinkedHashMap<>();
-        Map<String, Object> general = new LinkedHashMap<>();
-        general.put("company", "Hospio360");
-        general.put("supportEmail", "support@hospio360.com");
-        general.put("supportWhatsApp", "+2348000000000");
-        general.put("website", "https://hospio360.com");
-        general.put("timezone", "Africa/Lagos");
-        all.put(GENERAL, general);
-
-        Map<String, Object> fees = new LinkedHashMap<>();
-        fees.put("model", "PERCENT_OF_SALES");
-        fees.put("perRoom", 1500);
-        fees.put("revenuePct", 1.5);
-        fees.put("trialDays", 30);
-        fees.put("dueDay", 5);
-        fees.put("graceDays", 10);
-        fees.put("marketerSharePct", 20);
-        fees.put("marketerMonths", 24);
-        fees.put("whtPct", 5);
-        fees.put("providerFeePct", 0.5);
-        fees.put("hmsSharePct", 1.5);
-        all.put(FEES, fees);
-
-        Map<String, Object> security = new LinkedHashMap<>();
-        security.put("require2Step", false);
-        security.put("sessionHours", 12);
-        security.put("adminIpAllowlist", false);
-        // Activity log kept six months (2026-11-15); the admin portal can set more or less (at least 30 days).
-        security.put("auditRetentionDays", 183);
-        all.put(SECURITY, security);
+    /** The defaults of every group, in order. */
+    public static Map<String, Record> defaults() {
+        Map<String, Record> all = new LinkedHashMap<>();
+        all.put(GENERAL, GeneralSettings.DEFAULTS);
+        all.put(FEES, FeeSettings.DEFAULTS);
+        all.put(SECURITY, SecuritySettings.DEFAULTS);
         return all;
-    }
-
-    public static Map<String, Object> defaults(String group) {
-        Map<String, Object> d = defaults().get(group);
-        return d == null ? Map.of() : d;
     }
 
     public static boolean isGroup(String group) {

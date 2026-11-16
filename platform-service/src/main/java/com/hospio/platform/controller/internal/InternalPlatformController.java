@@ -4,9 +4,8 @@ import com.hospio.common.response.ApiResponse;
 import com.hospio.platform.entity.Approval;
 import com.hospio.platform.repository.ApprovalRepository;
 import com.hospio.platform.service.PlatformSettingsService;
-import com.hospio.platform.settings.PlatformSettingsCatalogue;
+import com.hospio.platform.settings.FeeSettings;
 import io.swagger.v3.oas.annotations.Hidden;
-import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -35,7 +34,7 @@ public class InternalPlatformController {
 
     /** payment-service settlements: provider fee % and Hospio360 share %, with the rest of the fees group. */
     @GetMapping("/settings/fees")
-    public ApiResponse<Map<String, Object>> fees() {
-        return ApiResponse.ok(settings.group(PlatformSettingsCatalogue.FEES));
+    public ApiResponse<FeeSettings> fees() {
+        return ApiResponse.ok(settings.feesGroup());
     }
 }

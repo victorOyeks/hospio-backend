@@ -114,6 +114,6 @@ public final class AdminResponses {
 
     public record HotelOverview(String hotelId, String businessId, String name, String managerUserId, String managerName, Integer rooms,
                                 Integer occupiedRooms, BigDecimal occupancyPct, Integer arrivalsToday, Integer departuresToday, Integer openFolios,
-                                Long paymentsTodayCount, BigDecimal paymentsTodayGross, Map<String, Object> raw) {
+                                Long paymentsTodayCount, BigDecimal paymentsTodayGross, HotelFigures.Raw raw) {
     }
 }

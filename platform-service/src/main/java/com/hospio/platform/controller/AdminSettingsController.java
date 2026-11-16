@@ -1,12 +1,16 @@
 package com.hospio.platform.controller;
 
+import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.response.ApiResponse;
 import com.hospio.platform.dto.AdminResponses.Integration;
 import com.hospio.platform.service.IntegrationsService;
 import com.hospio.platform.service.PlatformSettingsService;
+import com.hospio.platform.settings.FeeSettings;
+import com.hospio.platform.settings.GeneralSettings;
+import com.hospio.platform.settings.PlatformSettings;
+import com.hospio.platform.settings.SecuritySettings;
 import io.swagger.v3.oas.annotations.Operation;
 import java.util.List;
-import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,15 +32,36 @@ public class AdminSettingsController {
     @Operation(summary = "Every settings group (general, fees, security), saved values laid over the defaults")
     @GetMapping("/settings")
     @PreAuthorize("@access.platform()")
-    public ApiResponse<Map<String, Map<String, Object>>> settings() {
+    public ApiResponse<PlatformSettings> settings() {
         return ApiResponse.ok(settings.all());
     }
 
-    @Operation(summary = "SUPER_ADMIN: save a group's values (body = the group's map); returns the merged group")
+    @Operation(summary = "SUPER_ADMIN: save the general group (fields left out keep their value); returns the merged group")
+    @PutMapping("/settings/general")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ApiResponse<GeneralSettings> updateGeneral(@RequestBody GeneralSettings values) {
+        return ApiResponse.ok("Settings saved", settings.update(values));
+    }
+
+    @Operation(summary = "SUPER_ADMIN: save the fees group (fields left out keep their value); returns the merged group")
+    @PutMapping("/settings/fees")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ApiResponse<FeeSettings> updateFees(@RequestBody FeeSettings values) {
+        return ApiResponse.ok("Settings saved", settings.update(values));
+    }
+
+    @Operation(summary = "SUPER_ADMIN: save the security group (fields left out keep their value); returns the merged group")
+    @PutMapping("/settings/security")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ApiResponse<SecuritySettings> updateSecurity(@RequestBody SecuritySettings values) {
+        return ApiResponse.ok("Settings saved", settings.update(values));
+    }
+
+    @Operation(summary = "Any other group: refused")
     @PutMapping("/settings/{group}")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ApiResponse<Map<String, Object>> update(@PathVariable String group, @RequestBody Map<String, Object> values) {
-        return ApiResponse.ok("Settings saved", settings.update(group, values));
+    public ApiResponse<Void> updateUnknown(@PathVariable String group) {
+        throw new BadRequestException("Unknown settings group: " + group);
     }
 
     @Operation(summary = "Integrations and their status: database, Kafka, payment provider, WhatsApp, email, SMS, Smile ID")

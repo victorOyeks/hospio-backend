@@ -1,6 +1,5 @@
 package com.hospio.finance.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.math.BigDecimal;
 import java.util.Map;
 
@@ -14,5 +13,5 @@ import java.util.Map;
  */
 public record MoneyToday(BigDecimal revenue, Map<String, BigDecimal> byMethod, Map<String, BigDecimal> byRole, BigDecimal expenses,
                          BigDecimal cashInTills, int openTills, int paymentsCount, Double occupancyPct, Integer arrivals, Integer departures,
-                         Integer inHouse, BigDecimal unattachedCash, int unattachedCashCount, Integer pendingApprovals, JsonNode outletSales) {
+                         Integer inHouse, BigDecimal unattachedCash, int unattachedCashCount, Integer pendingApprovals, OutletSalesSummary outletSales) {
 }
