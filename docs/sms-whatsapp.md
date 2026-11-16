@@ -71,7 +71,7 @@ The `_v2` templates (November 2026) have the **Hospio360 banner** as an image he
 **View booking** button. Their shape is read from Infobip with the approval, so the sender needs no list of them:
 
 - an **image header** gets the banner, `hospio.whatsapp.header-image-url` (env `WHATSAPP_HEADER_IMAGE_URL`, default
-  `https://hospio360.com/whatsapp/hospio360-banner-v2.png`, served by the landing site);
+  `https://hospio360.com/whatsapp/hospio360-banner.png`, served by the landing site);
 - a **link button** (`https://hospio360.com/stay/{{1}}`) takes the template's **last value** as the link's ending, and the body
   the values before it.
 
@@ -104,7 +104,7 @@ hotel's look, read within a minute of saving by every place it shows:
 | Hotel app (every role) | The dashboard shell renders `brandStyle` (FE `packages/api/src/brand.ts`): brand tokens, the sidebar in the colour or white (Dark sidebar off, or a colour too pale for white text), the short name and logo at the top of the sidebar. The Brand section previews it live on the page before saving. |
 | Booking page | `GET /reservation/public/stays/{token}` returns `brand`; the page takes the colour and shows the hotel's name or logo, "with Hospio360". |
 | Emails | messaging `HotelBrandClient` (cached 1 minute): header band, buttons, links, logo (docs/email.md). |
-| WhatsApp banner | For a hotel with its own colour, each image-header message's banner is `hospio.whatsapp.banner-url` (default `https://hospio360.com/whatsapp/banner`)`?c=rrggbb&n=<hotel name>`, drawn by the landing site; Hospio360's colour keeps `hospio360-banner-v2.png`. Meta approved the template with the example image; the image itself may differ per message. |
+| WhatsApp banner | For a hotel with its own colour, each image-header message's banner is `hospio.whatsapp.banner-url` (default `https://hospio360.com/whatsapp/banner`)`?c=rrggbb&n=<hotel name>`, drawn by the landing site; Hospio360's colour keeps `hospio360-banner.png`. Meta approved the template with the example image; the image itself may differ per message. |
 
 ## The guest's booking page
 
