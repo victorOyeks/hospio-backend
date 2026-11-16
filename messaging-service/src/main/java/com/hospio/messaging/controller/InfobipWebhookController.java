@@ -1,9 +1,13 @@
 package com.hospio.messaging.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.hospio.messaging.mail.MailDispatcher;
+import com.hospio.messaging.text.InfobipDtos.Report;
+import com.hospio.messaging.text.InfobipDtos.ReportError;
+import com.hospio.messaging.text.InfobipDtos.Reports;
+import com.hospio.messaging.text.InfobipDtos.Status;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,37 +36,38 @@ public class InfobipWebhookController {
     private String webhookKey;
 
     @PostMapping("/reports")
-    public ResponseEntity<Void> reports(@RequestParam(required = false) String key, @RequestBody JsonNode body) {
+    public ResponseEntity<Void> reports(@RequestParam(required = false) String key, @RequestBody Reports body) {
         if (!StringUtils.hasText(webhookKey) || key == null
                 || !MessageDigest.isEqual(webhookKey.trim().getBytes(StandardCharsets.UTF_8), key.getBytes(StandardCharsets.UTF_8))) {
             return ResponseEntity.status(401).build();
         }
+        List<Report> results = body == null || body.results() == null ? List.of() : body.results();
         int applied = 0;
-        for (JsonNode r : body.path("results")) {
-            String id = r.path("messageId").asText(null);
+        for (Report r : results) {
+            String id = r == null ? null : r.messageId();
             if (id == null) {
                 continue;
             }
             // WhatsApp reports carry a channel; SMS ones don't. Both use status.groupName and, when it failed, error.
-            String channel = r.path("channel").asText("").toUpperCase();
-            String prefix = channel.contains("WHATSAPP") || r.has("seenAt") ? "whatsapp:" : "sms:";
-            JsonNode status = r.path("status");
-            JsonNode error = r.path("error");
+            String channel = r.channel() == null ? "" : r.channel().toUpperCase();
+            String prefix = channel.contains("WHATSAPP") || r.seenAt() != null ? "whatsapp:" : "sms:";
+            Status status = r.status() == null ? new Status(null, null, null) : r.status();
+            ReportError error = r.error() == null ? new ReportError(null, null) : r.error();
             String reason = reason(status, error);
-            boolean done = dispatcher.applyReport(prefix + id, status.path("groupName").asText(null), reason)
-                    || dispatcher.applyReport((prefix.equals("sms:") ? "whatsapp:" : "sms:") + id, status.path("groupName").asText(null), reason);
+            boolean done = dispatcher.applyReport(prefix + id, status.groupName(), reason)
+                    || dispatcher.applyReport((prefix.equals("sms:") ? "whatsapp:" : "sms:") + id, status.groupName(), reason);
             applied += done ? 1 : 0;
         }
-        log.info("Infobip reports: {} received, {} applied", body.path("results").size(), applied);
+        log.info("Infobip reports: {} received, {} applied", results.size(), applied);
         return ResponseEntity.ok().build();
     }
 
     /** "Rejected - Destination on DND list (REJECTED_DND)", in the network's words. */
-    private static String reason(JsonNode status, JsonNode error) {
-        String desc = status.path("description").asText("");
-        String name = status.path("name").asText("");
-        String err = error.path("description").asText("");
-        String errName = error.path("name").asText("");
+    private static String reason(Status status, ReportError error) {
+        String desc = text(status.description());
+        String name = text(status.name());
+        String err = text(error.description());
+        String errName = text(error.name());
         StringBuilder out = new StringBuilder(StringUtils.hasText(desc) ? desc : name);
         if (StringUtils.hasText(err) && !"No Error".equalsIgnoreCase(err) && !err.equalsIgnoreCase(desc)) {
             out.append(" - ").append(err);
@@ -71,5 +76,9 @@ public class InfobipWebhookController {
             out.append(" (").append(name).append(StringUtils.hasText(errName) && !"NO_ERROR".equals(errName) ? ", " + errName : "").append(")");
         }
         return out.toString().trim();
+    }
+
+    private static String text(String s) {
+        return s == null ? "" : s;
     }
 }

@@ -1,11 +1,12 @@
 package com.hospio.property.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.hospio.common.exception.ExternalServiceException;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -13,6 +14,10 @@ import org.springframework.web.client.RestClient;
 @Slf4j
 @Component
 public class ReservationClient {
+
+    /** reservation-service's GET /internal/rooms/{id}/booking-count: {@code ApiResponse<Long>}. */
+    private static final ParameterizedTypeReference<ApiResponse<Long>> COUNT = new ParameterizedTypeReference<>() {
+    };
 
     private final RestClient restClient;
 
@@ -24,12 +29,12 @@ public class ReservationClient {
     /** Bookings the room has had in any status. Fails (so nothing is deleted) when reservation-service cannot answer. */
     public long bookingCount(String roomId) {
         try {
-            JsonNode body = restClient.get().uri("/internal/rooms/{id}/booking-count", roomId).retrieve().body(JsonNode.class);
-            JsonNode data = body == null ? null : body.path("data");
-            if (data == null || !data.isNumber()) {
+            ApiResponse<Long> body = restClient.get().uri("/internal/rooms/{id}/booking-count", roomId).retrieve().body(COUNT);
+            Long data = body == null ? null : body.data();
+            if (data == null) {
                 throw new ExternalServiceException("reservation-service gave no booking count");
             }
-            return data.asLong();
+            return data;
         } catch (ExternalServiceException e) {
             throw e;
         } catch (Exception e) {

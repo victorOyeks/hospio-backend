@@ -1,6 +1,5 @@
 package com.hospio.messaging.billing;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospio.common.exception.BadRequestException;
 import java.math.BigDecimal;
@@ -14,7 +13,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.HexFormat;
-import java.util.Map;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import lombok.extern.slf4j.Slf4j;
@@ -53,32 +51,31 @@ public class PaystackClient {
         return StringUtils.hasText(secretKey);
     }
 
-    public Checkout initialize(String email, BigDecimal amount, String reference, String callbackUrl, Map<String, Object> metadata) {
+    public Checkout initialize(String email, BigDecimal amount, String reference, String callbackUrl, PaystackDtos.Metadata metadata) {
         if (!configured()) {
             throw new BadRequestException("Online payment isn't set up yet. Pay by transfer and Hospio360 will mark the invoice paid");
         }
         long kobo = amount.setScale(2, RoundingMode.HALF_UP).movePointRight(2).longValueExact();
-        Map<String, Object> body = new java.util.HashMap<>(Map.of("email", email, "amount", kobo, "reference", reference, "currency", "NGN",
-                "metadata", metadata));
-        if (StringUtils.hasText(callbackUrl)) {
-            body.put("callback_url", callbackUrl);
-        }
-        JsonNode res = call("POST", "/transaction/initialize", body);
-        String url = res.path("data").path("authorization_url").asText(null);
+        PaystackDtos.InitializeRequest body = new PaystackDtos.InitializeRequest(email, kobo, reference, "NGN", metadata,
+                StringUtils.hasText(callbackUrl) ? callbackUrl : null);
+        PaystackDtos.InitializeResponse res = call("POST", "/transaction/initialize", body, PaystackDtos.InitializeResponse.class);
+        String url = res.data() == null ? null : res.data().authorizationUrl();
         if (url == null) {
-            throw new BadRequestException("Paystack could not start the payment: " + res.path("message").asText("no answer"));
+            throw new BadRequestException("Paystack could not start the payment: " + (res.message() == null ? "no answer" : res.message()));
         }
-        return new Checkout(url, res.path("data").path("reference").asText(reference));
+        return new Checkout(url, res.data().reference() == null ? reference : res.data().reference());
     }
 
     public Verified verify(String reference) {
         if (!configured()) {
             return new Verified(false, BigDecimal.ZERO, null, "Online payment isn't set up");
         }
-        JsonNode d = call("GET", "/transaction/verify/" + URLEncoder.encode(reference, StandardCharsets.UTF_8), null).path("data");
-        boolean ok = "success".equalsIgnoreCase(d.path("status").asText());
-        BigDecimal naira = BigDecimal.valueOf(d.path("amount").asLong(0)).movePointLeft(2);
-        return new Verified(ok, naira, d.path("channel").asText(null), d.path("gateway_response").asText(null));
+        PaystackDtos.VerifyResponse res = call("GET", "/transaction/verify/" + URLEncoder.encode(reference, StandardCharsets.UTF_8), null,
+                PaystackDtos.VerifyResponse.class);
+        PaystackDtos.Transaction d = res.data() == null ? new PaystackDtos.Transaction(null, null, null, null, null) : res.data();
+        boolean ok = "success".equalsIgnoreCase(d.status());
+        BigDecimal naira = BigDecimal.valueOf(d.amount() == null ? 0 : d.amount()).movePointLeft(2);
+        return new Verified(ok, naira, d.channel(), d.gatewayResponse());
     }
 
     /** Whether a webhook body really comes from Paystack (x-paystack-signature). */
@@ -96,7 +93,8 @@ public class PaystackClient {
         }
     }
 
-    private JsonNode call(String method, String path, Object body) {
+    /** Paystack's answer in {@code type}; a refusal (HTTP 4xx/5xx) is logged with its message and still returned. */
+    private <T extends PaystackDtos.Answer> T call(String method, String path, Object body, Class<T> type) {
         try {
             HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(Duration.ofSeconds(20))
                     .header("Authorization", "Bearer " + secretKey).header("Accept", "application/json");
@@ -106,9 +104,9 @@ public class PaystackClient {
                 b.GET();
             }
             HttpResponse<String> res = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
-            JsonNode root = json.readTree(res.body() == null || res.body().isBlank() ? "{}" : res.body());
+            T root = json.readValue(res.body() == null || res.body().isBlank() ? "{}" : res.body(), type);
             if (res.statusCode() >= 300) {
-                log.warn("Paystack {} {}: HTTP {} {}", method, path, res.statusCode(), root.path("message").asText(""));
+                log.warn("Paystack {} {}: HTTP {} {}", method, path, res.statusCode(), root.message() == null ? "" : root.message());
             }
             return root;
         } catch (InterruptedException e) {

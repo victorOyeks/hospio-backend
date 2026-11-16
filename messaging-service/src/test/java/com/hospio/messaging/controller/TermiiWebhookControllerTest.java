@@ -48,6 +48,20 @@ class TermiiWebhookControllerTest {
     }
 
     @Test
+    void theSignatureIsCheckedOnTheRawBodyAsSent() throws Exception {
+        ReflectionTestUtils.setField(controller, "secretKey", "s3cret");
+        // Spacing, field order and a numeric id exactly as posted: re-serializing would change the bytes and the signature.
+        String raw = "{ \"status\" : \"DND Active on Phone Number\", \"id\": 7731, \"receiver\":\"2349035911994\",\n"
+                + "  \"message\":\"Your code is 482913\", \"sent_at\":\"2026-11-10 09:12:01\", \"cost\": 4.0 }";
+        when(dispatcher.applyReport("termii:7731", "REJECTED", "DND Active on Phone Number")).thenReturn(true);
+        assertThat(controller.report(sign(raw, "s3cret"), raw).getStatusCode().value()).isEqualTo(200);
+        verify(dispatcher).applyReport("termii:7731", "REJECTED", "DND Active on Phone Number");
+
+        String reformatted = raw.replace(" ", "");
+        assertThat(controller.report(sign(raw, "s3cret"), reformatted).getStatusCode().value()).isEqualTo(401);
+    }
+
+    @Test
     void termiisWordsBecomeTheStatusGroups() {
         assertThat(TermiiWebhookController.group("DELIVERED")).isEqualTo("DELIVERED");
         assertThat(TermiiWebhookController.group("Delivered")).isEqualTo("DELIVERED");

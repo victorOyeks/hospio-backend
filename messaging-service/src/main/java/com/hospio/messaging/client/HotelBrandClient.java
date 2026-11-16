@@ -1,11 +1,13 @@
 package com.hospio.messaging.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.messaging.mail.EmailTemplates;
 import java.time.Duration;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -20,6 +22,14 @@ public class HotelBrandClient {
 
     /** One minute, as the app and the booking page: a new brand colour reaches emails and WhatsApp banners within a minute. */
     private static final Duration TTL = Duration.ofMinutes(1);
+
+    /** Hotel setup's BRAND section as hotel-config's GET /internal/settings/BRAND gives it (key to value), the keys read here. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record BrandSection(String primaryColour, String logoUrl) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<BrandSection>> BRAND = new ParameterizedTypeReference<>() {
+    };
 
     private final RestClient restClient;
     /** At most 10,000 hotels; a failed read falls back to Hospio360's look and is retried after 30 seconds. */
@@ -36,10 +46,9 @@ public class HotelBrandClient {
         }
         return cache.get(hotelId, () -> {
             try {
-                JsonNode body = restClient.get().uri("/internal/settings/BRAND?hotelId={id}", hotelId).retrieve().body(JsonNode.class);
-                JsonNode d = body == null ? null : body.path("data");
-                return TtlCache.Loaded.ok(d != null && d.isObject() ? EmailTemplates.Brand.of(d.path("primaryColour").asText(null), d.path("logoUrl").asText(null))
-                        : EmailTemplates.Brand.HOSPIO);
+                ApiResponse<BrandSection> body = restClient.get().uri("/internal/settings/BRAND?hotelId={id}", hotelId).retrieve().body(BRAND);
+                BrandSection d = body == null ? null : body.data();
+                return TtlCache.Loaded.ok(d != null ? EmailTemplates.Brand.of(d.primaryColour(), d.logoUrl()) : EmailTemplates.Brand.HOSPIO);
             } catch (Exception e) {
                 log.warn("Could not read hotel {}'s brand from hotel-config: {}", hotelId, e.getMessage());
                 return TtlCache.Loaded.failed(EmailTemplates.Brand.HOSPIO);
