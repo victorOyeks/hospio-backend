@@ -29,6 +29,7 @@ public class IntegrationTestClient {
     private final RestClient messaging;
     private final RestClient payment;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public IntegrationTestClient(@Value("${services.messaging.url}") String messagingUrl, @Value("${services.payment.url}") String paymentUrl,
                                  JwtUtil jwtUtil, @Value("${services.internal.api-key}") String internalApiKey) {
         this.messaging = client(messagingUrl, jwtUtil, internalApiKey);
