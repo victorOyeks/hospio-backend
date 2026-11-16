@@ -1,12 +1,14 @@
 package com.hospio.payment.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import java.math.BigDecimal;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
@@ -21,6 +23,14 @@ public class FnbClient {
     public record OrderDue(String hotelId, String number, String status, boolean settled, BigDecimal due, String desk) {
     }
 
+    /** fnb-service's answer to GET /internal/orders/{id}/due. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DueBody(String hotelId, String number, String status, Boolean settled, BigDecimal due, String desk) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<DueBody>> DUE = new ParameterizedTypeReference<>() {
+    };
+
     private final RestClient restClient;
 
     public FnbClient(@Value("${services.fnb.url}") String fnbUrl, JwtUtil jwtUtil, @Value("${services.internal.api-key}") String internalApiKey) {
@@ -30,14 +40,12 @@ public class FnbClient {
     /** Empty when the order doesn't exist. */
     public Optional<OrderDue> order(String orderId) {
         try {
-            JsonNode body = restClient.get().uri("/internal/orders/{id}/due", orderId).retrieve().body(JsonNode.class);
-            JsonNode d = body == null ? null : body.path("data");
-            if (d == null || d.isMissingNode() || d.isNull()) {
+            ApiResponse<DueBody> body = restClient.get().uri("/internal/orders/{id}/due", orderId).retrieve().body(DUE);
+            DueBody d = body == null ? null : body.data();
+            if (d == null) {
                 return Optional.empty();
             }
-            return Optional.of(new OrderDue(d.path("hotelId").asText(null), d.path("number").asText(null), d.path("status").asText(null),
-                    d.path("settled").asBoolean(false), d.path("due").isNumber() ? d.path("due").decimalValue() : null,
-                    d.path("desk").asText(null)));
+            return Optional.of(new OrderDue(d.hotelId(), d.number(), d.status(), Boolean.TRUE.equals(d.settled()), d.due(), d.desk()));
         } catch (HttpClientErrorException.NotFound e) {
             return Optional.empty();
         } catch (Exception e) {
