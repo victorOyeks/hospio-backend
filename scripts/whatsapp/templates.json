@@ -74,7 +74,7 @@
     },
     {
       "name": "hospio_booking_confirmation_v2",
-      "headerImage": "https://hospio360.com/whatsapp/hospio360-banner.png",
+      "headerImage": "https://hospio360.com/whatsapp/hospio360-banner-v2.png",
       "button": {
         "text": "View booking",
         "url": "https://hospio360.com/stay/{{1}}",
@@ -93,7 +93,7 @@
     },
     {
       "name": "hospio_booking_changed_v2",
-      "headerImage": "https://hospio360.com/whatsapp/hospio360-banner.png",
+      "headerImage": "https://hospio360.com/whatsapp/hospio360-banner-v2.png",
       "button": {
         "text": "View booking",
         "url": "https://hospio360.com/stay/{{1}}",
@@ -111,7 +111,7 @@
     },
     {
       "name": "hospio_booking_cancelled_v2",
-      "headerImage": "https://hospio360.com/whatsapp/hospio360-banner.png",
+      "headerImage": "https://hospio360.com/whatsapp/hospio360-banner-v2.png",
       "button": {
         "text": "View booking",
         "url": "https://hospio360.com/stay/{{1}}",
@@ -129,7 +129,7 @@
     },
     {
       "name": "hospio_payment_receipt_v2",
-      "headerImage": "https://hospio360.com/whatsapp/hospio360-banner.png",
+      "headerImage": "https://hospio360.com/whatsapp/hospio360-banner-v2.png",
       "body": "Hello {{1}}, *{{2}}* has received your payment. Thank you.\n\n*Amount:* {{3}}\n*Paid by:* {{4}}\n*Reference:* {{5}}\n\nKeep this message as your receipt.",
       "examples": [
         "Adaeze",
@@ -141,7 +141,7 @@
     },
     {
       "name": "hospio_checkin_reminder_v2",
-      "headerImage": "https://hospio360.com/whatsapp/hospio360-banner.png",
+      "headerImage": "https://hospio360.com/whatsapp/hospio360-banner-v2.png",
       "button": {
         "text": "View booking",
         "url": "https://hospio360.com/stay/{{1}}",

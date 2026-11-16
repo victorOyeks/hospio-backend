@@ -87,7 +87,7 @@ public class InfobipClient {
                          @Value("${hospio.infobip.whatsapp-sender:}") String whatsAppSender,
                          @Value("${hospio.infobip.notify-url:}") String notifyUrl,
                          @Value("${hospio.infobip.webhook-key:}") String webhookKey,
-                         @Value("${hospio.whatsapp.header-image-url:https://hospio360.com/whatsapp/hospio360-banner.png}") String headerImageUrl) {
+                         @Value("${hospio.whatsapp.header-image-url:https://hospio360.com/whatsapp/hospio360-banner-v2.png}") String headerImageUrl) {
         this.headerImageUrl = headerImageUrl == null ? "" : headerImageUrl.trim();
         this.baseUrl = baseUrl == null ? "" : baseUrl.trim().replaceAll("/+$", "");
         this.apiKey = apiKey == null ? "" : apiKey.trim();
