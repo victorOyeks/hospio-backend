@@ -244,6 +244,12 @@ public class PaymentService {
             // A provider not integrated yet (Moniepoint / OPay placeholder): say so; the terminal isn't at fault, so it stays online.
             p.setStatus(PaymentStatus.FAILED);
             p.setFailureReason(e.getMessage());
+        } catch (IllegalStateException e) {
+            // The hotel's provider refused the request or isn't set up (keys, base URL): the payment fails with the reason; the
+            // terminal isn't at fault, so it stays online.
+            log.warn("POS request refused for payment {}: {}", p.getId(), e.getMessage());
+            p.setStatus(PaymentStatus.FAILED);
+            p.setFailureReason(e.getMessage() == null ? "The POS provider refused the payment" : e.getMessage());
         } catch (Exception e) {
             log.error("POS request failed for payment {}", p.getId(), e);
             terminals.markOffline(terminal, role);
