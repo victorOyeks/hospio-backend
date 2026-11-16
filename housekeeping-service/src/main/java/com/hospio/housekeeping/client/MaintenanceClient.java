@@ -42,23 +42,23 @@ public class MaintenanceClient {
         this.restClient = ServiceClients.internal(url, jwtUtil, internalApiKey);
     }
 
+    /** maintenance-service's internal repair request; priority and area are left out when not set. */
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    record RepairRequest(String roomId, String roomNumber, String title, String description, String source, String photoKey, String priority,
+                         String area) {
+    }
+
     public String openRepair(String roomId, String roomNumber, String description, String photoKey) {
         return openRepair(roomId, roomNumber, description, photoKey, null, false);
     }
 
     public String openRepair(String roomId, String roomNumber, String description, String photoKey, String priority, boolean outOfOrder) {
         try {
-            Map<String, Object> request = new java.util.HashMap<>(Map.of("roomId", roomId == null ? "" : roomId, "roomNumber", roomNumber == null ? "" : roomNumber,
-                    "title", description.length() > 80 ? description.substring(0, 80) : description, "description", description,
-                    "source", "HOUSEKEEPING", "photoKey", photoKey == null ? "" : photoKey));
-            if (priority != null) {
-                request.put("priority", priority);
-            }
-            if ((roomId == null || roomId.isBlank()) && roomNumber != null && !roomNumber.isBlank()) {
-                // A public area ("Lobby", "Floor 2 corridor"): maintenance needs it as the place, not as a room number.
-                request.put("area", roomNumber.length() > 100 ? roomNumber.substring(0, 100) : roomNumber);
-                request.put("roomNumber", "");
-            }
+            // A public area ("Lobby", "Floor 2 corridor"): maintenance needs it as the place, not as a room number.
+            boolean area = (roomId == null || roomId.isBlank()) && roomNumber != null && !roomNumber.isBlank();
+            RepairRequest request = new RepairRequest(roomId == null ? "" : roomId, area || roomNumber == null ? "" : roomNumber,
+                    description.length() > 80 ? description.substring(0, 80) : description, description, "HOUSEKEEPING",
+                    photoKey == null ? "" : photoKey, priority, area ? (roomNumber.length() > 100 ? roomNumber.substring(0, 100) : roomNumber) : null);
             ApiResponse<RepairRef> body = restClient.post().uri("/internal/repairs?outOfOrder={o}", outOfOrder)
                     .body(request)
                     .retrieve().body(REPAIR);

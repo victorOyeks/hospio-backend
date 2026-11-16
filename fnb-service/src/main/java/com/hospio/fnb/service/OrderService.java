@@ -500,20 +500,18 @@ public class OrderService {
 
     /** For payment-service before it takes money for an order: the order's hotel, state and what is still due. */
     @Transactional(readOnly = true)
-    public Map<String, Object> due(String id) {
+    public OrderDue due(String id) {
         Order o = find(id);
-        Map<String, Object> m = new HashMap<>();
-        m.put("id", o.getId());
-        m.put("hotelId", o.getHotelId());
-        m.put("number", o.getNumber());
-        m.put("status", o.getStatus().name());
-        m.put("settled", o.isSettled());
-        m.put("total", o.getTotal());
-        m.put("paidAmount", o.getPaidAmount());
-        m.put("due", Money.of(o.getTotal().subtract(o.getPaidAmount()).max(BigDecimal.ZERO)));
         // The desk whose income this order is (BAR for a bar, KITCHEN for a kitchen or restaurant), whoever takes the money.
-        outlets.findById(o.getOutletId()).ifPresent(outlet -> m.put("desk", OutletAccess.roleFor(outlet).name()));
-        return m;
+        String desk = outlets.findById(o.getOutletId()).map(outlet -> OutletAccess.roleFor(outlet).name()).orElse(null);
+        return new OrderDue(o.getId(), o.getHotelId(), o.getNumber(), o.getStatus().name(), o.isSettled(), o.getTotal(), o.getPaidAmount(),
+                Money.of(o.getTotal().subtract(o.getPaidAmount()).max(BigDecimal.ZERO)), desk);
+    }
+
+    /** What payment-service reads before taking money for an order; {@code desk} is left out when the outlet is gone. */
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    public record OrderDue(String id, String hotelId, String number, String status, boolean settled, BigDecimal total, BigDecimal paidAmount,
+                           BigDecimal due, String desk) {
     }
 
     /** The internal "paid" route: the whole balance was paid by {@code method} (CASH when not said). */

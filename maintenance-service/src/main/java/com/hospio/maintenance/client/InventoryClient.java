@@ -51,10 +51,10 @@ public class InventoryClient {
     };
 
     /** USED movements in the MAINTENANCE store under {@code reference}; the store's own sentence on a refusal. */
-    public List<Part> useParts(String reference, String note, List<Map<String, Object>> lines) {
+    public List<Part> useParts(String reference, String note, List<com.hospio.common.inventory.StockMoveRequest.Line> lines) {
         try {
             ApiResponse<MoveResult> body = restClient.post().uri("/internal/stock/moves")
-                    .body(Map.of("reference", reference, "kind", "USE", "fromKind", "MAINTENANCE", "team", "MAINTENANCE", "note", note, "lines", lines))
+                    .body(new com.hospio.common.inventory.StockMoveRequest(reference, "USE", "MAINTENANCE", null, "MAINTENANCE", note, null, lines))
                     .retrieve().body(MOVE);
             List<Part> out = new ArrayList<>();
             if (body != null && body.data() != null && body.data().lines() != null) {

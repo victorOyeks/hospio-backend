@@ -16,7 +16,7 @@ class MaintenanceClientsTest {
     void partsUsedAndTheStoresOwnRefusal() {
         try (StubServer s = new StubServer()) {
             InventoryClient c = new InventoryClient(s.url(), StubServer.jwt(), "k", new ObjectMapper());
-            List<Map<String, Object>> lines = List.of(Map.of("itemId", "i1", "quantity", 1));
+            List<com.hospio.common.inventory.StockMoveRequest.Line> lines = List.of(new com.hospio.common.inventory.StockMoveRequest.Line("i1", java.math.BigDecimal.ONE));
             s.reply("/internal/stock/moves", 200, "{\"status\":true,\"data\":{\"lines\":[{\"itemId\":\"i1\",\"name\":\"Bulb\",\"unit\":\"pcs\","
                     + "\"quantity\":1,\"unitCost\":800,\"value\":800}],\"repeated\":false}}");
             assertThat(c.useParts("wo1", "note", lines)).containsExactly(

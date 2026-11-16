@@ -42,7 +42,7 @@ public class InternalFnbController {
 
     /** payment-service's check before it takes money for an order: hotel, status, settled and what is still due. */
     @GetMapping("/orders/{id}/due")
-    public ApiResponse<java.util.Map<String, Object>> due(@PathVariable String id) {
+    public ApiResponse<com.hospio.fnb.service.OrderService.OrderDue> due(@PathVariable String id) {
         return ApiResponse.ok(orders.due(id));
     }
 

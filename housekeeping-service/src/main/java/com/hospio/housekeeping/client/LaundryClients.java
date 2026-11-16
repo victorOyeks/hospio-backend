@@ -113,17 +113,10 @@ public class LaundryClients {
     /** Moves stock (USE, WASTE or TRANSFER between store kinds); the store's own sentence on a refusal. Idempotent by reference. */
     public List<Moved> move(String reference, String kind, String fromKind, String toKind, String team, String note, String category,
                             Map<String, BigDecimal> lines) {
-        List<Map<String, Object>> body = new ArrayList<>();
-        lines.forEach((item, q) -> body.add(Map.of("itemId", item, "quantity", q)));
-        Map<String, Object> request = new HashMap<>();
-        request.put("reference", reference);
-        request.put("kind", kind);
-        request.put("fromKind", fromKind);
-        request.put("toKind", toKind);
-        request.put("team", team);
-        request.put("note", note);
-        request.put("category", category);
-        request.put("lines", body);
+        List<com.hospio.common.inventory.StockMoveRequest.Line> body = new ArrayList<>();
+        lines.forEach((item, q) -> body.add(new com.hospio.common.inventory.StockMoveRequest.Line(item, q)));
+        com.hospio.common.inventory.StockMoveRequest request =
+                new com.hospio.common.inventory.StockMoveRequest(reference, kind, fromKind, toKind, team, note, category, body);
         try {
             ApiResponse<MoveResult> res = inventory.post().uri("/internal/stock/moves").body(request).retrieve().body(MOVE);
             List<Moved> out = new ArrayList<>();
