@@ -31,6 +31,14 @@ public class InternalReservationController {
 
     private final BookingService service;
     private final AdminOverviewService admin;
+    private final com.hospio.reservation.service.SalesReport salesReport;
+
+    /** platform-service's daily fee: deposits kept on no-shows marked that Lagos day, less refunds of them made that day. */
+    @GetMapping("/sales/daily")
+    public ApiResponse<com.hospio.common.billing.DailySales> dailySales(@org.springframework.web.bind.annotation.RequestParam String hotelId,
+            @org.springframework.web.bind.annotation.RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate date) {
+        return ApiResponse.ok(salesReport.daily(hotelId, date));
+    }
 
     @GetMapping("/bookings/{id}")
     public ApiResponse<BookingResponse> booking(@PathVariable String id) {

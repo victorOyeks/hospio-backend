@@ -75,4 +75,16 @@ public class FolioLine extends TenantEntity {
 
     @Column(name = "moved_from", length = 36)
     private String movedFrom;
+
+    /** First night a room line covers; null on other lines. */
+    @Column(name = "service_from")
+    private java.time.LocalDate serviceFrom;
+
+    /** The night after the last one covered (the check-out date); null on other lines. */
+    @Column(name = "service_to")
+    private java.time.LocalDate serviceTo;
+
+    /** When the charge was voided (null on lines voided before this was recorded). */
+    @Column(name = "voided_at")
+    private Instant voidedAt;
 }

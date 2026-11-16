@@ -48,8 +48,10 @@ class PaymentServiceTest {
     private final EventPublisher events = mock(EventPublisher.class);
     private final ReservationClient reservations = mock(ReservationClient.class);
     private final com.hospio.payment.client.FolioClient folios = mock(com.hospio.payment.client.FolioClient.class);
+    private final com.hospio.payment.pos.HotelPosRouter hotelPos = mock(com.hospio.payment.pos.HotelPosRouter.class);
+    private final com.hospio.payment.pos.HotelPosService hotelPosConfig = mock(com.hospio.payment.pos.HotelPosService.class);
     private final com.hospio.payment.client.FnbClient fnb = mock(com.hospio.payment.client.FnbClient.class);
-    private final PaymentService service = new PaymentService(payments, receipts, terminals, new LoggingPosProvider(), hotelConfig, events, reservations, folios, fnb,
+    private final PaymentService service = new PaymentService(payments, receipts, terminals, new LoggingPosProvider(), hotelConfig, events, reservations, folios, hotelPos, hotelPosConfig, fnb,
             new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)));
 
     @BeforeEach
@@ -257,7 +259,7 @@ class PaymentServiceTest {
         com.hospio.common.integrations.PosProvider pos = mock(com.hospio.common.integrations.PosProvider.class);
         when(pos.query("LOG-1")).thenReturn(Optional.of(new com.hospio.common.integrations.PosProvider.WebhookResult("LOG-1", "p1",
                 com.hospio.common.integrations.PosProvider.Outcome.APPROVED, new BigDecimal("5000"), "APPROVED")));
-        PaymentService verifying = new PaymentService(payments, receipts, terminals, pos, hotelConfig, events, reservations, folios, fnb,
+        PaymentService verifying = new PaymentService(payments, receipts, terminals, pos, hotelConfig, events, reservations, folios, hotelPos, hotelPosConfig, fnb,
                 new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)));
         when(payments.findById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.PROCESSING)));
         when(payments.lockById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.APPROVED)));

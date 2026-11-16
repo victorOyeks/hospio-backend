@@ -18,5 +18,6 @@
     <include file="db/changelog/006-payment-desk.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/007-scale-indexes.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/008-receipt-per-payment.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/009-hotel-pos-configs.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

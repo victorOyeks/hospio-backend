@@ -19,6 +19,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class InternalHousekeepingController {
 
     private final HousekeepingService service;
+    private final com.hospio.housekeeping.service.SalesReport salesReport;
+
+    /** platform-service's daily fee: this service's share of what the hotel sold that Lagos day (docs/plan-daily-fees.md). */
+    @org.springframework.web.bind.annotation.GetMapping("/sales/daily")
+    public com.hospio.common.response.ApiResponse<com.hospio.common.billing.DailySales> dailySales(
+            @org.springframework.web.bind.annotation.RequestParam String hotelId,
+            @org.springframework.web.bind.annotation.RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate date) {
+        return com.hospio.common.response.ApiResponse.ok(salesReport.daily(hotelId, date));
+    }
 
     @GetMapping("/room-status")
     public ApiResponse<List<RoomStatus>> roomBoard(@RequestParam String hotelId) {

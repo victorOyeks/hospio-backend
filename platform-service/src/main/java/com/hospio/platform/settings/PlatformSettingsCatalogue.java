@@ -30,9 +30,9 @@ public final class PlatformSettingsCatalogue {
         all.put(GENERAL, general);
 
         Map<String, Object> fees = new LinkedHashMap<>();
-        fees.put("model", "PERCENT_OF_PAYMENTS");
+        fees.put("model", "PERCENT_OF_SALES");
         fees.put("perRoom", 1500);
-        fees.put("revenuePct", 2);
+        fees.put("revenuePct", 1.5);
         fees.put("trialDays", 30);
         fees.put("dueDay", 5);
         fees.put("graceDays", 10);

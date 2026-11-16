@@ -13,9 +13,9 @@ class FeeSettingsTest {
     @Test
     void defaultsMatchTheContract() {
         FeeSettings f = FeeSettings.defaults();
-        assertThat(f.model()).isEqualTo("PERCENT_OF_PAYMENTS");
+        assertThat(f.model()).isEqualTo("PERCENT_OF_SALES");
         assertThat(f.perRoom()).isEqualByComparingTo("1500");
-        assertThat(f.revenuePct()).isEqualByComparingTo("2");
+        assertThat(f.revenuePct()).isEqualByComparingTo("1.5");
         assertThat(f.dueDay()).isEqualTo(5);
         assertThat(f.graceDays()).isEqualTo(10);
         assertThat(f.marketerSharePct()).isEqualByComparingTo("20");

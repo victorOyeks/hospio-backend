@@ -62,6 +62,17 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
     int setFolioTotals(@Param("id") String bookingId, @Param("total") BigDecimal total, @Param("paid") BigDecimal paid,
                        @Param("balance") BigDecimal balance, @Param("at") Instant at);
 
+    /** Deposits kept on no-shows marked in [from, to): sum and count. One row. */
+    @Query(value = "select coalesce(sum(kept_on_no_show), 0), count(*) from reservation.bookings where hotel_id = :hotelId "
+            + "and no_show_at >= :from and no_show_at < :to and kept_on_no_show > 0", nativeQuery = true)
+    List<Object[]> keptOnNoShows(@Param("hotelId") String hotelId, @Param("from") Instant from, @Param("to") Instant to);
+
+    /** Refunds recorded in [from, to) on stays that were no-shows by then (negative amounts): sum and count. One row. */
+    @Query(value = "select coalesce(sum(p.amount), 0), count(*) from reservation.booking_payments p join reservation.bookings b on b.id = p.booking_id "
+            + "where p.hotel_id = :hotelId and p.payment_ref like 'refund:%' and p.created_at >= :from and p.created_at < :to "
+            + "and b.no_show_at is not null and b.no_show_at <= p.created_at", nativeQuery = true)
+    List<Object[]> noShowRefunds(@Param("hotelId") String hotelId, @Param("from") Instant from, @Param("to") Instant to);
+
     /** Ids of BOOKED stays whose arrival date is on or before {@code date} (the night audit locks each before marking it). */
     @Query("select b.id from Booking b where b.hotelId = :hotelId and b.status = 'BOOKED' and b.checkInDate <= :date")
     List<String> unresolvedArrivalIds(@Param("hotelId") String hotelId, @Param("date") LocalDate date);

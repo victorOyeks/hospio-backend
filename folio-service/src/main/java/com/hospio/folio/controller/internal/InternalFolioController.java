@@ -26,6 +26,14 @@ public class InternalFolioController {
     private final FolioService folios;
     private final OrganizationService organizations;
     private final AdminOverviewService admin;
+    private final com.hospio.folio.service.SalesReport salesReport;
+
+    /** platform-service's daily fee: what the hotel's folios sold that Lagos day, VAT excluded (room nights, extras, discounts, voids). */
+    @GetMapping("/sales/daily")
+    public ApiResponse<com.hospio.common.billing.DailySales> dailySales(@RequestParam String hotelId,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate date) {
+        return ApiResponse.ok(salesReport.daily(hotelId, date));
+    }
 
     /** platform-service business detail, Hotels tab: open folios and their balance. */
     @GetMapping("/admin/hotel-overview")
