@@ -47,7 +47,7 @@ class SetupCatalogueTest {
                 .containsOnlyKeys("allowCash", "allowCard", "allowTransfer", "receipts", "depositPct", "tillFloat", "bankName", "bankAccount");
         assertThat(wire.get("TAXES_CURRENCY")).containsEntry("vatPct", 7.5);
         assertThat(wire.get("APPROVAL_LIMITS")).containsEntry("managerExpenseLimit", 200000).containsEntry("discountPct", 10);
-        assertThat(wire.get("BRAND")).containsEntry("primaryColour", "#4c091e").containsEntry("darkSidebar", true);
+        assertThat(wire.get("BRAND")).containsEntry("primaryColour", "#4338ca").containsEntry("darkSidebar", true);
         assertThat(mapper.readValue(json, HotelSetup.class)).isEqualTo(HotelSetup.DEFAULTS);
     }
 

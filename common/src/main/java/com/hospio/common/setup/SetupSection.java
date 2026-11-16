@@ -22,7 +22,7 @@ public sealed interface SetupSection {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Brand(String primaryColour, String shortName, Boolean darkSidebar, String logoUrl) implements SetupSection {
-        public static final Brand DEFAULTS = new Brand("#4c091e", "", true, "");
+        public static final Brand DEFAULTS = new Brand("#4338ca", "", true, "");
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

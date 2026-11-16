@@ -46,7 +46,9 @@ class EmailTemplatesTest {
         assertThat(html).contains("background:#722f37").doesNotContain("#4c091e");
         assertThat(EmailTemplates.Brand.of("not a colour", null)).isEqualTo(EmailTemplates.Brand.HOSPIO);
         assertThat(EmailTemplates.Brand.of("", "")).isEqualTo(EmailTemplates.Brand.HOSPIO);
-        assertThat(templates.render("INVITE", "H", "s", "x").html()).contains("background:#4c091e");
+        assertThat(templates.render("INVITE", "H", "s", "x").html()).contains("background:#4338ca").doesNotContain("#4c091e");
+        // A hotel that saved the old default maroon gets today's default.
+        assertThat(EmailTemplates.Brand.of("#4C091E", null)).isEqualTo(EmailTemplates.Brand.HOSPIO);
         // A light brand colour gets dark text on its buttons and header.
         assertThat(EmailTemplates.Brand.of("#f5d76e", null).onColour()).isEqualTo("#212121");
         assertThat(EmailTemplates.Brand.of("#1d4ed8", "https://cdn.example/logo.png").logoUrl()).isEqualTo("https://cdn.example/logo.png");
