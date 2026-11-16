@@ -26,8 +26,9 @@ import org.springframework.web.util.ContentCachingRequestWrapper;
  * Logs request bodies and error-response bodies so a failing call can be understood from the log
  * alone. On with {@code hospio.logging.bodies=true} (env {@code HOSPIO_LOG_BODIES}); meant for dev and
  * staging. Any field whose name looks secret (pass, pin, token, otp, code, secret, card, pan, cvv, authorization,
- * id number; any case, anywhere in the name) is masked, string or number; bodies are cut at 2 KB; actuator, swagger,
- * file uploads and webhooks (POS, payment and messaging providers send card and personal data) are never logged.
+ * id number, API/auth/private/webhook key; any case, anywhere in the name) is masked, string or number; bodies are cut at 2 KB;
+ * actuator, swagger, file uploads, webhooks (POS, payment and messaging providers send card and personal data) and the integration
+ * settings (Settings · Integrations: third-party keys under any field name) are never logged.
  *
  * The response is not buffered: it streams to the client as usual and at most its first 2 KB are copied aside, and
  * only while the status is an error, which is all that is ever logged.
@@ -41,7 +42,7 @@ public class BodyLoggingFilter extends OncePerRequestFilter {
     private static final int MAX = 2048;
     /** A JSON key containing a secret-looking fragment, then its string or number value. */
     private static final Pattern SECRETS = Pattern.compile(
-            "(\"[^\"]*(?:pass|pin|token|otp|code|secret|card|pan|cvv|authorization|idnumber|id_number)[^\"]*\"\\s*:\\s*)"
+            "(\"[^\"]*(?:pass|pin|token|otp|code|secret|card|pan|cvv|authorization|idnumber|id_number|apikey|api_key|authkey|privatekey|webhookkey)[^\"]*\"\\s*:\\s*)"
                     + "(\"(?:[^\"\\\\]|\\\\.)*\"|-?\\d[\\d.eE+-]*)",
             Pattern.CASE_INSENSITIVE);
 
@@ -50,7 +51,7 @@ public class BodyLoggingFilter extends OncePerRequestFilter {
         String uri = request.getRequestURI();
         String type = request.getContentType();
         return uri.contains("/actuator") || uri.contains("/swagger") || uri.contains("/v3/api-docs") || uri.contains("/webjars")
-                || uri.contains("/webhooks/")
+                || uri.contains("/webhooks/") || uri.contains("/integrations")
                 || (type != null && type.startsWith("multipart/"));
     }
 

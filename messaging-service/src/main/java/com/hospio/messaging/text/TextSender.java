@@ -48,16 +48,38 @@ public class TextSender {
                 .map(TextSender::number).filter(StringUtils::hasText).collect(Collectors.toUnmodifiableSet());
     }
 
+    /** Settings · Integrations · Infobip: "SMS on" and "WhatsApp on" laid over SMS_ENABLED and WHATSAPP_ENABLED (absent in tests). */
+    private com.hospio.common.integrations.settings.IntegrationSettingsReader integrations;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setIntegrations(com.hospio.common.integrations.settings.IntegrationSettingsReader integrations) {
+        this.integrations = integrations;
+    }
+
+    private com.hospio.common.integrations.settings.IntegrationSettings.Infobip switches() {
+        com.hospio.common.integrations.settings.IntegrationSettings.Infobip env = new com.hospio.common.integrations.settings.IntegrationSettings.Infobip(
+                null, null, null, null, null, null, smsEnabled, whatsAppEnabled);
+        return integrations == null ? env : integrations.effective(env);
+    }
+
+    private boolean smsEnabled() {
+        return Boolean.TRUE.equals(switches().smsEnabled());
+    }
+
+    private boolean whatsAppEnabled() {
+        return Boolean.TRUE.equals(switches().whatsappEnabled());
+    }
+
     /** Whether this channel goes out at all for this kind of message (switched on and the account configured). */
     public boolean live(String channel, String kind) {
         boolean codes = com.hospio.common.delivery.Delivery.smsAllowed(kind);
         return "SMS".equals(channel) ? codes && smsLive()
-                : "WHATSAPP".equals(channel) && ((whatsAppEnabled && infobip.whatsAppConfigured()) || (codes && smsLive()));
+                : "WHATSAPP".equals(channel) && ((whatsAppEnabled() && infobip.whatsAppConfigured()) || (codes && smsLive()));
     }
 
     /** Whether a code can go on WhatsApp right now: WhatsApp on and the code template approved. */
     public boolean whatsAppTemplateReady(String template) {
-        if (!whatsAppEnabled || !infobip.whatsAppConfigured()) {
+        if (!whatsAppEnabled() || !infobip.whatsAppConfigured()) {
             return false;
         }
         InfobipClient.TemplateInfo t = infobip.templates().get(template);
@@ -66,7 +88,7 @@ public class TextSender {
 
     /** SMS can go: switched on, through Termii when it is on, else Infobip. */
     public boolean smsLive() {
-        return smsEnabled && (termii.configured() || infobip.configured());
+        return smsEnabled() && (termii.configured() || infobip.configured());
     }
 
     /**
@@ -89,7 +111,7 @@ public class TextSender {
         }
         String whyNotWhatsApp = null;
         if ("WHATSAPP".equals(channel)) {
-            if (!whatsAppEnabled || !infobip.whatsAppConfigured()) {
+            if (!whatsAppEnabled() || !infobip.whatsAppConfigured()) {
                 whyNotWhatsApp = "WhatsApp is off";
             } else if (!StringUtils.hasText(template)) {
                 whyNotWhatsApp = "no WhatsApp template for this message";

@@ -31,4 +31,9 @@ public final class BrevoDtos {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record SendResponse(String messageId, String code, String message) {
     }
+
+    /** {@code GET /v3/account}: the account's email and company (the admin portal's test); {@code code}/{@code message} when refused. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Account(String email, String companyName, String code, String message) {
+    }
 }

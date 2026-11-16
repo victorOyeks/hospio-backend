@@ -128,13 +128,16 @@ template yet, so it is not sent on WhatsApp (and never by SMS); it goes by email
 
 ## Settings (environment, `/opt/hospio-staging/.env.staging` on staging)
 
+Every Infobip and Termii value below, and `SMS_ENABLED` / `WHATSAPP_ENABLED`, can instead be saved in the admin portal
+(Settings · Integrations, [integrations.md](integrations.md)); a saved value wins, an empty one falls back to the variable here.
+
 | Variable | Meaning |
 |---|---|
 | `SMS_ENABLED`, `WHATSAPP_ENABLED` | Switch each channel on (default off). Every service reads them for the echo. SMS only ever carries codes. |
-| `TERMII_ENABLED`, `TERMII_API_KEY`, `TERMII_SENDER_ID` | Codes by Termii (sender ID default `Hospio360`, approved in Termii). The key is only in the environment. |
+| `TERMII_ENABLED`, `TERMII_API_KEY`, `TERMII_SENDER_ID` | Codes by Termii (sender ID default `Hospio360`, approved in Termii). The key is in the environment or the admin portal. |
 | `TERMII_BASE_URL` | Default `https://api.ng.termii.com` (the account's base URL from the Termii dashboard). |
 | `TERMII_SECRET_KEY` | Checks Termii's delivery-report signature; set the webhook in Termii to `https://<api>/messaging/webhooks/termii/reports`. |
-| `INFOBIP_BASE_URL`, `INFOBIP_API_KEY` | The Infobip account. The key is only ever in the environment. |
+| `INFOBIP_BASE_URL`, `INFOBIP_API_KEY` | The Infobip account. The key is in the environment or the admin portal, never in a repo file. |
 | `INFOBIP_WHATSAPP_SENDER` | The WhatsApp number, digits only (2348148849797). |
 | `INFOBIP_SMS_SENDER` | Infobip's SMS sender, used for codes only while Termii is off. Empty uses Infobip's shared sender. |
 | `INFOBIP_NOTIFY_URL`, `INFOBIP_WEBHOOK_KEY` | Where Infobip posts delivery reports, and the key it must quote. Both empty: no reports. |

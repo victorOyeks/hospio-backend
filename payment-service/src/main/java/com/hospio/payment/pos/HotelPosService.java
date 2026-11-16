@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.security.CurrentUser;
+import com.hospio.common.security.SecretBox;
 import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import java.time.Instant;

@@ -1,4 +1,4 @@
-package com.hospio.payment.pos;
+package com.hospio.common.security;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -7,25 +7,26 @@ import java.util.Base64;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 
 /**
- * Encrypts the hotels' POS keys at rest: AES-256-GCM, a fresh 12-byte IV per value, stored as base64(iv || ciphertext+tag) with a
- * "v1:" prefix. The key is POS_SECRETS_KEY (32 bytes, base64) in the server's environment; without it no keys can be saved or read.
+ * Encrypts secrets at rest (the hotels' POS keys in payment-service, the integration keys in platform-service): AES-256-GCM, a fresh
+ * 12-byte IV per value, stored as base64(iv || ciphertext+tag) with a "v1:" prefix. The master key is SECRETS_KEY (32 bytes, base64)
+ * in the server's environment, else POS_SECRETS_KEY, the name it had when only POS keys used it: same key, same format, so values
+ * sealed before the move still open. Without a key nothing can be saved or read.
+ *
+ * <p>Not a component: only the services that store secrets declare one, so an unrelated service never fails to start over a bad key.
  */
-@Component
 public class SecretBox {
 
     private static final SecureRandom RANDOM = new SecureRandom();
     private final byte[] key;
 
-    public SecretBox(@Value("${hospio.pos.secrets-key:}") String base64Key) {
+    public SecretBox(String base64Key) {
         byte[] k = null;
         if (base64Key != null && !base64Key.isBlank()) {
             k = Base64.getDecoder().decode(base64Key.trim());
             if (k.length != 32) {
-                throw new IllegalStateException("POS_SECRETS_KEY must be 32 bytes, base64 (openssl rand -base64 32)");
+                throw new IllegalStateException("SECRETS_KEY (or POS_SECRETS_KEY) must be 32 bytes, base64 (openssl rand -base64 32)");
             }
         }
         this.key = k;
@@ -60,13 +61,13 @@ public class SecretBox {
             c.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(128, all, 0, 12));
             return new String(c.doFinal(all, 12, all.length - 12), StandardCharsets.UTF_8);
         } catch (Exception e) {
-            throw new IllegalStateException("The stored keys couldn't be read (wrong POS_SECRETS_KEY?)", e);
+            throw new IllegalStateException("The stored keys couldn't be read (wrong SECRETS_KEY / POS_SECRETS_KEY?)", e);
         }
     }
 
     private void requireKey() {
         if (key == null) {
-            throw new IllegalStateException("POS_SECRETS_KEY isn't set on the server, so POS keys can't be stored");
+            throw new IllegalStateException("SECRETS_KEY (or POS_SECRETS_KEY) isn't set on the server, so keys can't be stored or read");
         }
     }
 

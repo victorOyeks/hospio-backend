@@ -17,6 +17,9 @@ import com.hospio.messaging.text.InfobipDtos.TemplateData;
 import com.hospio.messaging.text.InfobipDtos.TemplateMessage;
 import com.hospio.messaging.text.InfobipDtos.TemplateRequest;
 import com.hospio.messaging.text.InfobipDtos.Templates;
+import com.hospio.common.integrations.settings.IntegrationSettings;
+import com.hospio.common.integrations.settings.IntegrationSettingsReader;
+import com.hospio.common.integrations.settings.IntegrationTestResult;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -29,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -70,16 +74,23 @@ public class InfobipClient {
 
     private static final Duration TEMPLATE_CACHE = Duration.ofMinutes(10);
 
+    /** The account as used for one call: base URL, key and senders normalised, the report address with its key. */
+    private record Account(String baseUrl, String apiKey, String smsSender, String whatsAppSender, String notifyUrl) {
+        boolean configured() {
+            return StringUtils.hasText(baseUrl) && StringUtils.hasText(apiKey);
+        }
+    }
+
     private final ObjectMapper json = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
-    private final String baseUrl;
-    private final String apiKey;
-    private final String smsSender;
-    private final String whatsAppSender;
-    private final String notifyUrl;
+    /** The environment's values (INFOBIP_*); the admin portal's saved values are laid over them per call. */
+    private final IntegrationSettings.Infobip env;
     private final String headerImageUrl;
+    private IntegrationSettingsReader integrations;
     private volatile Map<String, TemplateInfo> templates = Map.of();
     private volatile Instant templatesReadAt = Instant.EPOCH;
+    /** Which account and sender the templates were read for: a new sender or account in the portal reads them again. */
+    private volatile String templatesFor = "";
 
     public InfobipClient(@Value("${hospio.infobip.base-url:}") String baseUrl,
                          @Value("${hospio.infobip.api-key:}") String apiKey,
@@ -89,33 +100,85 @@ public class InfobipClient {
                          @Value("${hospio.infobip.webhook-key:}") String webhookKey,
                          @Value("${hospio.whatsapp.header-image-url:https://hospio360.com/whatsapp/hospio360-banner.png}") String headerImageUrl) {
         this.headerImageUrl = headerImageUrl == null ? "" : headerImageUrl.trim();
-        this.baseUrl = baseUrl == null ? "" : baseUrl.trim().replaceAll("/+$", "");
-        this.apiKey = apiKey == null ? "" : apiKey.trim();
-        this.smsSender = smsSender == null ? "" : smsSender.trim();
-        this.whatsAppSender = whatsAppSender == null ? "" : whatsAppSender.trim().replace("+", "");
+        this.env = new IntegrationSettings.Infobip(baseUrl, apiKey, whatsAppSender, smsSender, notifyUrl, webhookKey, null, null);
+    }
+
+    /** Settings · Integrations · Infobip in the admin portal (absent in tests: the environment's values only). */
+    @Autowired(required = false)
+    public void setIntegrations(IntegrationSettingsReader integrations) {
+        this.integrations = integrations;
+    }
+
+    private Account account() {
+        IntegrationSettings.Infobip in = integrations == null ? env : integrations.effective(env);
+        String baseUrl = in.baseUrl() == null ? "" : in.baseUrl().trim().replaceAll("/+$", "");
+        String notifyUrl = in.notifyUrl();
+        String webhookKey = in.webhookKey();
         // Where Infobip posts each message's final outcome (delivered, rejected and why); the key proves it is Infobip.
-        this.notifyUrl = StringUtils.hasText(notifyUrl) && StringUtils.hasText(webhookKey)
+        String notify = StringUtils.hasText(notifyUrl) && StringUtils.hasText(webhookKey)
                 ? notifyUrl.trim() + (notifyUrl.contains("?") ? "&" : "?") + "key=" + java.net.URLEncoder.encode(webhookKey.trim(), java.nio.charset.StandardCharsets.UTF_8)
                 : "";
+        return new Account(baseUrl, in.apiKey() == null ? "" : in.apiKey().trim(), in.smsSender() == null ? "" : in.smsSender().trim(),
+                in.whatsappSender() == null ? "" : in.whatsappSender().trim().replace("+", ""), notify);
     }
 
     /** Whether there is an account to send through at all (base URL and key set). */
     public boolean configured() {
-        return StringUtils.hasText(baseUrl) && StringUtils.hasText(apiKey);
+        return account().configured();
     }
 
     public boolean whatsAppConfigured() {
-        return configured() && StringUtils.hasText(whatsAppSender);
+        Account a = account();
+        return a.configured() && StringUtils.hasText(a.whatsAppSender());
+    }
+
+    /**
+     * The admin portal's test, with the settings in force: the WhatsApp sender's templates when there is a sender (GET
+     * /whatsapp/2/senders/{sender}/templates), else the account balance (GET /account/1/balance). Sends nothing.
+     */
+    public IntegrationTestResult check() {
+        Account a = account();
+        if (!a.configured()) {
+            return IntegrationTestResult.failed("Infobip needs a base URL and an API key, saved here or on the server");
+        }
+        try {
+            boolean sender = StringUtils.hasText(a.whatsAppSender());
+            String path = sender ? "/whatsapp/2/senders/" + a.whatsAppSender() + "/templates" : "/account/1/balance";
+            HttpResponse<String> res = http.send(request(a, path).GET().build(), HttpResponse.BodyHandlers.ofString());
+            if (res.statusCode() >= 300) {
+                SendResponse answer = res.body() == null || res.body().isBlank() ? new SendResponse(null, null)
+                        : json.readValue(res.body(), SendResponse.class);
+                String why = answer.requestError() == null || answer.requestError().serviceException() == null ? ""
+                        : text(answer.requestError().serviceException().text());
+                return IntegrationTestResult.failed("Infobip refused (HTTP " + res.statusCode() + ")" + (why.isBlank() ? "" : ": " + why));
+            }
+            if (sender) {
+                Templates listed = json.readValue(res.body(), Templates.class);
+                List<Template> all = listed.templates() == null ? List.of() : listed.templates();
+                long approved = all.stream().filter(t -> t != null && "APPROVED".equalsIgnoreCase(t.status())).count();
+                return IntegrationTestResult.ok("Infobip answered: WhatsApp sender " + a.whatsAppSender() + " has " + all.size()
+                        + " templates, " + approved + " approved");
+            }
+            InfobipDtos.Balance b = json.readValue(res.body(), InfobipDtos.Balance.class);
+            return IntegrationTestResult.ok("Infobip answered: balance " + (b.balance() == null ? "?" : b.balance().toPlainString())
+                    + (b.currency() == null ? "" : " " + b.currency()));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return IntegrationTestResult.failed("Interrupted");
+        } catch (Exception e) {
+            return IntegrationTestResult.failed("Infobip couldn't be reached at " + a.baseUrl() + ": " + e.getClass().getSimpleName());
+        }
     }
 
     public Sent sms(String to, String text) {
-        if (!configured()) {
+        Account a = account();
+        if (!a.configured()) {
             return Sent.failed("SMS provider not configured");
         }
-        boolean notify = StringUtils.hasText(notifyUrl);
-        SmsMessage message = new SmsMessage(List.of(new Destination(to)), text, StringUtils.hasText(smsSender) ? smsSender : null,
-                notify ? notifyUrl : null, notify ? "application/json" : null);
-        return send("/sms/2/text/advanced", new SmsRequest(List.of(message)));
+        boolean notify = StringUtils.hasText(a.notifyUrl());
+        SmsMessage message = new SmsMessage(List.of(new Destination(to)), text, StringUtils.hasText(a.smsSender()) ? a.smsSender() : null,
+                notify ? a.notifyUrl() : null, notify ? "application/json" : null);
+        return send(a, "/sms/2/text/advanced", new SmsRequest(List.of(message)));
     }
 
     /**
@@ -137,7 +200,8 @@ public class InfobipClient {
 
     /** As above, with this message's own header image (the hotel's banner); null uses the Hospio360 banner. */
     public Sent whatsAppTemplate(String to, String template, String language, List<String> params, TemplateInfo shape, String headerImage) {
-        if (!whatsAppConfigured()) {
+        Account a = account();
+        if (!a.configured() || !StringUtils.hasText(a.whatsAppSender())) {
             return Sent.failed("WhatsApp sender not configured");
         }
         List<String> values = params == null ? List.of() : params;
@@ -151,22 +215,29 @@ public class InfobipClient {
         } else if (link) {
             buttons = List.of(new Button("URL", values.get(values.size() - 1)));
         }
-        TemplateMessage message = new TemplateMessage(whatsAppSender, to, UUID.randomUUID().toString(),
+        TemplateMessage message = new TemplateMessage(a.whatsAppSender(), to, UUID.randomUUID().toString(),
                 new TemplateContent(template, new TemplateData(body, header, buttons), language),
-                StringUtils.hasText(notifyUrl) ? notifyUrl : null);
-        return send("/whatsapp/1/message/template", new TemplateRequest(List.of(message)));
+                StringUtils.hasText(a.notifyUrl()) ? a.notifyUrl() : null);
+        return send(a, "/whatsapp/1/message/template", new TemplateRequest(List.of(message)));
     }
 
     /** The sender's templates by name, refreshed at most every ten minutes; empty when they can't be read. */
     public Map<String, TemplateInfo> templates() {
-        if (!whatsAppConfigured()) {
+        Account a = account();
+        if (!a.configured() || !StringUtils.hasText(a.whatsAppSender())) {
             return Map.of();
+        }
+        String readFor = a.baseUrl() + "|" + a.whatsAppSender() + "|" + Integer.toHexString(a.apiKey().hashCode());
+        if (!readFor.equals(templatesFor)) {
+            templates = Map.of();
+            templatesReadAt = Instant.EPOCH;
+            templatesFor = readFor;
         }
         if (Instant.now().isBefore(templatesReadAt.plus(TEMPLATE_CACHE))) {
             return templates;
         }
         try {
-            HttpRequest req = request("/whatsapp/2/senders/" + whatsAppSender + "/templates").GET().build();
+            HttpRequest req = request(a, "/whatsapp/2/senders/" + a.whatsAppSender() + "/templates").GET().build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (res.statusCode() >= 300) {
                 log.warn("Infobip templates: HTTP {} {}", res.statusCode(), cut(res.body()));
@@ -194,9 +265,9 @@ public class InfobipClient {
         return templates;
     }
 
-    private Sent send(String path, Object body) {
+    private Sent send(Account a, String path, Object body) {
         try {
-            HttpRequest req = request(path).POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build();
+            HttpRequest req = request(a, path).POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
             SendResponse answer = res.body() == null || res.body().isBlank() ? new SendResponse(null, null)
                     : json.readValue(res.body(), SendResponse.class);
@@ -226,9 +297,9 @@ public class InfobipClient {
         return s == null ? "" : s;
     }
 
-    private HttpRequest.Builder request(String path) {
-        return HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(Duration.ofSeconds(15))
-                .header("Authorization", "App " + apiKey).header("Content-Type", "application/json").header("Accept", "application/json");
+    private static HttpRequest.Builder request(Account a, String path) {
+        return HttpRequest.newBuilder(URI.create(a.baseUrl() + path)).timeout(Duration.ofSeconds(15))
+                .header("Authorization", "App " + a.apiKey()).header("Content-Type", "application/json").header("Accept", "application/json");
     }
 
     private static String cut(String s) {
@@ -237,6 +308,8 @@ public class InfobipClient {
 
     /** Test seam: the templates as if read just now. */
     void useTemplates(Map<String, TemplateInfo> known) {
+        Account a = account();
+        templatesFor = a.baseUrl() + "|" + a.whatsAppSender() + "|" + Integer.toHexString(a.apiKey().hashCode());
         templates = Map.copyOf(known);
         templatesReadAt = Instant.now();
     }

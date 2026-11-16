@@ -126,6 +126,32 @@ public class MailDispatcher {
         this.billing = billing;
     }
 
+    /**
+     * Settings · Integrations in the admin portal: "Email on" (SMTP) and the From address and default name (Brevo), each laid over
+     * MAIL_ENABLED, MAIL_FROM_ADDRESS and MAIL_FROM_NAME_DEFAULT per use (absent in tests: the environment's values).
+     */
+    private com.hospio.common.integrations.settings.IntegrationSettingsReader integrations;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setIntegrations(com.hospio.common.integrations.settings.IntegrationSettingsReader integrations) {
+        this.integrations = integrations;
+    }
+
+    /** Whether email goes out at all: the portal's "Email on", else MAIL_ENABLED. */
+    boolean enabled() {
+        if (integrations == null) {
+            return enabled;
+        }
+        Boolean on = integrations.effective(new com.hospio.common.integrations.settings.IntegrationSettings.Smtp(null, null, null, null, enabled)).enabled();
+        return on != null && on;
+    }
+
+    private com.hospio.common.integrations.settings.IntegrationSettings.Brevo sender() {
+        com.hospio.common.integrations.settings.IntegrationSettings.Brevo env =
+                new com.hospio.common.integrations.settings.IntegrationSettings.Brevo(null, fromAddress, defaultName);
+        return integrations == null ? env : integrations.effective(env);
+    }
+
     /** Tests drain the queue on the calling thread. */
     void runInline() {
         this.executor = Runnable::run;
@@ -145,7 +171,7 @@ public class MailDispatcher {
         Optional<TenantClient.Sender> hotel = tenants.hotel(hotelId);
         Optional<TenantClient.Sender> business = hotel.isPresent() ? Optional.empty() : tenants.business(businessId);
         String name = notBlank(fromName) ? fromName.trim()
-                : hotel.map(TenantClient.Sender::name).or(() -> business.map(TenantClient.Sender::name)).filter(MailDispatcher::notBlank).orElse(defaultName);
+                : hotel.map(TenantClient.Sender::name).or(() -> business.map(TenantClient.Sender::name)).filter(MailDispatcher::notBlank).orElse(sender().fromName());
         String reply = notBlank(replyTo) ? replyTo.trim()
                 : hotel.map(TenantClient.Sender::email).or(() -> business.map(TenantClient.Sender::email)).orElse(null);
         if (!notBlank(reply) && hotel.isPresent()) {
@@ -174,7 +200,7 @@ public class MailDispatcher {
             boolean smsRefused = "SMS".equals(channel) && !com.hospio.common.delivery.Delivery.smsAllowed(e.getKind());
             boolean text = !email && !smsRefused && texts != null && texts.live(channel, e.getKind());
             DeliveryRecord.Status wanted = !email ? (text ? DeliveryRecord.Status.QUEUED : DeliveryRecord.Status.NOT_CONNECTED)
-                    : !enabled ? DeliveryRecord.Status.DISABLED : DeliveryRecord.Status.QUEUED;
+                    : !enabled() ? DeliveryRecord.Status.DISABLED : DeliveryRecord.Status.QUEUED;
             // A message the hotel pays for goes only while its guest-message service is on and not suspended.
             com.hospio.messaging.billing.CommBilling.Gate gate = billing == null ? com.hospio.messaging.billing.CommBilling.Gate.FREE
                     : billing.gate(e.getHotelId(), e.getKind());
@@ -314,7 +340,7 @@ public class MailDispatcher {
             EmailTemplates.Rendered rendered = templates.render(r.getKind(), sender.name(), r.getSubject(), r.getBodyText(),
                     brands == null ? EmailTemplates.Brand.HOSPIO : brands.brand(r.getHotelId()));
             String html = notBlank(r.getBodyHtml()) ? r.getBodyHtml() : rendered.html();
-            mail = new SmtpGateway.Email(fromAddress, sender.name(), r.getToAddress(), sender.replyTo(), rendered.subject(), html, rendered.text());
+            mail = new SmtpGateway.Email(sender().fromAddress(), sender.name(), r.getToAddress(), sender.replyTo(), rendered.subject(), html, rendered.text());
         } catch (RuntimeException ex) {
             return new Result(false, false, null, null, ex.getClass().getSimpleName() + ": " + ex.getMessage(), null);
         }

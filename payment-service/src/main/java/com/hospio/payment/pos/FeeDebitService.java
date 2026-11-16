@@ -9,6 +9,9 @@ import java.math.RoundingMode;
 import java.util.List;
 import java.util.Locale;
 import lombok.extern.slf4j.Slf4j;
+import com.hospio.common.integrations.settings.IntegrationSettings;
+import com.hospio.common.integrations.settings.IntegrationSettingsReader;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -18,7 +21,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <ul>
  *   <li><b>OPay</b>: OPay's payout API pays out of the hotel's merchant account (with the hotel's keys) into Hospio360's account.
- *   Configured when FEE_DEBIT_OPAY_ENABLED=true and Hospio's receiving account is set.</li>
+ *   Configured when FEE_DEBIT_OPAY_ENABLED=true and Hospio's receiving account is set (or the same saved in the admin portal,
+ *   Settings · Integrations · Daily fee debit: OPay, which wins field by field).</li>
  *   <li><b>Moniepoint</b>: no debit API yet. FEE_DEBIT_MONIEPOINT_URL marks it configured once Moniepoint provides one; until the
  *   call is built a debit fails with that message (nothing is taken).</li>
  * </ul>
@@ -28,16 +32,18 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class FeeDebitService {
 
+    /** The receiving side of the OPay debit, as used for one debit. */
+    private record OpayTarget(boolean enabled, String account, String accountName, String bankCode, String payoutType) {
+    }
+
     private final FeeDebitRepository debits;
     private final HotelPosService hotels;
     private final OpayApi opay;
     private final TransactionTemplate tx;
-    private final boolean opayEnabled;
-    private final String opayAccount;
-    private final String opayAccountName;
-    private final String opayBankCode;
-    private final String opayPayoutType;
-    private final String moniepointUrl;
+    /** FEE_DEBIT_* from the environment; Settings · Integrations in the admin portal is laid over them per use. */
+    private final IntegrationSettings.FeeDebitOpay envOpay;
+    private final IntegrationSettings.FeeDebitMoniepoint envMoniepoint;
+    private IntegrationSettingsReader integrations;
 
     public FeeDebitService(FeeDebitRepository debits, HotelPosService hotels, OpayApi opay, TransactionTemplate tx,
                            @Value("${hospio.fee-debit.opay.enabled:false}") boolean opayEnabled,
@@ -50,19 +56,35 @@ public class FeeDebitService {
         this.hotels = hotels;
         this.opay = opay;
         this.tx = tx;
-        this.opayEnabled = opayEnabled;
-        this.opayAccount = opayAccount == null ? "" : opayAccount.trim();
-        this.opayAccountName = opayAccountName == null ? "" : opayAccountName.trim();
-        this.opayBankCode = opayBankCode == null ? "" : opayBankCode.trim();
-        this.opayPayoutType = opayPayoutType == null ? "OPAY_WALLET" : opayPayoutType.trim().toUpperCase(Locale.ROOT);
-        this.moniepointUrl = moniepointUrl == null ? "" : moniepointUrl.trim();
+        this.envOpay = new IntegrationSettings.FeeDebitOpay(opayEnabled, opayAccount, opayAccountName, opayBankCode, opayPayoutType);
+        this.envMoniepoint = new IntegrationSettings.FeeDebitMoniepoint(moniepointUrl);
+    }
+
+    @Autowired(required = false)
+    public void setIntegrations(IntegrationSettingsReader integrations) {
+        this.integrations = integrations;
+    }
+
+    private OpayTarget opayTarget() {
+        IntegrationSettings.FeeDebitOpay in = integrations == null ? envOpay : integrations.effective(envOpay);
+        return new OpayTarget(Boolean.TRUE.equals(in.enabled()), trim(in.recipientAccount()), trim(in.recipientName()), trim(in.recipientBankCode()),
+                in.payoutType() == null ? "OPAY_WALLET" : in.payoutType().trim().toUpperCase(Locale.ROOT));
+    }
+
+    private String moniepointUrl() {
+        return trim((integrations == null ? envMoniepoint : integrations.effective(envMoniepoint)).url());
+    }
+
+    private static String trim(String s) {
+        return s == null ? "" : s.trim();
     }
 
     public List<ProviderState> providers(String hotelId) {
         String keysFor = hotels.credentials(hotelId).map(HotelPosService.Credentials::provider).orElse(null);
-        String opayWhy = !opayEnabled ? "FEE_DEBIT_OPAY_ENABLED isn't on" : opayAccount.isEmpty() ? "Hospio's receiving account (FEE_DEBIT_OPAY_RECIPIENT_ACCOUNT) isn't set"
-                : "BANK_TRANSFER".equals(opayPayoutType) && opayBankCode.isEmpty() ? "FEE_DEBIT_OPAY_RECIPIENT_BANK_CODE isn't set" : null;
-        String moniepointWhy = moniepointUrl.isEmpty() ? "Moniepoint hasn't given a debit API yet (FEE_DEBIT_MONIEPOINT_URL isn't set)" : null;
+        OpayTarget t = opayTarget();
+        String opayWhy = !t.enabled() ? "FEE_DEBIT_OPAY_ENABLED isn't on" : t.account().isEmpty() ? "Hospio's receiving account (FEE_DEBIT_OPAY_RECIPIENT_ACCOUNT) isn't set"
+                : "BANK_TRANSFER".equals(t.payoutType()) && t.bankCode().isEmpty() ? "FEE_DEBIT_OPAY_RECIPIENT_BANK_CODE isn't set" : null;
+        String moniepointWhy = moniepointUrl().isEmpty() ? "Moniepoint hasn't given a debit API yet (FEE_DEBIT_MONIEPOINT_URL isn't set)" : null;
         return List.of(
                 new ProviderState(HotelPosService.MONIEPOINT, moniepointWhy == null, HotelPosService.MONIEPOINT.equals(keysFor), moniepointWhy),
                 new ProviderState(HotelPosService.OPAY, opayWhy == null, HotelPosService.OPAY.equals(keysFor), opayWhy));
@@ -84,16 +106,17 @@ public class FeeDebitService {
             return finish(d, DebitResult.failed("The hotel has no " + provider.toLowerCase(Locale.ROOT) + " keys"));
         }
         if (HotelPosService.MONIEPOINT.equals(provider)) {
-            return finish(d, DebitResult.failed(moniepointUrl.isEmpty() ? "Moniepoint debit isn't configured"
+            return finish(d, DebitResult.failed(moniepointUrl().isEmpty() ? "Moniepoint debit isn't configured"
                     : "Moniepoint's debit call isn't built yet: their API spec is needed"));
         }
-        if (!opayEnabled || opayAccount.isEmpty()) {
+        OpayTarget t = opayTarget();
+        if (!t.enabled() || t.account().isEmpty()) {
             return finish(d, DebitResult.failed("OPay debit isn't configured on the server"));
         }
         try {
             long kobo = r.amount().setScale(2, RoundingMode.HALF_UP).movePointRight(2).longValueExact();
-            OpayApi.Answer<ProviderDtos.OpayPayoutData> a = opay.payout(c.opay(), r.reference(), kobo, opayPayoutType, opayAccount, opayAccountName,
-                    opayBankCode, r.narration() == null ? "Hospio360 fee" : r.narration());
+            OpayApi.Answer<ProviderDtos.OpayPayoutData> a = opay.payout(c.opay(), r.reference(), kobo, t.payoutType(), t.account(), t.accountName(),
+                    t.bankCode(), r.narration() == null ? "Hospio360 fee" : r.narration());
             return finish(d, payout(a, r.amount()));
         } catch (Exception e) {
             // Not knowing is pending: the reference is OPay's idempotency key, so asking again later is safe.
