@@ -89,8 +89,29 @@ public class HotelSetupService {
                 throw new ForbiddenException("Only a manager or the owner can change Hotel setup");
             }
         }
+        checkValues(sec, values);
         String hotelId = TenantContext.requireHotel();
         return withHotelTenant(hotelId, () -> apply(hotelId, sec, values, caller.getUserId()));
+    }
+
+    /**
+     * Values that can't be right are refused before anything is saved: the deposit is a share of the stay (0 to 100 %; a
+     * hotel had "15000" saved, meant as naira), and the till float is a sum of cash, never negative.
+     */
+    static void checkValues(String section, Map<String, JsonNode> values) {
+        if (values == null || !"PAYMENTS".equals(section)) {
+            return;
+        }
+        JsonNode deposit = values.get("depositPct");
+        if (deposit != null && !deposit.isNull()) {
+            if (!deposit.isNumber() || deposit.asDouble() < 0 || deposit.asDouble() > 100) {
+                throw new BadRequestException("The deposit is a share of the stay: between 0 and 100 %");
+            }
+        }
+        JsonNode floatCash = values.get("tillFloat");
+        if (floatCash != null && !floatCash.isNull() && (!floatCash.isNumber() || floatCash.asDouble() < 0)) {
+            throw new BadRequestException("The till float can't be negative");
+        }
     }
 
     /** Hotel setup "Apply a template" and onboarding J8: by template id (from tenant-service) or inline settings. */
