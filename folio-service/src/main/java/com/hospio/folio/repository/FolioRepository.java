@@ -50,4 +50,9 @@ public interface FolioRepository extends JpaRepository<Folio, String>, org.sprin
     java.math.BigDecimal organizationBalance(@org.springframework.data.repository.query.Param("orgId") String orgId,
                                              @org.springframework.data.repository.query.Param("from") java.time.Instant from,
                                              @org.springframework.data.repository.query.Param("to") java.time.Instant to);
+
+    /** The stay's bill over all its folios: charged (tax in, discounts out), paid (refunds out), still owed. One row. */
+    @org.springframework.data.jpa.repository.Query("select coalesce(sum(f.totalCharges + f.totalTax - f.totalDiscounts), 0), coalesce(sum(f.totalPayments), 0), "
+            + "coalesce(sum(f.balance), 0) from Folio f where f.bookingId = :bookingId")
+    List<Object[]> totalsForBooking(@org.springframework.data.repository.query.Param("bookingId") String bookingId);
 }

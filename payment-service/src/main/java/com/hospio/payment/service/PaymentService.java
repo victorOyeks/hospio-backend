@@ -58,6 +58,7 @@ public class PaymentService {
     private final HotelConfigClient hotelConfig;
     private final EventPublisher events;
     private final ReservationClient reservations;
+    private final com.hospio.payment.client.FolioClient folios;
     private final com.hospio.payment.client.FnbClient fnb;
     private final TransactionTemplate tx;
 
@@ -115,8 +116,11 @@ public class PaymentService {
             }
             case ORGANIZATION -> throw new BadRequestException("Organization stays are billed, not paid here");
         }
-        if (dto.bookingId() != null && !dto.bookingId().isBlank()) {
-            ReservationClient.BookingState booking = reservations.booking(dto.bookingId())
+        // A payment on a folio counts on its stay too: the booking's "paid" and "due" move with it.
+        String bookingId = blankToNull(dto.bookingId()) != null ? dto.bookingId()
+                : blankToNull(dto.folioId()) != null ? folios.bookingOf(dto.folioId()).orElse(null) : null;
+        if (bookingId != null) {
+            ReservationClient.BookingState booking = reservations.booking(bookingId)
                     .orElseThrow(() -> new BadRequestException("Booking not found"));
             if (booking.hotelId() != null && !booking.hotelId().equals(hotelId)) {
                 throw new BadRequestException("Booking not found");
@@ -126,7 +130,7 @@ public class PaymentService {
             }
         }
         String desk = blankToNull(dto.orderId()) != null ? checkOrder(dto.orderId(), hotelId, dto.amount()) : null;
-        PaymentRequest p = PaymentRequest.builder().folioId(dto.folioId()).bookingId(dto.bookingId()).orderId(blankToNull(dto.orderId())).desk(desk).guestName(dto.guestName())
+        PaymentRequest p = PaymentRequest.builder().folioId(dto.folioId()).bookingId(bookingId).orderId(blankToNull(dto.orderId())).desk(desk).guestName(dto.guestName())
                 .guestPhone(dto.guestPhone()).guestEmail(dto.guestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
                 .role(role).method(dto.method()).amount(Money.of(dto.amount())).description(dto.description())
                 .receiptPreference(dto.receiptPreference() == null ? settings.receipts() : dto.receiptPreference()).build();

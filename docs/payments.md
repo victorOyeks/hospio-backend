@@ -27,3 +27,18 @@ How a card payment travels, and what is real today.
 To build a real provider, replace the placeholder's three methods (each class says what goes where): `requestPayment` (push
 to the terminal, return the provider's reference), `parseWebhook` (check the signature, map the status) and `query` (look a
 transaction up, used by the pending check and Verify). Keys live only in the environment.
+
+## A stay's bill: one set of numbers everywhere
+
+Once the guest checks in, the folio is the stay's bill. On every change to a folio (charge, discount, void, payment, refund,
+move, close), folio-service sends **FolioTotals** (`hospio.folio-totals`, kept out of the activity log): the booking's total
+(charges + tax − discounts), paid (payments − refunds) and balance, summed over all its folios. reservation-service stores them
+on the booking (`folio_total`, `folio_paid`, `folio_balance`; an older event never overwrites a newer one). It returns them as
+`billTotal`, `billPaid` and `balance` (the booking's own total and amount paid before check-in). It also uses them for the
+list's "unpaid", "paid this month" and in-house owing cards.
+
+A payment taken on a folio without a booking id (Record payment, check-out) now gets the folio's booking id in
+payment-service, so the booking's `amountPaid` also counts it.
+
+Staging was backfilled once on 16 Nov 2026: folio totals were copied onto every booking with a folio, and the folio payments
+missing from `amount_paid` were recorded in `booking_payments`.

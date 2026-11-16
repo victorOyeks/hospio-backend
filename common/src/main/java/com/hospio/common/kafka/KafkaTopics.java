@@ -47,6 +47,8 @@ public final class KafkaTopics {
     public static final String CHARGE_POSTED = PREFIX + "charge-posted";
     public static final String FOLIO_OPENED = PREFIX + "folio-opened";
     public static final String FOLIO_CLOSED = PREFIX + "folio-closed";
+    /** A stay's bill changed (charge, discount, void, payment, refund, move, close): its folio totals, for the booking to mirror. */
+    public static final String FOLIO_TOTALS = PREFIX + "folio-totals";
     public static final String DISCOUNT_APPLIED = PREFIX + "discount-applied";
     public static final String INVOICE_ISSUED = PREFIX + "invoice-issued";
 
@@ -120,4 +122,7 @@ public final class KafkaTopics {
             APPROVAL_REQUESTED, APPROVAL_DECIDED, APPROVAL_ANSWERED, CHANGE_BY_PLATFORM);
 
     public static final String[] ALL_ARRAY = ALL.toArray(new String[0]);
+
+    /** Service-to-service topics kept out of {@link #ALL}: frequent bookkeeping the activity log has no use for. */
+    public static final List<String> INTERNAL = List.of(FOLIO_TOTALS);
 }

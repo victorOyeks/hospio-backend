@@ -47,8 +47,9 @@ class PaymentServiceTest {
     private final HotelConfigClient hotelConfig = mock(HotelConfigClient.class);
     private final EventPublisher events = mock(EventPublisher.class);
     private final ReservationClient reservations = mock(ReservationClient.class);
+    private final com.hospio.payment.client.FolioClient folios = mock(com.hospio.payment.client.FolioClient.class);
     private final com.hospio.payment.client.FnbClient fnb = mock(com.hospio.payment.client.FnbClient.class);
-    private final PaymentService service = new PaymentService(payments, receipts, terminals, new LoggingPosProvider(), hotelConfig, events, reservations, fnb,
+    private final PaymentService service = new PaymentService(payments, receipts, terminals, new LoggingPosProvider(), hotelConfig, events, reservations, folios, fnb,
             new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)));
 
     @BeforeEach
@@ -83,6 +84,18 @@ class PaymentServiceTest {
 
         assertThat(p.status()).isEqualTo(PaymentStatus.APPROVED);
         verify(events).publish(eq(KafkaTopics.PAYMENT_APPROVED), any());
+    }
+
+    @Test
+    void aPaymentOnAFolioCountsOnItsBooking() {
+        when(folios.bookingOf("f1")).thenReturn(Optional.of("b9"));
+
+        PaymentResponse p = service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("87650"), "f1", null, "Guest", null, null, "Room charges", null));
+
+        assertThat(p.bookingId()).isEqualTo("b9");
+        org.mockito.ArgumentCaptor<com.hospio.common.kafka.events.HospioEvent> sent = org.mockito.ArgumentCaptor.forClass(com.hospio.common.kafka.events.HospioEvent.class);
+        verify(events).publish(eq(KafkaTopics.PAYMENT_APPROVED), sent.capture());
+        assertThat(((com.hospio.common.kafka.events.PaymentApprovedEvent) sent.getValue()).getBookingId()).isEqualTo("b9");
     }
 
     @Test
@@ -244,7 +257,7 @@ class PaymentServiceTest {
         com.hospio.common.integrations.PosProvider pos = mock(com.hospio.common.integrations.PosProvider.class);
         when(pos.query("LOG-1")).thenReturn(Optional.of(new com.hospio.common.integrations.PosProvider.WebhookResult("LOG-1", "p1",
                 com.hospio.common.integrations.PosProvider.Outcome.APPROVED, new BigDecimal("5000"), "APPROVED")));
-        PaymentService verifying = new PaymentService(payments, receipts, terminals, pos, hotelConfig, events, reservations, fnb,
+        PaymentService verifying = new PaymentService(payments, receipts, terminals, pos, hotelConfig, events, reservations, folios, fnb,
                 new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)));
         when(payments.findById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.PROCESSING)));
         when(payments.lockById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.APPROVED)));

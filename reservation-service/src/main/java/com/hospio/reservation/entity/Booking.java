@@ -95,6 +95,18 @@ public class Booking extends TenantEntity {
     @lombok.Builder.Default
     private BigDecimal amountPaid = BigDecimal.ZERO;
 
+    /** The stay's bill from its folios (extras and tax in, discounts out); null before check-in. Kept by FolioTotals events. */
+    @Column(name = "folio_total", insertable = false, updatable = false)
+    private BigDecimal folioTotal;
+
+    /** Paid on the stay's folios, less refunds; null before check-in. */
+    @Column(name = "folio_paid", insertable = false, updatable = false)
+    private BigDecimal folioPaid;
+
+    /** Still owed on the stay's folios; null before check-in. */
+    @Column(name = "folio_balance", insertable = false, updatable = false)
+    private BigDecimal folioBalance;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_plan", nullable = false)
     @lombok.Builder.Default

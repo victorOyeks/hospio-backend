@@ -8,6 +8,7 @@ import com.hospio.common.kafka.KafkaTopics;
 import com.hospio.common.kafka.events.ApprovalRequestedEvent;
 import com.hospio.common.kafka.events.DiscountAppliedEvent;
 import com.hospio.common.kafka.events.FolioClosedEvent;
+import com.hospio.common.kafka.events.FolioTotalsEvent;
 import com.hospio.common.kafka.events.FolioOpenedEvent;
 import com.hospio.common.security.CurrentUser;
 import com.hospio.common.security.HospioUserDetails;
@@ -381,6 +382,22 @@ public class FolioService {
         f.setTotalPayments(Money.of(payments));
         f.setBalance(Money.of(charges.add(tax).subtract(discounts).subtract(payments)));
         folios.save(f);
+        publishTotals(f.getBookingId());
+    }
+
+    /**
+     * Tells reservation-service what the stay's bill is now, summed over every folio of the booking, so the booking's lists,
+     * totals and "due" read the same numbers as the folio. Sent after the commit; repeats are harmless (the booking keeps the
+     * latest).
+     */
+    private void publishTotals(String bookingId) {
+        if (bookingId == null) {
+            return;
+        }
+        List<Object[]> rows = folios.totalsForBooking(bookingId);
+        Object[] t = rows.isEmpty() ? new Object[3] : rows.get(0);
+        events.publish(KafkaTopics.FOLIO_TOTALS, FolioTotalsEvent.builder().bookingId(bookingId)
+                .total(Money.of(decimal(t[0]))).paid(Money.of(decimal(t[1]))).balance(Money.of(decimal(t[2]))).build());
     }
 
     private static BigDecimal decimal(Object value) {

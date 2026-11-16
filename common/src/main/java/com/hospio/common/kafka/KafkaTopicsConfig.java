@@ -29,7 +29,7 @@ public class KafkaTopicsConfig {
 
     @Bean
     public KafkaAdmin.NewTopics hospioTopics() {
-        return new KafkaAdmin.NewTopics(KafkaTopics.ALL.stream()
+        return new KafkaAdmin.NewTopics(Stream.concat(KafkaTopics.ALL.stream(), KafkaTopics.INTERNAL.stream())
                 .flatMap(name -> Stream.of(
                         TopicBuilder.name(name).partitions(partitions).replicas(replicas).build(),
                         TopicBuilder.name(name + KafkaConsumerDefaults.DLT_SUFFIX).partitions(1).replicas(replicas).build()))
