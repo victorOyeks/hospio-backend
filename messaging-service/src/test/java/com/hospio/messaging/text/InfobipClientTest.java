@@ -39,7 +39,7 @@ class InfobipClientTest {
 
     private InfobipClient client(String smsSender, String notifyUrl, String webhookKey) {
         return new InfobipClient(server.url(), "k", smsSender, "+2348148849797", notifyUrl, webhookKey,
-                "https://hospio360.com/whatsapp/hospio360-banner-v2.png");
+                "https://hospio360.com/whatsapp/hospio360-banner.png");
     }
 
     private InfobipDtos.TemplateData sentData() throws Exception {
@@ -59,13 +59,13 @@ class InfobipClientTest {
         assertThat(s.messageId()).isEqualTo("m1");
         InfobipDtos.TemplateData d = sentData();
         assertThat(d.header().type()).isEqualTo("IMAGE");
-        assertThat(d.header().mediaUrl()).isEqualTo("https://hospio360.com/whatsapp/hospio360-banner-v2.png");
+        assertThat(d.header().mediaUrl()).isEqualTo("https://hospio360.com/whatsapp/hospio360-banner.png");
         assertThat(d.body().placeholders()).containsExactly("Victor", "Simpas Ikeja", "HBT7UFWH");
         assertThat(d.buttons()).containsExactly(new InfobipDtos.Button("URL", "TOKEN123"));
         assertThat(sentJson()).isEqualTo("{\"messages\":[{\"from\":\"2348148849797\",\"to\":\"2349035911994\",\"messageId\":\"ID\","
                 + "\"content\":{\"templateName\":\"hospio_booking_confirmation_v2\",\"templateData\":{"
                 + "\"body\":{\"placeholders\":[\"Victor\",\"Simpas Ikeja\",\"HBT7UFWH\"]},"
-                + "\"header\":{\"type\":\"IMAGE\",\"mediaUrl\":\"https://hospio360.com/whatsapp/hospio360-banner-v2.png\"},"
+                + "\"header\":{\"type\":\"IMAGE\",\"mediaUrl\":\"https://hospio360.com/whatsapp/hospio360-banner.png\"},"
                 + "\"buttons\":[{\"type\":\"URL\",\"parameter\":\"TOKEN123\"}]},\"language\":\"en\"}}]}");
     }
 

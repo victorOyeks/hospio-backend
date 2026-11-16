@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Every email's layout (docs/email.md), in the web app's look: DM Sans, the app's ink, line and status colours, rounded
- * cards, and the sending hotel's own brand colour and logo from Hotel setup → Brand (Hospio360's indigo when the hotel has
+ * cards, and the sending hotel's own brand colour and logo from Hotel setup → Brand (Hospio360's maroon when the hotel has
  * set none, and for platform mail). Each kind of email has its own design: a badge in the tone of what happened (green for
  * a confirmed booking or a payment, red for a cancellation, amber for a reminder), its heading, and its button.
  *
@@ -27,17 +27,11 @@ public class EmailTemplates {
     /** The hotel's look: its brand colour (with a light tint and the text colour that reads on it) and logo. */
     public record Brand(String colour, String soft, String onColour, String logoUrl) {
 
-        /** Hospio360's own look (indigo, on navy in the apps), for a hotel without a colour of its own. */
-        public static final Brand HOSPIO = new Brand("#4338ca", "#f0effb", "#ffffff", null);
-        /** Hospio360's colour until November 2026: a hotel that saved it without choosing it gets today's default. */
-        static final String OLD_DEFAULT = "#4c091e";
+        public static final Brand HOSPIO = new Brand("#4c091e", "#fceef2", "#ffffff", null);
 
-        /** From Hotel setup's values; anything missing or unreadable (or the old default) falls back to Hospio360's look. */
+        /** From Hotel setup's values; anything missing or unreadable falls back to Hospio360's look. */
         public static Brand of(String colour, String logoUrl) {
             String c = hex(colour);
-            if (c != null && c.equalsIgnoreCase(OLD_DEFAULT)) {
-                c = null;
-            }
             String logo = logoUrl != null && logoUrl.trim().matches("^https://\\S+$") ? logoUrl.trim() : null;
             if (c == null) {
                 return logo == null ? HOSPIO : new Brand(HOSPIO.colour, HOSPIO.soft, HOSPIO.onColour, logo);
