@@ -23,7 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Termii's delivery reports (docs/sms-whatsapp.md), set in the Termii console as
  * {@code https://<api>/messaging/webhooks/termii/reports}. Believed only when {@code X-Termii-Signature} is the HMAC-SHA512 of
- * the body under the account's secret key ({@code TERMII_SECRET_KEY}); without the secret set, every post is refused.
+ * the body under the account's secret key (saved in the admin portal, else {@code TERMII_SECRET_KEY}); without the secret set,
+ * every post is refused.
  * "Delivered" makes the record DELIVERED; "DND Active", "Message Failed", "Rejected" and "Expired" make it FAILED with those words.
  */
 @Slf4j
@@ -38,10 +39,24 @@ public class TermiiWebhookController {
     @Value("${hospio.termii.secret-key:}")
     private String secretKey;
 
+    /** The admin portal's saved value wins over the environment's (absent in tests). */
+    private com.hospio.common.integrations.settings.IntegrationSettingsReader integrations;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setIntegrations(com.hospio.common.integrations.settings.IntegrationSettingsReader integrations) {
+        this.integrations = integrations;
+    }
+
+    private String secretKey() {
+        var env = new com.hospio.common.integrations.settings.IntegrationSettings.Termii(null, null, null, null, secretKey);
+        String v = (integrations == null ? env : integrations.effective(env)).secretKey();
+        return v == null ? "" : v;
+    }
+
     @PostMapping("/reports")
     public ResponseEntity<Void> report(@RequestHeader(value = "X-Termii-Signature", required = false) String signature,
                                        @RequestBody String raw) {
-        if (!StringUtils.hasText(secretKey) || !valid(raw, signature)) {
+        if (!StringUtils.hasText(secretKey()) || !valid(raw, signature)) {
             return ResponseEntity.status(401).build();
         }
         try {
@@ -82,7 +97,7 @@ public class TermiiWebhookController {
         }
         try {
             Mac mac = Mac.getInstance("HmacSHA512");
-            mac.init(new SecretKeySpec(secretKey.trim().getBytes(StandardCharsets.UTF_8), "HmacSHA512"));
+            mac.init(new SecretKeySpec(secretKey().trim().getBytes(StandardCharsets.UTF_8), "HmacSHA512"));
             byte[] expected = HexFormat.of().formatHex(mac.doFinal(raw.getBytes(StandardCharsets.UTF_8))).getBytes(StandardCharsets.UTF_8);
             return MessageDigest.isEqual(expected, signature.trim().toLowerCase(Locale.ROOT).getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {

@@ -60,4 +60,13 @@ public final class PaystackDtos {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record WebhookData(String reference) {
     }
+
+    /** {@code GET /balance}: one line per currency, amounts in kobo (the admin portal's test). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record BalanceResponse(Boolean status, String message, java.util.List<Balance> data) implements Answer {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Balance(String currency, Long balance) {
+    }
 }

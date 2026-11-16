@@ -2,6 +2,9 @@ package com.hospio.messaging.billing;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospio.common.exception.BadRequestException;
+import com.hospio.common.integrations.settings.IntegrationSettings;
+import com.hospio.common.integrations.settings.IntegrationSettingsReader;
+import com.hospio.common.integrations.settings.IntegrationTestResult;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URI;
@@ -16,6 +19,7 @@ import java.util.HexFormat;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -23,7 +27,8 @@ import org.springframework.util.StringUtils;
 /**
  * Paystack, for paying guest-message invoices (docs/guest-message-billing.md): start a checkout
  * (POST /transaction/initialize → the page to send the payer to), confirm it (GET /transaction/verify/{reference}), and
- * check a webhook's signature (HMAC-SHA512 of the body with the secret key). Amounts are in kobo.
+ * check a webhook's signature (HMAC-SHA512 of the body with the secret key). Amounts are in kobo. The secret key saved in the admin
+ * portal (Settings · Integrations · Paystack) wins over PAYSTACK_SECRET_KEY, read per call (cached a minute).
  */
 @Slf4j
 @Component
@@ -38,17 +43,51 @@ public class PaystackClient {
 
     private final ObjectMapper json = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
-    private final String secretKey;
+    private final String envKey;
     private final String baseUrl;
+    private IntegrationSettingsReader integrations;
 
     public PaystackClient(@Value("${hospio.paystack.secret-key:}") String secretKey,
                           @Value("${hospio.paystack.base-url:https://api.paystack.co}") String baseUrl) {
-        this.secretKey = secretKey == null ? "" : secretKey.trim();
+        this.envKey = secretKey;
         this.baseUrl = baseUrl.replaceAll("/+$", "");
     }
 
+    @Autowired(required = false)
+    public void setIntegrations(IntegrationSettingsReader integrations) {
+        this.integrations = integrations;
+    }
+
+    /** The secret key in force: the portal's, else PAYSTACK_SECRET_KEY. */
+    private String secretKey() {
+        IntegrationSettings.Paystack env = new IntegrationSettings.Paystack(envKey);
+        String k = (integrations == null ? env : integrations.effective(env)).secretKey();
+        return k == null ? "" : k.trim();
+    }
+
     public boolean configured() {
-        return StringUtils.hasText(secretKey);
+        return StringUtils.hasText(secretKey());
+    }
+
+    /** The admin portal's test, with the key in force: GET /balance. Charges nothing. */
+    public IntegrationTestResult check() {
+        if (!configured()) {
+            return IntegrationTestResult.failed("There is no Paystack secret key, saved here or on the server");
+        }
+        try {
+            PaystackDtos.BalanceResponse res = call("GET", "/balance", null, PaystackDtos.BalanceResponse.class);
+            if (!Boolean.TRUE.equals(res.status())) {
+                return IntegrationTestResult.failed("Paystack refused the key: " + (res.message() == null ? "no reason given" : res.message()));
+            }
+            String balances = res.data() == null || res.data().isEmpty() ? "no balance lines"
+                    : res.data().stream().map(b -> (b.currency() == null ? "" : b.currency() + " ")
+                    + BigDecimal.valueOf(b.balance() == null ? 0 : b.balance()).movePointLeft(2).toPlainString())
+                    .collect(java.util.stream.Collectors.joining(", "));
+            boolean test = secretKey().startsWith("sk_test_");
+            return IntegrationTestResult.ok("Paystack accepted the key (" + (test ? "test" : "live") + " mode): balance " + balances);
+        } catch (BadRequestException e) {
+            return IntegrationTestResult.failed(e.getMessage());
+        }
     }
 
     public Checkout initialize(String email, BigDecimal amount, String reference, String callbackUrl, PaystackDtos.Metadata metadata) {
@@ -80,7 +119,8 @@ public class PaystackClient {
 
     /** Whether a webhook body really comes from Paystack (x-paystack-signature). */
     public boolean signed(String body, String signature) {
-        if (!configured() || signature == null || body == null) {
+        String secretKey = secretKey();
+        if (!StringUtils.hasText(secretKey) || signature == null || body == null) {
             return false;
         }
         try {
@@ -97,7 +137,7 @@ public class PaystackClient {
     private <T extends PaystackDtos.Answer> T call(String method, String path, Object body, Class<T> type) {
         try {
             HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(Duration.ofSeconds(20))
-                    .header("Authorization", "Bearer " + secretKey).header("Accept", "application/json");
+                    .header("Authorization", "Bearer " + secretKey()).header("Accept", "application/json");
             if ("POST".equals(method)) {
                 b.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)));
             } else {

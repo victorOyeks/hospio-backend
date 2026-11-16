@@ -32,4 +32,9 @@ public final class TermiiDtos {
     public record Report(String type, String id, @JsonProperty("message_id") String messageId, @JsonProperty("message_id_str") String messageIdStr,
                          String receiver, String sender, String status, String channel) {
     }
+
+    /** {@code GET /api/get-balance?api_key=}: {@code {"user":"…","balance":0,"currency":"NGN"}}; {@code message} when refused. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Balance(String user, java.math.BigDecimal balance, String currency, String message) {
+    }
 }

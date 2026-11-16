@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.hospio.common.security.SecretBox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Base64;
 import java.util.Map;

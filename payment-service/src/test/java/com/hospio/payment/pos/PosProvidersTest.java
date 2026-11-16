@@ -3,6 +3,7 @@ package com.hospio.payment.pos;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.hospio.common.security.SecretBox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospio.common.integrations.PosProvider.Outcome;
 import java.math.BigDecimal;

@@ -1,6 +1,7 @@
 package com.hospio.messaging.mail;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hospio.common.integrations.settings.IntegrationTestResult;
 import java.net.ConnectException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -9,41 +10,71 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.List;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
-import org.springframework.context.annotation.Primary;
-import org.springframework.stereotype.Component;
+import java.util.function.Supplier;
 import org.springframework.util.StringUtils;
 
 /**
- * Email through Brevo's transactional API (POST /v3/smtp/email) with the account's API key (docs/email.md). Used instead
- * of SMTP whenever {@code hospio.mail.brevo-api-key} (env BREVO_API_KEY) is set; the From address must be a verified
- * Brevo sender or on an authenticated domain. Brevo's message id is what gets recorded. 5xx and timeouts are worth one
- * more try; a 4xx (bad sender, bad address) is not.
+ * Email through Brevo's transactional API (POST /v3/smtp/email) with the account's API key (docs/email.md). Used instead of SMTP
+ * whenever there is a key: saved in the admin portal (Settings · Integrations · Brevo), else BREVO_API_KEY ({@link MailRouter} picks).
+ * The key is read per send, so a key saved in the portal is used within a minute. The From address must be a verified Brevo sender
+ * or on an authenticated domain. Brevo's message id is what gets recorded. 5xx and timeouts are worth one more try; a 4xx (bad sender,
+ * bad address) is not.
  */
-@Component
-@Primary
-@ConditionalOnExpression("'${hospio.mail.brevo-api-key:}' != ''")
 public class BrevoApiGateway implements SmtpGateway {
 
     private final ObjectMapper json = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
-    private final String apiKey;
+    private final Supplier<String> apiKey;
     private final String baseUrl;
 
-    public BrevoApiGateway(@Value("${hospio.mail.brevo-api-key:}") String apiKey,
-                           @Value("${hospio.mail.brevo-base-url:https://api.brevo.com/v3}") String baseUrl) {
-        this.apiKey = apiKey == null ? "" : apiKey.trim();
+    public BrevoApiGateway(String apiKey, String baseUrl) {
+        this(() -> apiKey, baseUrl);
+    }
+
+    public BrevoApiGateway(Supplier<String> apiKey, String baseUrl) {
+        this.apiKey = apiKey;
         this.baseUrl = baseUrl.replaceAll("/+$", "");
+    }
+
+    private String key() {
+        String k = apiKey.get();
+        return k == null ? "" : k.trim();
     }
 
     @Override
     public boolean configured() {
-        return StringUtils.hasText(apiKey);
+        return StringUtils.hasText(key());
+    }
+
+    /** The admin portal's test: GET /v3/account with the key in force; sends nothing. */
+    public IntegrationTestResult check() {
+        String apiKey = key();
+        if (apiKey.isEmpty()) {
+            return IntegrationTestResult.failed("There is no Brevo API key, saved here or on the server");
+        }
+        try {
+            HttpRequest req = HttpRequest.newBuilder(URI.create(baseUrl + "/account")).timeout(Duration.ofSeconds(15))
+                    .header("api-key", apiKey).header("accept", "application/json").GET().build();
+            HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+            BrevoDtos.Account a = res.body() == null || res.body().isBlank() ? new BrevoDtos.Account(null, null, null, null)
+                    : json.readValue(res.body(), BrevoDtos.Account.class);
+            if (res.statusCode() >= 300) {
+                String why = a.message() != null ? a.message() : a.code() != null ? a.code() : "HTTP " + res.statusCode();
+                return IntegrationTestResult.failed("Brevo refused the key (" + res.statusCode() + "): " + why.replace(apiKey, "***"));
+            }
+            return IntegrationTestResult.ok("Brevo accepted the key: account " + (a.email() == null ? "?" : a.email())
+                    + (a.companyName() == null ? "" : " (" + a.companyName() + ")"));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return IntegrationTestResult.failed("Interrupted");
+        } catch (Exception e) {
+            return IntegrationTestResult.failed("Brevo couldn't be reached: " + e.getClass().getSimpleName());
+        }
     }
 
     @Override
     public Accepted send(Email email) {
+        String apiKey = key();
         BrevoDtos.SendRequest body = new BrevoDtos.SendRequest(
                 new BrevoDtos.Sender(email.fromAddress(), StringUtils.hasText(email.fromName()) ? email.fromName() : null),
                 List.of(new BrevoDtos.Address(email.to())),
