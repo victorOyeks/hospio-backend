@@ -59,6 +59,8 @@ public class PaymentService {
     private final EventPublisher events;
     private final ReservationClient reservations;
     private final com.hospio.payment.client.FolioClient folios;
+    private final com.hospio.payment.pos.HotelPosRouter hotelPos;
+    private final com.hospio.payment.pos.HotelPosService hotelPosConfig;
     private final com.hospio.payment.client.FnbClient fnb;
     private final TransactionTemplate tx;
 
@@ -224,12 +226,18 @@ public class PaymentService {
         if (terminal.getStatus() != PosTerminal.Status.ONLINE) {
             throw new BadRequestException("The POS " + terminal.getName() + " is offline. Cash only until it is back");
         }
+        if (hotelPosConfig.paused(hotelId)) {
+            throw new BadRequestException("POS payments are paused: Hospio360's fee is unpaid for 3 days. Take cash or a transfer; the owner can settle it with Hospio360");
+        }
         p.setTerminalId(terminal.getId());
         p.setProvider(terminal.getProvider());
         payments.save(p);
         try {
-            String ref = posProvider.requestPayment(terminal.getTerminalRef(), p.getId(), p.getAmount(), p.getCurrency(),
-                    p.getDescription() == null ? "Hospio payment" : p.getDescription());
+            // A hotel with its own Moniepoint or OPay keys goes to its provider; any other keeps the server's POS provider.
+            String ref = hotelPos.handles(hotelId)
+                    ? hotelPos.requestPayment(hotelId, terminal.getTerminalRef(), p.getId(), p.getAmount())
+                    : posProvider.requestPayment(terminal.getTerminalRef(), p.getId(), p.getAmount(), p.getCurrency(),
+                            p.getDescription() == null ? "Hospio payment" : p.getDescription());
             p.setProviderRef(ref);
             p.setStatus(PaymentStatus.PROCESSING);
         } catch (com.hospio.common.integrations.PosNotConnectedException e) {
@@ -251,7 +259,12 @@ public class PaymentService {
     /** The provider's webhook (Moniepoint/OPay). Public endpoint; the provider adapter validates the body. */
     @Transactional
     public void onWebhook(String provider, Map<String, Object> body, Map<String, String> headers) {
-        PosProvider.WebhookResult result = posProvider.parseWebhook(body, headers);
+        applyWebhook(provider, posProvider.parseWebhook(body, headers));
+    }
+
+    /** A webhook already checked and read (the hotel-keyed OPay and Moniepoint webhooks): settles the payment it names. */
+    @Transactional
+    public void applyWebhook(String provider, PosProvider.WebhookResult result) {
         TenantContext.runWith(Tenant.system("pos-webhook"), () -> {
             // Locked until commit: a retried webhook, Verify or Cancel on the same payment waits here and then sees it resolved.
             PaymentRequest p = null;
@@ -301,7 +314,9 @@ public class PaymentService {
             return PaymentResponse.of(seen);
         }
         checkPending(seen);
-        PosProvider.WebhookResult result = posProvider.query(seen.getProviderRef()).orElse(null);
+        PosProvider.WebhookResult result = (hotelPos.handles(seen.getHotelId())
+                ? hotelPos.query(seen.getHotelId(), seen.getId(), seen.getProviderRef())
+                : posProvider.query(seen.getProviderRef())).orElse(null);
         if (result == null || result.outcome() == PosProvider.Outcome.UNKNOWN || result.outcome() == PosProvider.Outcome.NO_RESPONSE) {
             throw new BadRequestException("Still pending. The POS hasn't confirmed it yet");
         }

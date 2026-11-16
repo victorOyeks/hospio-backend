@@ -1,8 +1,8 @@
 package com.hospio.messaging.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospio.messaging.mail.MailDispatcher;
+import com.hospio.messaging.text.TermiiDtos;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
@@ -45,9 +45,10 @@ public class TermiiWebhookController {
             return ResponseEntity.status(401).build();
         }
         try {
-            JsonNode r = json.readTree(raw);
-            String id = r.path("message_id").asText(r.path("message_id_str").asText(r.path("id").asText(null)));
-            String status = r.path("status").asText("");
+            // Parsed only after the signature is checked against the raw bytes exactly as Termii sent them.
+            TermiiDtos.Report r = json.readValue(raw, TermiiDtos.Report.class);
+            String id = r.messageId() != null ? r.messageId() : r.messageIdStr() != null ? r.messageIdStr() : r.id();
+            String status = r.status() == null ? "" : r.status();
             String group = group(status);
             boolean applied = id != null && group != null && dispatcher.applyReport("termii:" + id, group, status);
             log.info("Termii report {}: {} ({})", id, status, applied ? "applied" : "not applied");

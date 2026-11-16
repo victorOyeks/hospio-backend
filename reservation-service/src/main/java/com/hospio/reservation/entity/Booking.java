@@ -103,6 +103,14 @@ public class Booking extends TenantEntity {
     @Column(name = "folio_paid", insertable = false, updatable = false)
     private BigDecimal folioPaid;
 
+    /** When the night audit marked the stay a no-show. */
+    @Column(name = "no_show_at")
+    private Instant noShowAt;
+
+    /** What the guest had paid when marked a no-show: kept by the hotel (null when nothing was paid). */
+    @Column(name = "kept_on_no_show")
+    private BigDecimal keptOnNoShow;
+
     /** Still owed on the stay's folios; null before check-in. */
     @Column(name = "folio_balance", insertable = false, updatable = false)
     private BigDecimal folioBalance;

@@ -2,11 +2,9 @@ package com.hospio.tenant.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hospio.common.delivery.Delivery;
 import com.hospio.tenant.dto.HotelResponse;
+import com.hospio.tenant.dto.OnboardingLogin;
 import com.hospio.tenant.entity.Hotel;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -15,24 +13,14 @@ import org.junit.jupiter.api.Test;
 class HandoverPackTest {
 
     private final HandoverPack pack = new HandoverPack("https://web-staging.hospio360.com/");
-    private final ObjectMapper mapper = new ObjectMapper();
 
     private static HotelResponse hotel(String id, String name, int rooms) {
         return new HotelResponse(id, "b1", name, "Lagos", null, null, null, "Africa/Lagos", Hotel.Status.ACTIVE, null, rooms, "14:00", "12:00",
                 null, null, null);
     }
 
-    private JsonNode login(String name, String email, String role, String hotelId, String password) {
-        ObjectNode n = mapper.createObjectNode().put("fullName", name).put("email", email).put("role", role);
-        if (hotelId == null) {
-            n.putNull("hotelId");
-        } else {
-            n.put("hotelId", hotelId);
-        }
-        if (password != null) {
-            n.put("temporaryPassword", password);
-        }
-        return n;
+    private static OnboardingLogin login(String name, String email, String role, String hotelId, String password) {
+        return new OnboardingLogin("u-" + name, name, email, role, hotelId, null, password, null, null, null, null);
     }
 
     @Test
@@ -64,5 +52,12 @@ class HandoverPackTest {
         assertThat(text).contains("Hello there").contains("HOTELS\n- none yet").contains("LOGINS\n- none yet");
         assertThat(HandoverPack.label("FRONT_OFFICE")).isEqualTo("Front office");
         assertThat(HandoverPack.label("SOMETHING_ELSE")).isEqualTo("Something else");
+    }
+
+    @Test
+    void aLoginWithNoRoleOrNameIsListedUnderOther() {
+        String text = pack.text("New Place", "Ada", List.of(), List.of(new OnboardingLogin("u1", null, "x@y.ng", null, null, null, null, null, null,
+                null, null)));
+        assertThat(text).contains("Other\n-  \u00b7 x@y.ng\n");
     }
 }

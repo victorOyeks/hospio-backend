@@ -37,18 +37,21 @@ public class PendingPaymentCheckJob {
     private final PaymentRequestRepository payments;
     private final PaymentService service;
     private final PosProvider provider;
+    private final com.hospio.payment.pos.HotelPosRouter hotelPos;
     /** Now, a test seam. */
     Clock clock = Clock.systemUTC();
 
-    public PendingPaymentCheckJob(PaymentRequestRepository payments, PaymentService service, PosProvider provider) {
+    public PendingPaymentCheckJob(PaymentRequestRepository payments, PaymentService service, PosProvider provider,
+                                  com.hospio.payment.pos.HotelPosRouter hotelPos) {
         this.payments = payments;
         this.service = service;
         this.provider = provider;
+        this.hotelPos = hotelPos;
     }
 
     @Scheduled(fixedDelayString = "${hospio.payments.pending-check-ms:30000}", initialDelayString = "${hospio.payments.pending-check-ms:30000}")
     public void run() {
-        if ("logging".equals(provider.name())) {
+        if ("logging".equals(provider.name()) && !hotelPos.anyConfigured()) {
             return;
         }
         check();

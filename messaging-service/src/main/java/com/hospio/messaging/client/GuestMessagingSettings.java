@@ -3,7 +3,7 @@ package com.hospio.messaging.client;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.setup.GuestMessaging;
 import com.hospio.common.setup.HotelSettingsReader;
-import com.hospio.common.setup.SetupCatalogue;
+import com.hospio.common.setup.SetupSection;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +19,6 @@ public class GuestMessagingSettings {
     }
 
     public GuestMessaging forHotel(String hotelId) {
-        return hotelId == null ? GuestMessaging.DEFAULTS : GuestMessaging.of(settings.section(hotelId, SetupCatalogue.MESSAGING));
+        return hotelId == null ? GuestMessaging.DEFAULTS : GuestMessaging.of(settings.section(hotelId, SetupSection.Messaging.class));
     }
 }

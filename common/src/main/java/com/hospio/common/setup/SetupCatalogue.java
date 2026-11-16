@@ -1,29 +1,32 @@
 package com.hospio.common.setup;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.RecordComponent;
+import java.lang.reflect.Type;
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
 
 /**
- * The Hotel setup contract with the web apps: every section, its keys and their defaults, and the
- * default entries of each list (docs/onboarding.md, hotel-config-service). hotel-config answers
- * {@code GET /setup} by laying a hotel's stored values over these defaults, so a brand-new hotel already
- * answers fully; tenant-service seeds the "Standard hotel" template from {@link #templateJson()}. Keys a
- * hotel stores that are not listed here are kept as they are.
+ * The Hotel setup contract with the web apps: every section with its typed record ({@link SetupSection}) and defaults, and the
+ * default entries of each list (docs/onboarding.md, hotel-config-service). hotel-config answers {@code GET /setup} by laying a
+ * hotel's stored values over these defaults, so a brand-new hotel already answers fully; tenant-service seeds the "Standard
+ * hotel" template from {@link #template()}. Only the keys listed here are kept: a key or section the catalogue does not know
+ * is ignored when read and never stored.
  */
 public final class SetupCatalogue {
 
     private SetupCatalogue() {
     }
-
-    private static final JsonNodeFactory J = JsonNodeFactory.instance;
 
     public static final String BASICS = "BASICS";
     public static final String BRAND = "BRAND";
@@ -41,8 +44,8 @@ public final class SetupCatalogue {
     /** Sections only the owner may change; Hospio360 applies them through templates during onboarding. */
     public static final Set<String> OWNER_ONLY_SECTIONS = Set.of(TAXES_CURRENCY, APPROVAL_LIMITS);
 
-    /** Section → key → default, in the order the Hotel setup screen shows them. */
-    public static final Map<String, Map<String, JsonNode>> SECTIONS;
+    /** Section name → its record type, in the order the Hotel setup screen shows them. */
+    public static final Map<String, Class<? extends SetupSection>> SECTIONS;
 
     public record ListDefault(String code, String label) {
     }
@@ -51,22 +54,19 @@ public final class SetupCatalogue {
     public static final Map<String, List<ListDefault>> LISTS;
 
     static {
-        Map<String, Map<String, JsonNode>> s = new LinkedHashMap<>();
-        s.put(BASICS, section("checkInTime", t("14:00"), "checkOutTime", t("12:00"), "timezone", t("Africa/Lagos"), "receiptFooter", t("")));
-        s.put(BRAND, section("primaryColour", t("#4c091e"), "shortName", t(""), "darkSidebar", b(true), "logoUrl", t("")));
-        s.put(STAY_RULES, section("allowOverbooking", b(false), "lateCheckoutFee", n(0), "maxStayNights", n(30)));
-        s.put(PAYMENTS, section("allowCash", b(true), "allowCard", b(true), "allowTransfer", b(true), "receipts", t("WHATSAPP"),
-                "depositPct", n(0), "tillFloat", n(0), "bankName", t(""), "bankAccount", t("")));
-        s.put(TAXES_CURRENCY, section("currency", t("NGN"), "vatPct", d("7.5"), "serviceChargePct", n(0), "consumptionTaxPct", n(0),
-                "pricesIncludeTax", b(true)));
-        s.put(APPROVAL_LIMITS, section("managerExpenseLimit", n(200000), "ownerExpenseLimit", n(0), "discountPct", n(10),
-                "refundsNeedOwner", b(false), "rateChangesNeedOwner", b(true), "rateChangeOwnerPct", n(0)));
-        s.put(HOUSEKEEPING, section("inspectDepartures", b(true), "minibarToFolio", b(true), "lostFoundHoldDays", n(90)));
-        s.put(OUTLETS, section("roomCharge", b(true), "tabs", b(true), "tabLimit", n(50000)));
-        s.put(MESSAGING, section("whatsappNumber", t(""), "sendConfirmation", b(true), "arrivalMessage", b(true), "sendReceipts", b(true)));
-        s.put(STAFF, section("lateMinutes", n(15), "notifyEveryClockIn", b(false)));
-        s.put(NIGHT_AUDIT, section("closeTime", t("23:00"), "tillsClosedFirst", b(true), "arrivalsResolvedFirst", b(true)));
-        s.put(POS, section("provider", t("logging"), "offlineCash", b(true), "receiptChannel", t("PRINT")));
+        Map<String, Class<? extends SetupSection>> s = new LinkedHashMap<>();
+        s.put(BASICS, SetupSection.Basics.class);
+        s.put(BRAND, SetupSection.Brand.class);
+        s.put(STAY_RULES, SetupSection.StayRules.class);
+        s.put(PAYMENTS, SetupSection.Payments.class);
+        s.put(TAXES_CURRENCY, SetupSection.TaxesCurrency.class);
+        s.put(APPROVAL_LIMITS, SetupSection.ApprovalLimits.class);
+        s.put(HOUSEKEEPING, SetupSection.Housekeeping.class);
+        s.put(OUTLETS, SetupSection.Outlets.class);
+        s.put(MESSAGING, SetupSection.Messaging.class);
+        s.put(STAFF, SetupSection.Staff.class);
+        s.put(NIGHT_AUDIT, SetupSection.NightAudit.class);
+        s.put(POS, SetupSection.Pos.class);
         SECTIONS = Collections.unmodifiableMap(s);
 
         Map<String, List<ListDefault>> l = new LinkedHashMap<>();
@@ -90,59 +90,137 @@ public final class SetupCatalogue {
         return OWNER_ONLY_SECTIONS.contains(section);
     }
 
-    /** The defaults of one section (empty for a section the catalogue does not know). */
-    public static Map<String, JsonNode> defaults(String section) {
-        return SECTIONS.getOrDefault(section, Map.of());
+    /** The record type of a section name (upper case), or empty for a section the catalogue does not know. */
+    public static Optional<Class<? extends SetupSection>> typeOf(String section) {
+        return Optional.ofNullable(section == null ? null : SECTIONS.get(section));
     }
 
-    /** One section: the defaults with the stored values laid over them; stored keys the catalogue lacks are kept. */
-    public static Map<String, JsonNode> mergeSection(String section, Map<String, JsonNode> stored) {
-        Map<String, JsonNode> out = new LinkedHashMap<>(defaults(section));
-        if (stored != null) {
-            out.putAll(stored);
-        }
-        return out;
-    }
-
-    /** Every catalogue section merged over the stored values, then any stored section the catalogue lacks. */
-    public static Map<String, Map<String, JsonNode>> merge(Map<String, Map<String, JsonNode>> stored) {
-        Map<String, Map<String, JsonNode>> out = new LinkedHashMap<>();
-        for (String section : SECTIONS.keySet()) {
-            out.put(section, mergeSection(section, stored == null ? null : stored.get(section)));
-        }
-        if (stored != null) {
-            stored.forEach((section, values) -> out.computeIfAbsent(section, k -> new LinkedHashMap<>(values)));
-        }
-        return out;
-    }
-
-    /** The whole catalogue as a template: {"sections": {SECTION: {key: value}}, "lists": {LIST: [{code, label, sortOrder}]}}. */
-    public static ObjectNode templateJson() {
-        ObjectNode root = J.objectNode();
-        ObjectNode sections = root.putObject("sections");
-        SECTIONS.forEach((name, values) -> {
-            ObjectNode node = sections.putObject(name);
-            values.forEach(node::set);
-        });
-        ObjectNode lists = root.putObject("lists");
-        LISTS.forEach((name, items) -> {
-            ArrayNode arr = lists.putArray(name);
-            for (int i = 0; i < items.size(); i++) {
-                ObjectNode item = arr.addObject();
-                item.put("code", items.get(i).code());
-                item.put("label", items.get(i).label());
-                item.put("sortOrder", i + 1);
+    /** The section name of a record type ({@code SetupSection.Payments.class} → PAYMENTS). */
+    public static String nameOf(Class<? extends SetupSection> type) {
+        for (Map.Entry<String, Class<? extends SetupSection>> e : SECTIONS.entrySet()) {
+            if (e.getValue() == type) {
+                return e.getKey();
             }
-        });
-        return root;
+        }
+        throw new IllegalArgumentException("Not a Hotel setup section: " + type);
     }
 
-    private static Map<String, JsonNode> section(Object... keyValues) {
-        Map<String, JsonNode> m = new LinkedHashMap<>();
-        for (int i = 0; i < keyValues.length; i += 2) {
-            m.put((String) keyValues[i], (JsonNode) keyValues[i + 1]);
+    /** The defaults of one section, or null for a section the catalogue does not know. */
+    public static SetupSection defaults(String section) {
+        return HotelSetup.DEFAULTS.get(section);
+    }
+
+    /** The defaults of one section by its type. */
+    public static <T extends SetupSection> T defaults(Class<T> type) {
+        return type.cast(HotelSetup.DEFAULTS.get(nameOf(type)));
+    }
+
+    /** The keys of a section, in order: the JSON names of its record components. */
+    public static List<String> keys(Class<? extends SetupSection> type) {
+        return Arrays.stream(type.getRecordComponents()).map(RecordComponent::getName).toList();
+    }
+
+    /** How many keys the whole catalogue has. */
+    public static int keyCount() {
+        return SECTIONS.values().stream().mapToInt(t -> t.getRecordComponents().length).sum();
+    }
+
+    /** One value of a section: its key, the Java type it is read as, and the value (null when absent). */
+    public record Value(String key, Type type, Object value) {
+    }
+
+    /** The keys of a section with their values, in order (absent keys carry a null value). */
+    public static List<Value> values(SetupSection section) {
+        List<Value> out = new ArrayList<>();
+        for (RecordComponent c : section.getClass().getRecordComponents()) {
+            out.add(new Value(c.getName(), c.getGenericType(), read(c, section)));
         }
-        return Collections.unmodifiableMap(m);
+        return out;
+    }
+
+    /** The keys a section carries a value for, in order. */
+    public static List<Value> present(SetupSection section) {
+        return values(section).stream().filter(v -> v.value() != null).toList();
+    }
+
+    /** True when the section carries no value at all ({@code {}}). */
+    public static boolean isEmpty(SetupSection section) {
+        return section == null || present(section).isEmpty();
+    }
+
+    /**
+     * Builds a section from its keys: {@code value} is asked for each key with the type it must have and answers a value of that
+     * type, or null for an absent key.
+     */
+    public static <T extends SetupSection> T build(Class<T> type, BiFunction<String, Type, Object> value) {
+        RecordComponent[] components = type.getRecordComponents();
+        Object[] args = new Object[components.length];
+        Class<?>[] types = new Class<?>[components.length];
+        for (int i = 0; i < components.length; i++) {
+            args[i] = value.apply(components[i].getName(), components[i].getGenericType());
+            types[i] = components[i].getType();
+        }
+        try {
+            Constructor<T> canonical = type.getDeclaredConstructor(types);
+            return canonical.newInstance(args);
+        } catch (NoSuchMethodException | InstantiationException | IllegalAccessException | InvocationTargetException e) {
+            throw new IllegalStateException("Could not build " + type.getSimpleName(), e);
+        }
+    }
+
+    /** {@code over}'s values laid over {@code base}: every key {@code over} carries wins, the others keep {@code base}'s. */
+    @SuppressWarnings("unchecked")
+    public static <T extends SetupSection> T overlay(T base, T over) {
+        if (over == null) {
+            return base;
+        }
+        if (base == null) {
+            return over;
+        }
+        Map<String, Object> top = new LinkedHashMap<>();
+        values(over).forEach(v -> top.put(v.key(), v.value()));
+        Map<String, Object> bottom = new LinkedHashMap<>();
+        values(base).forEach(v -> bottom.put(v.key(), v.value()));
+        return (T) build(base.getClass(), (key, t) -> top.get(key) != null ? top.get(key) : bottom.get(key));
+    }
+
+    /** One section: the defaults with the stored values laid over them. */
+    public static <T extends SetupSection> T withDefaults(Class<T> type, T stored) {
+        return overlay(defaults(type), stored);
+    }
+
+    /** Every catalogue section: the defaults with the stored values (any of them null) laid over them. */
+    public static HotelSetup withDefaults(HotelSetup stored) {
+        return HotelSetup.of(name -> overlay(HotelSetup.DEFAULTS.get(name), stored == null ? null : stored.get(name)));
+    }
+
+    /** True when two values of a key are the same setting (7.5 and 7.50 are the same rate). */
+    public static boolean sameValue(Object a, Object b) {
+        if (a instanceof BigDecimal x && b instanceof BigDecimal y) {
+            return x.compareTo(y) == 0;
+        }
+        return Objects.equals(a, b);
+    }
+
+    /** The whole catalogue as a template: every section's defaults and every list's default entries, numbered from 1. */
+    public static SetupTemplateSettings template() {
+        Map<String, List<SetupListEntry>> lists = new LinkedHashMap<>();
+        LISTS.forEach((name, items) -> {
+            List<SetupListEntry> entries = new ArrayList<>();
+            for (int i = 0; i < items.size(); i++) {
+                entries.add(new SetupListEntry(items.get(i).code(), items.get(i).label(), i + 1));
+            }
+            lists.put(name, List.copyOf(entries));
+        });
+        return SetupTemplateSettings.of(HotelSetup.DEFAULTS, Collections.unmodifiableMap(lists));
+    }
+
+    private static Object read(RecordComponent c, Object record) {
+        try {
+            return c.getAccessor().invoke(record);
+        } catch (IllegalAccessException | InvocationTargetException e) {
+            throw new IllegalStateException("Could not read " + c.getName(), e);
+        }
     }
 
     private static List<ListDefault> items(String... codeLabels) {
@@ -151,21 +229,5 @@ public final class SetupCatalogue {
             out[i / 2] = new ListDefault(codeLabels[i], codeLabels[i + 1]);
         }
         return List.of(out);
-    }
-
-    private static JsonNode t(String v) {
-        return J.textNode(v);
-    }
-
-    private static JsonNode b(boolean v) {
-        return J.booleanNode(v);
-    }
-
-    private static JsonNode n(long v) {
-        return J.numberNode(v);
-    }
-
-    private static JsonNode d(String v) {
-        return J.numberNode(new BigDecimal(v));
     }
 }

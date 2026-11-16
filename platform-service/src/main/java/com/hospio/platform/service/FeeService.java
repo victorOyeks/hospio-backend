@@ -64,6 +64,8 @@ public class FeeService {
     public static final String PERCENT_OF_PAYMENTS = "PERCENT_OF_PAYMENTS";
     public static final String PER_ROOM_NIGHT = "PER_ROOM_NIGHT";
     public static final String PERCENT_OF_BOOKINGS = "PERCENT_OF_BOOKINGS";
+    /** A share of everything sold each day, worked out and debited daily (DailyFeeService); never on a monthly statement. */
+    public static final String PERCENT_OF_SALES = "PERCENT_OF_SALES";
     static final Set<String> OPEN_STATUSES = Set.of("DUE", "PART_PAID", "OVERDUE");
     static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("d MMM yyyy").withZone(ZoneId.of("Africa/Lagos"));
     static final ZoneId LAGOS = ZoneId.of("Africa/Lagos");
@@ -92,8 +94,8 @@ public class FeeService {
     @Transactional
     public FeeRule saveRule(PlatformRequests.FeeRuleRequest request) {
         String model = request.model().toUpperCase(Locale.ROOT);
-        if (!Set.of(PERCENT_OF_PAYMENTS, PER_ROOM_NIGHT, PERCENT_OF_BOOKINGS).contains(model)) {
-            throw new BadRequestException("Fee model must be PERCENT_OF_PAYMENTS, PER_ROOM_NIGHT or PERCENT_OF_BOOKINGS");
+        if (!Set.of(PERCENT_OF_SALES, PERCENT_OF_PAYMENTS, PER_ROOM_NIGHT, PERCENT_OF_BOOKINGS).contains(model)) {
+            throw new BadRequestException("Fee model must be PERCENT_OF_SALES, PERCENT_OF_PAYMENTS, PER_ROOM_NIGHT or PERCENT_OF_BOOKINGS");
         }
         if (request.value().signum() < 0) {
             throw new BadRequestException("The fee value cannot be negative");
@@ -179,6 +181,12 @@ public class FeeService {
         int created = 0;
         int skipped = 0;
         for (TenantClient.Business b : targets) {
+            // Daily fees are debited each day: no monthly statement (and no invoice) for them.
+            if (PERCENT_OF_SALES.equals(resolveModel(b.id(), b))) {
+                skipped++;
+                notes.add(b.name() + ": billed daily (percent of sales), no monthly statement");
+                continue;
+            }
             if (feeStatements.findByBusinessIdAndMonth(b.id(), ym.toString()).isPresent()) {
                 skipped++;
                 continue;
@@ -265,7 +273,7 @@ public class FeeService {
         BigDecimal v = value == null ? BigDecimal.ZERO : value;
         return switch (model == null ? "" : model.toUpperCase(Locale.ROOT)) {
             case PER_ROOM_NIGHT -> Money.of(v.multiply(BigDecimal.valueOf(nights)));
-            case PERCENT_OF_PAYMENTS, PERCENT_OF_BOOKINGS -> Money.percent(baseAmount, v);
+            case PERCENT_OF_PAYMENTS, PERCENT_OF_BOOKINGS, PERCENT_OF_SALES -> Money.percent(baseAmount, v);
             default -> throw new BadRequestException("Unknown fee model " + model);
         };
     }
@@ -411,6 +419,15 @@ public class FeeService {
     }
 
     // ---- helpers -------------------------------------------------------------------------------------
+
+    /** The business's fee model and value now: its newest rule, else what tenant-service holds, else the platform default. */
+    public String modelFor(TenantClient.Business b) {
+        return resolveModel(b.id(), b);
+    }
+
+    public BigDecimal valueFor(TenantClient.Business b) {
+        return resolveValue(b.id(), b);
+    }
 
     private String resolveModel(String businessId, TenantClient.Business b) {
         FeeRule rule = feeRules.findByBusinessIdOrderByStartsOnDesc(businessId).stream().findFirst().orElse(null);

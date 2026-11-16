@@ -2,7 +2,7 @@ package com.hospio.housekeeping.client;
 
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.setup.HotelSettingsReader;
-import com.hospio.common.setup.SetupCatalogue;
+import com.hospio.common.setup.SetupSection;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -20,8 +20,8 @@ public class HotelConfigClient {
     }
 
     public int lostFoundHoldDays(String hotelId) {
-        return settings.section(hotelId, SetupCatalogue.HOUSEKEEPING)
-                .map(n -> n.path("lostFoundHoldDays").isNumber() ? Math.max(0, n.path("lostFoundHoldDays").asInt()) : DEFAULT_HOLD_DAYS)
+        return settings.section(hotelId, SetupSection.Housekeeping.class)
+                .map(SetupSection.Housekeeping::lostFoundHoldDays).map(days -> Math.max(0, days))
                 .orElse(DEFAULT_HOLD_DAYS);
     }
 }

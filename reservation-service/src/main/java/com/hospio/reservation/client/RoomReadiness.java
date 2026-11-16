@@ -1,12 +1,15 @@
 package com.hospio.reservation.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import com.hospio.common.setup.HotelSettingsReader;
-import com.hospio.common.setup.SetupCatalogue;
+import com.hospio.common.setup.SetupSection;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -14,6 +17,14 @@ import org.springframework.web.client.RestClient;
 @Slf4j
 @Component
 public class RoomReadiness {
+
+    /** One room on housekeeping's board: its id and status (CLEAN, DIRTY, ...). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record RoomStatus(String roomId, String status) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<List<RoomStatus>>> BOARD = new ParameterizedTypeReference<>() {
+    };
 
     private final RestClient housekeeping;
     private final HotelSettingsReader settings;
@@ -32,11 +43,12 @@ public class RoomReadiness {
      */
     public boolean isDirty(String hotelId, String roomId) {
         try {
-            JsonNode body = housekeeping.get().uri("/internal/room-status?hotelId={h}&roomId={r}", hotelId, roomId).retrieve().body(JsonNode.class);
-            if (body != null) {
-                for (JsonNode r : body.path("data")) {
-                    if (roomId.equals(r.path("roomId").asText())) {
-                        return "DIRTY".equals(r.path("status").asText());
+            ApiResponse<List<RoomStatus>> body = housekeeping.get().uri("/internal/room-status?hotelId={h}&roomId={r}", hotelId, roomId)
+                    .retrieve().body(BOARD);
+            if (body != null && body.data() != null) {
+                for (RoomStatus r : body.data()) {
+                    if (r != null && roomId.equals(r.roomId())) {
+                        return "DIRTY".equals(r.status());
                     }
                 }
             }
@@ -48,6 +60,6 @@ public class RoomReadiness {
 
     /** HOUSEKEEPING.inspectDepartures: when on, a dirty room needs a manager's override to check in. */
     public boolean inspectDepartures(String hotelId) {
-        return settings.section(hotelId, SetupCatalogue.HOUSEKEEPING).map(n -> n.path("inspectDepartures").asBoolean(true)).orElse(true);
+        return settings.section(hotelId, SetupSection.Housekeeping.class).map(SetupSection.Housekeeping::inspectDepartures).orElse(true);
     }
 }

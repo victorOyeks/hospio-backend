@@ -1,12 +1,14 @@
 package com.hospio.housekeeping.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
@@ -20,11 +22,30 @@ import org.springframework.web.client.RestClient;
 @Component
 public class MaintenanceClient {
 
+    /** The part of maintenance-service's work order this client reads. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record RepairRef(String id) {
+    }
+
+    /** The envelope of a refusal: only its sentence is read. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Refusal(String message) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<RepairRef>> REPAIR = new ParameterizedTypeReference<>() {
+    };
+
     private final RestClient restClient;
 
     public MaintenanceClient(@Value("${services.maintenance.url}") String url, JwtUtil jwtUtil,
                              @Value("${services.internal.api-key}") String internalApiKey) {
         this.restClient = ServiceClients.internal(url, jwtUtil, internalApiKey);
+    }
+
+    /** maintenance-service's internal repair request; priority and area are left out when not set. */
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    record RepairRequest(String roomId, String roomNumber, String title, String description, String source, String photoKey, String priority,
+                         String area) {
     }
 
     public String openRepair(String roomId, String roomNumber, String description, String photoKey) {
@@ -33,25 +54,20 @@ public class MaintenanceClient {
 
     public String openRepair(String roomId, String roomNumber, String description, String photoKey, String priority, boolean outOfOrder) {
         try {
-            Map<String, Object> request = new java.util.HashMap<>(Map.of("roomId", roomId == null ? "" : roomId, "roomNumber", roomNumber == null ? "" : roomNumber,
-                    "title", description.length() > 80 ? description.substring(0, 80) : description, "description", description,
-                    "source", "HOUSEKEEPING", "photoKey", photoKey == null ? "" : photoKey));
-            if (priority != null) {
-                request.put("priority", priority);
-            }
-            if ((roomId == null || roomId.isBlank()) && roomNumber != null && !roomNumber.isBlank()) {
-                // A public area ("Lobby", "Floor 2 corridor"): maintenance needs it as the place, not as a room number.
-                request.put("area", roomNumber.length() > 100 ? roomNumber.substring(0, 100) : roomNumber);
-                request.put("roomNumber", "");
-            }
-            JsonNode body = restClient.post().uri("/internal/repairs?outOfOrder={o}", outOfOrder)
+            // A public area ("Lobby", "Floor 2 corridor"): maintenance needs it as the place, not as a room number.
+            boolean area = (roomId == null || roomId.isBlank()) && roomNumber != null && !roomNumber.isBlank();
+            RepairRequest request = new RepairRequest(roomId == null ? "" : roomId, area || roomNumber == null ? "" : roomNumber,
+                    description.length() > 80 ? description.substring(0, 80) : description, description, "HOUSEKEEPING",
+                    photoKey == null ? "" : photoKey, priority, area ? (roomNumber.length() > 100 ? roomNumber.substring(0, 100) : roomNumber) : null);
+            ApiResponse<RepairRef> body = restClient.post().uri("/internal/repairs?outOfOrder={o}", outOfOrder)
                     .body(request)
-                    .retrieve().body(JsonNode.class);
-            return body == null ? null : body.path("data").path("id").asText(null);
+                    .retrieve().body(REPAIR);
+            return body == null || body.data() == null ? null : body.data().id();
         } catch (HttpClientErrorException e) {
             String message = null;
             try {
-                message = e.getResponseBodyAs(JsonNode.class).path("message").asText(null);
+                Refusal refusal = e.getResponseBodyAs(Refusal.class);
+                message = refusal == null ? null : refusal.message();
             } catch (Exception ignored) {
                 // no readable body: fall through to the generic sentence
             }

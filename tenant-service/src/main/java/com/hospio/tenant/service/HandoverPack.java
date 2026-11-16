@@ -1,8 +1,8 @@
 package com.hospio.tenant.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.hospio.common.delivery.Delivery;
 import com.hospio.tenant.dto.HotelResponse;
+import com.hospio.tenant.dto.OnboardingLogin;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,12 +29,12 @@ public class HandoverPack {
     }
 
     public Delivery email(String businessId, String businessName, String ownerName, String ownerEmail, List<HotelResponse> hotels,
-                          List<JsonNode> logins) {
+                          List<OnboardingLogin> logins) {
         return Delivery.email(ownerEmail, "Your Hospio360 handover pack \u00b7 " + businessName,
                 text(businessName, ownerName, hotels, logins), Delivery.Kind.HANDOVER_PACK, businessId);
     }
 
-    public String text(String businessName, String ownerName, List<HotelResponse> hotels, List<JsonNode> logins) {
+    public String text(String businessName, String ownerName, List<HotelResponse> hotels, List<OnboardingLogin> logins) {
         StringBuilder sb = new StringBuilder();
         sb.append("Hello ").append(ownerName == null ? "there" : ownerName).append(",\n\n");
         sb.append("Hospio360 has finished setting up ").append(businessName).append(" on Hospio360. Here is what is ready for you.\n\n");
@@ -55,16 +55,16 @@ public class HandoverPack {
         sb.append("\nLOGINS\n");
         Map<String, String> hotelNames = hotels == null ? Map.of()
                 : hotels.stream().collect(Collectors.toMap(HotelResponse::id, HotelResponse::name, (a, b) -> a));
-        Map<String, List<JsonNode>> byRole = logins == null ? Map.of() : logins.stream()
-                .collect(Collectors.groupingBy(l -> l.path("role").asText("OTHER"), LinkedHashMap::new, Collectors.toList()));
+        Map<String, List<OnboardingLogin>> byRole = logins == null ? Map.of() : logins.stream()
+                .collect(Collectors.groupingBy(l -> l.role() == null ? "OTHER" : l.role(), LinkedHashMap::new, Collectors.toList()));
         if (byRole.isEmpty()) {
             sb.append("- none yet\n");
         }
         byRole.forEach((role, people) -> {
             sb.append(label(role)).append('\n');
-            for (JsonNode p : people) {
-                sb.append("- ").append(p.path("fullName").asText("")).append(" \u00b7 ").append(p.path("email").asText(""));
-                String hotelId = p.path("hotelId").asText(null);
+            for (OnboardingLogin p : people) {
+                sb.append("- ").append(p.fullName() == null ? "" : p.fullName()).append(" \u00b7 ").append(p.email() == null ? "" : p.email());
+                String hotelId = p.hotelId();
                 if (hotelId != null && !hotelId.isBlank()) {
                     sb.append(" \u00b7 ").append(hotelNames.getOrDefault(hotelId, hotelId));
                 }

@@ -2,7 +2,7 @@ package com.hospio.finance.client;
 
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.setup.HotelSettingsReader;
-import com.hospio.common.setup.SetupCatalogue;
+import com.hospio.common.setup.SetupSection;
 import com.hospio.common.util.Money;
 import java.math.BigDecimal;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,26 +29,26 @@ public class HotelSettings {
     }
 
     public Limits limits(String hotelId) {
-        return reader.section(hotelId, SetupCatalogue.APPROVAL_LIMITS).map(n -> new Limits(
-                n.path("managerExpenseLimit").isNumber() ? n.path("managerExpenseLimit").decimalValue() : fallbackManagerLimit,
-                n.path("ownerExpenseLimit").isNumber() ? n.path("ownerExpenseLimit").decimalValue() : BigDecimal.ZERO))
+        return reader.section(hotelId, SetupSection.ApprovalLimits.class).map(a -> new Limits(
+                a.managerExpenseLimit() != null ? a.managerExpenseLimit() : fallbackManagerLimit,
+                a.ownerExpenseLimit() != null ? a.ownerExpenseLimit() : BigDecimal.ZERO))
                 .orElse(new Limits(fallbackManagerLimit, BigDecimal.ZERO));
     }
 
     public BigDecimal tillFloat(String hotelId) {
-        return Money.of(reader.section(hotelId, SetupCatalogue.PAYMENTS).map(n -> n.path("tillFloat")).filter(n -> n.isNumber()).map(n -> n.decimalValue()).orElse(BigDecimal.ZERO));
+        return Money.of(reader.section(hotelId, SetupSection.Payments.class).map(SetupSection.Payments::tillFloat).orElse(BigDecimal.ZERO));
     }
 
     public int lateMinutes(String hotelId) {
-        return reader.section(hotelId, SetupCatalogue.STAFF).map(n -> n.path("lateMinutes").asInt(15)).orElse(15);
+        return reader.section(hotelId, SetupSection.Staff.class).map(SetupSection.Staff::lateMinutes).orElse(15);
     }
 
     /** Hotel setup → Staff & shifts: tell the managers about every clock-in, not only late ones (off by default). */
     public boolean notifyEveryClockIn(String hotelId) {
-        return reader.section(hotelId, SetupCatalogue.STAFF).map(n -> n.path("notifyEveryClockIn").asBoolean(false)).orElse(false);
+        return reader.section(hotelId, SetupSection.Staff.class).map(SetupSection.Staff::notifyEveryClockIn).orElse(false);
     }
 
     public boolean arrivalsResolvedFirst(String hotelId) {
-        return reader.section(hotelId, SetupCatalogue.NIGHT_AUDIT).map(n -> n.path("arrivalsResolvedFirst").asBoolean(true)).orElse(true);
+        return reader.section(hotelId, SetupSection.NightAudit.class).map(SetupSection.NightAudit::arrivalsResolvedFirst).orElse(true);
     }
 }

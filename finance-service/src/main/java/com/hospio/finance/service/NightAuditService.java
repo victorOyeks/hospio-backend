@@ -1,10 +1,7 @@
 package com.hospio.finance.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hospio.common.delivery.Delivery;
 import com.hospio.common.enums.AccessLevel;
 import com.hospio.common.enums.Role;
@@ -21,6 +18,7 @@ import com.hospio.finance.client.HotelSettings;
 import com.hospio.finance.client.PeerServices;
 import com.hospio.finance.dto.FinanceRequests;
 import com.hospio.finance.dto.MoneyToday;
+import com.hospio.finance.dto.NightAuditReport;
 import com.hospio.finance.dto.NightAuditView;
 import com.hospio.finance.entity.Expense;
 import com.hospio.finance.entity.NightAudit;
@@ -149,65 +147,24 @@ public class NightAuditService {
         int occupied = request != null && request.roomsOccupied() != null ? request.roomsOccupied() : c.day().roomsOccupied();
         int noShows = c.day().noShows() + marked;
 
-        ObjectNode report = mapper.createObjectNode();
-        report.put("date", d.toString());
-        report.put("revenue", today.revenue());
-        report.set("payments", mapper.valueToTree(today.byMethod()));
-        report.set("revenueByRole", mapper.valueToTree(today.byRole()));
-        report.put("paymentsCount", today.paymentsCount());
-        report.put("expenses", Money.of(expensesTotal));
-        report.set("expensesByCategory", mapper.valueToTree(byCategory));
-        report.put("net", Money.of(today.revenue().subtract(expensesTotal)));
-        ObjectNode cash = report.putObject("cash");
-        cash.put("expected", Money.of(expectedCash));
-        cash.put("counted", counted);
-        cash.put("variance", variance);
-        cash.put("unattached", today.unattachedCash());
-        ObjectNode occ = report.putObject("occupancy");
-        occ.put("roomsOccupied", occupied);
-        occ.put("rooms", c.rooms());
-        occ.set("pct", c.rooms() > 0 ? mapper.valueToTree(MoneyService.pct(occupied, c.rooms())) : mapper.nullNode());
-        ObjectNode guests = report.putObject("guests");
-        guests.put("arrivals", c.day().arrivals());
-        guests.put("departures", c.day().departures());
-        guests.put("inHouse", c.day().inHouse());
-        guests.put("noShows", noShows);
-        guests.put("markedNoShow", marked);
-        ArrayNode tillRows = report.putArray("tills");
-        for (Till t : closedToday) {
-            ObjectNode row = tillRows.addObject();
-            row.put("role", t.getRole());
-            row.put("expected", t.getExpectedCash());
-            row.put("counted", t.getCountedCash());
-            row.put("variance", t.getVariance());
-        }
-        report.put("balancesOwing", c.owing().size());
-        if (today.outletSales() != null) {
-            report.set("outletSales", today.outletSales());
-        }
-        report.put("carriedOpenTabs", carried);
+        List<NightAuditReport.TillRow> tillRows = closedToday.stream()
+                .map(t -> new NightAuditReport.TillRow(t.getRole(), t.getExpectedCash(), t.getCountedCash(), t.getVariance())).toList();
+        List<NightAuditReport.CarriedOutlet> carriedRows = null;
+        String openOrdersNote = null;
         if (carried) {
-            ArrayNode carriedRows = report.putArray("openOrdersCarried");
-            c.orders().ifPresent(o -> o.outlets().forEach(x -> {
-                ObjectNode row = carriedRows.addObject();
-                row.put("outlet", x.name());
-                row.put("openTabs", x.openTabs());
-                row.put("unsettled", x.unsettled());
-                ArrayNode list = row.putArray("orders");
-                for (PeerServices.OpenOrder open : x.orders()) {
-                    ObjectNode one = list.addObject();
-                    one.put("number", open.number());
-                    one.put("kind", open.kind());
-                    one.put("tableNo", open.tableNo());
-                    one.put("roomNumber", open.roomNumber());
-                    one.put("total", open.total());
-                }
-            }));
+            carriedRows = c.orders().map(o -> o.outlets().stream().map(x -> new NightAuditReport.CarriedOutlet(x.name(), x.openTabs(), x.unsettled(),
+                    x.orders().stream().map(open -> new NightAuditReport.CarriedOrder(open.number(), open.kind(), open.tableNo(), open.roomNumber(), open.total()))
+                            .toList())).toList()).orElse(List.of());
             if (c.orders().isEmpty()) {
-                report.put("openOrdersNote", "The outlets couldn't be checked when the day was closed");
+                openOrdersNote = "The outlets couldn't be checked when the day was closed";
             }
         }
-        report.put("closedBy", user.getFullName());
+        NightAuditReport report = new NightAuditReport(d.toString(), today.revenue(), today.byMethod(), today.byRole(), today.paymentsCount(),
+                Money.of(expensesTotal), byCategory, Money.of(today.revenue().subtract(expensesTotal)),
+                new NightAuditReport.Cash(Money.of(expectedCash), counted, variance, today.unattachedCash()),
+                new NightAuditReport.Occupancy(occupied, c.rooms(), c.rooms() > 0 ? MoneyService.pct(occupied, c.rooms()) : null),
+                new NightAuditReport.Guests(c.day().arrivals(), c.day().departures(), c.day().inHouse(), noShows, marked),
+                tillRows, c.owing().size(), today.outletSales(), carried, carriedRows, openOrdersNote, user.getFullName());
 
         a.setRevenue(today.revenue());
         a.setCashCounted(counted);
@@ -255,13 +212,13 @@ public class NightAuditService {
     }
 
     private NightAuditView closedView(NightAudit a) {
-        JsonNode r = read(a.getReport());
-        JsonNode guests = r.path("guests");
-        JsonNode occ = r.path("occupancy");
+        NightAuditReport r = read(a.getReport());
+        NightAuditReport.Guests guests = r.guestsOrEmpty();
+        NightAuditReport.Occupancy occ = r.occupancyOrEmpty();
         List<NightAuditChecklist.Item> done = new ArrayList<>(NightAuditChecklist.build(0, 0, List.of(), 0, BigDecimal.ZERO, true, List.of()));
         return new NightAuditView(a.getId(), a.getBusinessDate(), a.getStatus().name(), a.getRevenue(), a.getCashCounted(), a.getVariance(), a.getClosedBy(), a.getClosedAt(),
-                a.getNote(), a.getReport(), a.getChecklist(), done, guests.path("arrivals").asInt(), guests.path("departures").asInt(), guests.path("inHouse").asInt(),
-                guests.path("noShows").asInt(), a.getRoomsOccupied() == null ? occ.path("roomsOccupied").asInt() : a.getRoomsOccupied(), occ.path("rooms").asInt(), null);
+                a.getNote(), a.getReport(), a.getChecklist(), done, guests.arrivals(), guests.departures(), guests.inHouse(),
+                guests.noShows(), a.getRoomsOccupied() == null ? occ.roomsOccupied() : a.getRoomsOccupied(), occ.rooms(), null);
     }
 
     private List<Delivery> tellOwner(NightAudit a, LocalDate d, MoneyToday today, BigDecimal expensesTotal, int occupied, int rooms, BigDecimal variance, String closedBy, String hotelId) {
@@ -283,19 +240,24 @@ public class NightAuditService {
         }
     }
 
-    private String write(JsonNode node) {
+    private String write(NightAuditReport report) {
         try {
-            return mapper.writeValueAsString(node);
+            return mapper.writeValueAsString(report);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Could not write the night audit report", e);
         }
     }
 
-    private JsonNode read(String json) {
+    /** A stored report; one that is missing or can't be read reads as empty (zeros), as before. */
+    NightAuditReport read(String json) {
+        if (json == null || json.isBlank()) {
+            return NightAuditReport.empty();
+        }
         try {
-            return json == null ? mapper.createObjectNode() : mapper.readTree(json);
+            NightAuditReport r = mapper.readValue(json, NightAuditReport.class);
+            return r == null ? NightAuditReport.empty() : r;
         } catch (JsonProcessingException e) {
-            return mapper.createObjectNode();
+            return NightAuditReport.empty();
         }
     }
 }

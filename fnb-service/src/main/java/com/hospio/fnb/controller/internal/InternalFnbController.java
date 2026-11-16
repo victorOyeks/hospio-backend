@@ -25,6 +25,15 @@ public class InternalFnbController {
 
     private final OrderService orders;
     private final SalesService sales;
+    private final com.hospio.fnb.service.SalesReport salesReport;
+
+    /** platform-service's daily fee: this service's share of what the hotel sold that Lagos day (docs/plan-daily-fees.md). */
+    @org.springframework.web.bind.annotation.GetMapping("/sales/daily")
+    public com.hospio.common.response.ApiResponse<com.hospio.common.billing.DailySales> dailySales(
+            @org.springframework.web.bind.annotation.RequestParam String hotelId,
+            @org.springframework.web.bind.annotation.RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate date) {
+        return com.hospio.common.response.ApiResponse.ok(salesReport.daily(hotelId, date));
+    }
 
     @GetMapping("/orders/{id}")
     public ApiResponse<OrderResponse> order(@PathVariable String id) {
@@ -33,7 +42,7 @@ public class InternalFnbController {
 
     /** payment-service's check before it takes money for an order: hotel, status, settled and what is still due. */
     @GetMapping("/orders/{id}/due")
-    public ApiResponse<java.util.Map<String, Object>> due(@PathVariable String id) {
+    public ApiResponse<com.hospio.fnb.service.OrderService.OrderDue> due(@PathVariable String id) {
         return ApiResponse.ok(orders.due(id));
     }
 

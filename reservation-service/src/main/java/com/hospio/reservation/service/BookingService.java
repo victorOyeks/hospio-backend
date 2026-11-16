@@ -271,6 +271,8 @@ public class BookingService {
                 throw new ConflictException("No room of that type is free for those nights");
             }
             String change = describeChange(b, in, out, room);
+            LocalDate previousOut = b.getCheckOutDate();
+            BigDecimal previousTotal = b.getTotalAmount();
             b.setCheckInDate(in);
             b.setCheckOutDate(out);
             if (room != null) {
@@ -286,7 +288,8 @@ public class BookingService {
             saveInHouse(b);
             events.publish(KafkaTopics.BOOKING_CHANGED, BookingChangedEvent.builder()
                     .bookingId(b.getId()).guestName(b.getGuestName()).change(change + (request.reason() == null ? "" : " (" + request.reason() + ")"))
-                    .roomId(b.getRoomId()).roomNumber(b.getRoomNumber()).checkInDate(in).checkOutDate(out).build());
+                    .roomId(b.getRoomId()).roomNumber(b.getRoomNumber()).checkInDate(in).checkOutDate(out)
+                    .status(b.getStatus().name()).previousCheckOutDate(previousOut).previousTotal(previousTotal).newTotal(b.getTotalAmount()).build());
             return BookingResponse.of(b);
         });
     }
@@ -495,6 +498,10 @@ public class BookingService {
                 continue;
             }
             b.setStatus(BookingStatus.NO_SHOW);
+            b.setNoShowAt(Instant.now());
+            if (b.getAmountPaid() != null && b.getAmountPaid().signum() > 0) {
+                b.setKeptOnNoShow(b.getAmountPaid());
+            }
             bookings.save(b);
             events.publish(KafkaTopics.BOOKING_CHANGED, BookingChangedEvent.builder()
                     .bookingId(b.getId()).guestName(b.getGuestName()).change("Marked no-show by the night audit")

@@ -5,6 +5,7 @@ import com.hospio.common.kafka.events.ApprovalDecidedEvent;
 import com.hospio.common.kafka.events.ChargePostedEvent;
 import com.hospio.common.kafka.events.GuestCheckedInEvent;
 import com.hospio.common.kafka.events.GuestCheckedOutEvent;
+import com.hospio.common.kafka.events.BookingChangedEvent;
 import com.hospio.common.kafka.events.PaymentApprovedEvent;
 import com.hospio.common.kafka.events.RefundApprovedEvent;
 import com.hospio.common.tenancy.TenantBinder;
@@ -39,6 +40,8 @@ public class FolioEventListener {
     private final PendingDiscountRepository pendingDiscounts;
     private final TenantBinder tenant;
 
+    private static final java.time.ZoneId LAGOS = java.time.ZoneId.of("Africa/Lagos");
+
     @Transactional
     @KafkaListener(topics = KafkaTopics.GUEST_CHECKED_IN)
     public void onCheckedIn(GuestCheckedInEvent e) {
@@ -49,14 +52,62 @@ public class FolioEventListener {
             BigDecimal rate = e.getNightlyRate() == null ? BigDecimal.ZERO : e.getNightlyRate();
             int nights = e.getNights() == null ? 1 : e.getNights();
             if (rate.signum() > 0) {
+                java.time.LocalDate out = e.getCheckOutDate();
                 folioService.postCharge(folio, "RESERVATION", "ROOM-" + e.getBookingId(),
                         "Room " + e.getRoomNumber() + " · " + nights + (nights == 1 ? " night" : " nights"),
-                        rate.multiply(BigDecimal.valueOf(nights)), BigDecimal.ZERO, "ACCOMMODATION", e.getActorId(), e.getActorName());
+                        rate.multiply(BigDecimal.valueOf(nights)), BigDecimal.ZERO, "ACCOMMODATION", e.getActorId(), e.getActorName(),
+                        out == null ? null : out.minusDays(nights), out);
             }
             // Deposits taken before check-in were approved with no folio to land on; bring them onto the new folio.
             for (PaymentClient.ApprovedPayment p : paymentClient.approvedForBooking(e.getBookingId())) {
                 folioService.recordPayment(folio, p.id(), p.amount(), p.method(), p.takenBy() == null ? "Front office" : p.takenBy());
             }
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    /**
+     * An in-house guest's stay changed (check-out date, or a room at another rate): the folio bills the difference between the
+     * stay's total before and after, once per change (the event id is the line's reference). Extra nights are the nights added;
+     * fewer nights credit the nights taken off; a new rate with the same nights counts from today.
+     */
+    @Transactional
+    @KafkaListener(topics = KafkaTopics.BOOKING_CHANGED)
+    public void onBookingChanged(BookingChangedEvent e) {
+        if (!"CHECKED_IN".equals(e.getStatus()) || e.getPreviousTotal() == null || e.getNewTotal() == null || e.getEventId() == null) {
+            return;
+        }
+        BigDecimal diff = e.getNewTotal().subtract(e.getPreviousTotal());
+        if (diff.signum() == 0) {
+            return;
+        }
+        tenant.bind(e);
+        try {
+            Folio folio = firstOpen(folios.openIdsForBooking(e.getBookingId()));
+            if (folio == null) {
+                log.warn("BookingChanged {} for {} has no open folio; {} not billed", e.getEventId(), e.getBookingId(), diff);
+                return;
+            }
+            java.time.LocalDate was = e.getPreviousCheckOutDate();
+            java.time.LocalDate now = e.getCheckOutDate();
+            java.time.LocalDate from;
+            java.time.LocalDate to;
+            String what;
+            if (was != null && now != null && !was.equals(now)) {
+                from = was.isBefore(now) ? was : now;
+                to = was.isBefore(now) ? now : was;
+                long n = java.time.temporal.ChronoUnit.DAYS.between(from, to);
+                what = (was.isBefore(now) ? n + (n == 1 ? " more night" : " more nights") : n + (n == 1 ? " night fewer" : " nights fewer"));
+            } else {
+                from = java.time.LocalDate.now(LAGOS).isAfter(e.getCheckInDate() == null ? java.time.LocalDate.MIN : e.getCheckInDate())
+                        ? java.time.LocalDate.now(LAGOS) : e.getCheckInDate();
+                to = now;
+                what = "new room rate";
+            }
+            folioService.postCharge(folio, "RESERVATION", "ROOM-ADJ-" + e.getEventId(),
+                    "Room " + (e.getRoomNumber() == null ? "" : e.getRoomNumber() + " ") + "· " + what, diff, BigDecimal.ZERO,
+                    "ACCOMMODATION", e.getActorId(), e.getActorName(), from, to);
         } finally {
             TenantContext.clear();
         }

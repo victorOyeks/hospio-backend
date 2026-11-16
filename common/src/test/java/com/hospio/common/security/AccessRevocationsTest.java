@@ -30,4 +30,12 @@ class AccessRevocationsTest {
         assertThat(revocations.isStale("victor", Instant.parse("2026-11-10T09:59:00Z"))).isTrue();
         assertThat(revocations.isStale("victor", Instant.parse("2026-11-10T10:30:00Z"))).isFalse();
     }
+
+    @Test
+    void recordsWithoutAPersonAreIgnored() {
+        revocations.record("{\"change\":\"REMOVE\",\"extra\":{\"nested\":1}}", Instant.parse("2026-11-10T10:00:00Z").toEpochMilli());
+        revocations.record("null", Instant.parse("2026-11-10T10:00:00Z").toEpochMilli());
+        revocations.record("{\"userId\":null}", Instant.parse("2026-11-10T10:00:00Z").toEpochMilli());
+        assertThat(revocations.isStale("victor", Instant.parse("2026-11-10T09:00:00Z"))).isFalse();
+    }
 }

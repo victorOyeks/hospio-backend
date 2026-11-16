@@ -262,7 +262,7 @@ public class CommBilling {
         String back = StringUtils.hasText(returnUrl) && returnUrl.startsWith(hotelAppUrl) ? returnUrl
                 : hotelAppUrl + "/dashboard/hotel-setup/guest-messages?invoice=" + inv.getId();
         PaystackClient.Checkout checkout = paystack.initialize(me.getEmail(), inv.getTotalAmount(), reference, back,
-                Map.of("invoice_id", inv.getId(), "invoice_number", inv.getNumber(), "hotel_id", inv.getHotelId(), "paid_by", nz(me.getFullName())));
+                new PaystackDtos.Metadata(inv.getId(), inv.getNumber(), inv.getHotelId(), nz(me.getFullName())));
         // A guarded update, not a save of the copy read above: a payment settled meanwhile (webhook) must stay PAID.
         tx.execute(s -> invoices.setPaymentReference(inv.getId(), checkout.reference(), OPEN, Instant.now()));
         return checkout;

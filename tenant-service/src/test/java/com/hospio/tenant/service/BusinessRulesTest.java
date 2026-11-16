@@ -144,10 +144,10 @@ class BusinessRulesTest {
     @Test
     void theSecondContactIsCheckedOnlyWhenFilled() throws Exception {
         ObjectMapper om = new ObjectMapper();
-        OnboardingService.checkSecondContact(om.readTree("{\"contactName\":\"\",\"contactEmail\":\"\"}"));
-        assertThatThrownBy(() -> OnboardingService.checkSecondContact(om.readTree("{\"contactEmail\":\"hauwa@\"}")))
+        OnboardingService.checkSecondContact(om.readValue("{\"contactName\":\"\",\"contactEmail\":\"\"}", com.hospio.tenant.dto.OnboardingStepData.class));
+        assertThatThrownBy(() -> OnboardingService.checkSecondContact(om.readValue("{\"contactEmail\":\"hauwa@\"}", com.hospio.tenant.dto.OnboardingStepData.class)))
                 .hasMessageContaining("econd contact's email");
-        assertThatThrownBy(() -> OnboardingService.checkSecondContact(om.readTree("{\"contactPhone\":\"0000\"}")))
+        assertThatThrownBy(() -> OnboardingService.checkSecondContact(om.readValue("{\"contactPhone\":\"0000\"}", com.hospio.tenant.dto.OnboardingStepData.class)))
                 .hasMessageContaining("econd contact's phone");
     }
 

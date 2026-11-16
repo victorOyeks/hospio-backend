@@ -1,6 +1,7 @@
 package com.hospio.payment.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import java.util.Map;
@@ -8,6 +9,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -15,6 +17,14 @@ import org.springframework.web.client.RestClient;
 @Slf4j
 @Component
 public class TenantClient {
+
+    /** The part of tenant-service's business this client reads. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record BusinessRef(String name) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<BusinessRef>> BUSINESS = new ParameterizedTypeReference<>() {
+    };
 
     private final RestClient restClient;
     private final Map<String, String> names = new ConcurrentHashMap<>();
@@ -33,8 +43,8 @@ public class TenantClient {
             return Optional.of(cached);
         }
         try {
-            JsonNode body = restClient.get().uri("/internal/businesses/{id}", businessId).retrieve().body(JsonNode.class);
-            String name = body == null ? null : body.path("data").path("name").asText(null);
+            ApiResponse<BusinessRef> body = restClient.get().uri("/internal/businesses/{id}", businessId).retrieve().body(BUSINESS);
+            String name = body == null || body.data() == null ? null : body.data().name();
             if (name != null) {
                 names.put(businessId, name);
             }

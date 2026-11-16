@@ -1,7 +1,7 @@
 package com.hospio.hotelconfig.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospio.common.enums.Role;
 import com.hospio.common.exception.BadRequestException;
@@ -13,15 +13,22 @@ import com.hospio.common.kafka.KafkaTopics;
 import com.hospio.common.kafka.events.SettingChangedEvent;
 import com.hospio.common.security.CurrentUser;
 import com.hospio.common.security.HospioUserDetails;
+import com.hospio.common.setup.HotelSetup;
 import com.hospio.common.setup.SetupCatalogue;
+import com.hospio.common.setup.SetupListEntry;
+import com.hospio.common.setup.SetupSection;
+import com.hospio.common.setup.SetupTemplateSettings;
 import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.hotelconfig.client.TenantClient;
 import com.hospio.hotelconfig.dto.ApplyTemplateRequest;
 import com.hospio.hotelconfig.entity.Setting;
 import com.hospio.hotelconfig.repository.SettingRepository;
+import java.lang.reflect.Type;
+import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -36,12 +43,18 @@ import org.springframework.util.StringUtils;
  * on lives here and they read it. Reads lay the hotel's stored values over the {@link SetupCatalogue}
  * defaults, so a brand-new hotel already answers fully. Taxes, currency and approval limits are set by
  * the owner (or by Hospio360 applying a template during onboarding), never by a manager.
+ *
+ * Each key is one {@link Setting} row whose value is the key's JSON text ({@code "14:00"}, {@code 7.5}, {@code true}); the
+ * rows are read into and written from the typed {@link SetupSection} records.
  */
 @Service
 @RequiredArgsConstructor
 public class HotelSetupService {
 
     public static final Set<String> OWNER_ONLY_SECTIONS = SetupCatalogue.OWNER_ONLY_SECTIONS;
+
+    static final String DEPOSIT_MESSAGE = "The deposit is a share of the stay: between 0 and 100 %";
+    static final String TILL_FLOAT_MESSAGE = "The till float can't be negative";
 
     private final SettingRepository settings;
     private final ListsAndPricesService lists;
@@ -50,35 +63,29 @@ public class HotelSetupService {
     private final EventPublisher events;
 
     @Transactional(readOnly = true)
-    public Map<String, JsonNode> section(String section) {
+    public SetupSection section(String section) {
         return section(TenantContext.requireHotel(), section);
     }
 
+    /** One section: the hotel's stored values laid over the catalogue defaults. */
     @Transactional(readOnly = true)
-    public Map<String, JsonNode> section(String hotelId, String section) {
+    public SetupSection section(String hotelId, String section) {
         String sec = section.toUpperCase();
-        Map<String, JsonNode> stored = new LinkedHashMap<>();
-        settings.findByHotelIdAndSection(hotelId, sec).forEach(s -> stored.put(s.getKey(), parse(s.getValue())));
-        return SetupCatalogue.mergeSection(sec, stored);
+        Class<? extends SetupSection> type = typeOf(sec);
+        Map<String, String> stored = new HashMap<>();
+        settings.findByHotelIdAndSection(hotelId, sec).forEach(s -> stored.put(s.getKey(), s.getValue()));
+        return withDefaults(type, fromStored(objectMapper, type, stored));
     }
 
+    /** Every catalogue section, the hotel's stored values laid over the defaults. */
     @Transactional(readOnly = true)
-    public JsonNode value(String hotelId, String section, String key) {
-        String sec = section.toUpperCase();
-        return settings.findByHotelIdAndSectionAndKey(hotelId, sec, key).map(s -> parse(s.getValue()))
-                .orElse(SetupCatalogue.defaults(sec).get(key));
-    }
-
-    @Transactional(readOnly = true)
-    public Map<String, Map<String, JsonNode>> all(String hotelId) {
-        Map<String, Map<String, JsonNode>> stored = new LinkedHashMap<>();
-        settings.findByHotelId(hotelId).forEach(s -> stored.computeIfAbsent(s.getSection(), k -> new LinkedHashMap<>()).put(s.getKey(), parse(s.getValue())));
-        return SetupCatalogue.merge(stored);
+    public HotelSetup all(String hotelId) {
+        return SetupCatalogue.withDefaults(stored(objectMapper, settings.findByHotelId(hotelId)));
     }
 
     /** Managers and owners edit; owner-only sections need the owner; the platform may write anything (onboarding). */
     @Transactional
-    public Map<String, JsonNode> save(String section, Map<String, JsonNode> values) {
+    public SetupSection save(String section, String body) {
         HospioUserDetails caller = CurrentUser.require();
         String sec = section.toUpperCase();
         if (!caller.isPlatform()) {
@@ -89,41 +96,68 @@ public class HotelSetupService {
                 throw new ForbiddenException("Only a manager or the owner can change Hotel setup");
             }
         }
-        checkValues(sec, values);
+        SetupSection values = readSent(objectMapper, typeOf(sec), body);
+        checkValues(values);
         String hotelId = TenantContext.requireHotel();
         return withHotelTenant(hotelId, () -> apply(hotelId, sec, values, caller.getUserId()));
+    }
+
+    /**
+     * A section as the web app sent it ({@code {"depositPct": 20, ...}}): keys it leaves out stay as they are, keys the catalogue
+     * doesn't know are ignored, and a value of the wrong kind is refused (a deposit or till float that is not a number gets its
+     * own message, as before).
+     */
+    static <T extends SetupSection> T readSent(ObjectMapper objectMapper, Class<T> type, String body) {
+        if (!StringUtils.hasText(body)) {
+            throw new BadRequestException("Send the section's values as a JSON object");
+        }
+        try {
+            T values = objectMapper.readValue(body, type);
+            if (values == null) {
+                throw new BadRequestException("Send the section's values as a JSON object");
+            }
+            return values;
+        } catch (JsonMappingException e) {
+            String key = e.getPath().isEmpty() ? null : e.getPath().get(e.getPath().size() - 1).getFieldName();
+            if (type == SetupSection.Payments.class && "depositPct".equals(key)) {
+                throw new BadRequestException(DEPOSIT_MESSAGE);
+            }
+            if (type == SetupSection.Payments.class && "tillFloat".equals(key)) {
+                throw new BadRequestException(TILL_FLOAT_MESSAGE);
+            }
+            throw new BadRequestException(key == null ? "Send the section's values as a JSON object" : "The value of " + key + " is not valid");
+        } catch (JsonProcessingException e) {
+            throw new BadRequestException("Send the section's values as a JSON object");
+        }
     }
 
     /**
      * Values that can't be right are refused before anything is saved: the deposit is a share of the stay (0 to 100 %; a
      * hotel had "15000" saved, meant as naira), and the till float is a sum of cash, never negative.
      */
-    static void checkValues(String section, Map<String, JsonNode> values) {
-        if (values == null || !"PAYMENTS".equals(section)) {
+    static void checkValues(SetupSection values) {
+        if (!(values instanceof SetupSection.Payments p)) {
             return;
         }
-        JsonNode deposit = values.get("depositPct");
-        if (deposit != null && !deposit.isNull()) {
-            if (!deposit.isNumber() || deposit.asDouble() < 0 || deposit.asDouble() > 100) {
-                throw new BadRequestException("The deposit is a share of the stay: between 0 and 100 %");
-            }
+        BigDecimal deposit = p.depositPct();
+        if (deposit != null && (deposit.signum() < 0 || deposit.compareTo(BigDecimal.valueOf(100)) > 0)) {
+            throw new BadRequestException(DEPOSIT_MESSAGE);
         }
-        JsonNode floatCash = values.get("tillFloat");
-        if (floatCash != null && !floatCash.isNull() && (!floatCash.isNumber() || floatCash.asDouble() < 0)) {
-            throw new BadRequestException("The till float can't be negative");
+        if (p.tillFloat() != null && p.tillFloat().signum() < 0) {
+            throw new BadRequestException(TILL_FLOAT_MESSAGE);
         }
     }
 
     /** Hotel setup "Apply a template" and onboarding J8: by template id (from tenant-service) or inline settings. */
     @Transactional
-    public Map<String, Map<String, JsonNode>> applyTemplate(ApplyTemplateRequest request) {
+    public HotelSetup applyTemplate(ApplyTemplateRequest request) {
         HospioUserDetails caller = CurrentUser.require();
         if (!caller.isPlatform() && !caller.isManagerOrOwner()) {
             throw new ForbiddenException("Only a manager, the owner or Hospio360 can apply a template");
         }
         String hotelId = TenantContext.requireHotel();
-        JsonNode template;
-        if (request.settings() != null && !request.settings().isNull()) {
+        SetupTemplateSettings template;
+        if (request.settings() != null) {
             template = request.settings();
         } else if (StringUtils.hasText(request.templateId())) {
             template = tenantClient.template(request.templateId())
@@ -137,43 +171,41 @@ public class HotelSetupService {
         });
     }
 
-    /** Service-to-service: tenant-service's onboarding applies a template's JSON to a hotel. */
+    /** Service-to-service: tenant-service's onboarding applies a template to a hotel. */
     @Transactional
-    public void applyTemplate(String hotelId, String templateJson) {
-        JsonNode root = parse(templateJson);
+    public void applyTemplate(String hotelId, SetupTemplateSettings template) {
+        if (template == null) {
+            throw new BadRequestException("A template is a JSON object of sections");
+        }
         withHotelTenant(hotelId, () -> {
-            applyTemplate(hotelId, root, "template");
+            applyTemplate(hotelId, template, "template");
             return null;
         });
     }
 
     /** Sections and lists of a template: {"sections": {...}, "lists": {...}} or the flat {SECTION: {...}}. */
-    private void applyTemplate(String hotelId, JsonNode root, String by) {
-        if (root == null || !root.isObject()) {
-            throw new BadRequestException("A template is a JSON object of sections");
-        }
-        JsonNode sections = root.has("sections") || root.has("lists") ? root.path("sections") : root;
-        sections.fields().forEachRemaining(section -> {
-            if (!section.getValue().isObject()) {
-                return;
-            }
-            Map<String, JsonNode> values = new LinkedHashMap<>();
-            section.getValue().fields().forEachRemaining(e -> values.put(e.getKey(), e.getValue()));
-            apply(hotelId, section.getKey().toUpperCase(), values, by);
-        });
-        root.path("lists").fields().forEachRemaining(list -> {
-            List<ListsAndPricesService.SeedItem> items = new ArrayList<>();
-            int i = 0;
-            for (JsonNode item : list.getValue()) {
-                i++;
-                if (item.isTextual()) {
-                    items.add(new ListsAndPricesService.SeedItem(null, item.asText(), i));
-                } else {
-                    items.add(new ListsAndPricesService.SeedItem(item.path("code").asText(null), item.path("label").asText(),
-                            item.hasNonNull("sortOrder") ? item.get("sortOrder").asInt() : i));
+    private void applyTemplate(String hotelId, SetupTemplateSettings template, String by) {
+        HotelSetup sections = template.sectionsToApply();
+        if (sections != null) {
+            for (String name : SetupCatalogue.SECTIONS.keySet()) {
+                SetupSection values = sections.get(name);
+                if (values != null) {
+                    apply(hotelId, name, values, by);
                 }
             }
-            lists.ensureItems(hotelId, list.getKey().toUpperCase(), items);
+        }
+        template.listsToApply().forEach((listName, entries) -> {
+            List<ListsAndPricesService.SeedItem> items = new ArrayList<>();
+            int i = 0;
+            for (SetupListEntry entry : entries == null ? List.<SetupListEntry>of() : entries) {
+                i++;
+                if (entry == null) {
+                    continue;
+                }
+                items.add(new ListsAndPricesService.SeedItem(entry.code(), entry.label() == null ? "" : entry.label(),
+                        entry.sortOrder() != null ? entry.sortOrder() : i));
+            }
+            lists.ensureItems(hotelId, listName.toUpperCase(), items);
         });
     }
 
@@ -183,11 +215,11 @@ public class HotelSetupService {
      */
     @Transactional
     public void createDefaults(String hotelId) {
-        Set<String> present = new java.util.HashSet<>();
+        Set<String> present = new HashSet<>();
         settings.findByHotelId(hotelId).forEach(s -> present.add(s.getSection() + "/" + s.getKey()));
-        SetupCatalogue.SECTIONS.forEach((section, values) -> values.forEach((key, value) -> {
-            if (present.add(section + "/" + key)) {
-                settings.save(Setting.builder().hotelId(hotelId).section(section).key(key).value(write(value)).updatedBy("defaults").build());
+        SetupCatalogue.SECTIONS.keySet().forEach(section -> SetupCatalogue.present(SetupCatalogue.defaults(section)).forEach(v -> {
+            if (present.add(section + "/" + v.key())) {
+                settings.save(Setting.builder().hotelId(hotelId).section(section).key(v.key()).value(write(v.value())).updatedBy("defaults").build());
             }
         }));
         SetupCatalogue.LISTS.forEach((listName, items) -> {
@@ -214,12 +246,13 @@ public class HotelSetupService {
         return TenantContext.runWith(bound, work);
     }
 
-    private Map<String, JsonNode> apply(String hotelId, String section, Map<String, JsonNode> values, String by) {
-        for (Map.Entry<String, JsonNode> e : values.entrySet()) {
-            Setting setting = settings.findByHotelIdAndSectionAndKey(hotelId, section, e.getKey())
-                    .orElseGet(() -> Setting.builder().hotelId(hotelId).section(section).key(e.getKey()).build());
+    /** Stores every key {@code values} carries (keys it leaves out are untouched) and announces each change. */
+    private SetupSection apply(String hotelId, String section, SetupSection values, String by) {
+        for (SetupCatalogue.Value v : SetupCatalogue.present(values)) {
+            Setting setting = settings.findByHotelIdAndSectionAndKey(hotelId, section, v.key())
+                    .orElseGet(() -> Setting.builder().hotelId(hotelId).section(section).key(v.key()).build());
             String old = setting.getValue();
-            String fresh = write(e.getValue());
+            String fresh = write(v.value());
             if (old != null && old.equals(fresh)) {
                 continue;
             }
@@ -227,22 +260,56 @@ public class HotelSetupService {
             setting.setUpdatedBy(by);
             settings.save(setting);
             events.publish(KafkaTopics.SETTING_CHANGED, SettingChangedEvent.builder()
-                    .hotelId(hotelId).section(section).key(e.getKey()).oldValue(old).newValue(fresh).build());
+                    .hotelId(hotelId).section(section).key(v.key()).oldValue(old).newValue(fresh).build());
         }
         return section(hotelId, section);
     }
 
-    private JsonNode parse(String json) {
+    // ---- stored rows ↔ typed sections ------------------------------------------------------------------
+
+    /** The stored rows as a partial setup: sections and keys the hotel has no row for are null; unknown sections and keys are ignored. */
+    static HotelSetup stored(ObjectMapper objectMapper, List<Setting> rows) {
+        Map<String, Map<String, String>> bySection = new HashMap<>();
+        for (Setting s : rows) {
+            bySection.computeIfAbsent(s.getSection(), k -> new HashMap<>()).put(s.getKey(), s.getValue());
+        }
+        return HotelSetup.of(name -> {
+            Map<String, String> raw = bySection.get(name);
+            return raw == null ? null : fromStored(objectMapper, SetupCatalogue.SECTIONS.get(name), raw);
+        });
+    }
+
+    /**
+     * One section from its rows (key → JSON text). A value that can't be read as its key's type (a row written by hand, or text
+     * saved before it was JSON) counts as not stored, so the default applies; text that isn't JSON is kept for a text key.
+     */
+    static <T extends SetupSection> T fromStored(ObjectMapper objectMapper, Class<T> type, Map<String, String> raw) {
+        return SetupCatalogue.build(type, (key, javaType) -> readStored(objectMapper, raw.get(key), javaType));
+    }
+
+    private static Object readStored(ObjectMapper objectMapper, String json, Type type) {
+        if (json == null) {
+            return null;
+        }
         try {
-            return json == null ? null : objectMapper.readTree(json);
+            return objectMapper.readValue(json, objectMapper.constructType(type));
         } catch (JsonProcessingException e) {
-            return objectMapper.getNodeFactory().textNode(json);
+            return type == String.class ? json : null;
         }
     }
 
-    private String write(JsonNode node) {
+    @SuppressWarnings("unchecked")
+    private static <T extends SetupSection> SetupSection withDefaults(Class<T> type, SetupSection stored) {
+        return SetupCatalogue.withDefaults(type, (T) stored);
+    }
+
+    private static Class<? extends SetupSection> typeOf(String section) {
+        return SetupCatalogue.typeOf(section).orElseThrow(() -> new BadRequestException("Hotel setup has no section " + section));
+    }
+
+    private String write(Object value) {
         try {
-            return objectMapper.writeValueAsString(node);
+            return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException e) {
             throw new BadRequestException("Value could not be stored");
         }

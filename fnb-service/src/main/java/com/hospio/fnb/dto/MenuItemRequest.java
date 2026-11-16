@@ -1,6 +1,6 @@
 package com.hospio.fnb.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.hospio.fnb.rules.RecipeInput;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
@@ -11,5 +11,5 @@ import java.math.BigDecimal;
  * send {@code []} to clear it.
  */
 public record MenuItemRequest(@NotBlank String category, @NotBlank String name, String description, @NotNull BigDecimal price,
-                              BigDecimal taxRate, String options, Integer sortOrder, Boolean active, JsonNode recipe) {
+                              BigDecimal taxRate, String options, Integer sortOrder, Boolean active, RecipeInput recipe) {
 }

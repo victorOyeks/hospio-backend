@@ -1,6 +1,7 @@
 package com.hospio.platform.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import java.math.BigDecimal;
@@ -12,6 +13,7 @@ import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
@@ -33,12 +35,60 @@ public class TenantClient {
         this.restClient = ServiceClients.system(tenantUrl, jwtUtil, internalApiKey);
     }
 
+    private static final ParameterizedTypeReference<ApiResponse<Business>> BUSINESS = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<SummaryData>> SUMMARY = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<List<BusinessRow>>> ROWS = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<BusinessPage>> PAGE = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<List<Draft>>> DRAFTS = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<DraftCounts>> DRAFT_COUNTS = new ParameterizedTypeReference<>() {
+    };
+
+    /** tenant's HotelResponse, the fields platform uses. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Hotel(String id, String name, String city, int roomCount, String status, String managerUserId) {
     }
 
+    /** tenant's BusinessResponse (GET /internal/businesses/{id}), the fields platform uses; no hotel list reads as empty. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Business(String id, String name, String city, String stage, String source, String ownerUserId, String ownerName,
                            String ownerEmail, String ownerPhone, String feeModel, BigDecimal feeValue, String marketerId, String referralId,
                            String accountManagerId, Instant createdAt, int hotelCount, List<Hotel> hotels) {
+        public Business {
+            hotels = hotels == null ? List.of() : hotels;
+        }
+    }
+
+    /**
+     * tenant's BusinessSummary (a list row: GET /internal/businesses?marketerId= and the paged GET /businesses), where {@code hotels}
+     * is a count. Read as a {@link Business} with no hotel list.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record BusinessRow(String id, String name, String stage, String source, String city, int hotels, String ownerName, String ownerEmail,
+                       String accountManagerId, String marketerId, String feeModel, BigDecimal feeValue, Instant createdAt) {
+        Business toBusiness() {
+            return new Business(id, name, city, stage, source, null, ownerName, ownerEmail, null, feeModel, feeValue, marketerId, null,
+                    accountManagerId, createdAt, hotels, List.of());
+        }
+    }
+
+    /** One page of GET /businesses (tenant's PageWithCounts): only the rows and whether it was the last; no {@code last} reads as last. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record BusinessPage(List<BusinessRow> content, Boolean last) {
+    }
+
+    /** tenant's BusinessesSummaryResponse. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record SummaryData(long total, Map<String, Long> byStage, long hotels, long rooms) {
+    }
+
+    /** The paged onboarding board (GET /onboarding?page=0&size=1): only its counts per status. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DraftCounts(Map<String, Long> counts) {
     }
 
     public record Summary(long total, Map<String, Long> byStage, long hotels, long rooms) {
@@ -51,6 +101,8 @@ public class TenantClient {
         }
     }
 
+    /** tenant's OnboardingResponse, the fields platform uses. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Draft(String businessId, String businessName, String source, int step, String status, String assignedTo,
                         Instant startedAt, Instant updatedAt) {
     }
@@ -58,9 +110,7 @@ public class TenantClient {
     /** GET /internal/businesses/{id} (exists). */
     public Optional<Business> business(String businessId) {
         try {
-            JsonNode body = restClient.get().uri("/internal/businesses/{id}", businessId).retrieve().body(JsonNode.class);
-            JsonNode d = data(body);
-            return d == null ? Optional.empty() : Optional.of(business(d));
+            return Optional.ofNullable(data(restClient.get().uri("/internal/businesses/{id}", businessId).retrieve().body(BUSINESS)));
         } catch (Exception e) {
             warn("GET /internal/businesses/" + businessId, e);
             return Optional.empty();
@@ -70,16 +120,15 @@ public class TenantClient {
     /** GET /internal/businesses/summary → {total, byStage, hotels, rooms} (tenant, new). Zeros until it lands. */
     public Summary summary() {
         try {
-            JsonNode body = restClient.get().uri("/internal/businesses/summary").retrieve().body(JsonNode.class);
-            JsonNode d = data(body);
+            SummaryData d = data(restClient.get().uri("/internal/businesses/summary").retrieve().body(SUMMARY));
             if (d == null) {
                 return Summary.empty();
             }
-            Summary empty = Summary.empty();
-            Map<String, Long> stages = new LinkedHashMap<>(empty.byStage());
-            JsonNode by = d.path("byStage");
-            by.fields().forEachRemaining(f -> stages.put(f.getKey(), f.getValue().asLong()));
-            return new Summary(d.path("total").asLong(), stages, d.path("hotels").asLong(), d.path("rooms").asLong());
+            Map<String, Long> stages = new LinkedHashMap<>(Summary.empty().byStage());
+            if (d.byStage() != null) {
+                d.byStage().forEach((stage, count) -> stages.put(stage, count == null ? 0L : count));
+            }
+            return new Summary(d.total(), stages, d.hotels(), d.rooms());
         } catch (Exception e) {
             warn("GET /internal/businesses/summary", e);
             return Summary.empty();
@@ -94,10 +143,10 @@ public class TenantClient {
         List<Business> out = new ArrayList<>();
         if (marketerId != null) {
             try {
-                JsonNode body = restClient.get().uri(b -> b.path("/internal/businesses").queryParam("marketerId", marketerId).build()).retrieve().body(JsonNode.class);
-                JsonNode d = data(body);
-                if (d != null && d.isArray()) {
-                    d.forEach(n -> out.add(business(n)));
+                List<BusinessRow> d = data(restClient.get().uri(b -> b.path("/internal/businesses").queryParam("marketerId", marketerId).build())
+                        .retrieve().body(ROWS));
+                if (d != null) {
+                    d.forEach(n -> out.add(n.toBusiness()));
                 }
             } catch (Exception e) {
                 warn("GET /internal/businesses?marketerId=" + marketerId, e);
@@ -109,15 +158,13 @@ public class TenantClient {
         for (int page = 0; page < 100_000; page++) {
             final int p = page;
             try {
-                JsonNode body = restClient.get().uri(b -> b.path("/businesses").queryParamIfPresent("stage", Optional.ofNullable(stage))
-                        .queryParam("page", p).queryParam("size", 100).build()).retrieve().body(JsonNode.class);
-                JsonNode d = data(body);
-                JsonNode content = d == null ? null : d.path("content");
-                if (content == null || !content.isArray() || content.isEmpty()) {
+                BusinessPage d = data(restClient.get().uri(b -> b.path("/businesses").queryParamIfPresent("stage", Optional.ofNullable(stage))
+                        .queryParam("page", p).queryParam("size", 100).build()).retrieve().body(PAGE));
+                if (d == null || d.content() == null || d.content().isEmpty()) {
                     break;
                 }
-                content.forEach(n -> out.add(business(n)));
-                if (d.path("last").asBoolean(true)) {
+                d.content().forEach(n -> out.add(n.toBusiness()));
+                if (d.last() == null || d.last()) {
                     break;
                 }
             } catch (Exception e) {
@@ -131,16 +178,9 @@ public class TenantClient {
     /** GET /internal/onboarding?status= → OnboardingResponse[] (tenant, new). Empty until it lands. */
     public List<Draft> onboarding(String status) {
         try {
-            JsonNode body = restClient.get().uri(b -> b.path("/internal/onboarding")
-                    .queryParamIfPresent("status", Optional.ofNullable(status)).build()).retrieve().body(JsonNode.class);
-            JsonNode d = data(body);
-            List<Draft> out = new ArrayList<>();
-            if (d != null && d.isArray()) {
-                d.forEach(n -> out.add(new Draft(n.path("businessId").asText(null), n.path("businessName").asText(null), n.path("source").asText(null),
-                        n.path("step").asInt(), n.path("status").asText(null), n.path("assignedTo").asText(null),
-                        instant(n.path("startedAt")), instant(n.path("updatedAt")))));
-            }
-            return out;
+            List<Draft> d = data(restClient.get().uri(b -> b.path("/internal/onboarding")
+                    .queryParamIfPresent("status", Optional.ofNullable(status)).build()).retrieve().body(DRAFTS));
+            return d == null ? new ArrayList<>() : new ArrayList<>(d);
         } catch (Exception e) {
             warn("GET /internal/onboarding", e);
             return List.of();
@@ -153,15 +193,13 @@ public class TenantClient {
      */
     public Map<String, Long> onboardingCounts() {
         try {
-            JsonNode body = restClient.get().uri(b -> b.path("/onboarding").queryParam("page", 0).queryParam("size", 1).build())
-                    .retrieve().body(JsonNode.class);
-            JsonNode d = data(body);
-            JsonNode counts = d == null ? null : d.path("counts");
-            if (counts == null || !counts.isObject()) {
+            DraftCounts d = data(restClient.get().uri(b -> b.path("/onboarding").queryParam("page", 0).queryParam("size", 1).build())
+                    .retrieve().body(DRAFT_COUNTS));
+            if (d == null || d.counts() == null) {
                 return null;
             }
             Map<String, Long> out = new LinkedHashMap<>();
-            counts.fields().forEachRemaining(f -> out.put(f.getKey(), f.getValue().asLong()));
+            d.counts().forEach((k, v) -> out.put(k, v == null ? 0L : v));
             return out;
         } catch (Exception e) {
             warn("GET /onboarding?page=0&size=1", e);
@@ -181,32 +219,8 @@ public class TenantClient {
         }
     }
 
-    private static Business business(JsonNode n) {
-        List<Hotel> hotels = new ArrayList<>();
-        if (n.path("hotels").isArray()) {
-            n.path("hotels").forEach(h -> hotels.add(new Hotel(h.path("id").asText(null), h.path("name").asText(null), h.path("city").asText(null),
-                    h.path("roomCount").asInt(), h.path("status").asText(null), h.path("managerUserId").asText(null))));
-        }
-        int hotelCount = n.has("hotelCount") ? n.path("hotelCount").asInt() : n.has("hotels") && n.path("hotels").isNumber() ? n.path("hotels").asInt() : hotels.size();
-        BigDecimal feeValue = n.path("feeValue").isNumber() || n.path("feeValue").isTextual() && !n.path("feeValue").asText().isBlank()
-                ? new BigDecimal(n.path("feeValue").asText()) : null;
-        return new Business(n.path("id").asText(null), n.path("name").asText(null), n.path("city").asText(null), n.path("stage").asText(null),
-                n.path("source").asText(null), n.path("ownerUserId").asText(null), n.path("ownerName").asText(null), n.path("ownerEmail").asText(null),
-                n.path("ownerPhone").asText(null), n.path("feeModel").asText(null), feeValue, n.path("marketerId").asText(null),
-                n.path("referralId").asText(null), n.path("accountManagerId").asText(null), instant(n.path("createdAt")), hotelCount, hotels);
-    }
-
-    static JsonNode data(JsonNode body) {
-        JsonNode d = body == null ? null : body.path("data");
-        return d == null || d.isMissingNode() || d.isNull() ? null : d;
-    }
-
-    static Instant instant(JsonNode node) {
-        try {
-            return node == null || node.isMissingNode() || node.isNull() || node.asText().isBlank() ? null : Instant.parse(node.asText());
-        } catch (Exception e) {
-            return null;
-        }
+    static <T> T data(ApiResponse<T> body) {
+        return body == null ? null : body.data();
     }
 
     private static void warn(String call, Exception e) {

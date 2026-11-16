@@ -1,7 +1,8 @@
 package com.hospio.hotelconfig.controller.internal;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.hospio.common.response.ApiResponse;
+import com.hospio.common.setup.SetupSection;
+import com.hospio.common.setup.SetupTemplateSettings;
 import com.hospio.hotelconfig.dto.HotelOverviewResponse;
 import com.hospio.hotelconfig.dto.PriceListResponse;
 import com.hospio.hotelconfig.entity.ListItem;
@@ -10,7 +11,6 @@ import com.hospio.hotelconfig.service.HotelSetupService;
 import com.hospio.hotelconfig.service.ListsAndPricesService;
 import io.swagger.v3.oas.annotations.Hidden;
 import java.util.List;
-import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -37,14 +37,10 @@ public class InternalSetupController {
         return ApiResponse.ok(admin.hotelOverview(hotelId));
     }
 
+    /** One section, typed ({@link SetupSection}); common's HotelSettingsReader reads it. */
     @GetMapping("/settings/{section}")
-    public ApiResponse<Map<String, JsonNode>> section(@RequestParam String hotelId, @PathVariable String section) {
+    public ApiResponse<SetupSection> section(@RequestParam String hotelId, @PathVariable String section) {
         return ApiResponse.ok(setup.section(hotelId, section));
-    }
-
-    @GetMapping("/settings/{section}/{key}")
-    public ApiResponse<JsonNode> value(@RequestParam String hotelId, @PathVariable String section, @PathVariable String key) {
-        return ApiResponse.ok(setup.value(hotelId, section, key));
     }
 
     @GetMapping("/lists/{listName}")
@@ -59,8 +55,8 @@ public class InternalSetupController {
 
     /** Onboarding J8 · Hotel setup from a template. Runs inside the hotel's business, whoever calls. */
     @PostMapping("/apply-template")
-    public ApiResponse<Void> applyTemplate(@RequestParam String hotelId, @RequestBody String templateJson) {
-        setup.applyTemplate(hotelId, templateJson);
+    public ApiResponse<Void> applyTemplate(@RequestParam String hotelId, @RequestBody SetupTemplateSettings template) {
+        setup.applyTemplate(hotelId, template);
         return ApiResponse.ok("Template applied", null);
     }
 }

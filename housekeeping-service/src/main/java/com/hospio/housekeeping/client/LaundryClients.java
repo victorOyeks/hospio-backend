@@ -1,8 +1,9 @@
 package com.hospio.housekeeping.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospio.common.exception.BadRequestException;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import java.math.BigDecimal;
@@ -11,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -21,6 +23,38 @@ import org.springframework.web.client.RestClientResponseException;
  */
 @Component
 public class LaundryClients {
+
+    /** The part of payment-service's payment laundry reads. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record PaymentRef(String id, String status, BigDecimal amount, String method) {
+    }
+
+    /** One line of inventory-service's stock move result. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MovedLine(String itemId, String name, String unit, BigDecimal quantity, BigDecimal unitCost, BigDecimal value) {
+    }
+
+    /** inventory-service's stock move result: only its lines are read. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MoveResult(List<MovedLine> lines) {
+    }
+
+    /** The part of inventory-service's item view laundry reads. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ItemRef(String id, String name, String unit, String category, Boolean active) {
+    }
+
+    /** The envelope of a refusal: only its sentence is read. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Refusal(String message) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<PaymentRef>> PAYMENT = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<MoveResult>> MOVE = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<List<ItemRef>>> ITEMS = new ParameterizedTypeReference<>() {
+    };
 
     private final RestClient folio;
     private final RestClient payment;
@@ -57,8 +91,12 @@ public class LaundryClients {
     /** The payment as payment-service has it; 400 "That payment isn't in this hotel" when it doesn't know it. */
     public Payment payment(String paymentId) {
         try {
-            JsonNode d = payment.get().uri("/internal/payments/{id}", paymentId).retrieve().body(JsonNode.class).path("data");
-            return new Payment(d.path("id").asText(), d.path("status").asText(null), d.path("amount").decimalValue(), d.path("method").asText(null));
+            ApiResponse<PaymentRef> body = payment.get().uri("/internal/payments/{id}", paymentId).retrieve().body(PAYMENT);
+            if (body == null) {
+                throw new BadRequestException("Can't check the payment right now · try again");
+            }
+            PaymentRef d = body.data() == null ? new PaymentRef(null, null, null, null) : body.data();
+            return new Payment(d.id() == null ? "" : d.id(), d.status(), zeroIfNull(d.amount()), d.method());
         } catch (RestClientResponseException e) {
             if (e.getStatusCode().value() == 404 || e.getStatusCode().value() == 400) {
                 throw new BadRequestException("That payment isn't in this hotel");
@@ -75,31 +113,26 @@ public class LaundryClients {
     /** Moves stock (USE, WASTE or TRANSFER between store kinds); the store's own sentence on a refusal. Idempotent by reference. */
     public List<Moved> move(String reference, String kind, String fromKind, String toKind, String team, String note, String category,
                             Map<String, BigDecimal> lines) {
-        List<Map<String, Object>> body = new ArrayList<>();
-        lines.forEach((item, q) -> body.add(Map.of("itemId", item, "quantity", q)));
-        Map<String, Object> request = new HashMap<>();
-        request.put("reference", reference);
-        request.put("kind", kind);
-        request.put("fromKind", fromKind);
-        request.put("toKind", toKind);
-        request.put("team", team);
-        request.put("note", note);
-        request.put("category", category);
-        request.put("lines", body);
+        List<com.hospio.common.inventory.StockMoveRequest.Line> body = new ArrayList<>();
+        lines.forEach((item, q) -> body.add(new com.hospio.common.inventory.StockMoveRequest.Line(item, q)));
+        com.hospio.common.inventory.StockMoveRequest request =
+                new com.hospio.common.inventory.StockMoveRequest(reference, kind, fromKind, toKind, team, note, category, body);
         try {
-            JsonNode res = inventory.post().uri("/internal/stock/moves").body(request).retrieve().body(JsonNode.class);
+            ApiResponse<MoveResult> res = inventory.post().uri("/internal/stock/moves").body(request).retrieve().body(MOVE);
             List<Moved> out = new ArrayList<>();
-            if (res != null) {
-                for (JsonNode l : res.path("data").path("lines")) {
-                    out.add(new Moved(l.path("itemId").asText(), l.path("name").asText(null), l.path("unit").asText(null), l.path("quantity").decimalValue(),
-                            l.path("unitCost").decimalValue(), l.path("value").decimalValue()));
+            if (res != null && res.data() != null && res.data().lines() != null) {
+                for (MovedLine l : res.data().lines()) {
+                    if (l != null) {
+                        out.add(new Moved(l.itemId() == null ? "" : l.itemId(), l.name(), l.unit(), zeroIfNull(l.quantity()),
+                                zeroIfNull(l.unitCost()), zeroIfNull(l.value())));
+                    }
                 }
             }
             return out;
         } catch (RestClientResponseException e) {
             String message = null;
             try {
-                message = mapper.readTree(e.getResponseBodyAsString()).path("message").asText(null);
+                message = mapper.readValue(e.getResponseBodyAsString(), Refusal.class).message();
             } catch (Exception ignored) {
                 // generic sentence below
             }
@@ -109,15 +142,21 @@ public class LaundryClients {
         }
     }
 
+    private static BigDecimal zeroIfNull(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
     /** The hotel's linen items (inventory category Linen) with names and units, for a batch's lines. */
     public Map<String, String[]> linenItems() {
         Map<String, String[]> out = new HashMap<>();
         try {
-            JsonNode res = inventory.get().uri("/internal/items").retrieve().body(JsonNode.class);
-            if (res != null) {
-                for (JsonNode i : res.path("data")) {
-                    out.put(i.path("id").asText(), new String[]{i.path("name").asText(), i.path("unit").asText(null), i.path("category").asText(""),
-                            String.valueOf(i.path("active").asBoolean(true))});
+            ApiResponse<List<ItemRef>> res = inventory.get().uri("/internal/items").retrieve().body(ITEMS);
+            if (res != null && res.data() != null) {
+                for (ItemRef i : res.data()) {
+                    if (i != null) {
+                        out.put(i.id() == null ? "" : i.id(), new String[]{i.name() == null ? "" : i.name(), i.unit(),
+                                i.category() == null ? "" : i.category(), String.valueOf(!Boolean.FALSE.equals(i.active()))});
+                    }
                 }
             }
             return out;

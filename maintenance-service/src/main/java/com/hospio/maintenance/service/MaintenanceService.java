@@ -302,7 +302,7 @@ public class MaintenanceService {
             throw new BadRequestException("Name the vendor you paid");
         }
         List<MaintenanceViews.PartView> drawn = new ArrayList<>(parts(r));
-        List<Map<String, Object>> lines = new ArrayList<>();
+        List<com.hospio.common.inventory.StockMoveRequest.Line> lines = new ArrayList<>();
         if (request.parts() != null) {
             for (MaintenanceRequests.PartLine p : request.parts()) {
                 if (p == null || blank(p.itemId()) == null || p.quantity() == null) {
@@ -311,7 +311,7 @@ public class MaintenanceService {
                 if (p.quantity().signum() <= 0) {
                     throw new BadRequestException("Enter a quantity above zero for every part");
                 }
-                lines.add(Map.of("itemId", p.itemId(), "quantity", p.quantity()));
+                lines.add(new com.hospio.common.inventory.StockMoveRequest.Line(p.itemId(), p.quantity()));
             }
         }
         if (!lines.isEmpty()) {

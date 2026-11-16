@@ -17,5 +17,6 @@
     <include file="db/changelog/005-scale-indexes.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/006-activity-retention.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/007-activity-six-months.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/008-daily-fees.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

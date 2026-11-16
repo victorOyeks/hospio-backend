@@ -51,7 +51,7 @@ class PendingPaymentCheckJobTest {
 
     @Test
     void waitingCardPaymentsAreAskedAboutAndStillPendingOnesWait() {
-        PendingPaymentCheckJob job = new PendingPaymentCheckJob(payments, service, new MoniepointPosProvider());
+        PendingPaymentCheckJob job = new PendingPaymentCheckJob(payments, service, new MoniepointPosProvider(), org.mockito.Mockito.mock(com.hospio.payment.pos.HotelPosRouter.class));
         job.clock = Clock.fixed(NOW, ZoneOffset.UTC);
         when(payments.findTop200ByMethodAndStatusInAndProviderRefIsNotNullAndCreatedAtBetweenOrderByCreatedAtAsc(
                 eq(PaymentMethod.CARD), eq(PendingPaymentCheckJob.WAITING), eq(NOW.minus(PendingPaymentCheckJob.GIVE_UP)),
@@ -64,7 +64,7 @@ class PendingPaymentCheckJobTest {
 
     @Test
     void theDevelopmentProviderHasNothingToAsk() {
-        PendingPaymentCheckJob job = new PendingPaymentCheckJob(payments, service, new LoggingPosProvider());
+        PendingPaymentCheckJob job = new PendingPaymentCheckJob(payments, service, new LoggingPosProvider(), org.mockito.Mockito.mock(com.hospio.payment.pos.HotelPosRouter.class));
         job.run();
         verify(payments, never()).findTop200ByMethodAndStatusInAndProviderRefIsNotNullAndCreatedAtBetweenOrderByCreatedAtAsc(any(), any(), any(), any());
     }

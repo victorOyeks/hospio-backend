@@ -2,45 +2,38 @@ package com.hospio.hotelconfig.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.hospio.common.setup.HotelSetup;
 import com.hospio.common.setup.SetupCatalogue;
-import java.util.HashMap;
-import java.util.Map;
+import com.hospio.common.setup.SetupSection;
+import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
 
 /** Setup completeness counts only catalogue keys whose value differs from the default. */
 class AdminOverviewServiceTest {
 
-    private static int totalKeys() {
-        return SetupCatalogue.SECTIONS.values().stream().mapToInt(Map::size).sum();
-    }
-
     @Test
     void defaultsScoreZeroAndEveryChangedKeyScoresFull() {
-        Map<String, Map<String, JsonNode>> same = new HashMap<>();
-        SetupCatalogue.SECTIONS.forEach((s, v) -> same.put(s, new HashMap<>(v)));
-        assertThat(AdminOverviewServiceTest.pct(same)).isZero();
+        assertThat(AdminOverviewService.setupCompletePct(HotelSetup.DEFAULTS)).isZero();
 
-        Map<String, Map<String, JsonNode>> all = new HashMap<>();
-        SetupCatalogue.SECTIONS.forEach((s, v) -> {
-            Map<String, JsonNode> m = new HashMap<>();
-            v.forEach((k, d) -> m.put(k, JsonNodeFactory.instance.textNode("changed-" + k)));
-            all.put(s, m);
-        });
-        assertThat(AdminOverviewServiceTest.pct(all)).isEqualTo(100);
+        HotelSetup all = HotelSetup.of(name -> SetupCatalogue.build(SetupCatalogue.SECTIONS.get(name), (key, type) ->
+                type == String.class ? "changed-" + key : type == Boolean.class ? !(Boolean) valueOf(name, key)
+                        : type == Integer.class ? 9999 : new BigDecimal("12345.6")));
+        assertThat(AdminOverviewService.setupCompletePct(all)).isEqualTo(100);
     }
 
     @Test
-    void oneChangedKeyAndUnknownKeysCountProportionally() {
-        Map<String, Map<String, JsonNode>> stored = new HashMap<>();
-        stored.put(SetupCatalogue.MESSAGING, new HashMap<>(Map.of("whatsappNumber", JsonNodeFactory.instance.textNode("+2348010000000"),
-                "notInCatalogue", JsonNodeFactory.instance.textNode("x"))));
-        assertThat(pct(stored)).isEqualTo((int) Math.round(100.0 / totalKeys()));
-        assertThat(pct(Map.of())).isZero();
+    void oneChangedKeyCountsProportionallyAndTheSameRateWrittenDifferentlyIsNotAChange() {
+        HotelSetup stored = HotelSetup.of(name -> switch (name) {
+            case SetupCatalogue.MESSAGING -> new SetupSection.Messaging("+2348010000000", null, null, null);
+            case SetupCatalogue.TAXES_CURRENCY -> new SetupSection.TaxesCurrency(null, new BigDecimal("7.50"), null, null, null);
+            default -> null;
+        });
+        assertThat(AdminOverviewService.setupCompletePct(stored)).isEqualTo((int) Math.round(100.0 / SetupCatalogue.keyCount()));
+        assertThat(AdminOverviewService.setupCompletePct(HotelSetup.of(name -> null))).isZero();
+        assertThat(AdminOverviewService.setupCompletePct(null)).isZero();
     }
 
-    private static int pct(Map<String, Map<String, JsonNode>> stored) {
-        return AdminOverviewService.setupCompletePct(stored);
+    private static Object valueOf(String section, String key) {
+        return SetupCatalogue.values(SetupCatalogue.defaults(section)).stream().filter(v -> v.key().equals(key)).findFirst().orElseThrow().value();
     }
 }

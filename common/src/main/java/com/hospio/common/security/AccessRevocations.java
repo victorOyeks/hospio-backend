@@ -1,6 +1,6 @@
 package com.hospio.common.security;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospio.common.kafka.KafkaTopics;
 import jakarta.annotation.PreDestroy;
@@ -158,14 +158,18 @@ public class AccessRevocations {
             return;
         }
         try {
-            JsonNode node = json.readTree(value);
-            JsonNode user = node.get("userId");
-            if (user != null && user.isTextual()) {
-                changed(user.asText(), Instant.ofEpochMilli(timestampMs));
+            AccessRecord access = json.readValue(value, AccessRecord.class);
+            if (access != null && access.userId() != null) {
+                changed(access.userId(), Instant.ofEpochMilli(timestampMs));
             }
         } catch (Exception e) {
             log.debug("Unreadable access record skipped: {}", e.getMessage());
         }
+    }
+
+    /** The one field both topics' records share that matters here: whose access changed. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record AccessRecord(String userId) {
     }
 
     private void prune() {

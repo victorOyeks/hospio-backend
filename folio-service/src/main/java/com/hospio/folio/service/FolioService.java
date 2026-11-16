@@ -126,6 +126,14 @@ public class FolioService {
     @Transactional
     public FolioLine postCharge(Folio folio, String sourceModule, String sourceRef, String description, BigDecimal amount,
                                 BigDecimal tax, String category, String postedBy, String postedByName) {
+        return postCharge(folio, sourceModule, sourceRef, description, amount, tax, category, postedBy, postedByName, null, null);
+    }
+
+    /** A charge for nights [{@code from}, {@code to}) (room lines): the daily sales count it one night per day. */
+    @Transactional
+    public FolioLine postCharge(Folio folio, String sourceModule, String sourceRef, String description, BigDecimal amount,
+                                BigDecimal tax, String category, String postedBy, String postedByName,
+                                java.time.LocalDate from, java.time.LocalDate to) {
         folio = lock(folio.getId());
         if (sourceRef != null) {
             Optional<FolioLine> dup = lines.findBySourceModuleAndSourceRef(sourceModule, sourceRef);
@@ -138,7 +146,9 @@ public class FolioService {
         }
         FolioLine line = lines.save(FolioLine.builder().folioId(folio.getId()).kind(FolioLine.Kind.CHARGE).sourceModule(sourceModule)
                 .sourceRef(sourceRef).category(category).description(description).amount(Money.of(amount)).taxAmount(Money.of(tax))
-                .postedBy(postedBy).postedByName(postedByName).build());
+                .postedBy(postedBy).postedByName(postedByName)
+                .serviceFrom(from != null && to != null && to.isAfter(from) ? from : null)
+                .serviceTo(from != null && to != null && to.isAfter(from) ? to : null).build());
         recalculate(folio);
         return line;
     }
@@ -272,6 +282,7 @@ public class FolioService {
         line.setVoided(true);
         line.setVoidReason(request.reason());
         line.setVoidedBy(user.getUserId());
+        line.setVoidedAt(Instant.now());
         lines.save(line);
         recalculate(f);
         events.publish(KafkaTopics.DISCOUNT_APPLIED, DiscountAppliedEvent.builder()

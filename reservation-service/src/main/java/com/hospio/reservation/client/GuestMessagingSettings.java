@@ -3,7 +3,7 @@ package com.hospio.reservation.client;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.setup.GuestMessaging;
 import com.hospio.common.setup.HotelSettingsReader;
-import com.hospio.common.setup.SetupCatalogue;
+import com.hospio.common.setup.SetupSection;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -30,16 +30,20 @@ public class GuestMessagingSettings {
         if (hotelId == null) {
             return Brand.NONE;
         }
-        return settings.section(hotelId, SetupCatalogue.BRAND).map(n -> {
-            String c = n.path("primaryColour").asText("").trim().toLowerCase();
-            String name = n.path("shortName").asText("").trim();
-            String logo = n.path("logoUrl").asText("").trim();
+        return settings.section(hotelId, SetupSection.Brand.class).map(b -> {
+            String c = text(b.primaryColour()).toLowerCase();
+            String name = text(b.shortName());
+            String logo = text(b.logoUrl());
             return new Brand(c.matches("^#[0-9a-f]{6}$") ? c : null, name.isEmpty() ? null : name.length() > 24 ? name.substring(0, 24) : name,
                     logo.matches("^https://\\S+$") ? logo : null);
         }).orElse(Brand.NONE);
     }
 
+    private static String text(String value) {
+        return value == null ? "" : value.trim();
+    }
+
     public GuestMessaging forHotel(String hotelId) {
-        return hotelId == null ? GuestMessaging.DEFAULTS : GuestMessaging.of(settings.section(hotelId, SetupCatalogue.MESSAGING));
+        return hotelId == null ? GuestMessaging.DEFAULTS : GuestMessaging.of(settings.section(hotelId, SetupSection.Messaging.class));
     }
 }

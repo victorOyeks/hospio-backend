@@ -1,7 +1,7 @@
 package com.hospio.folio.config;
 
 import com.hospio.common.setup.HotelSettingsReader;
-import com.hospio.common.setup.SetupCatalogue;
+import com.hospio.common.setup.SetupSection;
 import com.hospio.common.util.Money;
 import java.math.BigDecimal;
 import lombok.Getter;
@@ -34,9 +34,9 @@ public class ApprovalLimits {
     /** The largest discount a manager may give on a folio worth {@code folioTotal}: discountPct of it from Hotel setup, else the fixed fallback. */
     public BigDecimal discountLimit(String hotelId, BigDecimal folioTotal) {
         if (settings != null) {
-            var pct = settings.section(hotelId, SetupCatalogue.APPROVAL_LIMITS).map(n -> n.path("discountPct")).filter(n -> n.isNumber());
+            var pct = settings.section(hotelId, SetupSection.ApprovalLimits.class).map(SetupSection.ApprovalLimits::discountPct);
             if (pct.isPresent()) {
-                return Money.percent(folioTotal, pct.get().decimalValue());
+                return Money.percent(folioTotal, pct.get());
             }
         }
         return managerDiscountLimit;

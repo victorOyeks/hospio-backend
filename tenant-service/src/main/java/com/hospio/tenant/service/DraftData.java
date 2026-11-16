@@ -1,22 +1,21 @@
 package com.hospio.tenant.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.hospio.tenant.dto.OnboardingDraftData;
+import com.hospio.tenant.dto.OnboardingLogin;
+import com.hospio.tenant.dto.OnboardingStepData;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.TreeSet;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /**
- * The shape of an onboarding draft's {@code data}:
- * <pre>{"steps": {"1": {...}, "2": {...}}, "completedSteps": [1, 2], "nextAction": "...", "logins": [{...}]}</pre>
- * Each step's form JSON is kept under its own key so the wizard can be left and resumed; {@code logins}
- * are the accounts created along the way (the handover pack lists them). Data saved before this shape
- * existed is kept under {@code legacy}.
+ * Reads and writes an onboarding draft's {@code data} ({@link OnboardingDraftData}, kept as JSON text on the draft). Data that
+ * isn't a draft (saved before this shape existed, or not JSON) reads as an empty draft.
  */
 @Component
 @RequiredArgsConstructor
@@ -25,33 +24,24 @@ public class DraftData {
     private final ObjectMapper objectMapper;
 
     public String empty() {
-        ObjectNode root = objectMapper.createObjectNode();
-        root.putObject("steps");
-        return write(root);
+        return write(OnboardingDraftData.EMPTY);
     }
 
-    public ObjectNode parse(String json) {
+    public OnboardingDraftData parse(String json) {
         if (json == null || json.isBlank()) {
-            return objectMapper.createObjectNode();
+            return new OnboardingDraftData(null, null, null, null);
         }
         try {
-            JsonNode node = objectMapper.readTree(json);
-            if (node.isObject() && (node.has("steps") || node.has("completedSteps") || node.isEmpty())) {
-                return (ObjectNode) node;
-            }
-            ObjectNode wrapped = objectMapper.createObjectNode();
-            wrapped.set("legacy", node);
-            return wrapped;
+            OnboardingDraftData data = objectMapper.readValue(json, OnboardingDraftData.class);
+            return data == null ? new OnboardingDraftData(null, null, null, null) : data;
         } catch (JsonProcessingException e) {
-            ObjectNode wrapped = objectMapper.createObjectNode();
-            wrapped.put("legacy", json);
-            return wrapped;
+            return new OnboardingDraftData(null, null, null, null);
         }
     }
 
-    public String write(JsonNode node) {
+    public String write(OnboardingDraftData data) {
         try {
-            return objectMapper.writeValueAsString(node);
+            return objectMapper.writeValueAsString(data);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Draft data could not be written", e);
         }
@@ -61,43 +51,38 @@ public class DraftData {
         return completedSteps(parse(json));
     }
 
-    public List<Integer> completedSteps(ObjectNode root) {
+    public List<Integer> completedSteps(OnboardingDraftData data) {
         TreeSet<Integer> steps = new TreeSet<>();
-        root.path("completedSteps").forEach(n -> steps.add(n.asInt()));
+        if (data.completedSteps() != null) {
+            data.completedSteps().stream().filter(s -> s != null).forEach(steps::add);
+        }
         return new ArrayList<>(steps);
     }
 
-    public String nextAction(ObjectNode root) {
-        return root.path("nextAction").isTextual() ? root.get("nextAction").asText() : null;
-    }
-
     /** Stores a step's form data under its key, marks the step completed and remembers what to do next. */
-    public void saveStep(ObjectNode root, int step, JsonNode data, String nextAction) {
-        ObjectNode steps = root.has("steps") && root.get("steps").isObject() ? (ObjectNode) root.get("steps") : root.putObject("steps");
-        steps.set(String.valueOf(step), data == null ? objectMapper.createObjectNode() : data);
-        TreeSet<Integer> completed = new TreeSet<>(completedSteps(root));
+    public OnboardingDraftData saveStep(OnboardingDraftData data, int step, OnboardingStepData form, String nextAction) {
+        Map<String, OnboardingStepData> steps = new LinkedHashMap<>(data.steps() == null ? Map.of() : data.steps());
+        steps.put(String.valueOf(step), form == null ? OnboardingStepData.EMPTY : form);
+        TreeSet<Integer> completed = new TreeSet<>(completedSteps(data));
         completed.add(step);
-        ArrayNode arr = root.putArray("completedSteps");
-        completed.forEach(arr::add);
-        if (nextAction != null) {
-            root.put("nextAction", nextAction);
-        }
+        return new OnboardingDraftData(steps, new ArrayList<>(completed), nextAction != null ? nextAction : data.nextAction(), data.logins());
     }
 
-    /** Every login recorded in the draft: the top-level list plus any {@code logins} array a step saved. */
-    public List<JsonNode> logins(ObjectNode root) {
-        List<JsonNode> out = new ArrayList<>();
-        root.path("logins").forEach(out::add);
-        root.path("steps").forEach(step -> step.path("logins").forEach(out::add));
+    /** Every login recorded in the draft: the top-level list plus any {@code logins} a step saved. */
+    public List<OnboardingLogin> logins(OnboardingDraftData data) {
+        List<OnboardingLogin> out = new ArrayList<>();
+        if (data.logins() != null) {
+            out.addAll(data.logins());
+        }
+        if (data.steps() != null) {
+            data.steps().values().stream().filter(s -> s != null && s.logins() != null).forEach(s -> out.addAll(s.logins()));
+        }
         return out;
     }
 
-    public void addLogin(ObjectNode root, ObjectNode login) {
-        ArrayNode arr = root.has("logins") && root.get("logins").isArray() ? (ArrayNode) root.get("logins") : root.putArray("logins");
-        arr.add(login);
-    }
-
-    public ObjectNode object() {
-        return objectMapper.createObjectNode();
+    public OnboardingDraftData addLogin(OnboardingDraftData data, OnboardingLogin login) {
+        List<OnboardingLogin> logins = new ArrayList<>(data.logins() == null ? List.of() : data.logins());
+        logins.add(login);
+        return new OnboardingDraftData(data.steps(), data.completedSteps(), data.nextAction(), logins);
     }
 }

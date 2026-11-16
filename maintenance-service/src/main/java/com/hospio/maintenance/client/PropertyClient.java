@@ -1,7 +1,8 @@
 package com.hospio.maintenance.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.hospio.common.exception.BadRequestException;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import java.time.LocalDate;
@@ -9,6 +10,7 @@ import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -28,15 +30,23 @@ public class PropertyClient {
     public record Room(String id, String number, boolean inService) {
     }
 
+    /** The part of property-service's room this client reads. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record RoomRef(String id, String number, String status) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<RoomRef>> ROOM = new ParameterizedTypeReference<>() {
+    };
+
     /** The room, or 400 "That room isn't in this hotel" when property-service doesn't know it. */
     public Room room(String roomId) {
         try {
-            JsonNode body = restClient.get().uri("/internal/rooms/{id}", roomId).retrieve().body(JsonNode.class);
-            JsonNode d = body == null ? null : body.path("data");
-            if (d == null || d.isMissingNode() || d.isNull()) {
+            ApiResponse<RoomRef> body = restClient.get().uri("/internal/rooms/{id}", roomId).retrieve().body(ROOM);
+            RoomRef d = body == null ? null : body.data();
+            if (d == null) {
                 throw new BadRequestException("That room isn't in this hotel");
             }
-            return new Room(d.path("id").asText(), d.path("number").asText(null), !"OUT_OF_ORDER".equals(d.path("status").asText()));
+            return new Room(d.id() == null ? "" : d.id(), d.number(), !"OUT_OF_ORDER".equals(d.status()));
         } catch (RestClientResponseException e) {
             if (e.getStatusCode().value() == 404 || e.getStatusCode().value() == 400) {
                 throw new BadRequestException("That room isn't in this hotel");

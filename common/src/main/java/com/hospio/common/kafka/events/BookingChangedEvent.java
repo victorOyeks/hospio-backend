@@ -19,6 +19,12 @@ public class BookingChangedEvent extends HospioEvent {
     private String roomNumber;
     private java.time.LocalDate checkInDate;
     private java.time.LocalDate checkOutDate;
+    /** The booking's status when it changed (CHECKED_IN: the folio follows the change). */
+    private String status;
+    /** The check-out date and stay total before the change, and the total after: an in-house change bills the difference. */
+    private java.time.LocalDate previousCheckOutDate;
+    private java.math.BigDecimal previousTotal;
+    private java.math.BigDecimal newTotal;
 
     @Override
     public String summary() {

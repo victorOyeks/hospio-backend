@@ -2,7 +2,7 @@ package com.hospio.property.client;
 
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.setup.HotelSettingsReader;
-import com.hospio.common.setup.SetupCatalogue;
+import com.hospio.common.setup.SetupSection;
 import com.hospio.property.service.RoomPriceRule;
 import java.math.BigDecimal;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,9 +24,9 @@ public class HotelConfigClient {
      * answer is used: every manager's price change waits for the owner.
      */
     public RoomPriceRule.Policy roomPricePolicy(String hotelId) {
-        return settings.section(hotelId, SetupCatalogue.APPROVAL_LIMITS)
-                .map(n -> new RoomPriceRule.Policy(n.path("rateChangesNeedOwner").asBoolean(true),
-                        n.path("rateChangeOwnerPct").isNumber() ? n.path("rateChangeOwnerPct").decimalValue() : BigDecimal.ZERO))
+        return settings.section(hotelId, SetupSection.ApprovalLimits.class)
+                .map(a -> new RoomPriceRule.Policy(a.rateChangesNeedOwner() == null || a.rateChangesNeedOwner(),
+                        a.rateChangeOwnerPct() != null ? a.rateChangeOwnerPct() : BigDecimal.ZERO))
                 .orElse(new RoomPriceRule.Policy(true, BigDecimal.ZERO));
     }
 }

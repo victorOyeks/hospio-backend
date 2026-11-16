@@ -1,6 +1,5 @@
 package com.hospio.tenant.service;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hospio.common.delivery.Delivery;
 import com.hospio.common.delivery.DeliveryService;
 import com.hospio.common.enums.Role;
@@ -17,7 +16,10 @@ import com.hospio.common.security.HospioUserDetails;
 import com.hospio.tenant.client.IdentityClient;
 import com.hospio.tenant.dto.BusinessResponse;
 import com.hospio.tenant.dto.HandoverResponse;
+import com.hospio.tenant.dto.OnboardingDraftData;
+import com.hospio.tenant.dto.OnboardingLogin;
 import com.hospio.tenant.dto.OnboardingResponse;
+import com.hospio.tenant.dto.OnboardingStepData;
 import com.hospio.tenant.dto.OnboardingStepRequest;
 import com.hospio.tenant.dto.SetupTemplateRequest;
 import com.hospio.tenant.entity.Business;
@@ -150,15 +152,9 @@ public class OnboardingService {
                 : identityClient.resendInvite(business.getOwnerUserId());
         if (business.getOwnerUserId() == null) {
             businessService.setOwner(businessId, login.userId());
-            ObjectNode root = draftData.parse(draft.getData());
-            ObjectNode owner = draftData.object();
-            owner.put("userId", login.userId());
-            owner.put("fullName", business.getOwnerName());
-            owner.put("email", business.getOwnerEmail());
-            owner.put("role", "OWNER");
-            owner.putNull("hotelId");
-            draftData.addLogin(root, owner);
-            draft.setData(draftData.write(root));
+            OnboardingDraftData data = draftData.addLogin(draftData.parse(draft.getData()),
+                    OnboardingLogin.owner(login.userId(), business.getOwnerName(), business.getOwnerEmail()));
+            draft.setData(draftData.write(data));
         }
         Handover handover = handovers.findByBusinessId(businessId).orElseGet(() -> Handover.builder().businessId(businessId).build());
         handover.setSentAt(Instant.now());
@@ -170,7 +166,7 @@ public class OnboardingService {
         events.publish(KafkaTopics.HANDOVER_SENT, HandoverSentEvent.builder()
                 .businessId(businessId).ownerUserId(login.userId()).ownerEmail(business.getOwnerEmail()).build());
         List<com.hospio.tenant.dto.HotelResponse> hotels = businessService.hotelsOf(businessId);
-        List<com.fasterxml.jackson.databind.JsonNode> logins = draftData.logins(draftData.parse(draft.getData()));
+        List<OnboardingLogin> logins = draftData.logins(draftData.parse(draft.getData()));
         List<Delivery> deliveries = new ArrayList<>(login.deliveries() == null ? List.of() : login.deliveries());
         deliveries.addAll(deliveryService.send(handoverPack.email(businessId, business.getName(), business.getOwnerName(),
                 business.getOwnerEmail(), hotels, logins)));
@@ -267,22 +263,16 @@ public class OnboardingService {
     // ---- shared --------------------------------------------------------------------------------------
 
     private void save(OnboardingDraft draft, Business business, OnboardingStepRequest request, int totalSteps) {
-        ObjectNode root = draftData.parse(draft.getData());
-        draftData.saveStep(root, request.step(), request.data(), request.nextAction());
-        draft.setData(draftData.write(root));
+        OnboardingDraftData data = draftData.saveStep(draftData.parse(draft.getData()), request.step(), request.data(), request.nextAction());
+        draft.setData(draftData.write(data));
         draft.setStep(Math.max(draft.getStep(), Math.min(request.step() + 1, totalSteps)));
     }
 
     /** Step 2's optional second contact: blank is fine, anything typed must be a real name, email or phone. */
-    static void checkSecondContact(com.fasterxml.jackson.databind.JsonNode data) {
-        Fields.name(text(data, "contactName"), "the second contact's name", false);
-        Fields.email(text(data, "contactEmail"), "the second contact's email", false);
-        Fields.phone(text(data, "contactPhone"), "the second contact's phone", false);
-    }
-
-    private static String text(com.fasterxml.jackson.databind.JsonNode data, String field) {
-        com.fasterxml.jackson.databind.JsonNode v = data.path(field);
-        return v.isTextual() ? v.asText() : null;
+    static void checkSecondContact(OnboardingStepData data) {
+        Fields.name(data.contactName(), "the second contact's name", false);
+        Fields.email(data.contactEmail(), "the second contact's email", false);
+        Fields.phone(data.contactPhone(), "the second contact's phone", false);
     }
 
     private Business ownersBusiness() {
@@ -308,10 +298,10 @@ public class OnboardingService {
 
     private OnboardingResponse toResponse(OnboardingDraft d, Map<String, String> assigneeNames) {
         Business business = businessService.find(d.getBusinessId());
-        ObjectNode root = draftData.parse(d.getData());
+        OnboardingDraftData data = draftData.parse(d.getData());
         return new OnboardingResponse(d.getId(), d.getBusinessId(), business.getName(), business.getSource(), d.getStep(),
-                totalSteps(business), draftData.completedSteps(root), d.getAssignedTo(), assigneeNames.get(d.getAssignedTo()), d.getStatus(),
-                draftData.nextAction(root), d.getCreatedAt(), d.getUpdatedAt(), root);
+                totalSteps(business), draftData.completedSteps(data), d.getAssignedTo(), assigneeNames.get(d.getAssignedTo()), d.getStatus(),
+                data.nextAction(), d.getCreatedAt(), d.getUpdatedAt(), data);
     }
 
     private static void requirePlatform() {

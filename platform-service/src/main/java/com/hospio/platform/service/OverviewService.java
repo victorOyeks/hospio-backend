@@ -1,7 +1,5 @@
 package com.hospio.platform.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.platform.client.HotelOverviewClient;
 import com.hospio.platform.client.TenantClient;
@@ -11,6 +9,7 @@ import com.hospio.platform.dto.AdminResponses.HotelOverview;
 import com.hospio.platform.dto.AdminResponses.Overview;
 import com.hospio.platform.dto.AdminResponses.Usage;
 import com.hospio.platform.dto.AdminResponses.WeekCount;
+import com.hospio.platform.dto.HotelFigures;
 import com.hospio.platform.repository.ActivityEntryRepository;
 import com.hospio.platform.repository.HealthScoreRepository;
 import java.math.BigDecimal;
@@ -57,7 +56,6 @@ public class OverviewService {
     private final ActivityEntryRepository activity;
     private final HotelOverviewClient hotelOverviews;
     private final NameResolver names;
-    private final ObjectMapper objectMapper;
 
     /** How long the tenant-service figures on the dashboard (business counts, onboarding) are reused. */
     static final Duration TENANT_FIGURES_TTL = Duration.ofSeconds(60);
@@ -183,44 +181,37 @@ public class OverviewService {
     public HotelOverview hotelOverview(String businessId, String hotelId) {
         ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor();
         try {
-            Map<String, Future<JsonNode>> asked = new LinkedHashMap<>();
-            for (String service : hotelOverviews.services()) {
-                asked.put(service, pool.submit(() -> hotelOverviews.overview(service, hotelId)));
-            }
+            Future<HotelFigures.Property> askedProperty = pool.submit(() -> hotelOverviews.property(hotelId));
+            Future<HotelFigures.Reservation> askedReservation = pool.submit(() -> hotelOverviews.reservation(hotelId));
+            Future<HotelFigures.Folio> askedFolio = pool.submit(() -> hotelOverviews.folio(hotelId));
+            Future<HotelFigures.Payment> askedPayment = pool.submit(() -> hotelOverviews.payment(hotelId));
+            Future<HotelFigures.HotelConfig> askedConfig = pool.submit(() -> hotelOverviews.hotelConfig(hotelId));
             TenantClient.Business b = tenant.business(businessId).orElseThrow(() -> new ResourceNotFoundException("Business not found"));
             TenantClient.Hotel hotel = b.hotels().stream().filter(h -> hotelId.equals(h.id())).findFirst()
                     .orElseThrow(() -> new ResourceNotFoundException("That hotel is not in this business"));
             Future<String> managerName = pool.submit(() -> names.name(hotel.managerUserId()).orElse(null));
             long deadline = System.nanoTime() + HOTEL_OVERVIEW_DEADLINE.toNanos();
 
-            Map<String, Object> raw = new LinkedHashMap<>();
-            JsonNode property = null;
-            JsonNode reservation = null;
-            JsonNode folio = null;
-            JsonNode payment = null;
-            for (Map.Entry<String, Future<JsonNode>> e : asked.entrySet()) {
-                JsonNode d = within(e.getValue(), deadline, e.getKey());
-                raw.put(e.getKey(), d == null ? null : objectMapper.convertValue(d, Map.class));
-                switch (e.getKey()) {
-                    case "property" -> property = d;
-                    case "reservation" -> reservation = d;
-                    case "folio" -> folio = d;
-                    case "payment" -> payment = d;
-                    default -> { }
-                }
-            }
+            HotelFigures.Property property = within(askedProperty, deadline, "property");
+            HotelFigures.Reservation reservation = within(askedReservation, deadline, "reservation");
+            HotelFigures.Folio folio = within(askedFolio, deadline, "folio");
+            HotelFigures.Payment payment = within(askedPayment, deadline, "payment");
+            HotelFigures.HotelConfig config = within(askedConfig, deadline, "hotel-config");
+            HotelFigures.Raw raw = new HotelFigures.Raw(property, reservation, folio, payment, config);
             String manager = within(managerName, deadline, "identity");
-            Integer rooms = property != null && property.has("rooms") ? property.path("rooms").asInt() : hotel.roomCount() > 0 ? hotel.roomCount() : null;
-            Integer occupied = reservation != null && reservation.has("inHouse") ? reservation.path("inHouse").asInt() : null;
-            BigDecimal occupancy = reservation != null && reservation.has("occupancyPct") ? new BigDecimal(reservation.path("occupancyPct").asText("0")) : null;
+            Integer rooms = property != null && property.rooms() != null ? Integer.valueOf(property.rooms().intValue())
+                    : hotel.roomCount() > 0 ? hotel.roomCount() : null;
+            Integer occupied = reservation != null && reservation.inHouse() != null ? Integer.valueOf(reservation.inHouse().intValue()) : null;
+            BigDecimal occupancy = reservation != null ? reservation.occupancyPct() : null;
             if (occupancy == null && occupied != null && rooms != null && rooms > 0) {
                 occupancy = BigDecimal.valueOf(occupied * 100L).divide(BigDecimal.valueOf(rooms), 1, java.math.RoundingMode.HALF_UP);
             }
-            JsonNode today = payment == null ? null : payment.path("paymentsToday");
+            HotelFigures.PaymentsToday today = payment == null ? null : payment.paymentsToday();
             return new HotelOverview(hotelId, businessId, hotel.name(), hotel.managerUserId(), manager, rooms, occupied, occupancy,
-                    intOrNull(reservation, "arrivalsToday"), intOrNull(reservation, "departuresToday"), intOrNull(folio, "openFolios"),
-                    today == null || today.isMissingNode() ? null : today.path("count").asLong(),
-                    today == null || today.isMissingNode() ? null : new BigDecimal(today.path("gross").asText("0")), raw);
+                    intOrNull(reservation == null ? null : reservation.arrivalsToday()), intOrNull(reservation == null ? null : reservation.departuresToday()),
+                    intOrNull(folio == null ? null : folio.openFolios()),
+                    today == null ? null : today.count() == null ? 0L : today.count(),
+                    today == null ? null : today.gross() == null ? BigDecimal.ZERO : today.gross(), raw);
         } finally {
             // Whatever is still running is not waited for.
             pool.shutdownNow();
@@ -244,7 +235,7 @@ public class OverviewService {
         }
     }
 
-    private static Integer intOrNull(JsonNode n, String field) {
-        return n != null && n.has(field) && !n.path(field).isNull() ? n.path(field).asInt() : null;
+    private static Integer intOrNull(Long n) {
+        return n == null ? null : n.intValue();
     }
 }

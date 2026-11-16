@@ -1,6 +1,5 @@
 package com.hospio.messaging.mail;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.ConnectException;
 import java.net.URI;
@@ -9,9 +8,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Primary;
@@ -47,35 +44,25 @@ public class BrevoApiGateway implements SmtpGateway {
 
     @Override
     public Accepted send(Email email) {
-        Map<String, Object> body = new HashMap<>();
-        Map<String, Object> sender = new HashMap<>();
-        sender.put("email", email.fromAddress());
-        if (StringUtils.hasText(email.fromName())) {
-            sender.put("name", email.fromName());
-        }
-        body.put("sender", sender);
-        body.put("to", List.of(Map.of("email", email.to())));
-        if (StringUtils.hasText(email.replyTo())) {
-            body.put("replyTo", Map.of("email", email.replyTo()));
-        }
-        body.put("subject", email.subject());
-        if (StringUtils.hasText(email.html())) {
-            body.put("htmlContent", email.html());
-        }
-        if (StringUtils.hasText(email.text())) {
-            body.put("textContent", email.text());
-        }
+        BrevoDtos.SendRequest body = new BrevoDtos.SendRequest(
+                new BrevoDtos.Sender(email.fromAddress(), StringUtils.hasText(email.fromName()) ? email.fromName() : null),
+                List.of(new BrevoDtos.Address(email.to())),
+                StringUtils.hasText(email.replyTo()) ? new BrevoDtos.Address(email.replyTo()) : null,
+                email.subject(),
+                StringUtils.hasText(email.html()) ? email.html() : null,
+                StringUtils.hasText(email.text()) ? email.text() : null);
         try {
             HttpRequest req = HttpRequest.newBuilder(URI.create(baseUrl + "/smtp/email")).timeout(Duration.ofSeconds(20))
                     .header("api-key", apiKey).header("accept", "application/json").header("content-type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
-            JsonNode root = res.body() == null || res.body().isBlank() ? json.createObjectNode() : json.readTree(res.body());
+            BrevoDtos.SendResponse root = res.body() == null || res.body().isBlank() ? new BrevoDtos.SendResponse(null, null, null)
+                    : json.readValue(res.body(), BrevoDtos.SendResponse.class);
             if (res.statusCode() >= 300) {
-                String why = root.path("message").asText(root.path("code").asText("HTTP " + res.statusCode()));
+                String why = root.message() != null ? root.message() : root.code() != null ? root.code() : "HTTP " + res.statusCode();
                 throw new SendFailure("Brevo " + res.statusCode() + ": " + why.replace(apiKey, "***"), res.statusCode() >= 500 || res.statusCode() == 429, null);
             }
-            return new Accepted(root.path("messageId").asText(null), "Brevo API " + res.statusCode());
+            return new Accepted(root.messageId(), "Brevo API " + res.statusCode());
         } catch (SendFailure f) {
             throw f;
         } catch (HttpTimeoutException | ConnectException e) {

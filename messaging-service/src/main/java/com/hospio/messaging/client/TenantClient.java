@@ -1,12 +1,14 @@
 package com.hospio.messaging.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import java.time.Duration;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -28,6 +30,14 @@ public class TenantClient {
         }
     }
 
+    /** A hotel or business as tenant-service's /internal/hotels/{id} and /internal/businesses/{id} give it, the fields read here. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Party(String name, String email, String phone) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<Party>> PARTY = new ParameterizedTypeReference<>() {
+    };
+
     private final RestClient restClient;
     /** At most 10,000 hotels and businesses; a failed lookup is retried after 30 seconds. */
     private final TtlCache<Optional<Sender>> cache = new TtlCache<>(10_000, TTL, Duration.ofSeconds(30));
@@ -48,11 +58,10 @@ public class TenantClient {
     private Optional<Sender> cached(String key, String uri, String id) {
         return cache.get(key, () -> {
             try {
-                JsonNode body = restClient.get().uri(uri, id).retrieve().body(JsonNode.class);
-                JsonNode d = body == null ? null : body.path("data");
-                return TtlCache.Loaded.ok(d == null || d.isMissingNode() || d.isNull() || !d.hasNonNull("name") ? Optional.<Sender>empty()
-                        : Optional.of(new Sender(d.path("name").asText(), blankToNull(d.path("email").asText(null)),
-                                blankToNull(d.path("phone").asText(null)))));
+                ApiResponse<Party> body = restClient.get().uri(uri, id).retrieve().body(PARTY);
+                Party d = body == null ? null : body.data();
+                return TtlCache.Loaded.ok(d == null || d.name() == null ? Optional.<Sender>empty()
+                        : Optional.of(new Sender(d.name(), blankToNull(d.email()), blankToNull(d.phone()))));
             } catch (Exception e) {
                 log.warn("Could not read {} from tenant-service: {}", key, e.getMessage());
                 return TtlCache.Loaded.failed(Optional.<Sender>empty());
