@@ -1,7 +1,22 @@
 package com.hospio.messaging.text;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hospio.messaging.text.InfobipDtos.Button;
+import com.hospio.messaging.text.InfobipDtos.Destination;
+import com.hospio.messaging.text.InfobipDtos.Header;
+import com.hospio.messaging.text.InfobipDtos.SendResponse;
+import com.hospio.messaging.text.InfobipDtos.SentMessage;
+import com.hospio.messaging.text.InfobipDtos.SmsMessage;
+import com.hospio.messaging.text.InfobipDtos.SmsRequest;
+import com.hospio.messaging.text.InfobipDtos.Status;
+import com.hospio.messaging.text.InfobipDtos.Template;
+import com.hospio.messaging.text.InfobipDtos.TemplateBody;
+import com.hospio.messaging.text.InfobipDtos.TemplateButton;
+import com.hospio.messaging.text.InfobipDtos.TemplateContent;
+import com.hospio.messaging.text.InfobipDtos.TemplateData;
+import com.hospio.messaging.text.InfobipDtos.TemplateMessage;
+import com.hospio.messaging.text.InfobipDtos.TemplateRequest;
+import com.hospio.messaging.text.InfobipDtos.Templates;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -97,17 +112,10 @@ public class InfobipClient {
         if (!configured()) {
             return Sent.failed("SMS provider not configured");
         }
-        Map<String, Object> message = new HashMap<>();
-        message.put("destinations", List.of(Map.of("to", to)));
-        message.put("text", text);
-        if (StringUtils.hasText(smsSender)) {
-            message.put("from", smsSender);
-        }
-        if (StringUtils.hasText(notifyUrl)) {
-            message.put("notifyUrl", notifyUrl);
-            message.put("notifyContentType", "application/json");
-        }
-        return send("/sms/2/text/advanced", Map.of("messages", List.of(message)));
+        boolean notify = StringUtils.hasText(notifyUrl);
+        SmsMessage message = new SmsMessage(List.of(new Destination(to)), text, StringUtils.hasText(smsSender) ? smsSender : null,
+                notify ? notifyUrl : null, notify ? "application/json" : null);
+        return send("/sms/2/text/advanced", new SmsRequest(List.of(message)));
     }
 
     /**
@@ -134,23 +142,19 @@ public class InfobipClient {
         }
         List<String> values = params == null ? List.of() : params;
         boolean link = shape.linkButton() && !values.isEmpty();
-        Map<String, Object> data = new HashMap<>();
-        data.put("body", Map.of("placeholders", link ? values.subList(0, values.size() - 1) : values));
+        TemplateBody body = new TemplateBody(link ? values.subList(0, values.size() - 1) : values);
         String image = StringUtils.hasText(headerImage) ? headerImage : headerImageUrl;
-        if (shape.imageHeader() && StringUtils.hasText(image)) {
-            data.put("header", Map.of("type", "IMAGE", "mediaUrl", image));
-        }
+        Header header = shape.imageHeader() && StringUtils.hasText(image) ? new Header("IMAGE", image) : null;
+        List<Button> buttons = null;
         if ("AUTHENTICATION".equalsIgnoreCase(shape.category()) && !values.isEmpty()) {
-            data.put("buttons", List.of(Map.of("type", "URL", "parameter", values.get(0))));
+            buttons = List.of(new Button("URL", values.get(0)));
         } else if (link) {
-            data.put("buttons", List.of(Map.of("type", "URL", "parameter", values.get(values.size() - 1))));
+            buttons = List.of(new Button("URL", values.get(values.size() - 1)));
         }
-        Map<String, Object> message = new HashMap<>(Map.of("from", whatsAppSender, "to", to, "messageId", UUID.randomUUID().toString(),
-                "content", Map.of("templateName", template, "templateData", data, "language", language)));
-        if (StringUtils.hasText(notifyUrl)) {
-            message.put("notifyUrl", notifyUrl);
-        }
-        return send("/whatsapp/1/message/template", Map.of("messages", List.of(message)));
+        TemplateMessage message = new TemplateMessage(whatsAppSender, to, UUID.randomUUID().toString(),
+                new TemplateContent(template, new TemplateData(body, header, buttons), language),
+                StringUtils.hasText(notifyUrl) ? notifyUrl : null);
+        return send("/whatsapp/1/message/template", new TemplateRequest(List.of(message)));
     }
 
     /** The sender's templates by name, refreshed at most every ten minutes; empty when they can't be read. */
@@ -170,15 +174,16 @@ public class InfobipClient {
                 return templates;
             }
             Map<String, TemplateInfo> read = new HashMap<>();
-            for (JsonNode t : json.readTree(res.body()).path("templates")) {
-                JsonNode st = t.path("structure");
-                boolean image = "IMAGE".equalsIgnoreCase(st.path("header").path("format").asText(""));
+            Templates listed = json.readValue(res.body(), Templates.class);
+            for (Template t : listed.templates() == null ? List.<Template>of() : listed.templates()) {
+                boolean image = t.structure() != null && t.structure().header() != null && "IMAGE".equalsIgnoreCase(t.structure().header().format());
                 boolean link = false;
-                for (JsonNode b : st.path("buttons")) {
-                    link |= "URL".equalsIgnoreCase(b.path("type").asText("")) && b.path("url").asText("").contains("{{");
+                if (t.structure() != null && t.structure().buttons() != null) {
+                    for (TemplateButton b : t.structure().buttons()) {
+                        link |= b != null && "URL".equalsIgnoreCase(b.type()) && b.url() != null && b.url().contains("{{");
+                    }
                 }
-                read.put(t.path("name").asText(), new TemplateInfo(t.path("status").asText(), t.path("category").asText(),
-                        t.path("language").asText(), image, link));
+                read.put(text(t.name()), new TemplateInfo(text(t.status()), text(t.category()), text(t.language()), image, link));
             }
             templates = Map.copyOf(read);
             templatesReadAt = Instant.now();
@@ -189,27 +194,36 @@ public class InfobipClient {
         return templates;
     }
 
-    private Sent send(String path, Map<String, Object> body) {
+    private Sent send(String path, Object body) {
         try {
             HttpRequest req = request(path).POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
-            JsonNode root = res.body() == null || res.body().isBlank() ? json.createObjectNode() : json.readTree(res.body());
+            SendResponse answer = res.body() == null || res.body().isBlank() ? new SendResponse(null, null)
+                    : json.readValue(res.body(), SendResponse.class);
             if (res.statusCode() >= 300) {
-                String text = root.path("requestError").path("serviceException").path("text").asText("");
+                String text = answer.requestError() == null || answer.requestError().serviceException() == null ? ""
+                        : text(answer.requestError().serviceException().text());
                 return Sent.failed("HTTP " + res.statusCode() + (text.isBlank() ? "" : ": " + text));
             }
-            JsonNode m = root.path("messages").path(0);
-            String group = m.path("status").path("groupName").asText("");
+            SentMessage m = answer.messages() == null || answer.messages().isEmpty() || answer.messages().get(0) == null
+                    ? new SentMessage(null, null) : answer.messages().get(0);
+            Status status = m.status() == null ? new Status(null, null, null) : m.status();
+            String group = text(status.groupName());
             if ("REJECTED".equalsIgnoreCase(group) || "UNDELIVERABLE".equalsIgnoreCase(group)) {
-                return Sent.failed(m.path("status").path("name").asText(group) + ": " + m.path("status").path("description").asText(""));
+                return Sent.failed((status.name() == null ? group : status.name()) + ": " + text(status.description()));
             }
-            return Sent.ok(m.path("messageId").asText(null));
+            return Sent.ok(m.messageId());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return Sent.failed("Interrupted");
         } catch (Exception e) {
             return Sent.failed(e.getClass().getSimpleName() + ": " + e.getMessage());
         }
+    }
+
+    /** A missing text as "" (what Infobip's answer had when a field was left out). */
+    private static String text(String s) {
+        return s == null ? "" : s;
     }
 
     private HttpRequest.Builder request(String path) {

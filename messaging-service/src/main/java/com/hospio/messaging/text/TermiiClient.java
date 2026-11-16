@@ -1,14 +1,11 @@
 package com.hospio.messaging.text;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -53,22 +50,17 @@ public class TermiiClient {
         if (!configured()) {
             return new InfobipClient.Sent(false, null, "Termii not configured");
         }
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("api_key", apiKey);
-        body.put("to", to);
-        body.put("from", senderId);
-        body.put("sms", text);
-        body.put("type", "plain");
-        body.put("channel", channel);
+        TermiiDtos.SendRequest body = new TermiiDtos.SendRequest(apiKey, to, senderId, text, "plain", channel);
         try {
             HttpRequest req = HttpRequest.newBuilder(URI.create(baseUrl + "/api/sms/send")).timeout(Duration.ofSeconds(15))
                     .header("Content-Type", "application/json").header("Accept", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
-            JsonNode root = res.body() == null || res.body().isBlank() ? json.createObjectNode() : json.readTree(res.body());
-            String id = root.path("message_id_str").asText(root.path("message_id").asText(""));
+            TermiiDtos.SendResponse root = res.body() == null || res.body().isBlank() ? new TermiiDtos.SendResponse(null, null, null, null)
+                    : json.readValue(res.body(), TermiiDtos.SendResponse.class);
+            String id = root.messageIdStr() != null ? root.messageIdStr() : root.messageId() != null ? root.messageId() : "";
             if (res.statusCode() >= 300 || !StringUtils.hasText(id)) {
-                String why = root.path("message").asText("");
+                String why = root.message() == null ? "" : root.message();
                 return new InfobipClient.Sent(false, null, "Termii HTTP " + res.statusCode() + (why.isBlank() ? "" : ": " + why));
             }
             return new InfobipClient.Sent(true, id, null);

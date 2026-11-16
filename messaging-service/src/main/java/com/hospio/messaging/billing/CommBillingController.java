@@ -1,6 +1,5 @@
 package com.hospio.messaging.billing;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.paging.Paging;
@@ -219,9 +218,10 @@ public class CommBillingController {
             return ResponseEntity.status(401).build();
         }
         try {
-            JsonNode e = json.readTree(body);
-            if ("charge.success".equals(e.path("event").asText())) {
-                String reference = e.path("data").path("reference").asText(null);
+            // Parsed only after the signature is checked against the raw body exactly as Paystack sent it.
+            PaystackDtos.WebhookEvent e = json.readValue(body, PaystackDtos.WebhookEvent.class);
+            if ("charge.success".equals(e.event())) {
+                String reference = e.data() == null ? null : e.data().reference();
                 if (reference != null && reference.startsWith("MSG-")) {
                     billing.confirm(reference, "Paystack");
                 }

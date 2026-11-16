@@ -1,11 +1,13 @@
 package com.hospio.reservation.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -16,6 +18,14 @@ public class TenantHotelClient {
 
     public record HotelCard(String name, String address, String city, String phone, String email, String checkInTime, String checkOutTime) {
     }
+
+    /** A hotel as tenant-service's GET /internal/hotels/{id} gives it (HotelResponse), the fields read here. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Hotel(String name, String address, String city, String phone, String email, String checkInTime, String checkOutTime) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<Hotel>> HOTEL = new ParameterizedTypeReference<>() {
+    };
 
     private final RestClient restClient;
 
@@ -30,21 +40,20 @@ public class TenantHotelClient {
             return Optional.empty();
         }
         try {
-            JsonNode body = restClient.get().uri("/internal/hotels/{id}", hotelId).retrieve().body(JsonNode.class);
-            JsonNode d = body == null ? null : body.path("data");
-            if (d == null || !d.hasNonNull("name")) {
+            ApiResponse<Hotel> body = restClient.get().uri("/internal/hotels/{id}", hotelId).retrieve().body(HOTEL);
+            Hotel d = body == null ? null : body.data();
+            if (d == null || d.name() == null) {
                 return Optional.empty();
             }
-            return Optional.of(new HotelCard(d.path("name").asText(), text(d, "address"), text(d, "city"), text(d, "phone"), text(d, "email"),
-                    text(d, "checkInTime"), text(d, "checkOutTime")));
+            return Optional.of(new HotelCard(d.name(), text(d.address()), text(d.city()), text(d.phone()), text(d.email()),
+                    text(d.checkInTime()), text(d.checkOutTime())));
         } catch (Exception e) {
             log.warn("Could not read hotel {} from tenant-service: {}", hotelId, e.getMessage());
             return Optional.empty();
         }
     }
 
-    private static String text(JsonNode d, String field) {
-        String s = d.path(field).asText(null);
+    private static String text(String s) {
         return s == null || s.isBlank() ? null : s.trim();
     }
 }
