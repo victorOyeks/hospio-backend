@@ -23,9 +23,18 @@ The fee is worked out each day and debited from the hotel's own Moniepoint or OP
 
 | Phase | What | Status |
 |---|---|---|
-| 0 | Folio correctness: an in-house date change adds or removes room nights on the folio; room lines carry the nights they cover; voids record when; kept deposits recorded on the booking | Planned |
-| 1 | Daily sales: each service reports a hotel's sales for a day (folio, outlets, laundry, kept deposits); platform-service stores them | Planned |
-| 2 | Daily fee and statement: percent-of-sales fee from the business's rule, 00:05 job, owner email (WhatsApp once its template is approved), owner **Hospio fees** screen, admin view | Planned |
-| 3 | POS per hotel: Moniepoint and OPay push-to-terminal ported from StationMag, keys per hotel (encrypted, masked), terminal serials, webhooks, status checks | Planned |
-| 4 | Collection: debit providers behind a switch per hotel, the 06:00 debit, carry-forward, retries, pause POS push after 3 days | Planned |
-| 5 | End-to-end test on staging, QA scripts, help screens, docs; the owner's POS device test | Planned |
+| 0 | Folio correctness: an in-house date change adds or removes room nights on the folio; room lines carry the nights they cover; voids record when; kept deposits recorded on the booking | Done (16 Nov) |
+| 1 | Daily sales: each service reports a hotel's sales for a day (folio, outlets, laundry, kept deposits); platform-service stores them | Done (16 Nov) |
+| 2 | Daily fee and statement: percent-of-sales fee from the business's rule, 00:05 job, owner email (WhatsApp once its template is approved), owner **Hospio fees** screen, admin view | Done (16 Nov) |
+| 3 | POS per hotel: Moniepoint and OPay push-to-terminal ported from StationMag, keys per hotel (encrypted, masked), terminal serials, webhooks, status checks | Done (16 Nov) |
+| 4 | Collection: debit providers behind a switch per hotel, the 06:00 debit, carry-forward, retries, pause POS push after 3 days | Done (16 Nov) |
+| 5 | End-to-end test on staging, QA scripts, help screens, docs; the owner's POS device test | E2E done 16 Nov; POS device test waits on the hotel's keys |
+
+## Staging state (16 Nov 2026)
+
+- Royal Suites Ltd: fee rule PERCENT_OF_SALES 1.5 from 1 Nov. 15 Nov worked out by hand (shadow): sales NGN 6,976.75 (counter sales
+  ex VAT), fee NGN 104.65, statement emailed to the owner. The 00:05 job takes it from here.
+- POS_SECRETS_KEY is set on the server. Not set yet: MONIEPOINT_BASE_URL, FEE_DEBIT_OPAY_* (Hospio's receiving OPay account),
+  FEE_DEBIT_MONIEPOINT_URL.
+- No hotel has POS keys yet (the E2E saved and removed test keys).
+- The backend has no Jackson tree types (JsonNode etc.): every payload is a typed record (16 Nov, four parallel tracks merged).
