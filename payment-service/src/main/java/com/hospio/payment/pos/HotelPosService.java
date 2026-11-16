@@ -48,6 +48,10 @@ public class HotelPosService {
         if (c == null) {
             return new View(hotelId, null, Map.of(), false, false, null, null, box.ready());
         }
+        if (c.getProvider() == null) {
+            // No keys (never entered, or removed); the row may still hold a POS pause.
+            return new View(hotelId, null, Map.of(), false, c.isPosPaused(), c.getUpdatedByName(), c.getUpdatedAt(), box.ready());
+        }
         Map<String, String> masked = readMap(c.getMasked());
         Map<String, String> shown = new LinkedHashMap<>();
         for (String f : FIELDS.getOrDefault(c.getProvider(), List.of())) {
