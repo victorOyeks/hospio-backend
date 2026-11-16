@@ -17,6 +17,9 @@ public class TillClosedEvent extends HospioEvent {
     private java.math.BigDecimal expectedCash;
     private java.math.BigDecimal countedCash;
     private java.math.BigDecimal variance;
+    /** What the person closing it wrote about a short or over count (required then); who closed it. */
+    private String note;
+    private String closedByName;
 
     @Override
     public String summary() {

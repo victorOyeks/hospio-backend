@@ -365,10 +365,14 @@ public class MessagingEventListener {
     public void onTillClosed(TillClosedEvent e) {
         bound(e, () -> {
             if (e.getVariance() != null && e.getVariance().signum() != 0) {
+                // Managers and finance both see it in the bell, with the note the person closing it wrote (DEF-069).
                 String role = nz(e.getRole()).toLowerCase().replace('_', ' ');
-                notifications.notifyRoles(e.getEventId(), "TILL_SHORT",
-                        (e.getVariance().signum() < 0 ? "Till short " : "Till over ") + naira(e.getVariance().abs()) + " · " + role,
-                        "Expected " + naira(e.getExpectedCash()) + " · counted " + naira(e.getCountedCash()), "/financials", "MANAGER");
+                String title = (e.getVariance().signum() < 0 ? "Till short " : "Till over ") + naira(e.getVariance().abs()) + " · " + role;
+                String body = "Expected " + naira(e.getExpectedCash()) + " · counted " + naira(e.getCountedCash())
+                        + (nz(e.getClosedByName()).isBlank() ? "" : " · closed by " + e.getClosedByName())
+                        + (nz(e.getNote()).isBlank() ? "" : " · “" + e.getNote().trim() + "”");
+                notifications.notifyRoles(e.getEventId(), "TILL_SHORT", title, body, "/financials", "MANAGER");
+                notifications.notifyRoles(e.getEventId(), "TILL_SHORT", title, body, "/tills", "FINANCE");
             }
             return null;
         });
@@ -379,7 +383,7 @@ public class MessagingEventListener {
     public void onDayClosed(DayClosedEvent e) {
         bound(e, () -> {
             notifications.notifyRoles(e.getEventId(), "DAY_CLOSED", "Day closed · " + e.getBusinessDate(),
-                    "Revenue " + naira(e.getRevenue()) + " · closed by " + nz(e.getClosedBy()), "/night-audit", "OWNER", "MANAGER");
+                    "Revenue " + naira(e.getRevenue()) + " · closed by " + nz(e.getClosedBy()), "/night-audit", "OWNER", "MANAGER", "FINANCE");
             return null;
         });
     }

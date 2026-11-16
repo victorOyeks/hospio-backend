@@ -204,8 +204,49 @@ public class OrganizationService {
     @Transactional
     public OrganizationMember addMember(String orgId, MemberRequest request) {
         get(orgId);
-        return members.save(OrganizationMember.builder().organizationId(orgId).fullName(request.fullName()).staffRef(request.staffRef())
-                .phone(request.phone()).email(request.email()).build());
+        MemberRequest m = checked(request, "");
+        noClash(orgId, m, members.findByOrganizationIdOrderByFullName(orgId), "");
+        return members.save(OrganizationMember.builder().organizationId(orgId).fullName(m.fullName()).staffRef(m.staffRef())
+                .phone(m.phone()).email(m.email()).build());
+    }
+
+    private static final java.util.regex.Pattern EMAIL = java.util.regex.Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$");
+
+    /**
+     * DEF-074: a staff member on an account needs a real name (two letters or more, not "0000"), a real phone number and,
+     * when given, a real email. {@code where} is "" or "Row 3: " for an import. Returns the cleaned values.
+     */
+    private static MemberRequest checked(MemberRequest r, String where) {
+        String name = r.fullName() == null ? "" : r.fullName().trim().replaceAll("\\s+", " ");
+        if (!com.hospio.common.util.Phones.meaningfulName(name) || name.length() > 120) {
+            throw new BadRequestException(where + "Enter the person's full name");
+        }
+        if (r.phone() == null || r.phone().isBlank()) {
+            throw new BadRequestException(where + "Enter " + name + "'s phone number");
+        }
+        String phone = com.hospio.common.util.Phones.clean(r.phone(), where + "Phone");
+        String email = r.email() == null || r.email().isBlank() ? null : r.email().trim().toLowerCase();
+        if (email != null && (!EMAIL.matcher(email).matches() || email.length() > 254)) {
+            throw new BadRequestException(where + "\"" + r.email().trim() + "\" is not an email address");
+        }
+        String ref = r.staffRef() == null || r.staffRef().isBlank() ? null : r.staffRef().trim();
+        if (ref != null && ref.length() > 40) {
+            throw new BadRequestException(where + "Keep the staff ID under 40 characters");
+        }
+        return new MemberRequest(name, ref, phone, email);
+    }
+
+    /** DEF-073: one phone number (however it is written) or email is one person on an account's list. */
+    private static void noClash(String orgId, MemberRequest m, List<OrganizationMember> existing, String where) {
+        String key = com.hospio.common.util.Phones.key(m.phone());
+        for (OrganizationMember x : existing) {
+            if (x.getPhone() != null && com.hospio.common.util.Phones.key(x.getPhone()).equals(key)) {
+                throw new BadRequestException(where + m.phone() + " is already on this account for " + x.getFullName());
+            }
+            if (m.email() != null && x.getEmail() != null && x.getEmail().trim().equalsIgnoreCase(m.email())) {
+                throw new BadRequestException(where + m.email() + " is already on this account for " + x.getFullName());
+            }
+        }
     }
 
     /** Put on hold (no new stays on account) or back to active. */
@@ -228,9 +269,22 @@ public class OrganizationService {
         return members.save(m);
     }
 
+    /** Every row is checked first (with its row number), including clashes within the list itself; then all are added or none. */
     @Transactional
     public List<OrganizationMember> importMembers(String orgId, List<MemberRequest> rows) {
-        return rows.stream().map(r -> addMember(orgId, r)).toList();
+        get(orgId);
+        List<OrganizationMember> seen = new java.util.ArrayList<>(members.findByOrganizationIdOrderByFullName(orgId));
+        List<OrganizationMember> toAdd = new java.util.ArrayList<>();
+        for (int i = 0; i < rows.size(); i++) {
+            String where = "Row " + (i + 1) + ": ";
+            MemberRequest m = checked(rows.get(i), where);
+            noClash(orgId, m, seen, where);
+            OrganizationMember om = OrganizationMember.builder().organizationId(orgId).fullName(m.fullName()).staffRef(m.staffRef())
+                    .phone(m.phone()).email(m.email()).build();
+            seen.add(om);
+            toAdd.add(om);
+        }
+        return members.saveAll(toAdd);
     }
 
     /** Stays & bills: the organization's folios and what is still owed. */
