@@ -1,6 +1,5 @@
 package com.hospio.finance.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.exception.ExternalServiceException;
 import com.hospio.common.security.CurrentUser;
@@ -9,6 +8,7 @@ import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.common.util.Money;
 import com.hospio.finance.client.PeerServices;
+import com.hospio.finance.dto.OutletSalesSummary;
 import com.hospio.finance.entity.BankDeposit;
 import com.hospio.finance.entity.Expense;
 import com.hospio.finance.entity.RevenueEntry;
@@ -45,7 +45,7 @@ public class ReportingService {
     private final ExpenseCategories categories;
 
     /** What the restaurant and bar sold on a day, by outlet, as fnb-service reports it (room charges included). */
-    public JsonNode outletSales(LocalDate date) {
+    public OutletSalesSummary outletSales(LocalDate date) {
         return peers.outletSales(TenantContext.requireHotel(), date == null ? LocalDate.now(MoneyService.LAGOS) : date)
                 .orElseThrow(() -> new ExternalServiceException("Outlet sales can't be read right now"));
     }

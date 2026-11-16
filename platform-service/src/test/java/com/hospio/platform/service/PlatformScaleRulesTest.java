@@ -73,7 +73,7 @@ class PlatformScaleRulesTest {
     void retentionDeletesBatchByBatchUntilNoneAreLeft() {
         ActivityEntryRepository entries = mock(ActivityEntryRepository.class);
         PlatformSettingsService settings = mock(PlatformSettingsService.class);
-        when(settings.group("security")).thenReturn(Map.of("auditRetentionDays", 200));
+        when(settings.security()).thenReturn(new com.hospio.platform.settings.SecuritySettings(false, 12, false, 200));
         when(entries.deleteOlderThan(any(), anyInt())).thenReturn(5000, 5000, 12, 0);
         Instant before = Instant.now().minus(200, ChronoUnit.DAYS);
 

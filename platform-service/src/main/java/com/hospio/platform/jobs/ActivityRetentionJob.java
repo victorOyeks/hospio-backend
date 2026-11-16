@@ -4,7 +4,6 @@ import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.platform.repository.ActivityEntryRepository;
 import com.hospio.platform.service.PlatformSettingsService;
-import com.hospio.platform.settings.PlatformSettingsCatalogue;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import lombok.RequiredArgsConstructor;
@@ -45,7 +44,7 @@ public class ActivityRetentionJob {
     /** Deletes what is past retention; answers how many entries went. */
     public long run() {
         return TenantContext.runWith(Tenant.system("activity-retention"), () -> {
-            int days = retentionDays(settings.group(PlatformSettingsCatalogue.SECURITY).get("auditRetentionDays"));
+            int days = retentionDays(settings.security().auditRetentionDays());
             Instant cutoff = Instant.now().minus(days, ChronoUnit.DAYS);
             long deleted = 0;
             for (int i = 0; i < MAX_BATCHES; i++) {

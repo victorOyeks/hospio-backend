@@ -1,6 +1,7 @@
 package com.hospio.platform.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.delivery.Delivery;
 import com.hospio.common.exception.ExternalServiceException;
 import com.hospio.common.security.JwtUtil;
@@ -14,6 +15,7 @@ import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -29,7 +31,37 @@ public class IdentityClient {
         this.restClient = ServiceClients.system(identityUrl, jwtUtil, internalApiKey);
     }
 
+    private static final ParameterizedTypeReference<ApiResponse<Contact>> CONTACT = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<List<Contact>>> CONTACTS = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<ApiResponse<UserCreated>> CREATED = new ParameterizedTypeReference<>() {
+    };
+
+    /** identity's UserContactResponse, the fields platform uses; no roles read as none. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Contact(String id, String fullName, String email, String phone, String businessId, String status, List<String> roles) {
+        public Contact {
+            roles = roles == null ? List.of() : roles;
+        }
+    }
+
+    /** identity's UserCreatedResponse; {@code deliveries} null when identity's response had no such field. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record UserCreated(String userId, String temporaryPassword, Instant temporaryPasswordExpiresAt, String inviteToken, Instant inviteExpiresAt,
+                       List<EchoedDelivery> deliveries) {
+    }
+
+    /**
+     * One echoed delivery as identity sent it. Channel and kind stay text here so one this build doesn't know is skipped on its
+     * own (the message is still published by identity) instead of failing the login.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record EchoedDelivery(String channel, String to, String subject, String text, String kind, String ref, String status) {
+        Delivery toDelivery() {
+            return new Delivery(Delivery.Channel.valueOf(channel == null ? "EMAIL" : channel), to, subject, text,
+                    Delivery.Kind.valueOf(kind == null ? "INVITE" : kind), ref, status, null, null);
+        }
     }
 
     /** {@code deliveries} is null when identity's response had no such field (an older build), empty when echo is off. */
@@ -43,14 +75,9 @@ public class IdentityClient {
             return List.of();
         }
         try {
-            JsonNode body = restClient.get().uri(b -> b.path("/internal/users/contacts").queryParam("userIds", String.join(",", userIds)).build())
-                    .retrieve().body(JsonNode.class);
-            JsonNode d = TenantClient.data(body);
-            List<Contact> out = new ArrayList<>();
-            if (d != null && d.isArray()) {
-                d.forEach(n -> out.add(contact(n)));
-            }
-            return out;
+            List<Contact> d = TenantClient.data(restClient.get().uri(b -> b.path("/internal/users/contacts").queryParam("userIds", String.join(",", userIds)).build())
+                    .retrieve().body(CONTACTS));
+            return d == null ? new ArrayList<>() : new ArrayList<>(d);
         } catch (Exception e) {
             log.warn("identity-service contacts lookup failed: {}", e.getMessage());
             return List.of();
@@ -63,9 +90,7 @@ public class IdentityClient {
             return Optional.empty();
         }
         try {
-            JsonNode body = restClient.get().uri("/internal/users/{id}/contact", userId).retrieve().body(JsonNode.class);
-            JsonNode d = TenantClient.data(body);
-            return d == null ? Optional.empty() : Optional.of(contact(d));
+            return Optional.ofNullable(TenantClient.data(restClient.get().uri("/internal/users/{id}/contact", userId).retrieve().body(CONTACT)));
         } catch (Exception e) {
             log.warn("identity-service contact {} failed: {}", userId, e.getMessage());
             return Optional.empty();
@@ -81,26 +106,23 @@ public class IdentityClient {
             body.put("phone", phone == null ? "" : phone);
             body.put("role", "MARKETER");
             body.put("level", "FULL");
-            JsonNode response = restClient.post().uri("/internal/users").body(body).retrieve().body(JsonNode.class);
-            JsonNode d = TenantClient.data(response);
+            UserCreated d = TenantClient.data(restClient.post().uri("/internal/users").body(body).retrieve().body(CREATED));
             if (d == null) {
                 throw new ExternalServiceException("identity-service returned no user");
             }
             List<Delivery> deliveries = null;
-            if (d.has("deliveries") && d.path("deliveries").isArray()) {
+            if (d.deliveries() != null) {
                 deliveries = new ArrayList<>();
-                for (JsonNode n : d.path("deliveries")) {
+                for (EchoedDelivery n : d.deliveries()) {
                     try {
-                        deliveries.add(new Delivery(Delivery.Channel.valueOf(n.path("channel").asText("EMAIL")), n.path("to").asText(null),
-                                n.path("subject").asText(null), n.path("text").asText(null), Delivery.Kind.valueOf(n.path("kind").asText("INVITE")),
-                                n.path("ref").asText(null), n.path("status").asText(null), null, null));
+                        deliveries.add(n.toDelivery());
                     } catch (IllegalArgumentException ignored) {
                         // a channel or kind this build does not know; the message is still published by identity
                     }
                 }
             }
-            return new CreatedLogin(d.path("userId").asText(), d.path("temporaryPassword").asText(null), TenantClient.instant(d.path("temporaryPasswordExpiresAt")),
-                    d.path("inviteToken").asText(null), TenantClient.instant(d.path("inviteExpiresAt")), deliveries);
+            return new CreatedLogin(d.userId() == null ? "" : d.userId(), d.temporaryPassword(), d.temporaryPasswordExpiresAt(),
+                    d.inviteToken(), d.inviteExpiresAt(), deliveries);
         } catch (ExternalServiceException e) {
             throw e;
         } catch (org.springframework.web.client.HttpClientErrorException.Conflict e) {
@@ -109,14 +131,5 @@ public class IdentityClient {
             log.error("Could not create the marketer login in identity-service", e);
             throw new ExternalServiceException("Could not create the login right now", e);
         }
-    }
-
-    private static Contact contact(JsonNode n) {
-        List<String> roles = new ArrayList<>();
-        if (n.path("roles").isArray()) {
-            n.path("roles").forEach(r -> roles.add(r.asText()));
-        }
-        return new Contact(n.path("id").asText(null), n.path("fullName").asText(null), n.path("email").asText(null), n.path("phone").asText(null),
-                n.path("businessId").asText(null), n.path("status").asText(null), roles);
     }
 }

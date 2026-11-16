@@ -1,14 +1,15 @@
 package com.hospio.platform.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.hospio.common.response.ApiResponse;
 import com.hospio.common.security.JwtUtil;
 import com.hospio.common.security.client.ServiceClients;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
@@ -25,10 +26,25 @@ public class PaymentClient {
         this.restClient = ServiceClients.system(paymentUrl, jwtUtil, internalApiKey);
     }
 
+    private static final ParameterizedTypeReference<ApiResponse<Summary>> SUMMARY = new ParameterizedTypeReference<>() {
+    };
+
+    /** payment's AdminPaymentDtos.HotelTotal; a missing gross reads as zero. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record HotelTotal(String hotelId, BigDecimal gross, long count) {
+        public HotelTotal {
+            gross = gross == null ? BigDecimal.ZERO : gross;
+        }
     }
 
+    /** payment's AdminPaymentDtos.Summary, the fields platform uses; missing gross reads as zero, no hotels as empty. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Summary(BigDecimal gross, long count, List<HotelTotal> byHotel) {
+        public Summary {
+            gross = gross == null ? BigDecimal.ZERO : gross;
+            byHotel = byHotel == null ? List.of() : byHotel;
+        }
+
         public static Summary empty() {
             return new Summary(BigDecimal.ZERO, 0, List.of());
         }
@@ -37,15 +53,9 @@ public class PaymentClient {
     /** GET /internal/admin/summary?businessId=&from=&to= → {gross, count, byHotel: [{hotelId, gross, count}]}. */
     public Summary summary(String businessId, LocalDate from, LocalDate to) {
         try {
-            JsonNode body = restClient.get().uri(b -> b.path("/internal/admin/summary").queryParam("businessId", businessId)
-                    .queryParam("from", from.toString()).queryParam("to", to.toString()).build()).retrieve().body(JsonNode.class);
-            JsonNode d = TenantClient.data(body);
-            if (d == null) {
-                return Summary.empty();
-            }
-            List<HotelTotal> hotels = new ArrayList<>();
-            d.path("byHotel").forEach(h -> hotels.add(new HotelTotal(h.path("hotelId").asText(null), new BigDecimal(h.path("gross").asText("0")), h.path("count").asLong())));
-            return new Summary(new BigDecimal(d.path("gross").asText("0")), d.path("count").asLong(), hotels);
+            Summary d = TenantClient.data(restClient.get().uri(b -> b.path("/internal/admin/summary").queryParam("businessId", businessId)
+                    .queryParam("from", from.toString()).queryParam("to", to.toString()).build()).retrieve().body(SUMMARY));
+            return d == null ? Summary.empty() : d;
         } catch (Exception e) {
             warn("GET /internal/admin/summary", e);
             throw new IllegalStateException("payment-service didn't answer the payment summary: " + e.getMessage(), e);
