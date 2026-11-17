@@ -219,6 +219,11 @@ public class HotelSetupService {
             for (String name : SetupCatalogue.SECTIONS.keySet()) {
                 SetupSection values = sections.get(name);
                 if (values != null) {
+                    // A template is checked like a save from Hotel setup: a deposit of 15000 % never reaches a hotel this way.
+                    if (values instanceof SetupSection.Payments p) {
+                        values = p.withPlatformFeePct(null);
+                    }
+                    checkValues(values);
                     apply(hotelId, name, values, by);
                 }
             }
