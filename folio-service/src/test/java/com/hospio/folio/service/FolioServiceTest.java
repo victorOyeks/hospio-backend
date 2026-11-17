@@ -96,6 +96,50 @@ class FolioServiceTest {
         assertThat(folio.getBalance()).isEqualByComparingTo("55650.00");
     }
 
+    private void guestsPayTheFee(String rate) {
+        com.hospio.common.setup.HotelSettingsReader reader = org.mockito.Mockito.mock(com.hospio.common.setup.HotelSettingsReader.class);
+        folio.setHotelId("h1");
+        when(reader.section("h1", com.hospio.common.setup.SetupSection.Payments.class)).thenReturn(Optional.of(
+                com.hospio.common.setup.SetupSection.Payments.DEFAULTS.withPlatformFeePct(new BigDecimal(rate)).withGuestPays(true)));
+        service.setSettings(reader);
+    }
+
+    @Test
+    void whenGuestsPayTheFeeEachChargeCarriesItsServiceChargeAndAVoidOrMoveTakesItAlong() {
+        guestsPayTheFee("1.5");
+        service.postCharge(folio, "BAR", "ORDER-o1", "Bar · B-0001", new BigDecimal("10000"), BigDecimal.ZERO, "BAR", "u2", "Segun");
+        assertThat(stored).hasSize(2);
+        FolioLine sc = stored.get(1);
+        assertThat(sc.getCategory()).isEqualTo("SERVICE_CHARGE");
+        assertThat(sc.getAmount()).isEqualByComparingTo("150.00");
+        assertThat(sc.getDescription()).startsWith("Service charge (1.5%)");
+        assertThat(folio.getBalance()).isEqualByComparingTo("10150.00");
+
+        // A replay posts neither again.
+        service.postCharge(folio, "BAR", "ORDER-o1", "Bar · B-0001", new BigDecimal("10000"), BigDecimal.ZERO, "BAR", "u2", "Segun");
+        assertThat(stored).hasSize(2);
+
+        // A negative adjustment takes its share back.
+        service.postCharge(folio, "RESERVATION", "ROOM-ADJ-1", "Room A302 · 1 night fewer", new BigDecimal("-35000"), BigDecimal.ZERO, "ACCOMMODATION", "u1", "Victor");
+        assertThat(stored.get(3).getAmount()).isEqualByComparingTo("-525.00");
+
+        when(lines.findById("l1")).thenReturn(Optional.of(stored.get(0)));
+        service.voidLine("f1", "l1", new com.hospio.folio.dto.VoidRequest("Wrong room"));
+        assertThat(stored.get(0).isVoided()).isTrue();
+        assertThat(sc.isVoided()).as("the void takes the service charge along").isTrue();
+    }
+
+    @Test
+    void whenTheHotelAbsorbsTheFeeNoServiceChargeIsAdded() {
+        com.hospio.common.setup.HotelSettingsReader reader = org.mockito.Mockito.mock(com.hospio.common.setup.HotelSettingsReader.class);
+        folio.setHotelId("h1");
+        when(reader.section("h1", com.hospio.common.setup.SetupSection.Payments.class)).thenReturn(Optional.of(
+                com.hospio.common.setup.SetupSection.Payments.DEFAULTS.withPlatformFeePct(new BigDecimal("1.5"))));
+        service.setSettings(reader);
+        service.postCharge(folio, "BAR", "ORDER-o2", "Bar · B-0002", new BigDecimal("10000"), BigDecimal.ZERO, "BAR", "u2", "Segun");
+        assertThat(stored).hasSize(1);
+    }
+
     @Test
     void replayedChargeIsPostedOnce() {
         service.postCharge(folio, "BAR", "ORDER-o1", "Bar", new BigDecimal("13000"), BigDecimal.ZERO, "BAR", "u2", "Segun");

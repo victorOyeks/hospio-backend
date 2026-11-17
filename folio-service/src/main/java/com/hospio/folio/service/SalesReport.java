@@ -45,6 +45,10 @@ public class SalesReport {
         Sum discounts = new Sum();
         Sum voids = new Sum();
         for (FolioLine l : candidates) {
+            // The guest service charge is Hospio's fee passed on, not a sale: it is never counted (or the fee would be on itself).
+            if (com.hospio.common.billing.GuestServiceCharge.CATEGORY.equals(l.getCategory())) {
+                continue;
+            }
             LocalDate posted = date(l.getPostedAt());
             if (l.getKind() == FolioLine.Kind.DISCOUNT) {
                 if (day.equals(posted)) {

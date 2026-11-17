@@ -15,5 +15,6 @@
     <include file="db/changelog/003-laundry.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/004-lost-found.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/005-notes-linen-requests.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/006-laundry-service-charge.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

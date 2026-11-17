@@ -14,7 +14,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class OutletSettings {
 
-    public record Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct) {
+    /** {@code serviceChargePct}: Hospio's fee passed to guests ("Service charge (x%)"), 0 when the hotel absorbs it. */
+    public record Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct, BigDecimal serviceChargePct) {
+        public Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct) {
+            this(roomCharge, tabs, tabLimit, pricesIncludeTax, vatPct, BigDecimal.ZERO);
+        }
+
         public static Settings defaults() {
             return new Settings(true, true, BigDecimal.valueOf(50000), true, new BigDecimal("7.5"));
         }
@@ -35,6 +40,7 @@ public class OutletSettings {
                 outlets.map(SetupSection.Outlets::tabs).orElse(d.tabs()),
                 outlets.map(SetupSection.Outlets::tabLimit).orElse(d.tabLimit()),
                 taxes.map(SetupSection.TaxesCurrency::pricesIncludeTax).orElse(d.pricesIncludeTax()),
-                taxes.map(SetupSection.TaxesCurrency::vatPct).orElse(d.vatPct()));
+                taxes.map(SetupSection.TaxesCurrency::vatPct).orElse(d.vatPct()),
+                com.hospio.common.billing.GuestServiceCharge.rate(reader.section(hotelId, SetupSection.Payments.class).orElse(null)));
     }
 }

@@ -66,6 +66,21 @@ class LaundryChargeTest {
     }
 
     @Test
+    void aServiceChargeOnTheOrderComesOffWhenItGoesToTheRoomTheFolioAddsItsOwn() {
+        // Taken as paid directly with the guest paying the Hospio fee (1.5 % on 4,500), then charged to the room after all.
+        order.setTotal(new BigDecimal("4567.50"));
+        order.setServiceCharge(new BigDecimal("67.50"));
+        when(reservations.activeStay("r1")).thenReturn(Optional.of(new ReservationClient.ActiveStay("bk1", "Ada Obi", "A105")));
+        when(clients.hasOpenFolio("bk1")).thenReturn(true);
+        service.chargeToRoom("o1");
+        ArgumentCaptor<ChargePostedEvent> e = ArgumentCaptor.forClass(ChargePostedEvent.class);
+        verify(events).publish(eq(KafkaTopics.CHARGE_POSTED), e.capture());
+        assertThat(e.getValue().getAmount()).isEqualByComparingTo("4500.00");
+        assertThat(order.getServiceCharge()).isZero();
+        assertThat(order.getTotal()).isEqualByComparingTo("4500.00");
+    }
+
+    @Test
     void refusesAGuestWhoIsNotCheckedIn() {
         when(reservations.activeStay("r1")).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.chargeToRoom("o1")).isInstanceOf(BadRequestException.class)

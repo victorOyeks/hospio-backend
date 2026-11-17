@@ -92,4 +92,13 @@ class SalesReportTest {
         assertThat(total(List.of(r, adj), D3)).isEqualByComparingTo("0");
         assertThat(total(List.of(r, adj), D2)).isEqualByComparingTo("10000");
     }
+
+    @Test
+    void theGuestServiceChargeIsNeverCountedAsSales() {
+        java.time.LocalDate d = java.time.LocalDate.of(2026, 11, 16);
+        FolioLine bar = charge("10000", at(d, 20));
+        FolioLine sc = FolioLine.builder().kind(FolioLine.Kind.CHARGE).category("SERVICE_CHARGE").amount(new BigDecimal("150")).taxAmount(BigDecimal.ZERO)
+                .postedAt(at(d, 20)).build();
+        assertThat(total(List.of(bar, sc), d)).isEqualByComparingTo("10000");
+    }
 }

@@ -38,9 +38,20 @@ The data plan, when chosen, is invoiced monthly on top of whichever option (or a
 
 | Phase | What | Status |
 |---|---|---|
-| 1 | Catalogue in Settings; package per hotel (items, option, rate, months, data plan) in the Connections step and the hotel panel; install; record one-time payment | In progress |
-| 2 | TRANSACTION collection inside the daily fee and 06:00 debit; ledger; stops at ₦0 | To do |
-| 3 | Tracking: admin (Fees & billing → Devices, hotel panel, Money tab), owner/manager (Hospio fees → Devices), handover | To do |
-| 4 | Monthly invoices (instalments and data plan): auto-debit, Paystack fallback, mark paid, overdue reminders / at risk / POS pause | To do |
-| 5 | Service charge: owner's per-hotel choice; "Service charge (1.5%)" on folios and counter orders, receipts; excluded from sales | To do |
+| 1 | Catalogue in Settings; package per hotel (items, option, rate, months, data plan) in the Connections step and the hotel panel; install; record one-time payment | Done |
+| 2 | TRANSACTION collection inside the daily fee and 06:00 debit; ledger; stops at ₦0 | Done |
+| 3 | Tracking: admin (Fees & billing → Devices, hotel panel, Money tab), owner/manager (Hospio fees → Devices), handover | Done |
+| 4 | Monthly invoices (instalments and data plan): auto-debit, Paystack fallback, mark paid, overdue reminders / at risk / POS pause | Done |
+| 5 | Service charge: owner's per-hotel choice; "Service charge (1.5%)" on folios and counter orders, receipts; excluded from sales | Backend done; screens in progress |
 | 6 | End-to-end on staging, QA scripts | To do |
+
+## How the service charge works (phase 5)
+
+- Hotel setup → Payments: `guestPaysPlatformFee` (owner only). hotel-config fills `platformFeePct` with the business's fee rate on every
+  read, so the charge always matches the fee (`GuestServiceCharge` in common).
+- folio-service: each charge posts a `SERVICE_CHARGE` line ("Service charge (1.5%) · …") keyed `SC:<line id>`; a void or a move takes it
+  along; a negative adjustment takes its share back.
+- fnb-service: an order's `serviceCharge` (on the net, no tax) is part of its total; charged to a room it posts without it (the folio adds
+  its own line).
+- housekeeping: a laundry order paid directly carries it; charged to a room it comes off (the folio adds it).
+- Daily sales never count it (folio skips the category; fnb and laundry subtract it).

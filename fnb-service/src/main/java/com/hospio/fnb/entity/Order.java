@@ -75,6 +75,11 @@ public class Order extends TenantEntity {
     @lombok.Builder.Default
     private BigDecimal discount = BigDecimal.ZERO;
 
+    /** Hospio's fee passed to the guest ("Service charge (x%)" on the net), part of {@code total}; 0 when the hotel absorbs it. */
+    @Column(name = "service_charge", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal serviceCharge = BigDecimal.ZERO;
+
     @Column(nullable = false)
     @lombok.Builder.Default
     private BigDecimal total = BigDecimal.ZERO;

@@ -33,9 +33,28 @@ public sealed interface SetupSection {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonIgnoreProperties(ignoreUnknown = true)
+    /**
+     * {@code guestPaysPlatformFee}: the owner adds Hospio360's fee to guests' bills as "Service charge (x%)" instead of absorbing it
+     * (docs/plan-device-packages.md). {@code platformFeePct} is the business's fee rate, filled in by hotel-config whenever the section
+     * is read (never stored), so the charge always matches the fee.
+     */
     record Payments(Boolean allowCash, Boolean allowCard, Boolean allowTransfer, String receipts, BigDecimal depositPct,
-                    BigDecimal tillFloat, String bankName, String bankAccount) implements SetupSection {
-        public static final Payments DEFAULTS = new Payments(true, true, true, "WHATSAPP", BigDecimal.ZERO, BigDecimal.ZERO, "", "");
+                    BigDecimal tillFloat, String bankName, String bankAccount, Boolean guestPaysPlatformFee, BigDecimal platformFeePct)
+            implements SetupSection {
+        public static final Payments DEFAULTS = new Payments(true, true, true, "WHATSAPP", BigDecimal.ZERO, BigDecimal.ZERO, "", "", false, BigDecimal.ZERO);
+
+        public Payments(Boolean allowCash, Boolean allowCard, Boolean allowTransfer, String receipts, BigDecimal depositPct, BigDecimal tillFloat,
+                        String bankName, String bankAccount) {
+            this(allowCash, allowCard, allowTransfer, receipts, depositPct, tillFloat, bankName, bankAccount, null, null);
+        }
+
+        public Payments withGuestPays(Boolean guestPays) {
+            return new Payments(allowCash, allowCard, allowTransfer, receipts, depositPct, tillFloat, bankName, bankAccount, guestPays, platformFeePct);
+        }
+
+        public Payments withPlatformFeePct(BigDecimal pct) {
+            return new Payments(allowCash, allowCard, allowTransfer, receipts, depositPct, tillFloat, bankName, bankAccount, guestPaysPlatformFee, pct);
+        }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

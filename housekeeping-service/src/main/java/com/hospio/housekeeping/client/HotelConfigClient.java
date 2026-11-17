@@ -19,6 +19,11 @@ public class HotelConfigClient {
         this.settings = new HotelSettingsReader(url, jwtUtil, internalApiKey);
     }
 
+    /** Hospio's fee passed to guests at this hotel ("Service charge (x%)"); 0 when the hotel absorbs it or settings can't be read. */
+    public java.math.BigDecimal serviceChargeRate(String hotelId) {
+        return com.hospio.common.billing.GuestServiceCharge.rate(settings.section(hotelId, SetupSection.Payments.class).orElse(null));
+    }
+
     public int lostFoundHoldDays(String hotelId) {
         return settings.section(hotelId, SetupSection.Housekeeping.class)
                 .map(SetupSection.Housekeeping::lostFoundHoldDays).map(days -> Math.max(0, days))

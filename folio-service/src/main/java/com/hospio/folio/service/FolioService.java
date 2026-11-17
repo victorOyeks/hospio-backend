@@ -49,6 +49,46 @@ public class FolioService {
     private final PendingDiscountRepository pendingDiscounts;
     private final ApprovalLimits limits;
     private final EventPublisher events;
+    /** The hotel's Payments settings: whether guests pay the Hospio fee as a service charge (null in tests that don't set it). */
+    private com.hospio.common.setup.HotelSettingsReader settings;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setSettings(com.hospio.common.setup.HotelSettingsReader settings) {
+        this.settings = settings;
+    }
+
+    /** The guest service charge rate at the hotel: the fee rate when the owner passes the Hospio fee to guests, else 0. */
+    BigDecimal serviceChargeRate(String hotelId) {
+        if (settings == null || hotelId == null) {
+            return BigDecimal.ZERO;
+        }
+        return com.hospio.common.billing.GuestServiceCharge.rate(settings.section(hotelId, com.hospio.common.setup.SetupSection.Payments.class).orElse(null));
+    }
+
+    /**
+     * A charge's service charge line ("Service charge (1.5%)"), posted with it when guests pay the Hospio fee: the same sign as the
+     * charge (a negative adjustment takes its share back), keyed to the charge so a void or a move takes it along.
+     */
+    private void postServiceCharge(Folio folio, FolioLine charge, String postedBy, String postedByName) {
+        if (charge.getKind() != FolioLine.Kind.CHARGE || com.hospio.common.billing.GuestServiceCharge.CATEGORY.equals(charge.getCategory())) {
+            return;
+        }
+        BigDecimal rate = serviceChargeRate(folio.getHotelId());
+        BigDecimal share = com.hospio.common.billing.GuestServiceCharge.on(charge.getAmount().abs(), rate);
+        if (share.signum() <= 0) {
+            return;
+        }
+        lines.save(FolioLine.builder().folioId(folio.getId()).kind(FolioLine.Kind.CHARGE).sourceModule(com.hospio.common.billing.GuestServiceCharge.SOURCE)
+                .sourceRef("SC:" + charge.getId()).category(com.hospio.common.billing.GuestServiceCharge.CATEGORY)
+                .description(com.hospio.common.billing.GuestServiceCharge.label(rate) + " · " + charge.getDescription())
+                .amount(Money.of(charge.getAmount().signum() < 0 ? share.negate() : share)).taxAmount(Money.of(BigDecimal.ZERO))
+                .postedBy(postedBy).postedByName(postedByName).build());
+    }
+
+    /** The service charge line that goes with a charge, if any. */
+    private Optional<FolioLine> serviceChargeOf(FolioLine charge) {
+        return lines.findBySourceModuleAndSourceRef(com.hospio.common.billing.GuestServiceCharge.SOURCE, "SC:" + charge.getId());
+    }
 
     @Transactional(readOnly = true)
     public List<FolioResponse> open() {
@@ -149,6 +189,7 @@ public class FolioService {
                 .postedBy(postedBy).postedByName(postedByName)
                 .serviceFrom(from != null && to != null && to.isAfter(from) ? from : null)
                 .serviceTo(from != null && to != null && to.isAfter(from) ? to : null).build());
+        postServiceCharge(folio, line, postedBy, postedByName);
         recalculate(folio);
         return line;
     }
@@ -284,6 +325,14 @@ public class FolioService {
         line.setVoidedBy(user.getUserId());
         line.setVoidedAt(Instant.now());
         lines.save(line);
+        // Its service charge goes with it.
+        serviceChargeOf(line).filter(sc -> !sc.isVoided()).ifPresent(sc -> {
+            sc.setVoided(true);
+            sc.setVoidReason(request.reason());
+            sc.setVoidedBy(user.getUserId());
+            sc.setVoidedAt(Instant.now());
+            lines.save(sc);
+        });
         recalculate(f);
         events.publish(KafkaTopics.DISCOUNT_APPLIED, DiscountAppliedEvent.builder()
                 .folioId(f.getId()).lineId(line.getId()).amount(line.getAmount()).reason(request.reason()).kind("VOID").build());
@@ -328,6 +377,12 @@ public class FolioService {
             line.setMovedFrom(from.getId());
             line.setFolioId(to.getId());
             lines.save(line);
+            // A charge's service charge moves with it.
+            serviceChargeOf(line).filter(sc -> sc.getFolioId().equals(from.getId())).ifPresent(sc -> {
+                sc.setMovedFrom(from.getId());
+                sc.setFolioId(to.getId());
+                lines.save(sc);
+            });
         }
         recalculate(from);
         recalculate(to);

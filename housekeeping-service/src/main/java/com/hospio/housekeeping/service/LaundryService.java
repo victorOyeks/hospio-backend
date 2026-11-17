@@ -58,6 +58,12 @@ public class LaundryService {
     private final LaundryClients clients;
     private final EventPublisher events;
     private final ObjectMapper mapper;
+    private com.hospio.housekeeping.client.HotelConfigClient hotelConfig;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setHotelConfig(com.hospio.housekeeping.client.HotelConfigClient hotelConfig) {
+        this.hotelConfig = hotelConfig;
+    }
 
     // ---- price list ----------------------------------------------------------------------------------
 
@@ -165,11 +171,15 @@ public class LaundryService {
         if (note != null && note.length() > 300) {
             throw new BadRequestException("Keep the note under 300 characters");
         }
+        // Paid directly, the guest pays Hospio's fee on top when the owner passes it on; on a room charge the folio adds it instead.
+        BigDecimal net = LaundryRules.total(lines);
+        BigDecimal sc = Boolean.TRUE.equals(r.chargeToRoom()) || hotelConfig == null ? BigDecimal.ZERO
+                : com.hospio.common.billing.GuestServiceCharge.on(net, hotelConfig.serviceChargeRate(hotel));
         orders.lock("laundry-number:" + hotel);
         LaundryOrder o = LaundryOrder.builder().number(String.format("LDR-%05d", orders.lastNumber(hotel) + 1)).roomId(roomId).roomNumber(stay.roomNumber())
                 .bookingId(stay.bookingId()).guestName(stay.guestName()).lines(write(lines))
                 .items(lines.stream().map(l -> l.quantity().stripTrailingZeros().toPlainString() + " × " + l.name()).collect(Collectors.joining(", ")))
-                .total(LaundryRules.total(lines)).express(express).promisedAt(r.promisedAt() != null ? r.promisedAt() : now.plus(LaundryRules.turnaround(express)))
+                .total(Money.of(net.add(sc))).serviceCharge(sc).express(express).promisedAt(r.promisedAt() != null ? r.promisedAt() : now.plus(LaundryRules.turnaround(express)))
                 .note(note).receivedBy(u.getUserId()).receivedByName(u.getFullName()).build();
         orders.save(o);
         if (Boolean.TRUE.equals(r.chargeToRoom())) {
@@ -218,6 +228,11 @@ public class LaundryService {
             throw new BadRequestException("Room " + o.getRoomNumber() + " has no open bill · take payment instead");
         }
         o.setBookingId(stay.bookingId());
+        // The folio adds the guest service charge itself: the order's own comes off so it is never paid twice.
+        if (o.getServiceCharge() != null && o.getServiceCharge().signum() > 0) {
+            o.setTotal(Money.of(o.getTotal().subtract(o.getServiceCharge())));
+            o.setServiceCharge(BigDecimal.ZERO);
+        }
         o.setChargedToRoom(true);
         o.setChargedAt(Instant.now());
         orders.save(o);
@@ -607,7 +622,7 @@ public class LaundryService {
         return new LaundryDtos.OrderView(o.getId(), o.getNumber(), o.getBookingId(), o.getGuestName(), o.getRoomId(), o.getRoomNumber(), orderLines(o),
                 o.isExpress(), o.getTotal(), o.getStatus().name(), o.isChargedToRoom() ? "ROOM" : o.isPaid() ? "PAID" : null, o.isChargedToRoom(), o.isPaid(),
                 o.getChargedAt(), o.getPaidAt(), o.getPaidAmount(), o.getPaymentId(), o.getPaymentMethod(), o.getPromisedAt(), o.getNote(), o.getPocketNote(),
-                o.getCancelReason(), o.getReceivedByName(), o.getCreatedAt(), o.getDeliveredAt());
+                o.getCancelReason(), o.getReceivedByName(), o.getCreatedAt(), o.getDeliveredAt(), o.getServiceCharge());
     }
 
     LaundryDtos.BatchView batchView(LinenBatch b) {

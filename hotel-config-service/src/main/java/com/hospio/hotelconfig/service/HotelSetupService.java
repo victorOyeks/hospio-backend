@@ -74,7 +74,12 @@ public class HotelSetupService {
         Class<? extends SetupSection> type = typeOf(sec);
         Map<String, String> stored = new HashMap<>();
         settings.findByHotelIdAndSection(hotelId, sec).forEach(s -> stored.put(s.getKey(), s.getValue()));
-        return withDefaults(type, fromStored(objectMapper, type, stored));
+        SetupSection out = withDefaults(type, fromStored(objectMapper, type, stored));
+        // The fee rate is the business's, read live (never stored): the guest service charge always matches the fee.
+        if (out instanceof SetupSection.Payments p) {
+            return p.withPlatformFeePct(tenantClient.feeRate(hotelId).orElse(null));
+        }
+        return out;
     }
 
     /** Every catalogue section, the hotel's stored values laid over the defaults. */
@@ -96,7 +101,15 @@ public class HotelSetupService {
                 throw new ForbiddenException("Only a manager or the owner can change Hotel setup");
             }
         }
-        SetupSection values = readSent(objectMapper, typeOf(sec), body);
+        SetupSection sent = readSent(objectMapper, typeOf(sec), body);
+        if (sent instanceof SetupSection.Payments p) {
+            // Who pays the Hospio fee is the owner's decision; the fee rate is never stored here (it is the business's, read live).
+            if (p.guestPaysPlatformFee() != null && !caller.isPlatform() && !caller.has(Role.OWNER)) {
+                throw new ForbiddenException("Only the owner decides whether guests pay the Hospio fee");
+            }
+            sent = p.withPlatformFeePct(null);
+        }
+        final SetupSection values = sent;
         checkValues(values);
         String hotelId = TenantContext.requireHotel();
         return withHotelTenant(hotelId, () -> apply(hotelId, sec, values, caller.getUserId()));

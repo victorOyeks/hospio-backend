@@ -45,6 +45,11 @@ public class LaundryOrder extends TenantEntity {
     @Column(nullable = false)
     private BigDecimal total;
 
+    /** Hospio's fee passed to the guest when paid directly ("Service charge (x%)"), part of {@code total}; 0 on a room charge. */
+    @Column(name = "service_charge", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal serviceCharge = BigDecimal.ZERO;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     @lombok.Builder.Default

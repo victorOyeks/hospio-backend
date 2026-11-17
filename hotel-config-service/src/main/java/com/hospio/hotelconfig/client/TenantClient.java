@@ -52,6 +52,38 @@ public class TenantClient {
         }
     }
 
+    /** tenant's business, the fee fields used here. */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    record BusinessFee(String feeModel, java.math.BigDecimal feeValue) {
+    }
+
+    private static final org.springframework.core.ParameterizedTypeReference<ApiResponse<BusinessFee>> BUSINESS_FEE = new org.springframework.core.ParameterizedTypeReference<>() {
+    };
+
+    private final java.util.concurrent.ConcurrentHashMap<String, java.util.Map.Entry<java.time.Instant, java.math.BigDecimal>> feeCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The hotel's business fee rate (% of daily sales), cached a minute; empty when unknown or unreachable. */
+    public Optional<java.math.BigDecimal> feeRate(String hotelId) {
+        var hit = feeCache.get(hotelId);
+        if (hit != null && hit.getKey().isAfter(java.time.Instant.now())) {
+            return Optional.ofNullable(hit.getValue());
+        }
+        try {
+            Optional<String> business = businessOf(hotelId);
+            if (business.isEmpty()) {
+                return Optional.empty();
+            }
+            ApiResponse<BusinessFee> body = restClient.get().uri("/internal/businesses/{id}", business.get()).retrieve().body(BUSINESS_FEE);
+            java.math.BigDecimal rate = body == null || body.data() == null ? null : body.data().feeValue();
+            feeCache.put(hotelId, java.util.Map.entry(java.time.Instant.now().plusSeconds(60), rate == null ? java.math.BigDecimal.ZERO : rate));
+            return Optional.ofNullable(rate);
+        } catch (Exception e) {
+            log.warn("Could not read the fee rate for hotel {}: {}", hotelId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
     /** The template's settings, read; empty when unknown, unreadable or unreachable. */
     public Optional<SetupTemplateSettings> template(String templateId) {
         try {
