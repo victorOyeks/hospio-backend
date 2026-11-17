@@ -311,6 +311,38 @@ class OrderServiceTest {
     }
 
     @Test
+    void paidBeforeTheKitchenIsDoneTheOrderStaysOpenUntilTheSoupIsServed() {
+        Order o = patioOrderWithSoup();
+        OrderLine soup = storedLines.stream().filter(l -> "Pepper soup".equals(l.getName())).findFirst().orElseThrow();
+        OrderLine lager = storedLines.stream().filter(l -> "Star lager".equals(l.getName())).findFirst().orElseThrow();
+        when(orderPayments.existsByPaymentId(anyString())).thenReturn(false);
+
+        service.applyPayment(o.getId(), "pay-1", "CARD", o.getTotal());
+
+        assertThat(o.isPaid()).isTrue();
+        assertThat(o.getStatus()).as("the kitchen ticket stays on the board").isNotEqualTo(Order.Status.CLOSED);
+        // Bar staff can't mark the kitchen's soup ready, nor serve it before the kitchen has.
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.setLineStatus(o.getId(), soup.getId(), OrderLine.Status.READY))
+                .isInstanceOf(com.hospio.common.exception.ForbiddenException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.setLineStatus(o.getId(), soup.getId(), OrderLine.Status.SERVED))
+                .hasMessageContaining("hasn't marked Pepper soup ready");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.setStatus(o.getId(), Order.Status.CLOSED))
+                .hasMessageContaining("Kitchen is still making part of this order");
+        // The bar marking its order ready leaves the soup with the kitchen.
+        service.setStatus(o.getId(), Order.Status.READY);
+        assertThat(lager.getStatus()).isEqualTo(OrderLine.Status.READY);
+        assertThat(soup.getStatus()).isEqualTo(OrderLine.Status.SENT);
+
+        signIn(Map.of(Role.KITCHEN, AccessLevel.EDIT));
+        service.stationReady(o.getId(), "kitchen");
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+        service.setStatus(o.getId(), Order.Status.SERVED);
+
+        assertThat(soup.getStatus()).isEqualTo(OrderLine.Status.SERVED);
+        assertThat(o.getStatus()).as("paid and everything served: closed").isEqualTo(Order.Status.CLOSED);
+    }
+
+    @Test
     void happyHourDiscountsLinesAddedDuringItAndTheLineShowsIt() {
         HappyHour hh = HappyHour.builder().name("Happy hour").fromTime(LocalTime.of(17, 0)).toTime(LocalTime.of(19, 0)).days("MON,TUE,WED,THU,FRI")
                 .discountPct(new BigDecimal("20")).build();

@@ -322,6 +322,9 @@ public class OrderService {
         List<OrderLine> all = lines.findByOrderIdOrderByCreatedAt(orderId);
         Order.Status before = o.getStatus();
         if (status == Order.Status.CLOSED) {
+            if (waitingElsewhere(all, o.getOutletId())) {
+                throw new BadRequestException("The " + stationName(all, o.getOutletId()) + " is still making part of this order · serve it first");
+            }
             if (!o.isSettled()) {
                 if (o.getTotal().signum() > 0) {
                     throw new BadRequestException("Take payment or charge the room before closing");
@@ -334,12 +337,16 @@ public class OrderService {
             if (status == Order.Status.READY || status == Order.Status.SERVED) {
                 // Keep the dishes in step with the ticket.
                 for (OrderLine l : all) {
-                    if (l.getStatus() == OrderLine.Status.SENT || (status == Order.Status.SERVED && l.getStatus() == OrderLine.Status.READY)) {
+                    // A line another outlet makes is marked ready there; it can be served here once it is ready.
+                    boolean elsewhere = l.getPreparedAt() != null && !l.getPreparedAt().equals(o.getOutletId());
+                    if (elsewhere ? (status == Order.Status.SERVED && l.getStatus() == OrderLine.Status.READY)
+                            : (l.getStatus() == OrderLine.Status.SENT || (status == Order.Status.SERVED && l.getStatus() == OrderLine.Status.READY))) {
                         l.setStatus(status == Order.Status.READY ? OrderLine.Status.READY : OrderLine.Status.SERVED);
                         lines.save(l);
                     }
                 }
-                if (status == Order.Status.SERVED && o.isSettled()) {
+                o.setStatus(LineStatus.rollup(status, statuses(all)));
+                if (o.getStatus() == Order.Status.SERVED && o.isSettled()) {
                     close(o);
                 }
             }
@@ -360,10 +367,15 @@ public class OrderService {
         List<OrderLine> all = lines.findByOrderIdOrderByCreatedAt(orderId);
         OrderLine l = lineOf(all, lineId);
         HospioUserDetails user = CurrentUser.require();
-        // The outlet that makes a line (the kitchen) may mark it ready; serving it stays with the outlet that sold it.
-        boolean station = l.getPreparedAt() != null && status == OrderLine.Status.READY && OutletAccess.works(user, outlet(l.getPreparedAt()));
-        if (!station) {
+        boolean elsewhere = l.getPreparedAt() != null && !l.getPreparedAt().equals(o.getOutletId());
+        if (elsewhere && status == OrderLine.Status.READY) {
+            // Only the outlet that makes it (the kitchen) marks it ready.
+            requireWorks(user, outlet(l.getPreparedAt()));
+        } else {
             requireWorks(user, outlet);
+            if (elsewhere && status == OrderLine.Status.SERVED && l.getStatus() == OrderLine.Status.SENT) {
+                throw new BadRequestException("The " + outlet(l.getPreparedAt()).getName() + " hasn't marked " + l.getName() + " ready yet");
+            }
         }
         requireLive(o);
         switch (l.getStatus()) {
@@ -509,7 +521,8 @@ public class OrderService {
             });
         }
         settle(o, outlet, "ROOM", all);
-        if (o.getKind() != Order.Kind.ROOM_SERVICE || o.getStatus() == Order.Status.SERVED) {
+        // Settled, but kept open while another outlet (the kitchen) is still making part of it: its ticket stays on that board.
+        if ((o.getKind() != Order.Kind.ROOM_SERVICE || o.getStatus() == Order.Status.SERVED) && !waitingElsewhere(all, o.getOutletId())) {
             close(o);
         }
         orders.save(o);
@@ -555,8 +568,12 @@ public class OrderService {
         }
         if (o.getPaidAmount().compareTo(o.getTotal()) >= 0) {
             o.setPaid(true);
-            settle(o, outlet(o.getOutletId()), "PAYMENT", lines.findByOrderIdOrderByCreatedAt(orderId));
-            close(o);
+            List<OrderLine> all = lines.findByOrderIdOrderByCreatedAt(orderId);
+            settle(o, outlet(o.getOutletId()), "PAYMENT", all);
+            // Paid, but kept open while another outlet (the kitchen) is still making part of it; serving the rest closes it.
+            if (!waitingElsewhere(all, o.getOutletId())) {
+                close(o);
+            }
         }
         orders.save(o);
     }
@@ -785,6 +802,18 @@ public class OrderService {
 
     private static boolean canSee(HospioUserDetails user, Outlet outlet, Order o) {
         return OutletAccess.sees(user, outlet) || (o.getKind() == Order.Kind.ROOM_SERVICE && user.has(com.hospio.common.enums.Role.FRONT_OFFICE));
+    }
+
+    /** Lines another outlet makes (the kitchen's pepper soup on a patio order) that haven't been served yet. */
+    static boolean waitingElsewhere(List<OrderLine> all, String sellingOutletId) {
+        return all.stream().anyMatch(l -> l.getPreparedAt() != null && !l.getPreparedAt().equals(sellingOutletId) && l.isLive()
+                && l.getStatus() != OrderLine.Status.SERVED);
+    }
+
+    /** The station's name for a message ("the Kitchen"). */
+    private String stationName(List<OrderLine> all, String sellingOutletId) {
+        return all.stream().filter(l -> l.getPreparedAt() != null && !l.getPreparedAt().equals(sellingOutletId)).findFirst()
+                .map(l -> outlets.findById(l.getPreparedAt()).map(Outlet::getName).orElse("other outlet")).orElse("other outlet");
     }
 
     private static void requireLive(Order o) {
