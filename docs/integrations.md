@@ -68,7 +68,7 @@ IntegrationView = { provider, label, group: "EMAIL"|"MESSAGING"|"PAYMENTS"|"POS"
                     value|null (SECRET masked "••••••3456"), saved } ] }
 ```
 
-The connection-status list that used to be `GET /platform/admin/integrations` is now `GET /platform/admin/integrations/status`.
+The connection-status list that used to be `GET /platform/admin/integrations` is now `GET /platform/admin/integrations/status`: live checks made by the service that owns each row (docs/admin-portal.md); the messaging and POS rows reuse the same read-only provider calls as the Test buttons here, with a ~3.5 s limit, and never send or charge anything.
 
 Internal: `GET /platform/internal/integrations/{provider}` (internal API key only) → the decrypted typed record
 (`IntegrationSettings.*` in common), `null` when nothing is saved. messaging-service and payment-service read it through

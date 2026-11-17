@@ -70,6 +70,21 @@ public class TextSender {
         return Boolean.TRUE.equals(switches().whatsappEnabled());
     }
 
+    /** "SMS on" in force (portal, else SMS_ENABLED). */
+    public boolean smsOn() {
+        return smsEnabled();
+    }
+
+    /** "WhatsApp on" in force (portal, else WHATSAPP_ENABLED). */
+    public boolean whatsAppOn() {
+        return whatsAppEnabled();
+    }
+
+    /** How many numbers TEXTS_ALLOW_ONLY lets through (0: no allow-list, every number gets texts). */
+    public int allowListSize() {
+        return allowOnly.size();
+    }
+
     /** Whether this channel goes out at all for this kind of message (switched on and the account configured). */
     public boolean live(String channel, String kind) {
         boolean codes = com.hospio.common.delivery.Delivery.smsAllowed(kind);

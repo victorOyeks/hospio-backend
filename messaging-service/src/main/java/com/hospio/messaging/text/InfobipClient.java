@@ -127,6 +127,15 @@ public class InfobipClient {
         return account().configured();
     }
 
+    /** What is in force, for the admin portal's connection checks: never the key itself, only whether there is one. */
+    public record Setup(boolean keyPresent, String whatsAppSender, String smsSender) {
+    }
+
+    public Setup setup() {
+        Account a = account();
+        return new Setup(a.configured(), a.whatsAppSender(), a.smsSender());
+    }
+
     public boolean whatsAppConfigured() {
         Account a = account();
         return a.configured() && StringUtils.hasText(a.whatsAppSender());

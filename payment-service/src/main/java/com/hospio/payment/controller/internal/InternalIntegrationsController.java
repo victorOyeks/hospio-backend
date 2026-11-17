@@ -6,6 +6,7 @@ import com.hospio.common.integrations.settings.IntegrationTestResult;
 import com.hospio.common.response.ApiResponse;
 import com.hospio.payment.pos.MoniepointApi;
 import com.hospio.payment.pos.OpayApi;
+import com.hospio.payment.pos.PosConnectionCheck;
 import io.swagger.v3.oas.annotations.Hidden;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -13,6 +14,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,6 +37,13 @@ public class InternalIntegrationsController {
     private final IntegrationSettingsReader integrations;
     private final MoniepointApi moniepoint;
     private final OpayApi opay;
+    private final PosConnectionCheck posCheck;
+
+    /** The admin portal's "Payment provider (POS)" connection check (platform-service asks): read-only, no hotel's keys, no payment. */
+    @GetMapping("/status")
+    public ApiResponse<PosConnectionCheck.ConnectionCheck> status() {
+        return ApiResponse.ok(posCheck.run());
+    }
 
     @PostMapping("/{provider}/test")
     public ApiResponse<IntegrationTestResult> test(@PathVariable String provider) {
@@ -52,11 +61,16 @@ public class InternalIntegrationsController {
 
     /** Any HTTP answer means the address is right and reachable; the hotels' keys are what then decide each payment. */
     static IntegrationTestResult reachable(String label, String url) {
+        return reachable(label, url, Duration.ofSeconds(15));
+    }
+
+    /** As above, waiting at most {@code timeout} for the answer (the connection checks use a few seconds). */
+    public static IntegrationTestResult reachable(String label, String url, Duration timeout) {
         if (url == null || url.isBlank()) {
             return IntegrationTestResult.failed(label + " has no address, saved here or on the server");
         }
         try {
-            HttpRequest req = HttpRequest.newBuilder(URI.create(url.trim())).timeout(Duration.ofSeconds(15)).GET().build();
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url.trim())).timeout(timeout).GET().build();
             HttpResponse<Void> res = HTTP.send(req, HttpResponse.BodyHandlers.discarding());
             return IntegrationTestResult.ok(label + " answered at " + url.trim() + " (HTTP " + res.statusCode()
                     + "). Payments still need each hotel's own keys");
