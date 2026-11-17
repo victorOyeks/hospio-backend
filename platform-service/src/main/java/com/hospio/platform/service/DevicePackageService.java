@@ -10,11 +10,13 @@ import com.hospio.common.util.Money;
 import com.hospio.platform.client.TenantClient;
 import com.hospio.platform.entity.DailyFee;
 import com.hospio.platform.entity.DeviceCatalogueItem;
+import com.hospio.platform.entity.DeviceInvoice;
 import com.hospio.platform.entity.DevicePackage;
 import com.hospio.platform.entity.DevicePackageItem;
 import com.hospio.platform.entity.DevicePayment;
 import com.hospio.platform.repository.DailyFeeRepository;
 import com.hospio.platform.repository.DeviceCatalogueRepository;
+import com.hospio.platform.repository.DeviceInvoiceRepository;
 import com.hospio.platform.repository.DevicePackageItemRepository;
 import com.hospio.platform.repository.DevicePackageRepository;
 import com.hospio.platform.repository.DevicePaymentRepository;
@@ -61,6 +63,7 @@ public class DevicePackageService {
     private final DailyFeeRepository fees;
     private final TenantClient tenant;
     private final TransactionTemplate tx;
+    private final DeviceInvoiceRepository invoices;
 
     // ---- views ---------------------------------------------------------------------------------------
 
@@ -401,7 +404,8 @@ public class DevicePackageService {
         HospioUserDetails user = CurrentUser.require();
         DevicePackage p = tx.execute(st -> {
             DevicePackage x = lock(packageId);
-            if (x.getDataPlanMonthly() == null || x.getDataPlanMonthly().signum() <= 0 || x.getInstalledAt() == null) {
+            if (x.getDataPlanMonthly() == null || x.getDataPlanMonthly().signum() <= 0 || x.getInstalledAt() == null
+                    || !(DevicePackage.INSTALLED.equals(x.getStatus()) || DevicePackage.PAID_OFF.equals(x.getStatus()))) {
                 throw new BadRequestException("This package has no installed data plan");
             }
             x.setDataPlanRenewedThrough(r.through());
@@ -434,7 +438,7 @@ public class DevicePackageService {
                 continue;
             }
             Integer left = through == null ? null : (int) java.time.temporal.ChronoUnit.DAYS.between(today, through);
-            out.add(new RenewalView(p.getId(), p.getBusinessId(), p.getHotelId(), p.getHotelName(), p.getDataPlanMonthly(), p.nextDataPlanDue(today),
+            out.add(new RenewalView(p.getId(), p.getBusinessId(), p.getHotelId(), p.getHotelName(), p.getDataPlanMonthly(), nextDataPlanDue(p),
                     through, left, p.getDataPlanRenewedByName(), p.getDataPlanRenewedAt()));
         }
         out.sort(java.util.Comparator.comparing((RenewalView v) -> v.renewedThrough() == null ? LocalDate.MIN : v.renewedThrough()));
@@ -512,6 +516,16 @@ public class DevicePackageService {
         return packages.save(x);
     }
 
+    /** The next data plan invoice of a running plan: its first billed due day not invoiced yet (today's, once issued, moves on a month). */
+    LocalDate nextDataPlanDue(DevicePackage p) {
+        if (!p.dataPlanRunning() || p.getInstalledAt() == null) {
+            return null;
+        }
+        java.util.Set<Integer> issued = invoices.findByPackageIdOrderByDueOnDescKindAsc(p.getId()).stream()
+                .filter(i -> DeviceInvoice.DATA_PLAN.equals(i.getKind())).map(DeviceInvoice::getSequence).collect(java.util.stream.Collectors.toSet());
+        return p.nextDataPlanDue(issued);
+    }
+
     PackageView view(DevicePackage p) {
         List<ItemView> lines = items.findByPackageIdOrderByCreatedAtAsc(p.getId()).stream()
                 .map(i -> new ItemView(i.getId(), i.getCatalogueId(), i.getName(), i.getKind(), i.getQuantity(), i.getUnitPrice(), i.getLineTotal())).toList();
@@ -537,7 +551,7 @@ public class DevicePackageService {
         return new PackageView(p.getId(), p.getBusinessId(), p.getHotelId(), p.getHotelName(), p.getStatus(), p.getPaymentOption(), p.getDeviceRate(),
                 p.getMonths(), instalment, p.getTotal(), p.getPaid(), p.remaining(), p.getDataPlanMonthly(), p.getNotes(), p.getAgreedByName(),
                 p.getAgreedAt(), p.getInstalledAt(), p.getPaidOffAt(), lines, paid, last30, daysLeft, finish, p.getUpdatedAt(),
-                p.dataPlanRunning(), p.getDataPlanFrom(), p.getDataPlanStoppedOn(), p.getInstalledAt() == null ? null : p.nextDataPlanDue(LocalDate.now(LAGOS)),
+                p.dataPlanRunning(), p.getDataPlanFrom(), p.getDataPlanStoppedOn(), nextDataPlanDue(p),
                 p.getDataPlanChangedByName(), p.getDataPlanChangedAt(), p.getDataPlanRenewedThrough(), p.getDataPlanRenewedByName(),
                 p.getDataPlanRenewedAt());
     }
