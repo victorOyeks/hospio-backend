@@ -124,7 +124,65 @@ public class OrderService {
                     : orders.findByOutletIdAndStatusInOrderByCreatedAt(outletId, wanted);
         }
         List<Order> visible = list.stream().filter(o -> byId.containsKey(o.getOutletId()) && canSee(user, byId.get(o.getOutletId()), o)).toList();
-        return withLines(visible);
+        List<OrderResponse> out = new ArrayList<>(withLines(visible));
+        // An outlet that makes things for others (the kitchen) also sees those lines as tickets, on the live board only.
+        if (outletId != null && byId.containsKey(outletId) && OutletAccess.sees(user, byId.get(outletId))
+                && !(s.equals("CLOSED") || s.equals("ALL") || s.equals("CANCELLED"))) {
+            out.addAll(tickets(byId.get(outletId), byId, visible.stream().map(Order::getId).collect(Collectors.toSet())));
+        }
+        return out;
+    }
+
+    /**
+     * Another outlet's live orders with lines this station makes, sent and not yet served: each as a ticket holding only those lines,
+     * named with the outlet that sold it ({@code ticketFrom}), oldest first.
+     */
+    private List<OrderResponse> tickets(Outlet station, Map<String, Outlet> byId, java.util.Set<String> already) {
+        Map<String, List<OrderLine>> byOrder = lines.findByPreparedAtAndStatusIn(station.getId(), EnumSet.of(OrderLine.Status.SENT, OrderLine.Status.READY))
+                .stream().collect(Collectors.groupingBy(OrderLine::getOrderId, java.util.LinkedHashMap::new, Collectors.toList()));
+        if (byOrder.isEmpty()) {
+            return List.of();
+        }
+        List<OrderResponse> out = new ArrayList<>();
+        for (Order o : orders.findAllById(byOrder.keySet())) {
+            if (already.contains(o.getId()) || !LIVE.contains(o.getStatus()) || !byId.containsKey(o.getOutletId())) {
+                continue;
+            }
+            List<OrderLine> mine = byOrder.get(o.getId()).stream().sorted(java.util.Comparator.comparing(OrderLine::getCreatedAt,
+                    java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))).toList();
+            out.add(OrderResponse.ticket(o, mine, byId.get(o.getOutletId()).getName()));
+        }
+        out.sort(java.util.Comparator.comparing(OrderResponse::createdAt, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
+        return out;
+    }
+
+    /**
+     * The station (the kitchen) marks its lines on another outlet's order ready: every sent line it makes there. The order rolls up as
+     * usual and the selling outlet hears it is ready when all its lines are.
+     */
+    @Transactional
+    public OrderResponse stationReady(String orderId, String stationId) {
+        Order o = lock(orderId);
+        Outlet station = outlet(stationId);
+        requireWorks(CurrentUser.require(), station);
+        requireLive(o);
+        List<OrderLine> all = lines.findByOrderIdOrderByCreatedAt(orderId);
+        List<OrderLine> mine = all.stream().filter(l -> stationId.equals(l.getPreparedAt()) && l.getStatus() == OrderLine.Status.SENT).toList();
+        if (mine.isEmpty()) {
+            throw new BadRequestException("Nothing on this order is waiting at the " + station.getName());
+        }
+        mine.forEach(l -> {
+            l.setStatus(OrderLine.Status.READY);
+            lines.save(l);
+        });
+        Order.Status before = o.getStatus();
+        o.setStatus(LineStatus.rollup(before, statuses(all)));
+        orders.save(o);
+        Outlet seller = outlet(o.getOutletId());
+        events.publish(KafkaTopics.ORDER_READY, OrderReadyEvent.builder().orderId(o.getId()).orderNumber(o.getNumber()).outletId(seller.getId())
+                .outletName(seller.getName() + " · from the " + station.getName()).outletKind(seller.getKind().name()).tableNo(o.getTableNo())
+                .roomNumber(o.getRoomNumber()).openedBy(o.getOpenedBy()).build());
+        return OrderResponse.ticket(o, all.stream().filter(l -> stationId.equals(l.getPreparedAt())).toList(), seller.getName());
     }
 
     @Transactional(readOnly = true)
@@ -296,13 +354,18 @@ public class OrderService {
     public OrderResponse setLineStatus(String orderId, String lineId, OrderLine.Status status) {
         Order o = lock(orderId);
         Outlet outlet = outlet(o.getOutletId());
-        requireWorks(CurrentUser.require(), outlet);
         if (status != OrderLine.Status.READY && status != OrderLine.Status.SERVED) {
             throw new BadRequestException("A line is marked READY or SERVED");
         }
-        requireLive(o);
         List<OrderLine> all = lines.findByOrderIdOrderByCreatedAt(orderId);
         OrderLine l = lineOf(all, lineId);
+        HospioUserDetails user = CurrentUser.require();
+        // The outlet that makes a line (the kitchen) may mark it ready; serving it stays with the outlet that sold it.
+        boolean station = l.getPreparedAt() != null && status == OrderLine.Status.READY && OutletAccess.works(user, outlet(l.getPreparedAt()));
+        if (!station) {
+            requireWorks(user, outlet);
+        }
+        requireLive(o);
         switch (l.getStatus()) {
             case CANCELLED -> throw new BadRequestException(l.getName() + " was cancelled");
             case NEW -> throw new BadRequestException("Send the ticket first");
@@ -583,7 +646,7 @@ public class OrderService {
         BigDecimal pct = HappyHours.activePct(happyHours.findByOutletIdAndActiveTrue(outlet.getId()), now.get());
         return OrderLine.builder().menuItemId(m.getId()).name(m.getName()).quantity(qty).unitPrice(unit)
                 .taxRate(m.getTaxRate() != null ? m.getTaxRate() : s.vatPct()).discount(OrderPricing.happyHourDiscount(gross, pct))
-                .options(l.options()).notes(l.notes()).build();
+                .options(l.options()).notes(l.notes()).preparedAt(m.getPreparedAt()).build();
     }
 
     /** A tab can't grow past the hotel's tab limit unless a manager is adding to it. The manager is told when a drink is refused. */

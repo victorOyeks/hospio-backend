@@ -232,6 +232,84 @@ class OrderServiceTest {
         assertThat(r.total()).isEqualByComparingTo("3300.00");
     }
 
+    // ---- outlets serving each other: the patio sells the kitchen's pepper soup ----------------------------------------
+
+    private final Outlet kitchen = Outlet.builder().name("Kitchen").kind(Outlet.Kind.KITCHEN).build();
+    private final MenuItem pepperSoup = MenuItem.builder().outletId("bar").category("Starters").name("Pepper soup").price(new BigDecimal("4000.00"))
+            .preparedAt("kitchen").build();
+
+    private Order patioOrderWithSoup() {
+        kitchen.setId("kitchen");
+        kitchen.setHotelId("h1");
+        bar.setHotelId("h1");
+        pepperSoup.setId("soup");
+        when(outlets.findById("kitchen")).thenReturn(Optional.of(kitchen));
+        when(items.findById("soup")).thenReturn(Optional.of(pepperSoup));
+        when(outlets.findByHotelIdOrderByName("h1")).thenReturn(List.of(bar, kitchen));
+        Order[] saved = new Order[1];
+        org.mockito.Mockito.doAnswer(inv -> {
+            Order x = inv.getArgument(0);
+            if (x.getId() == null) {
+                x.setId("patio-1");
+            }
+            x.setHotelId("h1");
+            saved[0] = x;
+            return x;
+        }).when(orders).save(any());
+        when(orders.findById("patio-1")).thenAnswer(inv -> Optional.ofNullable(saved[0]));
+        when(orders.lockById("patio-1")).thenAnswer(inv -> Optional.ofNullable(saved[0]));
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+        OrderResponse r = service.create(new OrderRequest("bar", Order.Kind.TAKEAWAY, null, null, null, null,
+                List.of(new OrderRequest.LineRequest("lager", 1, null, null), new OrderRequest.LineRequest("soup", 1, null, null))));
+        service.send(r.id());
+        Order o = orders.findById(r.id()).orElseThrow();
+        return o;
+    }
+
+    @Test
+    void aLineMadeElsewhereShowsOnThatStationsBoardAsATicketWithOnlyItsLines() {
+        Order o = patioOrderWithSoup();
+        assertThat(storedLines).extracting(OrderLine::getName, OrderLine::getPreparedAt)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("Star lager", null), org.assertj.core.groups.Tuple.tuple("Pepper soup", "kitchen"));
+        when(orders.findByOutletIdAndStatusInOrderByCreatedAt(eq("kitchen"), any())).thenReturn(List.of());
+        when(lines.findByPreparedAtAndStatusIn(eq("kitchen"), any())).thenReturn(storedLines.stream().filter(l -> "kitchen".equals(l.getPreparedAt())).toList());
+        when(orders.findAllById(any())).thenReturn(List.of(o));
+        signIn(Map.of(Role.KITCHEN, AccessLevel.EDIT));
+
+        List<OrderResponse> board = service.board("kitchen", null, null);
+
+        assertThat(board).hasSize(1);
+        assertThat(board.get(0).ticketFrom()).isEqualTo("Bar");
+        assertThat(board.get(0).lines()).extracting(OrderLine::getName).containsExactly("Pepper soup");
+    }
+
+    @Test
+    void theKitchenMarksItsLinesReadyButNotTheBarsAndTheBarHearsIt() {
+        Order o = patioOrderWithSoup();
+        OrderLine soup = storedLines.stream().filter(l -> "Pepper soup".equals(l.getName())).findFirst().orElseThrow();
+        OrderLine lager = storedLines.stream().filter(l -> "Star lager".equals(l.getName())).findFirst().orElseThrow();
+        signIn(Map.of(Role.KITCHEN, AccessLevel.EDIT));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.setLineStatus(o.getId(), lager.getId(), OrderLine.Status.READY))
+                .isInstanceOf(com.hospio.common.exception.ForbiddenException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.setLineStatus(o.getId(), soup.getId(), OrderLine.Status.SERVED))
+                .as("serving stays with the outlet that sold it").isInstanceOf(com.hospio.common.exception.ForbiddenException.class);
+
+        OrderResponse t = service.stationReady(o.getId(), "kitchen");
+
+        assertThat(soup.getStatus()).isEqualTo(OrderLine.Status.READY);
+        assertThat(lager.getStatus()).isEqualTo(OrderLine.Status.SENT);
+        assertThat(t.ticketFrom()).isEqualTo("Bar");
+        verify(events).publish(eq(com.hospio.common.kafka.KafkaTopics.ORDER_READY), any());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.stationReady(o.getId(), "kitchen"))
+                .hasMessageContaining("Nothing on this order is waiting at the Kitchen");
+
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.stationReady(o.getId(), "kitchen"))
+                .as("bar staff can't act for the kitchen").isInstanceOf(com.hospio.common.exception.ForbiddenException.class);
+        service.setLineStatus(o.getId(), soup.getId(), OrderLine.Status.SERVED);
+        assertThat(soup.getStatus()).isEqualTo(OrderLine.Status.SERVED);
+    }
+
     @Test
     void happyHourDiscountsLinesAddedDuringItAndTheLineShowsIt() {
         HappyHour hh = HappyHour.builder().name("Happy hour").fromTime(LocalTime.of(17, 0)).toTime(LocalTime.of(19, 0)).days("MON,TUE,WED,THU,FRI")

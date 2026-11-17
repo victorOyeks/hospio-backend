@@ -83,6 +83,13 @@ public class OrderController {
         return ApiResponse.ok("Updated", service.setLineStatus(id, lineId, status));
     }
 
+    /** A station (the kitchen) marks every line it makes on another outlet's order ready. */
+    @PostMapping("/{id}/stations/{stationId}/ready")
+    @PreAuthorize(WORK)
+    public ApiResponse<OrderResponse> stationReady(@PathVariable String id, @PathVariable String stationId) {
+        return ApiResponse.ok("Ready", service.stationReady(id, stationId));
+    }
+
     @PostMapping("/{id}/lines/{lineId}/cancel")
     @PreAuthorize(TAKE)
     public ApiResponse<OrderResponse> cancelLine(@PathVariable String id, @PathVariable String lineId, @Valid @RequestBody CancelRequest request) {
