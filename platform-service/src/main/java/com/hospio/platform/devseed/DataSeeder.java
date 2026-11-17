@@ -3,24 +3,15 @@ package com.hospio.platform.devseed;
 import com.hospio.common.devseed.SeedFixtures;
 import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
-import com.hospio.platform.entity.FeePayment;
-import com.hospio.platform.entity.FeeStatement;
 import com.hospio.platform.entity.MarketerProfile;
 import com.hospio.platform.entity.Referral;
 import com.hospio.platform.entity.SupportTicket;
-import com.hospio.platform.repository.FeePaymentRepository;
-import com.hospio.platform.repository.FeeStatementRepository;
 import com.hospio.platform.repository.MarketerProfileRepository;
 import com.hospio.platform.repository.ReferralRepository;
 import com.hospio.platform.repository.SupportTicketRepository;
-import com.hospio.platform.service.FeeService;
 import com.hospio.platform.service.PlatformSettingsService;
 import com.hospio.platform.settings.FeeSettings;
-import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.YearMonth;
-import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -34,7 +25,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Staging data for the admin portal, created when missing and hospio.seed.enabled=true: the platform settings
- * defaults; for Royal Suites a PAID statement for last month and a DUE one for this month, three open tickets;
+ * defaults; for Royal Suites three open tickets (no monthly fee statements: Royal Suites pays the daily 1.5 % fee, debited from its
+ * POS provider account, so a seeded statement would show a debt that doesn't exist);
  * the marketer profile for Ese Okoro (the seeded MARKETER login) with two referrals.
  */
 @Slf4j
@@ -44,11 +36,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class DataSeeder implements ApplicationRunner {
 
     public static final String MARKETER_PROFILE_ID = "60000000-0000-4000-8000-000000000001";
-    private static final ZoneId LAGOS = ZoneId.of("Africa/Lagos");
 
     private final PlatformSettingsService settings;
-    private final FeeStatementRepository statements;
-    private final FeePaymentRepository payments;
     private final SupportTicketRepository tickets;
     private final MarketerProfileRepository profiles;
     private final ReferralRepository referrals;
@@ -60,36 +49,10 @@ public class DataSeeder implements ApplicationRunner {
         TenantContext.runWith(Tenant.system("seed"), () -> tx.executeWithoutResult(status -> {
             int created = settings.seedDefaults();
             FeeSettings fees = settings.fees();
-            seedStatements(fees);
             seedTickets();
             seedMarketer(fees);
-            log.info("Admin portal seed done ({} settings written; statements, tickets and marketer created where missing)", created);
+            log.info("Admin portal seed done ({} settings written; tickets and marketer created where missing)", created);
         }));
-    }
-
-    private void seedStatements(FeeSettings fees) {
-        YearMonth thisMonth = YearMonth.now(LAGOS);
-        YearMonth lastMonth = thisMonth.minusMonths(1);
-        String business = SeedFixtures.BUSINESS_ID;
-        if (statements.findByBusinessIdAndMonth(business, lastMonth.toString()).isEmpty()) {
-            BigDecimal base = new BigDecimal("18450000.00");
-            BigDecimal fee = FeeService.computeFee(FeeService.PERCENT_OF_PAYMENTS, new BigDecimal("2.50"), base, 0);
-            FeeStatement s = statements.save(FeeStatement.builder().businessId(business).businessName(SeedFixtures.BUSINESS_NAME).month(lastMonth.toString())
-                    .baseAmount(base).feeAmount(fee).paidAmount(fee).status("PAID").dueOn(FeeService.dueOn(lastMonth, fees.dueDay()))
-                    .lines("[{\"hotelId\":\"" + SeedFixtures.HOTEL_ID + "\",\"hotelName\":\"" + SeedFixtures.HOTEL_NAME + "\",\"base\":" + base + ",\"fee\":" + fee + "}]")
-                    .sentAt(lastMonth.plusMonths(1).atDay(1).atStartOfDay(LAGOS).toInstant()).build());
-            payments.save(FeePayment.builder().businessId(business).statementId(s.getId()).amount(fee).paidOn(FeeService.dueOn(lastMonth, fees.dueDay()).minusDays(2))
-                    .reference("TRF-" + lastMonth.getYear() + lastMonth.getMonthValue() + "-ROYAL").recordedBy(SeedFixtures.ADMINS.get(2).userId())
-                    .recordedByName(SeedFixtures.ADMINS.get(2).fullName()).build());
-        }
-        if (statements.findByBusinessIdAndMonth(business, thisMonth.toString()).isEmpty()) {
-            BigDecimal base = new BigDecimal("6120000.00");
-            BigDecimal fee = FeeService.computeFee(FeeService.PERCENT_OF_PAYMENTS, new BigDecimal("2.50"), base, 0);
-            statements.save(FeeStatement.builder().businessId(business).businessName(SeedFixtures.BUSINESS_NAME).month(thisMonth.toString())
-                    .baseAmount(base).feeAmount(fee).status("DUE").dueOn(FeeService.dueOn(thisMonth, fees.dueDay()))
-                    .lines("[{\"hotelId\":\"" + SeedFixtures.HOTEL_ID + "\",\"hotelName\":\"" + SeedFixtures.HOTEL_NAME + "\",\"base\":" + base + ",\"fee\":" + fee + "}]")
-                    .build());
-        }
     }
 
     private void seedTickets() {
