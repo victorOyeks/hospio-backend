@@ -77,4 +77,8 @@ public class OrderLine extends TenantEntity {
     public boolean isLive() {
         return status != Status.CANCELLED;
     }
+
+    /** The outlet that makes this line when it isn't the one that sold it (a kitchen ticket on a patio order); null otherwise. */
+    @Column(name = "prepared_at", length = 36)
+    private String preparedAt;
 }

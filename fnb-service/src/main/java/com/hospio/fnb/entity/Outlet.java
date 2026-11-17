@@ -44,4 +44,8 @@ public class Outlet extends TenantEntity {
     /** The inventory store this outlet draws from when an order is settled. */
     @Column(name = "store_id", length = 36)
     private String storeId;
+
+    /** The outlet's own POS terminal (payment-service id), preselected when taking payment for its orders; null: the role's. */
+    @Column(name = "terminal_id", length = 36)
+    private String terminalId;
 }

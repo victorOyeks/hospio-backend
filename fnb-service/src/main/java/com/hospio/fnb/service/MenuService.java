@@ -73,6 +73,9 @@ public class MenuService {
         if (request.status() != null) {
             o.setStatus(request.status());
         }
+        if (request.terminalId() != null) {
+            o.setTerminalId(request.terminalId().isBlank() ? null : request.terminalId().trim());
+        }
         return outlets.save(o);
     }
 
@@ -161,6 +164,9 @@ public class MenuService {
         if (request.recipe() != null) {
             m.setRecipeJson(Recipes.write(Recipes.parse(request.recipe())));
         }
+        if (request.preparedAt() != null) {
+            m.setPreparedAt(madeAt(outlet, request.preparedAt()));
+        }
         if (request.sortOrder() != null) {
             m.setSortOrder(request.sortOrder());
         }
@@ -171,6 +177,72 @@ public class MenuService {
             categories.save(MenuCategory.builder().outletId(outletId).name(category).sortOrder(categories.findByOutletIdOrderBySortOrderAscNameAsc(outletId).size()).build());
         }
         return items.save(m);
+    }
+
+    /**
+     * Where an item sold at {@code outlet} is made: blank or the outlet itself means here (null); otherwise another outlet of the
+     * same hotel (open or closed), else 404.
+     */
+    String madeAt(Outlet outlet, String preparedAt) {
+        String id = preparedAt == null ? null : preparedAt.trim();
+        if (id == null || id.isEmpty() || id.equals(outlet.getId())) {
+            return null;
+        }
+        Outlet other = outlets.findById(id).filter(o -> outlet.getHotelId() == null || outlet.getHotelId().equals(o.getHotelId()))
+                .orElseThrow(() -> new ResourceNotFoundException("The outlet that makes it isn't one of this hotel's"));
+        return other.getId();
+    }
+
+    public record CopyResult(int copied, int skipped, int categories) {
+    }
+
+    /**
+     * Copies another outlet's menu here (same hotel): its categories and items, prices, tax, choices and recipes. Items already here
+     * by name are skipped. With {@code madeAtSource} the copies stay made at the outlet they came from (or where that outlet had them made).
+     */
+    @Transactional
+    public CopyResult copyMenu(String outletId, com.hospio.fnb.dto.MenuCopyRequest request) {
+        Outlet target = outlet(outletId);
+        requireFull(target);
+        Outlet source = outlet(request.fromOutletId());
+        if (source.getId().equals(target.getId())) {
+            throw new BadRequestException("Choose another outlet to copy from");
+        }
+        if (target.getHotelId() != null && !target.getHotelId().equals(source.getHotelId())) {
+            throw new ResourceNotFoundException("Outlet not found");
+        }
+        java.util.Set<String> wanted = request.categories() == null ? java.util.Set.of()
+                : request.categories().stream().filter(c -> c != null && !c.isBlank()).map(c -> c.trim().toLowerCase(java.util.Locale.ROOT))
+                        .collect(java.util.stream.Collectors.toSet());
+        java.util.Set<String> here = items.findByOutletIdOrderByCategoryAscSortOrderAscNameAsc(target.getId()).stream()
+                .map(i -> i.getName().trim().toLowerCase(java.util.Locale.ROOT)).collect(java.util.stream.Collectors.toSet());
+        boolean keepSource = Boolean.TRUE.equals(request.madeAtSource());
+        int copied = 0;
+        int skipped = 0;
+        int newCategories = 0;
+        for (MenuItem src : items.findByOutletIdOrderByCategoryAscSortOrderAscNameAsc(source.getId())) {
+            if (!src.isActive() || (!wanted.isEmpty() && !wanted.contains(src.getCategory().trim().toLowerCase(java.util.Locale.ROOT)))) {
+                continue;
+            }
+            if (!here.add(src.getName().trim().toLowerCase(java.util.Locale.ROOT))) {
+                skipped++;
+                continue;
+            }
+            String madeAt = keepSource ? (src.getPreparedAt() != null ? src.getPreparedAt() : source.getId()) : src.getPreparedAt();
+            if (target.getId().equals(madeAt)) {
+                madeAt = null;
+            }
+            if (categories.findByOutletIdAndName(target.getId(), src.getCategory()).isEmpty()) {
+                categories.save(MenuCategory.builder().outletId(target.getId()).name(src.getCategory())
+                        .sortOrder(categories.findByOutletIdOrderBySortOrderAscNameAsc(target.getId()).size()).build());
+                newCategories++;
+            }
+            items.save(MenuItem.builder().outletId(target.getId()).category(src.getCategory()).name(src.getName()).description(src.getDescription())
+                    .price(src.getPrice()).taxRate(src.getTaxRate()).options(src.getOptions()).recipeJson(src.getRecipeJson()).sortOrder(src.getSortOrder())
+                    .preparedAt(madeAt).build());
+            copied++;
+        }
+        return new CopyResult(copied, skipped, newCategories);
     }
 
     /** Sold out / back on: anyone who works the outlet can do this. */
