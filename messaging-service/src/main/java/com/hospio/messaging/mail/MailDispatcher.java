@@ -138,7 +138,7 @@ public class MailDispatcher {
     }
 
     /** Whether email goes out at all: the portal's "Email on", else MAIL_ENABLED. */
-    boolean enabled() {
+    public boolean enabled() {
         if (integrations == null) {
             return enabled;
         }
@@ -150,6 +150,11 @@ public class MailDispatcher {
         com.hospio.common.integrations.settings.IntegrationSettings.Brevo env =
                 new com.hospio.common.integrations.settings.IntegrationSettings.Brevo(null, fromAddress, defaultName);
         return integrations == null ? env : integrations.effective(env);
+    }
+
+    /** The From address in force: the portal's, else MAIL_FROM_ADDRESS. */
+    public String fromAddress() {
+        return sender().fromAddress();
     }
 
     /** Tests drain the queue on the calling thread. */

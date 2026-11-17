@@ -66,6 +66,15 @@ public class TermiiClient {
         return account().configured();
     }
 
+    /** What is in force, for the admin portal's connection checks: never the key itself, only whether there is one. */
+    public record Setup(boolean enabled, boolean keyPresent, String senderId, String channel, boolean configured) {
+    }
+
+    public Setup setup() {
+        Account a = account();
+        return new Setup(a.enabled(), StringUtils.hasText(a.baseUrl()) && StringUtils.hasText(a.apiKey()), a.senderId(), channel, a.configured());
+    }
+
     /** The admin portal's test, with the settings in force: the account balance (GET /api/get-balance). Sends nothing. */
     public IntegrationTestResult check() {
         Account a = account();

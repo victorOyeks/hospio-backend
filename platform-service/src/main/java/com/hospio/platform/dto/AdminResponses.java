@@ -89,7 +89,11 @@ public final class AdminResponses {
 
     // ---- settings and integrations -------------------------------------------------------------------
 
-    public record Integration(String key, String name, String kind, String status, String detail, Instant lastCheck) {
+    /**
+     * One connection check. {@code status}: CONNECTED, NOT_CONFIGURED, TEST_MODE (a test provider, nothing real happens) or ERROR;
+     * {@code checkedBy} the service that made the check; {@code lastCheck} when this row's check finished.
+     */
+    public record Integration(String key, String name, String kind, String status, String detail, Instant lastCheck, String checkedBy) {
     }
 
     // ---- dashboard and business tabs -----------------------------------------------------------------

@@ -65,6 +65,11 @@ public class HotelPosService {
         return new ProviderKeys(k.getProvider(), fields, complete(k.getProvider(), masked), k.getUpdatedByName(), k.getUpdatedAt());
     }
 
+    /** Whether the key store can open saved keys (SECRETS_KEY set). */
+    public boolean keyStoreReady() {
+        return box.ready();
+    }
+
     /** Every hotel's POS status for the admin portal's lists: the providers whose keys are complete, and the pause. Never any key. */
     public record Status(String hotelId, List<String> providers, boolean posPaused) {
     }

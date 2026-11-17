@@ -30,4 +30,12 @@ public final class IntegrationDtos {
      */
     public record IntegrationUpdate(Map<String, String> fields, List<String> clear) {
     }
+
+    /**
+     * One connection check as the service that owns it reports it (GET /internal/integrations/status on messaging-service and
+     * payment-service): {@code key} whatsapp, email, sms or payment-provider; {@code status} CONNECTED, NOT_CONFIGURED, TEST_MODE or
+     * ERROR; {@code detail} what was found, never a key's value.
+     */
+    public record ServiceCheck(String key, String status, String detail) {
+    }
 }
