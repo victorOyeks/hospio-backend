@@ -31,7 +31,10 @@ import com.hospio.fnb.repository.OutletRepository;
 import com.hospio.fnb.repository.PriceChangeRequestRepository;
 import com.hospio.fnb.rules.OutletAccess;
 import com.hospio.fnb.rules.Recipes;
+import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -52,6 +55,8 @@ public class MenuService {
     private final PriceChangeRequestRepository priceChanges;
     private final HappyHourRepository happyHours;
     private final EventPublisher events;
+
+    private static final String PENDING = "PENDING";
 
     /** What a price change did: applied now (item) or sent for approval (pending). */
     public record PriceChangeResult(MenuItem item, PriceChangeRequest pending) {
@@ -104,9 +109,25 @@ public class MenuService {
     public List<MenuItem> menu(String outletId, boolean all) {
         if (all) {
             requireFull(outlet(outletId));
-            return items.findByOutletIdOrderByCategoryAscSortOrderAscNameAsc(outletId);
+            return withPendingPrices(items.findByOutletIdOrderByCategoryAscSortOrderAscNameAsc(outletId));
         }
-        return items.findByOutletIdAndActiveTrueOrderByCategoryAscSortOrderAscNameAsc(outletId);
+        return withPendingPrices(items.findByOutletIdAndActiveTrueOrderByCategoryAscSortOrderAscNameAsc(outletId));
+    }
+
+    /** Each item's price change still waiting for the manager (the newest), as {@code pendingPrice}. */
+    List<MenuItem> withPendingPrices(List<MenuItem> list) {
+        if (list.isEmpty()) {
+            return list;
+        }
+        Map<String, BigDecimal> pending = new HashMap<>();
+        priceChanges.findByMenuItemIdInAndStatusOrderByCreatedAtDesc(list.stream().map(MenuItem::getId).toList(), PENDING)
+                .forEach(pc -> pending.putIfAbsent(pc.getMenuItemId(), pc.getNewPrice()));
+        list.forEach(m -> m.setPendingPrice(pending.get(m.getId())));
+        return list;
+    }
+
+    private MenuItem withPendingPrice(MenuItem m) {
+        return m.getId() == null ? m : withPendingPrices(List.of(m)).get(0);
     }
 
     @Transactional(readOnly = true)
@@ -176,7 +197,7 @@ public class MenuService {
         if (categories.findByOutletIdAndName(outletId, category).isEmpty()) {
             categories.save(MenuCategory.builder().outletId(outletId).name(category).sortOrder(categories.findByOutletIdOrderBySortOrderAscNameAsc(outletId).size()).build());
         }
-        return items.save(m);
+        return withPendingPrice(items.save(m));
     }
 
     /**
@@ -259,7 +280,7 @@ public class MenuService {
             events.publish(KafkaTopics.ITEM_SOLD_OUT, ItemSoldOutEvent.builder().itemId(m.getId()).itemName(m.getName())
                     .outletName(outlet.getName()).build());
         }
-        return m;
+        return withPendingPrice(m);
     }
 
     /** Full access changes the price now; anyone else who works the outlet sends it to a manager. */
@@ -276,7 +297,13 @@ public class MenuService {
         }
         if (OutletAccess.full(user, outlet)) {
             m.setPrice(Money.of(request.newPrice()));
-            return new PriceChangeResult(items.save(m), null);
+            return new PriceChangeResult(withPendingPrice(items.save(m)), null);
+        }
+        // One request at a time (DEF-086): a second one while the first waits would leave the manager two prices to choose from.
+        BigDecimal waiting = withPendingPrice(m).getPendingPrice();
+        if (waiting != null) {
+            throw new BadRequestException(naira(waiting) + " for " + m.getName() + " is already waiting for the manager's approval. "
+                    + "Ask again once they decide");
         }
         String approvalId = UUID.randomUUID().toString();
         PriceChangeRequest pc = priceChanges.save(PriceChangeRequest.builder().menuItemId(m.getId()).oldPrice(m.getPrice()).newPrice(Money.of(request.newPrice()))
@@ -286,13 +313,18 @@ public class MenuService {
                 .requesterName(user.getFullName()).approverLevel("MANAGER")
                 .description("Change " + m.getName() + " (" + outlet.getName() + ") from " + naira(m.getPrice()) + " to " + naira(request.newPrice())
                         + (request.reason() == null ? "" : ": " + request.reason())).build());
+        m.setPendingPrice(pc.getNewPrice());
         return new PriceChangeResult(m, pc);
     }
 
     @Transactional
     public void applyApprovedPriceChange(String approvalId, String decision) {
         PriceChangeRequest pc = priceChanges.findByApprovalId(approvalId).orElse(null);
-        if (pc == null || !"PENDING".equals(pc.getStatus())) {
+        if (pc == null || !PENDING.equals(pc.getStatus())) {
+            return;
+        }
+        if (!"APPROVED".equals(decision) && !"DECLINED".equals(decision)) {
+            // A question back to the cook: still waiting for the decision.
             return;
         }
         pc.setStatus(decision);

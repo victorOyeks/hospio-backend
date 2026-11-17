@@ -70,6 +70,13 @@ public class MenuItem extends TenantEntity {
     @lombok.Builder.Default
     private int sortOrder = 0;
 
+    /**
+     * The price a cook or bartender asked for that is still waiting for the manager (served as {@code pendingPrice}; null when none). Not
+     * stored here: filled from {@code price_change_requests} when the menu is read, so the row shows "₦3,800 awaiting approval" (DEF-086).
+     */
+    @jakarta.persistence.Transient
+    private BigDecimal pendingPrice;
+
     /** Made at another outlet (the kitchen, for pepper soup sold at the patio); null: made where it is sold. */
     @Column(name = "prepared_at", length = 36)
     private String preparedAt;
