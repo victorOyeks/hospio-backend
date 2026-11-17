@@ -76,7 +76,7 @@ class BusinessRulesTest {
 
     private static CreateBusinessRequest valid() {
         return create("Abuja Palms Hotels", "Musa Danladi", "musa@hospio-qa.test", "+234 803 555 0192", "Abuja",
-                Business.FeeModel.PERCENT_OF_PAYMENTS, "1.5");
+                Business.FeeModel.PERCENT_OF_SALES, "1.5");
     }
 
     // ---- what a field may hold ------------------------------------------------------------------------
@@ -122,7 +122,7 @@ class BusinessRulesTest {
 
     @Test
     void aPercentageIsZeroToOneHundredAndRequired() {
-        Business.FeeModel pct = Business.FeeModel.PERCENT_OF_PAYMENTS;
+        Business.FeeModel pct = Business.FeeModel.PERCENT_OF_SALES;
         assertThat(Fields.fee(pct, BigDecimal.ZERO)).isEqualByComparingTo("0");
         assertThat(Fields.fee(pct, new BigDecimal("100"))).isEqualByComparingTo("100");
         assertThatThrownBy(() -> Fields.fee(pct, new BigDecimal("-1"))).hasMessageContaining("between 0 and 100");
@@ -130,8 +130,9 @@ class BusinessRulesTest {
         assertThatThrownBy(() -> Fields.fee(pct, new BigDecimal("1.555"))).hasMessageContaining("two decimal places");
         assertThatThrownBy(() -> Fields.fee(pct, null)).hasMessage("Enter the share (%)");
         assertThatThrownBy(() -> Fields.fee(null, BigDecimal.ONE)).hasMessage("Choose the fee model");
-        assertThatThrownBy(() -> Fields.fee(Business.FeeModel.PER_ROOM_NIGHT, new BigDecimal("-5"))).hasMessageContaining("₦0 and ₦1,000,000");
-        assertThat(Fields.fee(Business.FeeModel.PER_ROOM_NIGHT, new BigDecimal("1500"))).isEqualByComparingTo("1500");
+        // One fee model: the others are refused for anything new.
+        assertThatThrownBy(() -> Fields.fee(Business.FeeModel.PER_ROOM_NIGHT, new BigDecimal("1500"))).hasMessageContaining("one fee model");
+        assertThatThrownBy(() -> Fields.fee(Business.FeeModel.PERCENT_OF_PAYMENTS, new BigDecimal("1.5"))).hasMessageContaining("one fee model");
     }
 
     @Test
@@ -155,15 +156,15 @@ class BusinessRulesTest {
 
     @Test
     void meaninglessValuesAreRefusedBeforeAnythingIsSaved() {
-        assertThatThrownBy(() -> service.create(create("0000", "Musa Danladi", "m@hospio-qa.test", null, "Abuja", Business.FeeModel.PER_ROOM_NIGHT, "1500")))
+        assertThatThrownBy(() -> service.create(create("0000", "Musa Danladi", "m@hospio-qa.test", null, "Abuja", Business.FeeModel.PERCENT_OF_SALES, "1.5")))
                 .isInstanceOf(BadRequestException.class).hasMessageContaining("Business name");
-        assertThatThrownBy(() -> service.create(create("Abuja Palms", "0000", "m@hospio-qa.test", null, "Abuja", Business.FeeModel.PER_ROOM_NIGHT, "1500")))
+        assertThatThrownBy(() -> service.create(create("Abuja Palms", "0000", "m@hospio-qa.test", null, "Abuja", Business.FeeModel.PERCENT_OF_SALES, "1.5")))
                 .hasMessageContaining("Owner's full name");
-        assertThatThrownBy(() -> service.create(create("Abuja Palms", "Musa", "m@hospio-qa.test", "0000", "Abuja", Business.FeeModel.PER_ROOM_NIGHT, "1500")))
+        assertThatThrownBy(() -> service.create(create("Abuja Palms", "Musa", "m@hospio-qa.test", "0000", "Abuja", Business.FeeModel.PERCENT_OF_SALES, "1.5")))
                 .hasMessageContaining("Owner's phone");
-        assertThatThrownBy(() -> service.create(create("Abuja Palms", "Musa", "m@hospio-qa.test", null, "0000", Business.FeeModel.PER_ROOM_NIGHT, "1500")))
+        assertThatThrownBy(() -> service.create(create("Abuja Palms", "Musa", "m@hospio-qa.test", null, "0000", Business.FeeModel.PERCENT_OF_SALES, "1.5")))
                 .hasMessage("Enter a real city name");
-        assertThatThrownBy(() -> service.create(create("Abuja Palms", "Musa", "m@hospio-qa.test", null, "Abuja", Business.FeeModel.PERCENT_OF_PAYMENTS, null)))
+        assertThatThrownBy(() -> service.create(create("Abuja Palms", "Musa", "m@hospio-qa.test", null, "Abuja", Business.FeeModel.PERCENT_OF_SALES, null)))
                 .hasMessage("Enter the share (%)");
         verify(businesses, never()).save(any());
     }
@@ -205,7 +206,7 @@ class BusinessRulesTest {
     @Test
     void anUnchangedValueIsNotCheckedAgainSoAnOldDuplicateNeverBlocksAStep() {
         Business mine = Business.builder().name("Smiles fc").ownerEmail("m@hospio-qa.test").city("Abuja")
-                .feeModel(Business.FeeModel.PERCENT_OF_PAYMENTS).feeValue(BigDecimal.ONE).build();
+                .feeModel(Business.FeeModel.PERCENT_OF_SALES).feeValue(BigDecimal.ONE).build();
         mine.setId("b1");
         when(businesses.findById("b1")).thenReturn(Optional.of(mine));
         when(businesses.otherWithName(anyString(), anyString())).thenReturn(Optional.of("SMILES FC"));
