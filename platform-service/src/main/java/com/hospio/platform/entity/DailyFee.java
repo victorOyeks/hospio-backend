@@ -91,7 +91,54 @@ public class DailyFee extends TenantEntity {
     @Column(name = "debited_at")
     private Instant debitedAt;
 
+    /** The hotel's TRANSACTION device package this day collects towards; null when none. */
+    @Column(name = "device_package_id", length = 36)
+    private String devicePackageId;
+
+    /** The device share of sales (2.5 % by default); 0 without a package. */
+    @Column(name = "device_rate", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal deviceRate = BigDecimal.ZERO;
+
+    /** This day's device fee: deviceRate % of sales, capped at what is left of the package. Part of {@code due}. */
+    @Column(name = "device_fee", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal deviceFee = BigDecimal.ZERO;
+
+    /** Device fee left unpaid on earlier days, carried in. Part of {@code due}. */
+    @Column(name = "device_carried_in", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal deviceCarriedIn = BigDecimal.ZERO;
+
     public BigDecimal remaining() {
         return due.subtract(collected).max(BigDecimal.ZERO);
+    }
+
+    /** The platform part of what is due: the fee and what earlier days left of it. Paid first. */
+    public BigDecimal platformDue() {
+        return fee.add(carriedIn);
+    }
+
+    /** The device part of what is due: this day's device fee and what earlier days left of theirs. Paid after the platform part. */
+    public BigDecimal deviceDue() {
+        return deviceFee.add(deviceCarriedIn);
+    }
+
+    /** What the collection so far paid of the platform part (it comes first). */
+    public BigDecimal platformPaid() {
+        return collected.min(platformDue()).max(BigDecimal.ZERO);
+    }
+
+    /** What the collection so far paid of the device part (after the platform part). */
+    public BigDecimal devicePaid() {
+        return collected.subtract(platformDue()).max(BigDecimal.ZERO).min(deviceDue());
+    }
+
+    public BigDecimal platformRemaining() {
+        return platformDue().subtract(platformPaid()).max(BigDecimal.ZERO);
+    }
+
+    public BigDecimal deviceRemaining() {
+        return deviceDue().subtract(devicePaid()).max(BigDecimal.ZERO);
     }
 }

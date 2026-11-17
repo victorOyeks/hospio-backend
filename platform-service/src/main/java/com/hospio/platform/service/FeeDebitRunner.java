@@ -40,6 +40,7 @@ public class FeeDebitRunner {
     private final FeeCollectionRepository collections;
     private final FeeDebitClient debits;
     private final TransactionTemplate tx;
+    private final DevicePackageService devices;
 
     public record DebitRun(int tried, int paid, int pending, int unpaid, int paused, int resumed) {
     }
@@ -101,6 +102,7 @@ public class FeeDebitRunner {
     }
 
     private String apply(DailyFee f, com.hospio.common.billing.FeeDebitDtos.DebitResult r, boolean fresh) {
+        BigDecimal deviceBefore = f.devicePaid();
         String status = switch (r.status()) {
             case "APPROVED" -> {
                 BigDecimal got = r.collected() == null || r.collected().signum() <= 0 ? f.remaining() : r.collected().min(f.remaining());
@@ -118,6 +120,15 @@ public class FeeDebitRunner {
             x.setStatus(status);
             x.setLastError(error == null ? null : error.length() > 500 ? error.substring(0, 500) : error);
         });
+        // The device part of what this debit took (the platform fee is paid first) goes to the hotel's device package, once per reference.
+        BigDecimal toDevices = f.devicePaid().subtract(deviceBefore);
+        if (toDevices.signum() > 0) {
+            try {
+                devices.creditTransaction(f, toDevices, f.getDebitRef());
+            } catch (RuntimeException e) {
+                log.error("Device share {} of debit {} not credited to package {}: {}", toDevices, f.getDebitRef(), f.getDevicePackageId(), e.getMessage());
+            }
+        }
         return status;
     }
 

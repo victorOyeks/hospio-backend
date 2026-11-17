@@ -64,6 +64,7 @@ public class DailyFeeService {
     private final DeliveryService deliveries;
     private final TransactionTemplate tx;
     private final ObjectMapper mapper;
+    private final DevicePackageService devices;
 
     public record RunResult(LocalDate date, int worked, int skipped, int statements, List<String> notes) {
     }
@@ -125,23 +126,35 @@ public class DailyFeeService {
         List<DailySales.Line> lines = sales.sales(h.id(), date);
         BigDecimal total = Money.of(lines.stream().map(DailySales.Line::amount).reduce(BigDecimal.ZERO, BigDecimal::add));
         BigDecimal fee = feeOn(total, rate);
+        // The device line (a TRANSACTION package) is worked out before earlier days are carried, so its cap counts them once.
+        DevicePackageService.DeviceLine device = devices.lineFor(h.id(), date, total);
         return tx.execute(st -> {
             FeeCollection c = collections.findByHotelId(h.id()).orElse(null);
             boolean debitOn = c != null && c.isDebitEnabled();
             BigDecimal carried = BigDecimal.ZERO;
+            BigDecimal deviceCarried = BigDecimal.ZERO;
+            String devicePackage = device.packageId();
             if (debitOn) {
-                // Every earlier day left short (including one whose pending debit failed after its next day was worked out).
+                // Every earlier day left short (including one whose pending debit failed after its next day was worked out). Its platform
+                // and device remainders are carried separately, so the platform fee keeps being paid first.
                 for (DailyFee prev : fees.findByHotelIdAndStatusInAndFeeDateBefore(h.id(), List.of(DailyFee.PART_PAID, DailyFee.UNPAID), date)) {
-                    carried = carried.add(prev.remaining());
+                    carried = carried.add(prev.platformRemaining());
+                    deviceCarried = deviceCarried.add(prev.deviceRemaining());
+                    if (devicePackage == null && prev.getDevicePackageId() != null && prev.deviceRemaining().signum() > 0) {
+                        devicePackage = prev.getDevicePackageId();
+                    }
                     prev.setStatus(DailyFee.CARRIED);
                     fees.save(prev);
                 }
             }
-            BigDecimal due = Money.of(fee.add(carried));
+            // Shadow mode (debit off) collects nothing, so the device line is only shown, not owed.
+            BigDecimal deviceFee = device.fee();
+            BigDecimal due = Money.of(fee.add(carried).add(deviceFee).add(deviceCarried));
             String status = due.signum() <= 0 ? DailyFee.NO_FEE : debitOn ? DailyFee.SCHEDULED : DailyFee.SHADOW;
             DailyFee f = DailyFee.builder().businessId(b.id()).hotelId(h.id()).hotelName(h.name()).feeDate(date).salesTotal(total)
-                    .salesLines(write(lines)).rate(rate).fee(fee).carriedIn(carried).due(due).status(status)
-                    .provider(c == null ? null : c.getProvider()).build();
+                    .salesLines(write(lines)).rate(rate).fee(fee).carriedIn(Money.of(carried)).due(due).status(status)
+                    .provider(c == null ? null : c.getProvider()).devicePackageId(devicePackage).deviceRate(device.rate())
+                    .deviceFee(deviceFee).deviceCarriedIn(Money.of(deviceCarried)).build();
             return fees.save(f);
         });
     }
@@ -194,6 +207,13 @@ public class DailyFeeService {
             if (f.getCarriedIn().signum() > 0) {
                 t.append("  Unpaid from earlier days: NGN ").append(n.format(f.getCarriedIn())).append('\n');
             }
+            if (f.getDeviceFee().signum() > 0) {
+                t.append("  Devices at ").append(f.getDeviceRate().stripTrailingZeros().toPlainString()).append(" %: NGN ").append(n.format(f.getDeviceFee()))
+                        .append('\n');
+            }
+            if (f.getDeviceCarriedIn().signum() > 0) {
+                t.append("  Devices unpaid from earlier days: NGN ").append(n.format(f.getDeviceCarriedIn())).append('\n');
+            }
             if (DailyFee.SCHEDULED.equals(f.getStatus())) {
                 debit = debit.add(f.getDue());
             } else if (DailyFee.SHADOW.equals(f.getStatus())) {
@@ -216,13 +236,15 @@ public class DailyFeeService {
     public record DailyFeeView(String id, String businessId, String hotelId, String hotelName, LocalDate date, BigDecimal sales,
                                List<DailySales.Line> lines, BigDecimal rate, BigDecimal fee, BigDecimal carriedIn, BigDecimal due,
                                BigDecimal collected, String status, String provider, String debitRef, int attempts, String lastError,
-                               Instant statementSentAt, Instant debitedAt) {
+                               Instant statementSentAt, Instant debitedAt, String devicePackageId, BigDecimal deviceRate, BigDecimal deviceFee,
+                               BigDecimal deviceCarriedIn, BigDecimal platformPaid, BigDecimal devicePaid) {
     }
 
     public DailyFeeView view(DailyFee f) {
         return new DailyFeeView(f.getId(), f.getBusinessId(), f.getHotelId(), f.getHotelName(), f.getFeeDate(), f.getSalesTotal(),
                 read(f.getSalesLines()), f.getRate(), f.getFee(), f.getCarriedIn(), f.getDue(), f.getCollected(), f.getStatus(), f.getProvider(),
-                f.getDebitRef(), f.getAttempts(), f.getLastError(), f.getStatementSentAt(), f.getDebitedAt());
+                f.getDebitRef(), f.getAttempts(), f.getLastError(), f.getStatementSentAt(), f.getDebitedAt(), f.getDevicePackageId(), f.getDeviceRate(),
+                f.getDeviceFee(), f.getDeviceCarriedIn(), f.platformPaid(), f.devicePaid());
     }
 
     /** The owner's own business, newest first (row security keeps it to their business). */
