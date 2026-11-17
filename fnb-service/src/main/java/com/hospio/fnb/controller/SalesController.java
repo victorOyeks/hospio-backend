@@ -60,8 +60,9 @@ public class SalesController {
     /** Sales still owing money, any day, in the caller's default view (the sidebar count). */
     @GetMapping("/sales/history/unpaid")
     @PreAuthorize(SEE)
-    public ApiResponse<SalesHistoryService.UnpaidCount> unpaid(@RequestParam(required = false) String desk) {
-        return ApiResponse.ok(history.unpaid(desk));
+    public ApiResponse<SalesHistoryService.UnpaidCount> unpaid(@RequestParam(required = false) String desk,
+                                                               @RequestParam(required = false) String outletId) {
+        return ApiResponse.ok(history.unpaid(desk, outletId));
     }
 
     @GetMapping("/sales/history/{id}")

@@ -185,9 +185,22 @@ public class SalesHistoryService {
     /** Sales still owing money (to pay or part paid), any day, in the caller's default view: the sidebar badge. */
     @Transactional(readOnly = true)
     public UnpaidCount unpaid(String desk) {
+        return unpaid(desk, null);
+    }
+
+    /** As above, for one outlet of the desk when {@code outletId} is given (the outlet the desk is serving at); another outlet → 403. */
+    public UnpaidCount unpaid(String desk, String outletId) {
         Scope s = scope(desk);
         String attendant = s.mineByDefault() ? s.user().getUserId() : null;
-        SalesHistoryQuery.Filter f = new SalesHistoryQuery.Filter(s.hotelId(), s.outlets().stream().map(Outlet::getId).toList(), null, null,
+        List<String> all = s.outlets().stream().map(Outlet::getId).toList();
+        List<String> wanted = all;
+        if (outletId != null && !outletId.isBlank()) {
+            if (!all.contains(outletId)) {
+                throw new ForbiddenException("That outlet's sales aren't yours to see");
+            }
+            wanted = List.of(outletId);
+        }
+        SalesHistoryQuery.Filter f = new SalesHistoryQuery.Filter(s.hotelId(), wanted, null, null,
                 SaleBucket.UNPAID, null, attendant, null, null);
         SalesHistoryQuery.Money3 m = query.totals(f);
         return new UnpaidCount(m.sales(), m.unpaid());
