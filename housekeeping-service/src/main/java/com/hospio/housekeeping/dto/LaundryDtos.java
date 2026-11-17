@@ -50,7 +50,8 @@ public final class LaundryDtos {
     public record OrderView(String id, String number, String bookingId, String guestName, String roomId, String roomNumber, List<OrderLineView> lines,
                             boolean express, BigDecimal total, String status, String settlement, boolean chargedToRoom, boolean paid, Instant chargedAt,
                             Instant paidAt, BigDecimal paidAmount, String paymentId, String paymentMethod, Instant promisedAt, String note,
-                            String pocketNote, String cancelReason, String receivedByName, Instant createdAt, Instant deliveredAt) {
+                            String pocketNote, String cancelReason, String receivedByName, Instant createdAt, Instant deliveredAt,
+                            BigDecimal serviceCharge) {
     }
 
     public record BatchLineView(String itemId, String name, String unit, BigDecimal sent, BigDecimal received, BigDecimal returned,

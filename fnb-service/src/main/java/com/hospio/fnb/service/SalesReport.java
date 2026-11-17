@@ -30,7 +30,7 @@ public class SalesReport {
         Instant from = day.atStartOfDay(LAGOS).toInstant();
         Instant to = day.plusDays(1).atStartOfDay(LAGOS).toInstant();
         @SuppressWarnings("unchecked")
-        List<Object[]> rows = em.createNativeQuery("select coalesce(sum(case when o.total > 0 then p.amount * (o.total - o.tax) / o.total "
+        List<Object[]> rows = em.createNativeQuery("select coalesce(sum(case when o.total > 0 then p.amount * (o.total - o.tax - o.service_charge) / o.total "
                         + "else p.amount end), 0), count(*) from fnb.order_payments p join fnb.orders o on o.id = p.order_id "
                         + "where p.hotel_id = :hotelId and p.created_at >= :from and p.created_at < :to")
                 .setParameter("hotelId", hotelId).setParameter("from", from).setParameter("to", to).getResultList();

@@ -202,6 +202,37 @@ class OrderServiceTest {
     }
 
     @Test
+    void whenGuestsPayTheFeeTheOrderCarriesAServiceChargeOnTheNetAndTheRoomChargeLeavesItToTheFolio() {
+        config = new OutletSettings.Settings(true, true, new BigDecimal("5000"), false, new BigDecimal("10"), new BigDecimal("1.5"));
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+
+        OrderResponse r = service.create(new OrderRequest("bar", Order.Kind.TAKEAWAY, null, null, null, null, List.of(new OrderRequest.LineRequest("lager", 2, null, null))));
+
+        assertThat(r.subtotal()).isEqualByComparingTo("3000.00");
+        assertThat(r.tax()).isEqualByComparingTo("300.00");
+        assertThat(r.serviceCharge()).as("1.5 % of the net, no tax").isEqualByComparingTo("45.00");
+        assertThat(r.total()).isEqualByComparingTo("3345.00");
+
+        Order o = Order.builder().subtotal(new BigDecimal("3000")).tax(new BigDecimal("300")).discount(BigDecimal.ZERO).serviceCharge(new BigDecimal("45"))
+                .total(new BigDecimal("3345")).paidAmount(BigDecimal.ZERO).build();
+        OrderService.RoomCharge full = OrderService.roomCharge(o);
+        assertThat(full.amount()).as("the folio adds its own service charge line").isEqualByComparingTo("3000.00");
+        o.setPaidAmount(new BigDecimal("1345"));
+        OrderService.RoomCharge part = OrderService.roomCharge(o);
+        // 2,000 left: tax 179.37 and service charge 26.91 in proportion; the room gets the rest without the service charge.
+        assertThat(part.amount().add(part.tax())).isEqualByComparingTo(new BigDecimal("2000").subtract(new BigDecimal("26.91")));
+    }
+
+    @Test
+    void whenTheHotelAbsorbsTheFeeThereIsNoServiceCharge() {
+        config = new OutletSettings.Settings(true, true, new BigDecimal("5000"), false, new BigDecimal("10"), BigDecimal.ZERO);
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+        OrderResponse r = service.create(new OrderRequest("bar", Order.Kind.TAKEAWAY, null, null, null, null, List.of(new OrderRequest.LineRequest("lager", 2, null, null))));
+        assertThat(r.serviceCharge()).isZero();
+        assertThat(r.total()).isEqualByComparingTo("3300.00");
+    }
+
+    @Test
     void happyHourDiscountsLinesAddedDuringItAndTheLineShowsIt() {
         HappyHour hh = HappyHour.builder().name("Happy hour").fromTime(LocalTime.of(17, 0)).toTime(LocalTime.of(19, 0)).days("MON,TUE,WED,THU,FRI")
                 .discountPct(new BigDecimal("20")).build();

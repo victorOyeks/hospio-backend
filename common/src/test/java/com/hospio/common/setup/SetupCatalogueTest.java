@@ -34,7 +34,7 @@ class SetupCatalogueTest {
         assertThat(merged.approvalLimits().managerExpenseLimit()).isEqualByComparingTo("200000");
         assertThat(SetupCatalogue.isOwnerOnly("APPROVAL_LIMITS")).isTrue();
         assertThat(SetupCatalogue.isOwnerOnly("BRAND")).isFalse();
-        assertThat(SetupCatalogue.keyCount()).isEqualTo(48);
+        assertThat(SetupCatalogue.keyCount()).isEqualTo(50);
     }
 
     @Test
@@ -44,7 +44,9 @@ class SetupCatalogueTest {
         Map<String, Map<String, Object>> wire = mapper.readValue(json, Map.class);
         assertThat(wire.keySet()).containsExactlyInAnyOrderElementsOf(SetupCatalogue.SECTIONS.keySet());
         assertThat(wire.get("PAYMENTS")).containsEntry("depositPct", 0).containsEntry("receipts", "WHATSAPP").containsEntry("allowCash", true)
-                .containsOnlyKeys("allowCash", "allowCard", "allowTransfer", "receipts", "depositPct", "tillFloat", "bankName", "bankAccount");
+                .containsOnlyKeys("allowCash", "allowCard", "allowTransfer", "receipts", "depositPct", "tillFloat", "bankName", "bankAccount",
+                        "guestPaysPlatformFee", "platformFeePct")
+                .containsEntry("guestPaysPlatformFee", false);
         assertThat(wire.get("TAXES_CURRENCY")).containsEntry("vatPct", 7.5);
         assertThat(wire.get("APPROVAL_LIMITS")).containsEntry("managerExpenseLimit", 200000).containsEntry("discountPct", 10);
         assertThat(wire.get("BRAND")).containsEntry("primaryColour", "#4c091e").containsEntry("darkSidebar", true);

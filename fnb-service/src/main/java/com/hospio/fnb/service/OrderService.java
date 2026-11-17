@@ -606,7 +606,10 @@ public class OrderService {
         o.setSubtotal(t.subtotal());
         o.setTax(t.tax());
         o.setDiscount(t.discount());
-        o.setTotal(t.total());
+        // Hospio's fee passed to the guest, on the net (no tax): added on top of the bill.
+        BigDecimal sc = com.hospio.common.billing.GuestServiceCharge.on(t.total().subtract(t.tax()), s.serviceChargePct());
+        o.setServiceCharge(sc);
+        o.setTotal(Money.of(t.total().add(sc)));
         orders.save(o);
     }
 
@@ -646,6 +649,10 @@ public class OrderService {
     record RoomCharge(BigDecimal amount, BigDecimal tax, boolean partPaid) {
     }
 
+    /**
+     * What goes on the room's folio: the net and its tax, without the guest service charge (the folio adds its own line for it,
+     * so the guest never pays it twice). A part-paid order puts only what is left, tax and service charge in proportion.
+     */
     static RoomCharge roomCharge(Order o) {
         BigDecimal net = o.getSubtotal().subtract(o.getDiscount());
         if (!Money.isPositive(o.getPaidAmount())) {
@@ -654,7 +661,9 @@ public class OrderService {
         BigDecimal balance = Money.of(o.getTotal().subtract(o.getPaidAmount()).max(BigDecimal.ZERO));
         BigDecimal tax = o.getTotal().signum() == 0 ? BigDecimal.ZERO
                 : o.getTax().multiply(balance).divide(o.getTotal(), 2, java.math.RoundingMode.HALF_UP);
-        return new RoomCharge(Money.of(balance.subtract(tax)), Money.of(tax), true);
+        BigDecimal sc = o.getTotal().signum() == 0 || o.getServiceCharge() == null ? BigDecimal.ZERO
+                : o.getServiceCharge().multiply(balance).divide(o.getTotal(), 2, java.math.RoundingMode.HALF_UP);
+        return new RoomCharge(Money.of(balance.subtract(tax).subtract(sc)), Money.of(tax), true);
     }
 
     private void close(Order o) {

@@ -15,5 +15,6 @@
     <include file="db/changelog/003-sales-history.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/004-scale-indexes.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/005-order-version.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/006-service-charge.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

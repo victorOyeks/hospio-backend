@@ -28,9 +28,9 @@ public class SalesReport {
     public DailySales daily(String hotelId, LocalDate day) {
         Instant from = day.atStartOfDay(LAGOS).toInstant();
         Instant to = day.plusDays(1).atStartOfDay(LAGOS).toInstant();
-        Object[] paid = one("select coalesce(sum(total), 0), count(*) from housekeeping.laundry_orders where hotel_id = :hotelId and paid "
+        Object[] paid = one("select coalesce(sum(total - service_charge), 0), count(*) from housekeeping.laundry_orders where hotel_id = :hotelId and paid "
                 + "and not charged_to_room and paid_at >= :from and paid_at < :to", hotelId, from, to);
-        Object[] undone = one("select coalesce(sum(total), 0), count(*) from housekeeping.laundry_orders where hotel_id = :hotelId and paid "
+        Object[] undone = one("select coalesce(sum(total - service_charge), 0), count(*) from housekeeping.laundry_orders where hotel_id = :hotelId and paid "
                 + "and not charged_to_room and cancelled_at >= :from and cancelled_at < :to and paid_at < cancelled_at", hotelId, from, to);
         BigDecimal amount = dec(paid[0]).subtract(dec(undone[0]));
         return DailySales.of(new DailySales.Line("LAUNDRY", "Guest laundry paid directly", amount, num(paid[1]) + num(undone[1])));
