@@ -72,4 +72,8 @@ public interface PaymentRequestRepository extends JpaRepository<PaymentRequest, 
      */
     List<PaymentRequest> findTop200ByMethodInAndStatusInAndProviderRefIsNotNullAndCreatedAtBetweenOrderByCreatedAtAsc(
             Collection<com.hospio.common.enums.PaymentMethod> methods, Collection<PaymentStatus> statuses, Instant from, Instant to);
+
+    /** POS payments still waiting that were sent before {@code before}: they time out (PendingPaymentCheckJob). Read as the system. */
+    List<PaymentRequest> findTop200ByMethodInAndStatusInAndCreatedAtBeforeOrderByCreatedAtAsc(
+            Collection<com.hospio.common.enums.PaymentMethod> methods, Collection<PaymentStatus> statuses, Instant before);
 }

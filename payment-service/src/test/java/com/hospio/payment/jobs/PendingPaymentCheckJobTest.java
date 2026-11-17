@@ -54,7 +54,7 @@ class PendingPaymentCheckJobTest {
         PendingPaymentCheckJob job = new PendingPaymentCheckJob(payments, service, new MoniepointPosProvider(), org.mockito.Mockito.mock(com.hospio.payment.pos.HotelPosRouter.class));
         job.clock = Clock.fixed(NOW, ZoneOffset.UTC);
         when(payments.findTop200ByMethodInAndStatusInAndProviderRefIsNotNullAndCreatedAtBetweenOrderByCreatedAtAsc(
-                eq(PendingPaymentCheckJob.POS_METHODS), eq(PendingPaymentCheckJob.WAITING), eq(NOW.minus(PendingPaymentCheckJob.GIVE_UP)),
+                eq(PendingPaymentCheckJob.POS_METHODS), eq(PendingPaymentCheckJob.ASKED), eq(NOW.minus(PendingPaymentCheckJob.GIVE_UP)),
                 eq(NOW.minus(PendingPaymentCheckJob.SETTLE)))).thenReturn(List.of(waiting("p1"), waiting("p2")));
         PaymentResponse approved = answered(PaymentStatus.APPROVED);
         when(service.verify("p1")).thenReturn(approved);
@@ -63,10 +63,19 @@ class PendingPaymentCheckJobTest {
     }
 
     @Test
-    void theDevelopmentProviderHasNothingToAsk() {
+    void theDevelopmentProviderHasNothingToAskButItsPaymentsStillTimeOut() {
         PendingPaymentCheckJob job = new PendingPaymentCheckJob(payments, service, new LoggingPosProvider(), org.mockito.Mockito.mock(com.hospio.payment.pos.HotelPosRouter.class));
+        job.clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        when(payments.findTop200ByMethodInAndStatusInAndCreatedAtBeforeOrderByCreatedAtAsc(PendingPaymentCheckJob.POS_METHODS,
+                PendingPaymentCheckJob.WAITING, NOW.minus(java.time.Duration.ofMinutes(5)))).thenReturn(List.of(waiting("p1"), waiting("p2")));
+        when(service.timeOut("p1", java.time.Duration.ofMinutes(5))).thenReturn(true);
+        when(service.timeOut("p2", java.time.Duration.ofMinutes(5))).thenReturn(false); // answered meanwhile
+
         job.run();
+
         verify(payments, never()).findTop200ByMethodInAndStatusInAndProviderRefIsNotNullAndCreatedAtBetweenOrderByCreatedAtAsc(any(), any(), any(), any());
+        verify(service).timeOut("p1", java.time.Duration.ofMinutes(5));
+        assertThat(job.timeOut()).isEqualTo(1);
     }
 
     @Test

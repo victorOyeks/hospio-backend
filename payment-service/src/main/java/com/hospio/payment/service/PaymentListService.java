@@ -94,7 +94,8 @@ public class PaymentListService {
 
         Map<String, Long> counts = new LinkedHashMap<>(query.countsByStatus(base));
         counts.put("toVerify", TO_VERIFY.stream().mapToLong(s -> counts.getOrDefault(s, 0L)).sum());
-        counts.put("attention", counts.getOrDefault("DECLINED", 0L) + counts.getOrDefault("NO_RESPONSE", 0L) + counts.getOrDefault("PROCESSING", 0L));
+        counts.put("attention", counts.getOrDefault("DECLINED", 0L) + counts.getOrDefault("NO_RESPONSE", 0L) + counts.getOrDefault("PROCESSING", 0L)
+                + counts.getOrDefault("TIMED_OUT", 0L));
         counts.put("today", query.countWhere(base, new PaymentListQuery.Window(later(base.from(), todayWindow.from()),
                 earlier(base.to(), todayWindow.to())), null));
         counts.put("mine", query.countWhere(base, null, user.getUserId()));

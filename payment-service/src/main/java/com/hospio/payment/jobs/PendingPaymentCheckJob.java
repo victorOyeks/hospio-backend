@@ -23,7 +23,9 @@ import org.springframework.stereotype.Component;
  * every 15 seconds the backend asks the provider itself about card and transfer payments still waiting that were sent 10 seconds to 30
  * minutes ago ({@link PaymentService#verify}), so the folio, the desk's screen (which only ever asks our backend, every 4
  * seconds) and My payments catch up without anyone pressing anything. The development "logging" provider has nothing to
- * ask, so the job does nothing there. One instance runs it at a time (SingleInstanceScheduling).
+ * ask. A payment with no final answer 5 minutes after it was sent (hospio.payments.pos-timeout-minutes) is marked TIMED_OUT, after
+ * one last ask; it is still asked about until 30 minutes, so a late approval settles it. One instance runs it at a time
+ * (SingleInstanceScheduling).
  */
 @Slf4j
 @Component
@@ -33,6 +35,8 @@ public class PendingPaymentCheckJob {
     static final Duration SETTLE = Duration.ofSeconds(10);
     static final Duration GIVE_UP = Duration.ofMinutes(30);
     static final List<PaymentStatus> WAITING = List.of(PaymentStatus.PENDING, PaymentStatus.PROCESSING);
+    /** Asked about: still waiting, or timed out but a late answer would still settle it. */
+    static final List<PaymentStatus> ASKED = List.of(PaymentStatus.PENDING, PaymentStatus.PROCESSING, PaymentStatus.TIMED_OUT);
     /** Both go to the POS (the guest picks card or transfer on the terminal). */
     static final List<PaymentMethod> POS_METHODS = List.of(PaymentMethod.CARD, PaymentMethod.TRANSFER);
 
@@ -42,6 +46,9 @@ public class PendingPaymentCheckJob {
     private final com.hospio.payment.pos.HotelPosRouter hotelPos;
     /** Now, a test seam. */
     Clock clock = Clock.systemUTC();
+    /** No final answer from the POS by then: the payment is marked timed out ({@code hospio.payments.pos-timeout-minutes}). */
+    @org.springframework.beans.factory.annotation.Value("${hospio.payments.pos-timeout-minutes:5}")
+    long timeoutMinutes = 5;
 
     public PendingPaymentCheckJob(PaymentRequestRepository payments, PaymentService service, PosProvider provider,
                                   com.hospio.payment.pos.HotelPosRouter hotelPos) {
@@ -53,10 +60,32 @@ public class PendingPaymentCheckJob {
 
     @Scheduled(fixedDelayString = "${hospio.payments.pending-check-ms:15000}", initialDelayString = "${hospio.payments.pending-check-ms:15000}")
     public void run() {
-        if ("logging".equals(provider.name()) && !hotelPos.anyConfigured()) {
-            return;
+        if (!"logging".equals(provider.name()) || hotelPos.anyConfigured()) {
+            check();
         }
-        check();
+        // After asking: whatever is still waiting past the time allowed times out (the development provider's too: it never answers).
+        timeOut();
+    }
+
+    /** Marks POS payments still waiting {@link #timeoutMinutes} after they were sent as timed out; answers how many. */
+    int timeOut() {
+        Duration after = Duration.ofMinutes(timeoutMinutes);
+        List<PaymentRequest> stale = TenantContext.runWith(Tenant.system("pos-timeout"), () ->
+                payments.findTop200ByMethodInAndStatusInAndCreatedAtBeforeOrderByCreatedAtAsc(POS_METHODS, WAITING, Instant.now(clock).minus(after)));
+        int n = 0;
+        for (PaymentRequest p : stale) {
+            try {
+                boolean done = TenantContext.runWith(Tenant.systemFor(p.getBusinessId(), p.getHotelId(), null, "POS time-out"),
+                        () -> service.timeOut(p.getId(), after));
+                if (done) {
+                    n++;
+                    log.info("Payment {} timed out: no final answer from the POS in {} minutes", p.getId(), after.toMinutes());
+                }
+            } catch (RuntimeException e) {
+                log.warn("Time-out of payment {} failed: {}", p.getId(), e.getMessage());
+            }
+        }
+        return n;
     }
 
     /** Asks the provider about each waiting card payment; answers how many it settled (approved or declined). */
@@ -64,7 +93,7 @@ public class PendingPaymentCheckJob {
         Instant now = Instant.now(clock);
         List<PaymentRequest> waiting = TenantContext.runWith(Tenant.system("pending-payment-check"), () ->
                 payments.findTop200ByMethodInAndStatusInAndProviderRefIsNotNullAndCreatedAtBetweenOrderByCreatedAtAsc(
-                        POS_METHODS, WAITING, now.minus(GIVE_UP), now.minus(SETTLE)));
+                        POS_METHODS, ASKED, now.minus(GIVE_UP), now.minus(SETTLE)));
         int settled = 0;
         for (PaymentRequest p : waiting) {
             try {
