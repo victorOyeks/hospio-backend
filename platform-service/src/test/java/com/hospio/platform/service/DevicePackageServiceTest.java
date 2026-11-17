@@ -19,11 +19,13 @@ import com.hospio.common.security.JwtUtil;
 import com.hospio.platform.client.FeeDebitClient;
 import com.hospio.platform.client.TenantClient;
 import com.hospio.platform.entity.DailyFee;
+import com.hospio.platform.entity.DeviceInvoice;
 import com.hospio.platform.entity.DevicePackage;
 import com.hospio.platform.entity.DevicePayment;
 import com.hospio.platform.entity.FeeCollection;
 import com.hospio.platform.repository.DailyFeeRepository;
 import com.hospio.platform.repository.DeviceCatalogueRepository;
+import com.hospio.platform.repository.DeviceInvoiceRepository;
 import com.hospio.platform.repository.DevicePackageItemRepository;
 import com.hospio.platform.repository.DevicePackageRepository;
 import com.hospio.platform.repository.DevicePaymentRepository;
@@ -54,7 +56,9 @@ class DevicePackageServiceTest {
     private final DailyFeeRepository fees = mock(DailyFeeRepository.class);
     private final TenantClient tenant = mock(TenantClient.class);
     private final TransactionTemplate tx = new TransactionTemplate(mock(PlatformTransactionManager.class));
-    private final DevicePackageService service = new DevicePackageService(mock(DeviceCatalogueRepository.class), packages, items, payments, fees, tenant, tx);
+    private final DeviceInvoiceRepository invoices = mock(DeviceInvoiceRepository.class);
+    private final DevicePackageService service = new DevicePackageService(mock(DeviceCatalogueRepository.class), packages, items, payments, fees, tenant, tx,
+            invoices);
     private static final LocalDate TODAY = LocalDate.now(ZoneId.of("Africa/Lagos"));
 
     @BeforeEach
@@ -331,5 +335,24 @@ class DevicePackageServiceTest {
         assertThat(soon.getDataPlanRenewedByName()).isEqualTo("Amoria Nwosu");
         assertThatThrownBy(() -> service.markDataPlanRenewed("pk1", new DevicePackageService.RenewedRequest(TODAY.minusDays(1)))).hasMessageContaining("from today");
         assertThatThrownBy(() -> service.markDataPlanRenewed("pk1", new DevicePackageService.RenewedRequest(null))).hasMessageContaining("Enter the day");
+    }
+
+    @Test
+    void theNextDataPlanInvoiceSkipsAMonthAlreadyInvoicedAndRenewedNeedsALivePackage() {
+        DevicePackage p = withPlan(TODAY.minusMonths(2));
+        p.setId("pk1");
+        when(invoices.findByPackageIdOrderByDueOnDescKindAsc("pk1")).thenReturn(List.of());
+        assertThat(service.nextDataPlanDue(p)).as("nothing invoiced yet: the first month").isEqualTo(TODAY.minusMonths(2));
+        when(invoices.findByPackageIdOrderByDueOnDescKindAsc("pk1")).thenReturn(List.of(plan(1), plan(2), plan(3)));
+        assertThat(service.nextDataPlanDue(p)).as("today's invoice is out: next month").isEqualTo(TODAY.minusMonths(2).plusMonths(3));
+        when(invoices.findByPackageIdOrderByDueOnDescKindAsc("pk1")).thenReturn(List.of(plan(1), plan(2)));
+        assertThat(service.nextDataPlanDue(p)).as("today's not issued yet: today").isEqualTo(TODAY.minusMonths(2).plusMonths(2));
+        p.setStatus(DevicePackage.CANCELLED);
+        assertThatThrownBy(() -> service.markDataPlanRenewed("pk1", new DevicePackageService.RenewedRequest(TODAY.plusDays(5))))
+                .hasMessageContaining("no installed data plan");
+    }
+
+    private static DeviceInvoice plan(int sequence) {
+        return DeviceInvoice.builder().packageId("pk1").kind(DeviceInvoice.DATA_PLAN).sequence(sequence).amount(new BigDecimal("30000")).build();
     }
 }

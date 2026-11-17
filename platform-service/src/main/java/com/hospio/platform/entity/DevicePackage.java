@@ -134,13 +134,22 @@ public class DevicePackage extends TenantEntity {
         return null;
     }
 
-    /** The next data plan invoice due from {@code today} on while running; null when stopped or none. */
-    public LocalDate nextDataPlanDue(LocalDate today) {
-        if (!dataPlanRunning()) {
+    /**
+     * The next data plan invoice while running: the first billed due day not yet invoiced ({@code issued} holds the DATA_PLAN
+     * sequences already issued, month m being sequence m + 1), so a due day whose invoice is out already moves on to the next month.
+     * Null when stopped, none, or not installed.
+     */
+    public LocalDate nextDataPlanDue(java.util.Set<Integer> issued) {
+        if (!dataPlanRunning() || installedAt == null) {
             return null;
         }
-        LocalDate from = dataPlanFrom != null && dataPlanFrom.isAfter(today) ? dataPlanFrom : today;
-        return dataPlanDueOnOrAfter(from);
+        for (int m = 0; m < 1200; m++) {
+            LocalDate due = installedAt.plusMonths(m);
+            if (dataPlanBills(due) && !issued.contains(m + 1)) {
+                return due;
+            }
+        }
+        return null;
     }
 
     /** What is left of the one-off total. */
