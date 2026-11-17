@@ -120,6 +120,10 @@ public class DeviceInvoiceService {
                         if (due.isAfter(today)) {
                             break;
                         }
+                        // Only the months the plan was billed for: started, not stopped (a stop keeps what was already invoiced).
+                        if (!p.dataPlanBills(due)) {
+                            continue;
+                        }
                         if (create(p, DeviceInvoice.DATA_PLAN, m + 1, null, p.getDataPlanMonthly(), due)) {
                             issued++;
                         }

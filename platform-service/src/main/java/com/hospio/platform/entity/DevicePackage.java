@@ -85,6 +85,64 @@ public class DevicePackage extends TenantEntity {
     @Column(name = "cancelled_at")
     private Instant cancelledAt;
 
+    /** Data plan billed from this day (the install day when null); restarting moves it to the next due day. */
+    @Column(name = "data_plan_from")
+    private LocalDate dataPlanFrom;
+
+    /** Data plan stopped: no invoice due on or after this day (null: running). */
+    @Column(name = "data_plan_stopped_on")
+    private LocalDate dataPlanStoppedOn;
+
+    @Column(name = "data_plan_changed_by_name", length = 150)
+    private String dataPlanChangedByName;
+
+    @Column(name = "data_plan_changed_at")
+    private Instant dataPlanChangedAt;
+
+    /** The real provider subscription for the hotel's router, renewed by Hospio360 through this day. */
+    @Column(name = "data_plan_renewed_through")
+    private LocalDate dataPlanRenewedThrough;
+
+    @Column(name = "data_plan_renewed_by_name", length = 150)
+    private String dataPlanRenewedByName;
+
+    @Column(name = "data_plan_renewed_at")
+    private Instant dataPlanRenewedAt;
+
+    /** A data plan that is billed (has a price, not stopped). */
+    public boolean dataPlanRunning() {
+        return dataPlanMonthly != null && dataPlanMonthly.signum() > 0 && dataPlanStoppedOn == null;
+    }
+
+    /** Whether the data plan invoice due on {@code due} is billed: on or after it started, before it stopped. */
+    public boolean dataPlanBills(LocalDate due) {
+        return dataPlanMonthly != null && dataPlanMonthly.signum() > 0 && (dataPlanFrom == null || !due.isBefore(dataPlanFrom))
+                && (dataPlanStoppedOn == null || due.isBefore(dataPlanStoppedOn));
+    }
+
+    /** The first data plan due day (install day + whole months) on or after {@code from}; null without an installation. */
+    public LocalDate dataPlanDueOnOrAfter(LocalDate from) {
+        if (installedAt == null) {
+            return null;
+        }
+        for (int m = 0; m < 1200; m++) {
+            LocalDate due = installedAt.plusMonths(m);
+            if (!due.isBefore(from)) {
+                return due;
+            }
+        }
+        return null;
+    }
+
+    /** The next data plan invoice due from {@code today} on while running; null when stopped or none. */
+    public LocalDate nextDataPlanDue(LocalDate today) {
+        if (!dataPlanRunning()) {
+            return null;
+        }
+        LocalDate from = dataPlanFrom != null && dataPlanFrom.isAfter(today) ? dataPlanFrom : today;
+        return dataPlanDueOnOrAfter(from);
+    }
+
     /** What is left of the one-off total. */
     public BigDecimal remaining() {
         return total.subtract(paid).max(BigDecimal.ZERO);
