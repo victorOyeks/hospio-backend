@@ -115,7 +115,7 @@ Security: a MARKETER token has scope `marketer` (see onboarding contract); `@acc
 |---|---|---|---|
 | GET | `/platform/admin/settings` | platform (read) | `{general, fees, security}` merged over defaults |
 | PUT | `/platform/admin/settings/{group}` | SUPER_ADMIN | body = the group's map → merged group |
-| GET | `/platform/admin/integrations/status` | platform | `Integration[]` `{key, name, kind, status CONNECTED|DISCONNECTED|ERROR|NOT_CONFIGURED, detail, lastCheck}` for: database, kafka, payment provider (logging on staging), whatsapp (NOT_CONFIGURED), email (NOT_CONFIGURED), sms (NOT_CONFIGURED), smile-id/kyc (NOT_CONFIGURED) — from actuator health and configuration. Was `GET /platform/admin/integrations` until 16 Nov 2026 |
+| GET | `/platform/admin/integrations/status` | platform | `Integration[]` `{key, name, kind, status CONNECTED|DISCONNECTED|ERROR|NOT_CONFIGURED, detail, lastCheck}` for: database, kafka, payment provider (logging on staging), whatsapp (NOT_CONFIGURED), email (NOT_CONFIGURED), sms (NOT_CONFIGURED); no KYC row (Smile ID is not used, removed 17 Nov 2026) — from actuator health and configuration. Was `GET /platform/admin/integrations` until 16 Nov 2026 |
 | GET / PUT / POST | `/platform/admin/integrations`, `/{provider}`, `/{provider}/test` | SUPER_ADMIN | third-party keys and addresses: [integrations.md](integrations.md) |
 | GET | `/platform/internal/settings/fees` | internal | the fees group (payment-service settlements) |
 
