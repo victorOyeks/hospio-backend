@@ -70,4 +70,15 @@ class BodyLoggingFilterTest {
         assertThat(filter.shouldNotFilter(normal)).isFalse();
         filter.doFilter(normal, new MockHttpServletResponse(), new MockFilterChain());
     }
+
+    @org.junit.jupiter.api.Test
+    void aLongSecretCutShortIsMaskedWithoutOverflowingTheStack() {
+        String pem = "-----BEGIN PRIVATE KEY-----\\n" + "MIICdQIBADANBgkqhkiG9w0BAQEFAASCAl8wggJbAgEAAoGBAK".repeat(400);
+        String cut = ("{\"provider\":\"OPAY\",\"fields\":{\"merchantPrivateKey\":\"" + pem).substring(0, 2048);
+        String masked = BodyLoggingFilter.mask(cut);
+        org.assertj.core.api.Assertions.assertThat(masked).contains("\"merchantPrivateKey\":\"***\"").doesNotContain("MIIC");
+        // A long value that does close is masked as before, and other fields are left alone.
+        String whole = "{\"provider\":\"OPAY\",\"apiKey\":\"" + "x".repeat(50_000) + "\",\"note\":\"hi\"}";
+        org.assertj.core.api.Assertions.assertThat(BodyLoggingFilter.mask(whole)).isEqualTo("{\"provider\":\"OPAY\",\"apiKey\":\"***\",\"note\":\"hi\"}");
+    }
 }
