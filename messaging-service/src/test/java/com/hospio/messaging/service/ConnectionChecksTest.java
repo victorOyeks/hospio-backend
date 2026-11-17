@@ -79,7 +79,7 @@ class ConnectionChecksTest {
         assertThat(r.get("whatsapp").detail()).contains("Infobip, sender +2348148849797, key present", "2 templates, 1 approved",
                 "Only 2 allow-listed numbers receive texts", "Echo off");
         assertThat(r.get("email").status()).isEqualTo("CONNECTED");
-        assertThat(r.get("email").detail()).contains("Brevo API, key present", "from no-reply@hospio360.com", "Brevo accepted the key");
+        assertThat(r.get("email").detail()).contains("Brevo API, key present", "from no-reply@hospio360.com", "Brevo account OK");
         assertThat(r.get("sms").status()).isEqualTo("CONNECTED");
         assertThat(r.get("sms").detail()).contains("Sign-in codes only", "Termii, sender ID OE Alert, channel dnd, key present", "balance 1520.5 NGN");
         String all = rows.toString();
