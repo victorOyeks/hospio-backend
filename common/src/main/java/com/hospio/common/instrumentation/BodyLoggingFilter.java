@@ -43,7 +43,10 @@ public class BodyLoggingFilter extends OncePerRequestFilter {
     /** A JSON key containing a secret-looking fragment, then its string or number value. */
     private static final Pattern SECRETS = Pattern.compile(
             "(\"[^\"]*(?:pass|pin|token|otp|code|secret|card|pan|cvv|authorization|idnumber|id_number|apikey|api_key|authkey|privatekey|webhookkey)[^\"]*\"\\s*:\\s*)"
-                    + "(\"(?:[^\"\\\\]|\\\\.)*\"|-?\\d[\\d.eE+-]*)",
+                    // Possessive quantifiers: a long value (or one cut short at MAX, with no closing quote) is scanned once, never
+                    // backtracked through, so it can't overflow the stack.
+                    // A value cut short (no closing quote before the end) is masked too, so no secret's start reaches the log.
+                    + "(\"(?:[^\"\\\\]++|\\\\.)*+(?:\"|$)|-?\\d[\\d.eE+-]*+)",
             Pattern.CASE_INSENSITIVE);
 
     @Override
@@ -51,7 +54,7 @@ public class BodyLoggingFilter extends OncePerRequestFilter {
         String uri = request.getRequestURI();
         String type = request.getContentType();
         return uri.contains("/actuator") || uri.contains("/swagger") || uri.contains("/v3/api-docs") || uri.contains("/webjars")
-                || uri.contains("/webhooks/") || uri.contains("/integrations")
+                || uri.contains("/webhooks/") || uri.contains("/integrations") || uri.contains("/pos-config")
                 || (type != null && type.startsWith("multipart/"));
     }
 
@@ -63,14 +66,20 @@ public class BodyLoggingFilter extends OncePerRequestFilter {
             chain.doFilter(req, res);
         } finally {
             res.flushWriter();
-            String reqBody = body(req.getContentAsByteArray(), req.getCharacterEncoding(), req.getContentLengthLong());
-            int status = res.getStatus();
-            String resBody = status >= 400 ? body(res.captured(), res.getCharacterEncoding(), res.total()) : "";
-            if (!reqBody.isEmpty() && !"GET".equals(request.getMethod())) {
-                log.info("    body {} {}: {}", request.getMethod(), request.getRequestURI(), mask(reqBody));
-            }
-            if (!resBody.isEmpty()) {
-                log.warn("    response {} {} -> {}: {}", request.getMethod(), request.getRequestURI(), status, mask(resBody));
+            // Logging must never break a response: whatever happens here (a body the masking can't handle, even an Error) is
+            // dropped with a one-line note.
+            try {
+                String reqBody = body(req.getContentAsByteArray(), req.getCharacterEncoding(), req.getContentLengthLong());
+                int status = res.getStatus();
+                String resBody = status >= 400 ? body(res.captured(), res.getCharacterEncoding(), res.total()) : "";
+                if (!reqBody.isEmpty() && !"GET".equals(request.getMethod())) {
+                    log.info("    body {} {}: {}", request.getMethod(), request.getRequestURI(), mask(reqBody));
+                }
+                if (!resBody.isEmpty()) {
+                    log.warn("    response {} {} -> {}: {}", request.getMethod(), request.getRequestURI(), status, mask(resBody));
+                }
+            } catch (Throwable t) {
+                log.warn("    body of {} {} not logged: {}", request.getMethod(), request.getRequestURI(), t.getClass().getSimpleName());
             }
         }
     }
