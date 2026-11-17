@@ -29,6 +29,7 @@ public class DevicePackageController {
     static final String PLATFORM = "hasAnyRole('SUPER_ADMIN','FINANCE_ADMIN','SUPPORT')";
 
     private final DevicePackageService devices;
+    private final com.hospio.platform.service.DeviceInvoiceService invoices;
 
     @Operation(summary = "The device catalogue: standard items and prices")
     @GetMapping("/admin/devices/catalogue")
@@ -122,5 +123,68 @@ public class DevicePackageController {
     @PreAuthorize("@access.managerView()")
     public ApiResponse<DevicePackageService.PackageView> hotel() {
         return ApiResponse.ok(devices.forHotel(TenantContext.requireHotel()));
+    }
+
+    // ---- monthly invoices (instalments and data plan) -------------------------------------------------------------
+
+    @Operation(summary = "A package's monthly invoices")
+    @GetMapping("/admin/device-packages/{id}/invoices")
+    @PreAuthorize(PLATFORM)
+    public ApiResponse<List<com.hospio.platform.service.DeviceInvoiceService.InvoiceView>> packageInvoices(@PathVariable String id) {
+        return ApiResponse.ok(invoices.forPackage(id));
+    }
+
+    @Operation(summary = "Every device invoice (DUE, OVERDUE, PAID by default)")
+    @GetMapping("/admin/devices/invoices")
+    @PreAuthorize(PLATFORM)
+    public ApiResponse<List<com.hospio.platform.service.DeviceInvoiceService.InvoiceView>> allInvoices(@RequestParam(required = false) List<String> status) {
+        return ApiResponse.ok(invoices.all(status));
+    }
+
+    public record MarkPaidRequest(String reference, String note) {
+    }
+
+    @Operation(summary = "Mark a device invoice paid (cash or transfer received)")
+    @PostMapping("/admin/device-invoices/{id}/mark-paid")
+    @PreAuthorize(AdminFeesController.MONEY)
+    public ApiResponse<com.hospio.platform.service.DeviceInvoiceService.InvoiceView> markPaid(@PathVariable String id, @RequestBody MarkPaidRequest r) {
+        return ApiResponse.ok("Invoice marked paid", invoices.markPaid(id, r == null ? null : r.reference(), r == null ? null : r.note()));
+    }
+
+    @Operation(summary = "Run the device invoices now: issue, debit, overdue (normally 07:00 and 15:00)")
+    @PostMapping("/admin/devices/invoices/run")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ApiResponse<com.hospio.platform.service.DeviceInvoiceService.RunResult> runInvoices() {
+        return ApiResponse.ok(invoices.run(LocalDate.now(java.time.ZoneId.of("Africa/Lagos"))));
+    }
+
+    @Operation(summary = "Owner (or manager, their hotels): the device invoices")
+    @GetMapping("/owner/devices/invoices")
+    @PreAuthorize("@access.managerView()")
+    public ApiResponse<List<com.hospio.platform.service.DeviceInvoiceService.InvoiceView>> ownerInvoices() {
+        return ApiResponse.ok(invoices.forPackages(owner().data().stream().map(DevicePackageService.PackageView::id).toList()));
+    }
+
+    public record PayRequest(String callbackUrl) {
+    }
+
+    @Operation(summary = "Owner or manager: pay a device invoice online (a Paystack checkout)")
+    @PostMapping("/owner/devices/invoices/{id}/pay")
+    @PreAuthorize("@access.manager()")
+    public ApiResponse<com.hospio.platform.client.PlatformPaystackClient.Checkout> payOnline(@PathVariable String id, @RequestBody(required = false) PayRequest r) {
+        return ApiResponse.ok(invoices.payOnline(id, r == null ? null : r.callbackUrl()));
+    }
+
+    @Operation(summary = "Owner or manager: back from Paystack, confirm the payment")
+    @PostMapping("/owner/devices/invoices/confirm")
+    @PreAuthorize("@access.managerView()")
+    public ApiResponse<com.hospio.platform.service.DeviceInvoiceService.InvoiceView> confirm(@RequestParam String reference) {
+        return ApiResponse.ok(invoices.confirm(reference));
+    }
+
+    @Operation(summary = "Internal: Paystack's webhook (received by messaging-service) for a device invoice payment")
+    @PostMapping("/internal/devices/paystack-confirm")
+    public ApiResponse<com.hospio.platform.service.DeviceInvoiceService.InvoiceView> internalConfirm(@RequestParam String reference) {
+        return ApiResponse.ok(invoices.confirm(reference));
     }
 }

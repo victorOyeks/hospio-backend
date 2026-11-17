@@ -89,7 +89,7 @@ class PaystackClientTest {
     @Test
     void aSignedChargeSuccessSettlesItsInvoice() throws Exception {
         CommBilling billing = mock(CommBilling.class);
-        CommBillingController controller = new CommBillingController(billing, paystack);
+        CommBillingController controller = new CommBillingController(billing, paystack, mock(DeviceInvoiceForwarder.class));
         String body = """
                 {"event":"charge.success","data":{"id":302961,"domain":"live","status":"success","reference":"MSG-202610-0001-AAAAAAAA",
                  "amount":123450,"gateway_response":"Approved","channel":"card","metadata":{"invoice_id":"inv-1"},"customer":{"email":"a@b.c"}}}""";
@@ -100,12 +100,26 @@ class PaystackClientTest {
     @Test
     void otherEventsOtherReferencesAndForgeriesSettleNothing() throws Exception {
         CommBilling billing = mock(CommBilling.class);
-        CommBillingController controller = new CommBillingController(billing, paystack);
+        CommBillingController controller = new CommBillingController(billing, paystack, mock(DeviceInvoiceForwarder.class));
         String transfer = "{\"event\":\"transfer.success\",\"data\":{\"reference\":\"MSG-1\",\"recipient\":{\"name\":\"x\"}}}";
         String fee = "{\"event\":\"charge.success\",\"data\":{\"reference\":\"FEE-1\"}}";
         assertThat(controller.paystackWebhook(sign(transfer), transfer).getStatusCode().value()).isEqualTo(200);
         assertThat(controller.paystackWebhook(sign(fee), fee).getStatusCode().value()).isEqualTo(200);
         assertThat(controller.paystackWebhook("bad", fee).getStatusCode().value()).isEqualTo(401);
         verify(billing, never()).confirm(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void aDeviceInvoicePaymentIsPassedToPlatform() throws Exception {
+        CommBilling billing = mock(CommBilling.class);
+        DeviceInvoiceForwarder devices = mock(DeviceInvoiceForwarder.class);
+        CommBillingController controller = new CommBillingController(billing, paystack, devices);
+        String body = "{\"event\":\"charge.success\",\"data\":{\"reference\":\"DEV-202612-0001-1765000000\",\"status\":\"success\"}}";
+        assertThat(controller.paystackWebhook(sign(body), body).getStatusCode().value()).isEqualTo(200);
+        verify(devices).forward("DEV-202612-0001-1765000000");
+        verify(billing, never()).confirm(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        // A forged one goes nowhere.
+        assertThat(controller.paystackWebhook("bad", body).getStatusCode().value()).isEqualTo(401);
+        verify(devices, org.mockito.Mockito.times(1)).forward(org.mockito.ArgumentMatchers.anyString());
     }
 }

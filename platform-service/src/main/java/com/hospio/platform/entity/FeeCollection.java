@@ -43,4 +43,9 @@ public class FeeCollection extends TenantEntity {
     @Column(name = "pos_paused", nullable = false)
     @lombok.Builder.Default
     private boolean posPaused = false;
+
+    /** POS payments paused for a device invoice 14 days overdue (separate from the daily fee's pause; both must clear to resume). */
+    @Column(name = "device_pos_paused", nullable = false)
+    @lombok.Builder.Default
+    private boolean devicePosPaused = false;
 }

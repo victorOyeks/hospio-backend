@@ -359,7 +359,9 @@ public class DailyFeeService {
             c.setChangedAt(Instant.now());
             if (!debitEnabled && c.isPosPaused()) {
                 c.setPosPaused(false);
-                debits.pausePos(businessId, hotelId, false);
+                if (!c.isDevicePosPaused()) {
+                    debits.pausePos(businessId, hotelId, false);
+                }
             }
             collections.save(c);
         });

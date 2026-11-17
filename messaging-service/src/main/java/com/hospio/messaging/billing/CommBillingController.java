@@ -39,6 +39,7 @@ public class CommBillingController {
 
     private final CommBilling billing;
     private final PaystackClient paystack;
+    private final DeviceInvoiceForwarder deviceInvoices;
     private final ObjectMapper json = new ObjectMapper();
 
     /** One billed (or billable) message as the invoice detail lists it. */
@@ -224,6 +225,8 @@ public class CommBillingController {
                 String reference = e.data() == null ? null : e.data().reference();
                 if (reference != null && reference.startsWith("MSG-")) {
                     billing.confirm(reference, "Paystack");
+                } else if (reference != null && reference.startsWith("DEV-")) {
+                    deviceInvoices.forward(reference);
                 }
             }
         } catch (Exception ex) {
