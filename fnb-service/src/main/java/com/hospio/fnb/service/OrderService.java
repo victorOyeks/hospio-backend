@@ -378,13 +378,15 @@ public class OrderService {
             }
         }
         requireLive(o);
+        // The making outlet (the kitchen) gets its ticket back, as from its board: only its lines, no other outlet's.
+        boolean ticket = elsewhere && status == OrderLine.Status.READY;
         switch (l.getStatus()) {
             case CANCELLED -> throw new BadRequestException(l.getName() + " was cancelled");
             case NEW -> throw new BadRequestException("Send the ticket first");
             case SERVED -> throw new BadRequestException(l.getName() + " is already served");
             case READY -> {
                 if (status == OrderLine.Status.READY) {
-                    return view(o);
+                    return ticket ? stationTicket(o, all, l.getPreparedAt(), outlet) : view(o);
                 }
             }
             default -> {
@@ -399,7 +401,11 @@ public class OrderService {
         }
         orders.save(o);
         announceReady(before, o, outlet);
-        return view(o);
+        return ticket ? stationTicket(o, all, l.getPreparedAt(), outlet) : view(o);
+    }
+
+    private static OrderResponse stationTicket(Order o, List<OrderLine> all, String stationId, Outlet seller) {
+        return OrderResponse.ticket(o, all.stream().filter(x -> stationId.equals(x.getPreparedAt())).toList(), seller.getName());
     }
 
     /** Cancel one line with a reason. Before it is sent, anyone who took the order; after, a manager or Full access on the outlet's role. */

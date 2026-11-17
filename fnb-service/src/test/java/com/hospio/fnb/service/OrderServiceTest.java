@@ -311,6 +311,22 @@ class OrderServiceTest {
     }
 
     @Test
+    void theKitchenMarkingOneOfItsLinesReadyGetsItsTicketBackNotTheBill() {
+        Order o = patioOrderWithSoup();
+        OrderLine soup = storedLines.stream().filter(l -> "Pepper soup".equals(l.getName())).findFirst().orElseThrow();
+        signIn(Map.of(Role.KITCHEN, AccessLevel.EDIT));
+
+        OrderResponse t = service.setLineStatus(o.getId(), soup.getId(), OrderLine.Status.READY);
+
+        assertThat(soup.getStatus()).isEqualTo(OrderLine.Status.READY);
+        assertThat(t.ticketFrom()).isEqualTo("Bar");
+        assertThat(t.lines()).extracting(OrderLine::getName).containsExactly("Pepper soup");
+        // Again: already ready, the same ticket.
+        assertThat(service.setLineStatus(o.getId(), soup.getId(), OrderLine.Status.READY).lines()).extracting(OrderLine::getName)
+                .containsExactly("Pepper soup");
+    }
+
+    @Test
     void paidBeforeTheKitchenIsDoneTheOrderStaysOpenUntilTheSoupIsServed() {
         Order o = patioOrderWithSoup();
         OrderLine soup = storedLines.stream().filter(l -> "Pepper soup".equals(l.getName())).findFirst().orElseThrow();
