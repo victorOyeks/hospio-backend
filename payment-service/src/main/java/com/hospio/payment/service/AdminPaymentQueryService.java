@@ -81,7 +81,7 @@ public class AdminPaymentQueryService {
             long n = r.count() == null ? 0 : r.count();
             gross = gross.add(amount);
             count += n;
-            add(byProvider, r.method() == com.hospio.common.enums.PaymentMethod.CASH ? "cash" : SettlementService.providerOf(r.provider()), amount, n);
+            add(byProvider, howPaid(r.method(), r.provider()), amount, n);
             add(byHotel, r.hotelId(), amount, n);
         }
         List<ProviderTotal> providers = new ArrayList<>();
@@ -89,6 +89,20 @@ public class AdminPaymentQueryService {
         List<HotelTotal> hotels = new ArrayList<>();
         byHotel.forEach((k, v) -> hotels.add(new HotelTotal(k, Money.of(v[0]), v[1].longValue())));
         return new Summary(businessId, f, t, Money.of(gross), count, providers, hotels);
+    }
+
+    /**
+     * How a payment came in, for the summary's breakdown: "cash"; "desk-transfer" for a transfer recorded at the desk (before
+     * transfers went to the POS, it had no provider); otherwise the POS provider ("moniepoint", "opay", "logging" for the test POS).
+     */
+    static String howPaid(com.hospio.common.enums.PaymentMethod method, String provider) {
+        if (method == com.hospio.common.enums.PaymentMethod.CASH) {
+            return "cash";
+        }
+        if (provider == null || provider.isBlank()) {
+            return method == com.hospio.common.enums.PaymentMethod.TRANSFER ? "desk-transfer" : "unknown";
+        }
+        return provider.toLowerCase(java.util.Locale.ROOT);
     }
 
     /** Today's approved payments at a hotel, plus how many are still waiting on the POS. */
