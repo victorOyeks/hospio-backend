@@ -69,4 +69,8 @@ public class MenuItem extends TenantEntity {
     @Column(name = "sort_order", nullable = false)
     @lombok.Builder.Default
     private int sortOrder = 0;
+
+    /** Made at another outlet (the kitchen, for pepper soup sold at the patio); null: made where it is sold. */
+    @Column(name = "prepared_at", length = 36)
+    private String preparedAt;
 }

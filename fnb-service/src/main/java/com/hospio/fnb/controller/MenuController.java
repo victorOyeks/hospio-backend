@@ -113,6 +113,14 @@ public class MenuController {
         return ApiResponse.ok("Saved", service.saveItem(outletId, id, request));
     }
 
+    /** Copy another outlet's menu here (items already here by name are skipped). The service checks Full on the outlet. */
+    @PostMapping("/outlets/{outletId}/menu/copy")
+    @PreAuthorize(MENU)
+    public ApiResponse<com.hospio.fnb.service.MenuService.CopyResult> copyMenu(@PathVariable String outletId,
+                                                                              @Valid @RequestBody com.hospio.fnb.dto.MenuCopyRequest request) {
+        return ApiResponse.ok("Menu copied", service.copyMenu(outletId, request));
+    }
+
     @PutMapping("/menu/{id}/available")
     @PreAuthorize(WORK)
     public ApiResponse<MenuItem> available(@PathVariable String id, @RequestParam boolean available) {
