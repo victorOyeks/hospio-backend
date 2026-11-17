@@ -230,9 +230,9 @@ public class PaymentService {
         PosTerminal terminal = (terminalId != null
                 ? Optional.of(terminals.picked(hotelId, terminalId).orElseThrow(() -> new BadRequestException("That POS isn't one of this hotel's. Pick another")))
                 : terminals.forRole(hotelId, role))
-                .orElseThrow(() -> new BadRequestException("No POS is assigned to " + role.name().toLowerCase().replace('_', ' ') + ". Take cash or ask a manager to assign one in Hotel setup"));
+                .orElseThrow(() -> new BadRequestException("No POS is assigned to " + role.name().toLowerCase().replace('_', ' ') + ". Pick another POS or take cash; a manager can assign one in Hotel setup"));
         if (terminal.getStatus() != PosTerminal.Status.ONLINE) {
-            throw new BadRequestException("The POS " + terminal.getName() + " is offline. Cash only until it is back");
+            throw new BadRequestException("The POS " + terminal.getName() + " is offline. Use another POS or take cash");
         }
         if (hotelPosConfig.paused(hotelId)) {
             throw new BadRequestException("POS payments are paused: Hospio360's fee is unpaid for 3 days. Take cash or a transfer; the owner can settle it with Hospio360");

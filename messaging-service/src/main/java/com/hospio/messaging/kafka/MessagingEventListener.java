@@ -163,7 +163,7 @@ public class MessagingEventListener {
     @KafkaListener(topics = KafkaTopics.POS_OFFLINE)
     public void onPosOffline(PosOfflineEvent e) {
         bound(e, () -> {
-            notifications.notifyRoles(e.getEventId(), "POS_OFFLINE", "POS " + e.getTerminalName() + " is offline", "Cash only until it is back", "/payments",
+            notifications.notifyRoles(e.getEventId(), "POS_OFFLINE", "POS " + e.getTerminalName() + " is offline", "Use another POS or take cash until it is back", "/payments",
                     e.getRole() == null ? "MANAGER" : e.getRole(), "MANAGER");
             return null;
         });
