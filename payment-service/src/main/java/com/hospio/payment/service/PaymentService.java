@@ -234,8 +234,8 @@ public class PaymentService {
         payments.save(p);
         try {
             // A hotel with its own Moniepoint or OPay keys goes to its provider; any other keeps the server's POS provider.
-            String ref = hotelPos.handles(hotelId)
-                    ? hotelPos.requestPayment(hotelId, terminal.getTerminalRef(), p.getId(), p.getAmount())
+            String ref = hotelPos.handles(hotelId, terminal.getProvider())
+                    ? hotelPos.requestPayment(hotelId, terminal.getProvider(), terminal.getTerminalRef(), p.getId(), p.getAmount())
                     : posProvider.requestPayment(terminal.getTerminalRef(), p.getId(), p.getAmount(), p.getCurrency(),
                             p.getDescription() == null ? "Hospio payment" : p.getDescription());
             p.setProviderRef(ref);
@@ -320,8 +320,8 @@ public class PaymentService {
             return PaymentResponse.of(seen);
         }
         checkPending(seen);
-        PosProvider.WebhookResult result = (hotelPos.handles(seen.getHotelId())
-                ? hotelPos.query(seen.getHotelId(), seen.getId(), seen.getProviderRef())
+        PosProvider.WebhookResult result = (hotelPos.handles(seen.getHotelId(), seen.getProvider())
+                ? hotelPos.query(seen.getHotelId(), seen.getProvider(), seen.getId(), seen.getProviderRef())
                 : posProvider.query(seen.getProviderRef())).orElse(null);
         if (result == null || result.outcome() == PosProvider.Outcome.UNKNOWN || result.outcome() == PosProvider.Outcome.NO_RESPONSE) {
             throw new BadRequestException("Still pending. The POS hasn't confirmed it yet");

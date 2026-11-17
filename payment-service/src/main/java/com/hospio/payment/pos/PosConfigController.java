@@ -61,11 +61,11 @@ public class PosConfigController {
         return ApiResponse.ok("POS keys saved", hotels.save(request.businessId(), hotelId, request.provider(), request.fields()));
     }
 
-    @Operation(summary = "SUPER_ADMIN: remove a hotel's POS keys (its card payments go back to the server's POS setting)")
-    @org.springframework.web.bind.annotation.DeleteMapping("/admin/hotels/{hotelId}/pos-config")
+    @Operation(summary = "SUPER_ADMIN: remove one provider's keys for a hotel (that provider's terminals go back to the server's POS setting)")
+    @org.springframework.web.bind.annotation.DeleteMapping("/admin/hotels/{hotelId}/pos-config/{provider}")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ApiResponse<HotelPosService.View> adminRemove(@PathVariable String hotelId) {
-        return ApiResponse.ok("POS keys removed", hotels.remove(hotelId));
+    public ApiResponse<HotelPosService.View> adminRemove(@PathVariable String hotelId, @PathVariable String provider) {
+        return ApiResponse.ok("POS keys removed", hotels.remove(hotelId, provider));
     }
 
     @Operation(summary = "Manager or owner: the hotel's POS provider and keys, masked (read only; Hospio360 sets them)")
