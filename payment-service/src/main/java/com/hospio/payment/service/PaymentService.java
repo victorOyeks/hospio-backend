@@ -136,13 +136,14 @@ public class PaymentService {
                 .guestPhone(dto.guestPhone()).guestEmail(dto.guestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
                 .role(role).method(dto.method()).amount(Money.of(dto.amount())).description(dto.description())
                 .receiptPreference(dto.receiptPreference() == null ? settings.receipts() : dto.receiptPreference()).build();
-        if (dto.method() == PaymentMethod.CASH || dto.method() == PaymentMethod.TRANSFER) {
-            // Cash is counted at the desk; a transfer is recorded once the desk has seen it land in the hotel's
-            // account. Both are approved on the spot; finance matches transfers to the bank line afterwards.
+        if (dto.method() == PaymentMethod.CASH) {
+            // Cash is counted at the desk and approved on the spot.
             payments.save(p);
-            approve(p, null, dto.method() == PaymentMethod.CASH ? "cash" : "bank transfer");
+            approve(p, null, "cash");
             return PaymentResponse.of(p);
         }
+        // Card and bank transfer both go to the POS: the terminal asks the guest which (Moniepoint and OPay take either on the
+        // same request), and the payment is approved when the provider confirms it.
         return sendToPos(p, role, hotelId);
     }
 
@@ -207,15 +208,15 @@ public class PaymentService {
         if (!user.isManagerOrOwner() && !user.getUserId().equals(old.getRequestedBy())) {
             throw new BadRequestException("Only a manager or the person who took it can retry this payment");
         }
-        if (old.getMethod() != PaymentMethod.CARD) {
-            throw new BadRequestException("Only a card payment goes back to the POS");
+        if (old.getMethod() != PaymentMethod.CARD && old.getMethod() != PaymentMethod.TRANSFER) {
+            throw new BadRequestException("Only a card or transfer payment goes back to the POS");
         }
         if (old.getStatus() != PaymentStatus.DECLINED && old.getStatus() != PaymentStatus.NO_RESPONSE && old.getStatus() != PaymentStatus.FAILED) {
             throw new BadRequestException("Only a declined or unanswered payment can be retried");
         }
         PaymentRequest p = PaymentRequest.builder().folioId(old.getFolioId()).bookingId(old.getBookingId()).orderId(old.getOrderId()).desk(old.getDesk()).guestName(old.getGuestName())
                 .guestPhone(old.getGuestPhone()).guestEmail(old.getGuestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
-                .role(old.getRole()).method(PaymentMethod.CARD).amount(old.getAmount()).description(old.getDescription())
+                .role(old.getRole()).method(old.getMethod()).amount(old.getAmount()).description(old.getDescription())
                 .receiptPreference(old.getReceiptPreference()).build();
         return sendToPos(p, old.getRole(), hotelId);
     }
