@@ -61,6 +61,7 @@ public class PaymentListService {
     private final PaymentRequestRepository payments;
     private final RefundRepository refunds;
     private final DisputeRepository disputes;
+    private final TerminalService terminals;
 
     @Transactional(readOnly = true)
     public PageWithCounts<PaymentResponse> payments(Params p) {
@@ -87,7 +88,9 @@ public class PaymentListService {
         long total = query.count(f);
         List<String> ids = query.ids(f, column, order.isAscending(), page, size);
         Map<String, PaymentRequest> byId = payments.findAllById(ids).stream().collect(Collectors.toMap(PaymentRequest::getId, Function.identity()));
-        List<PaymentResponse> content = ids.stream().map(byId::get).filter(java.util.Objects::nonNull).map(PaymentResponse::of).toList();
+        Map<String, String> terminalNames = terminals.namesFor(byId.values().stream().map(PaymentRequest::getTerminalId).toList());
+        List<PaymentResponse> content = ids.stream().map(byId::get).filter(java.util.Objects::nonNull)
+                .map(x -> PaymentResponse.of(x, x.getTerminalId() == null ? null : terminalNames.get(x.getTerminalId()))).toList();
 
         Map<String, Long> counts = new LinkedHashMap<>(query.countsByStatus(base));
         counts.put("toVerify", TO_VERIFY.stream().mapToLong(s -> counts.getOrDefault(s, 0L)).sum());
