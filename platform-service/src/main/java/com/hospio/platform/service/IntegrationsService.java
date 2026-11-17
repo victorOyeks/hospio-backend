@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * Settings · Integrations: what the platform is connected to, from live checks (database, Kafka) and
- * configuration (POS provider, message channels, KYC). Staging runs the "logging" providers.
+ * configuration (POS provider, message channels). Staging runs the "logging" providers.
  */
 @Service
 public class IntegrationsService {
@@ -47,7 +47,6 @@ public class IntegrationsService {
         // SMS is only for one-time sign-in codes, through Termii (docs/sms-whatsapp.md); every other message is WhatsApp or email.
         out.add(new Integration("sms", "SMS (sign-in codes only, Termii)", "MESSAGING", realChannels ? "CONNECTED" : "NOT_CONFIGURED",
                 realChannels ? "Termii, DND route, sender ID Hospio360: phone verification codes only" : channelDetail, now));
-        out.add(new Integration("smile-id", "Smile ID (KYC)", "KYC", "NOT_CONFIGURED", "Identity verification is not set up yet", now));
         return out;
     }
 

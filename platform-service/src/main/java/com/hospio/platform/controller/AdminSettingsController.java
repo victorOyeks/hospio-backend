@@ -65,7 +65,7 @@ public class AdminSettingsController {
     }
 
     /** Connection status (moved from GET /admin/integrations, which is now the integration settings: AdminIntegrationsController). */
-    @Operation(summary = "Integrations and their status: database, Kafka, payment provider, WhatsApp, email, SMS, Smile ID")
+    @Operation(summary = "Integrations and their status: database, Kafka, payment provider, WhatsApp, email, SMS")
     @GetMapping("/integrations/status")
     @PreAuthorize("@access.platform()")
     public ApiResponse<List<Integration>> integrations() {
