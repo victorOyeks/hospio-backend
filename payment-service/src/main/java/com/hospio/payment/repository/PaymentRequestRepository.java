@@ -70,6 +70,6 @@ public interface PaymentRequestRepository extends JpaRepository<PaymentRequest, 
      * Card payments still waiting at the POS, sent between {@code from} and {@code to}, oldest first (PendingPaymentCheckJob).
      * Read as the system: they may be at any hotel.
      */
-    List<PaymentRequest> findTop200ByMethodAndStatusInAndProviderRefIsNotNullAndCreatedAtBetweenOrderByCreatedAtAsc(
-            com.hospio.common.enums.PaymentMethod method, Collection<PaymentStatus> statuses, Instant from, Instant to);
+    List<PaymentRequest> findTop200ByMethodInAndStatusInAndProviderRefIsNotNullAndCreatedAtBetweenOrderByCreatedAtAsc(
+            Collection<com.hospio.common.enums.PaymentMethod> methods, Collection<PaymentStatus> statuses, Instant from, Instant to);
 }

@@ -134,13 +134,25 @@ class PaymentServiceTest {
     }
 
     @Test
-    void aConfirmedTransferIsApprovedWithoutAPos() {
-        when(terminals.forRole("h1", Role.BAR)).thenReturn(Optional.empty());
+    void aTransferGoesToThePosLikeACard() {
+        // The guest picks card or transfer on the terminal: a transfer is sent there and waits for the provider.
+        PosTerminal t = PosTerminal.builder().name("Bar POS").provider("logging").terminalRef("T1").build();
+        t.setId("t1");
+        when(terminals.forRole("h1", Role.BAR)).thenReturn(Optional.of(t));
 
         PaymentResponse p = service.request(new PaymentRequestDto(PaymentMethod.TRANSFER, new BigDecimal("5000"), null, "bk1", "Ada", null, null, "Deposit", null));
 
-        assertThat(p.status()).isEqualTo(PaymentStatus.APPROVED);
-        verify(events).publish(eq(KafkaTopics.PAYMENT_APPROVED), any());
+        assertThat(p.status()).isNotEqualTo(PaymentStatus.APPROVED);
+        assertThat(p.method()).isEqualTo(PaymentMethod.TRANSFER);
+        verify(events, org.mockito.Mockito.never()).publish(eq(KafkaTopics.PAYMENT_APPROVED), any());
+    }
+
+    @Test
+    void aTransferWithoutAPosIsRefusedLikeACard() {
+        when(terminals.forRole("h1", Role.BAR)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.TRANSFER, new BigDecimal("5000"), null, "bk1", "Ada", null, null, "Deposit", null)))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("No POS is assigned");
     }
 
     @Test

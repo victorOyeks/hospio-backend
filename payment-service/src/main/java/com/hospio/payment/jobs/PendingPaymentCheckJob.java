@@ -33,6 +33,8 @@ public class PendingPaymentCheckJob {
     static final Duration SETTLE = Duration.ofSeconds(20);
     static final Duration GIVE_UP = Duration.ofMinutes(30);
     static final List<PaymentStatus> WAITING = List.of(PaymentStatus.PENDING, PaymentStatus.PROCESSING);
+    /** Both go to the POS (the guest picks card or transfer on the terminal). */
+    static final List<PaymentMethod> POS_METHODS = List.of(PaymentMethod.CARD, PaymentMethod.TRANSFER);
 
     private final PaymentRequestRepository payments;
     private final PaymentService service;
@@ -61,8 +63,8 @@ public class PendingPaymentCheckJob {
     int check() {
         Instant now = Instant.now(clock);
         List<PaymentRequest> waiting = TenantContext.runWith(Tenant.system("pending-payment-check"), () ->
-                payments.findTop200ByMethodAndStatusInAndProviderRefIsNotNullAndCreatedAtBetweenOrderByCreatedAtAsc(
-                        PaymentMethod.CARD, WAITING, now.minus(GIVE_UP), now.minus(SETTLE)));
+                payments.findTop200ByMethodInAndStatusInAndProviderRefIsNotNullAndCreatedAtBetweenOrderByCreatedAtAsc(
+                        POS_METHODS, WAITING, now.minus(GIVE_UP), now.minus(SETTLE)));
         int settled = 0;
         for (PaymentRequest p : waiting) {
             try {
