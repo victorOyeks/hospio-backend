@@ -61,6 +61,9 @@ jwt:
   expiration-ms: ${JWT_EXPIRATION_MS:3600000}
 
 hospio:
+  # Paystack (device invoices paid online); the key saved in Settings · Integrations wins.
+  paystack:
+    secret-key: ${PAYSTACK_SECRET_KEY:}
   # Master key for secrets stored in the database (integration settings, hotels' POS keys): 32 bytes, base64. SECRETS_KEY, else the
   # older name POS_SECRETS_KEY (same key: values sealed with it still open).
   secrets-key: ${SECRETS_KEY:${POS_SECRETS_KEY:}}

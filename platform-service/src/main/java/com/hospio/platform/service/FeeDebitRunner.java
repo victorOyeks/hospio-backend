@@ -157,7 +157,10 @@ public class FeeDebitRunner {
                     c.setPosPaused(false);
                     collections.save(c);
                 });
-                debits.pausePos(c.getBusinessId(), hotelId, false);
+                // A device invoice 14 days overdue keeps POS paused until it is paid.
+                if (!c.isDevicePosPaused()) {
+                    debits.pausePos(c.getBusinessId(), hotelId, false);
+                }
                 resumed++;
             }
         }
