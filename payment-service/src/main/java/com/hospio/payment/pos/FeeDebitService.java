@@ -80,14 +80,14 @@ public class FeeDebitService {
     }
 
     public List<ProviderState> providers(String hotelId) {
-        String keysFor = hotels.credentials(hotelId).map(HotelPosService.Credentials::provider).orElse(null);
+        List<String> keysFor = hotels.providersWithKeys(hotelId);
         OpayTarget t = opayTarget();
         String opayWhy = !t.enabled() ? "FEE_DEBIT_OPAY_ENABLED isn't on" : t.account().isEmpty() ? "Hospio's receiving account (FEE_DEBIT_OPAY_RECIPIENT_ACCOUNT) isn't set"
                 : "BANK_TRANSFER".equals(t.payoutType()) && t.bankCode().isEmpty() ? "FEE_DEBIT_OPAY_RECIPIENT_BANK_CODE isn't set" : null;
         String moniepointWhy = moniepointUrl().isEmpty() ? "Moniepoint hasn't given a debit API yet (FEE_DEBIT_MONIEPOINT_URL isn't set)" : null;
         return List.of(
-                new ProviderState(HotelPosService.MONIEPOINT, moniepointWhy == null, HotelPosService.MONIEPOINT.equals(keysFor), moniepointWhy),
-                new ProviderState(HotelPosService.OPAY, opayWhy == null, HotelPosService.OPAY.equals(keysFor), opayWhy));
+                new ProviderState(HotelPosService.MONIEPOINT, moniepointWhy == null, keysFor.contains(HotelPosService.MONIEPOINT), moniepointWhy),
+                new ProviderState(HotelPosService.OPAY, opayWhy == null, keysFor.contains(HotelPosService.OPAY), opayWhy));
     }
 
     public DebitResult debit(DebitRequest r) {
@@ -99,7 +99,7 @@ public class FeeDebitService {
             return "PENDING".equals(seen.getStatus()) ? status(r.hotelId(), r.reference()) : result(seen);
         }
         String provider = r.provider() == null ? "" : r.provider().toUpperCase(Locale.ROOT);
-        HotelPosService.Credentials c = hotels.credentials(r.hotelId()).filter(x -> x.provider().equals(provider)).orElse(null);
+        HotelPosService.Credentials c = hotels.credentials(r.hotelId(), provider).orElse(null);
         FeeDebit d = tx.execute(st -> debits.save(FeeDebit.builder().businessId(c == null ? "unknown" : c.businessId()).hotelId(r.hotelId())
                 .reference(r.reference()).provider(provider).amount(r.amount()).status("PENDING").build()));
         if (c == null) {
@@ -133,7 +133,7 @@ public class FeeDebitService {
         if (!"PENDING".equals(d.getStatus()) || !HotelPosService.OPAY.equals(d.getProvider())) {
             return result(d);
         }
-        HotelPosService.Credentials c = hotels.credentials(d.getHotelId()).orElse(null);
+        HotelPosService.Credentials c = hotels.credentials(d.getHotelId(), d.getProvider()).orElse(null);
         if (c == null) {
             return result(d);
         }

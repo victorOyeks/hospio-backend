@@ -27,9 +27,12 @@ public class HotelPosRouter {
     private final MoniepointApi moniepoint;
     private final ObjectMapper mapper;
 
-    /** True when the hotel has complete keys for a provider: its payments go through here. */
-    public boolean handles(String hotelId) {
-        return hotelId != null && hotels.credentials(hotelId).isPresent();
+    /**
+     * True when this payment goes through here: the terminal is a Moniepoint or OPay one and the hotel has complete keys for that
+     * provider. Otherwise payment-service keeps the server's POS setting, as before.
+     */
+    public boolean handles(String hotelId, String terminalProvider) {
+        return hotels.credentials(hotelId, terminalProvider).isPresent();
     }
 
     public boolean anyConfigured() {
@@ -50,8 +53,9 @@ public class HotelPosRouter {
     }
 
     /** Pushes the amount to the terminal; answers the provider reference to keep on the payment. */
-    public String requestPayment(String hotelId, String terminalSerial, String paymentId, BigDecimal naira) {
-        HotelPosService.Credentials c = hotels.credentials(hotelId).orElseThrow(() -> new IllegalStateException("No POS keys for this hotel"));
+    public String requestPayment(String hotelId, String terminalProvider, String terminalSerial, String paymentId, BigDecimal naira) {
+        HotelPosService.Credentials c = hotels.credentials(hotelId, terminalProvider)
+                .orElseThrow(() -> new IllegalStateException("This hotel has no keys for the terminal's provider"));
         String ref = ourRef(paymentId);
         if (HotelPosService.OPAY.equals(c.provider())) {
             OpayApi.Answer<ProviderDtos.OpayCreateOrderData> a = opay.createOrder(c.opay(), ref, naira, terminalSerial);
@@ -65,8 +69,8 @@ public class HotelPosRouter {
     }
 
     /** Asks the provider how the payment went; empty when it can't say yet. */
-    public Optional<WebhookResult> query(String hotelId, String paymentId, String providerRef) {
-        HotelPosService.Credentials c = hotels.credentials(hotelId).orElse(null);
+    public Optional<WebhookResult> query(String hotelId, String provider, String paymentId, String providerRef) {
+        HotelPosService.Credentials c = hotels.credentials(hotelId, provider).orElse(null);
         if (c == null) {
             return Optional.empty();
         }
@@ -128,8 +132,8 @@ public class HotelPosRouter {
         }
         String paymentId = paymentId(w.data().merchantReference());
         String hotelId = paymentId == null ? null : hotelOfPayment.apply(paymentId);
-        HotelPosService.Credentials c = hotelId == null ? null : hotels.credentials(hotelId).orElse(null);
-        if (c == null || !HotelPosService.MONIEPOINT.equals(c.provider())) {
+        HotelPosService.Credentials c = hotels.credentials(hotelId, HotelPosService.MONIEPOINT).orElse(null);
+        if (c == null) {
             log.warn("Moniepoint webhook for {} isn't one of ours", w.data().merchantReference());
             return Optional.empty();
         }

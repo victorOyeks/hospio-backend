@@ -19,8 +19,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 /**
- * Each hotel's POS provider and keys (docs/pos-providers.md). Hospio admins set them; the hotel's managers and owner see them masked.
- * Keys are encrypted at rest (SecretBox). A field sent blank keeps its saved value, so one key can be replaced on its own.
+ * Each hotel's POS provider keys (docs/pos-providers.md): a hotel can hold keys for Moniepoint and OPay side by side. Each card
+ * payment uses the keys of its terminal's provider; the daily fee debit uses the provider chosen for it. Hospio admins set the
+ * keys; the hotel's managers and owner see them masked. Keys are encrypted at rest (SecretBox). A field sent blank keeps its saved
+ * value, so one key can be replaced on its own. The hotel's POS pause lives in hotel_pos_configs.
  */
 @Service
 @RequiredArgsConstructor
@@ -35,57 +37,66 @@ public class HotelPosService {
             OPAY, List.of("clientAuthKey", "opayPublicKey", "merchantPrivateKey", "headMerchantId", "merchantId"));
 
     private final HotelPosConfigRepository configs;
+    private final HotelPosKeyRepository keys;
     private final SecretBox box;
     private final ObjectMapper mapper;
 
-    /** What people see: the provider, each field masked (null when not set), whether it's complete, and whether POS is paused. */
-    public record View(String hotelId, String provider, Map<String, String> fields, boolean complete, boolean posPaused, String updatedByName,
-                       Instant updatedAt, boolean keyStoreReady) {
+    /** One provider's keys as people see them: each field masked (null when not set) and whether they're complete. */
+    public record ProviderKeys(String provider, Map<String, String> fields, boolean complete, String updatedByName, Instant updatedAt) {
+    }
+
+    /** The hotel's providers with keys, and whether POS push is paused. */
+    public record View(String hotelId, List<ProviderKeys> providers, boolean posPaused, boolean keyStoreReady) {
     }
 
     @Transactional(readOnly = true)
     public View view(String hotelId) {
-        HotelPosConfig c = configs.findByHotelId(hotelId).orElse(null);
-        if (c == null) {
-            return new View(hotelId, null, Map.of(), false, false, null, null, box.ready());
-        }
-        if (c.getProvider() == null) {
-            // No keys (never entered, or removed); the row may still hold a POS pause.
-            return new View(hotelId, null, Map.of(), false, c.isPosPaused(), c.getUpdatedByName(), c.getUpdatedAt(), box.ready());
-        }
-        Map<String, String> masked = readMap(c.getMasked());
-        Map<String, String> shown = new LinkedHashMap<>();
-        for (String f : FIELDS.getOrDefault(c.getProvider(), List.of())) {
-            shown.put(f, masked.get(f));
-        }
-        return new View(hotelId, c.getProvider(), shown, complete(c.getProvider(), masked), c.isPosPaused(), c.getUpdatedByName(),
-                c.getUpdatedAt(), box.ready());
+        boolean paused = configs.findByHotelId(hotelId).map(HotelPosConfig::isPosPaused).orElse(false);
+        List<ProviderKeys> out = keys.findByHotelIdOrderByProvider(hotelId).stream().map(this::shown).toList();
+        return new View(hotelId, out, paused, box.ready());
     }
 
-    /** Every hotel's POS status for the admin portal's lists: provider, keys complete, paused. Never any key. */
-    public record Status(String hotelId, String provider, boolean complete, boolean posPaused) {
+    private ProviderKeys shown(HotelPosKey k) {
+        Map<String, String> masked = readMap(k.getMasked());
+        Map<String, String> fields = new LinkedHashMap<>();
+        for (String f : FIELDS.getOrDefault(k.getProvider(), List.of())) {
+            fields.put(f, masked.get(f));
+        }
+        return new ProviderKeys(k.getProvider(), fields, complete(k.getProvider(), masked), k.getUpdatedByName(), k.getUpdatedAt());
+    }
+
+    /** Every hotel's POS status for the admin portal's lists: the providers whose keys are complete, and the pause. Never any key. */
+    public record Status(String hotelId, List<String> providers, boolean posPaused) {
     }
 
     @Transactional(readOnly = true)
     public List<Status> statuses() {
-        return configs.findAll().stream()
-                .map(c -> new Status(c.getHotelId(), c.getProvider(), c.getProvider() != null && complete(c.getProvider(), readMap(c.getMasked())),
-                        c.isPosPaused()))
+        Map<String, List<String>> byHotel = new LinkedHashMap<>();
+        for (HotelPosKey k : keys.findAll()) {
+            if (complete(k.getProvider(), readMap(k.getMasked()))) {
+                byHotel.computeIfAbsent(k.getHotelId(), x -> new java.util.ArrayList<>()).add(k.getProvider());
+            }
+        }
+        Map<String, Boolean> paused = new LinkedHashMap<>();
+        configs.findAll().forEach(c -> paused.put(c.getHotelId(), c.isPosPaused()));
+        java.util.Set<String> ids = new java.util.TreeSet<>(byHotel.keySet());
+        paused.forEach((h, p) -> {
+            if (p) {
+                ids.add(h);
+            }
+        });
+        return ids.stream().map(h -> new Status(h, byHotel.getOrDefault(h, List.of()).stream().sorted().toList(), paused.getOrDefault(h, false)))
                 .toList();
     }
 
     @Transactional
     public View save(String businessId, String hotelId, String provider, Map<String, String> values) {
-        String p = provider == null ? null : provider.trim().toUpperCase(Locale.ROOT);
-        if (p == null || !FIELDS.containsKey(p)) {
-            throw new BadRequestException("The provider is MONIEPOINT or OPAY");
-        }
+        String p = providerOf(provider);
         if (!box.ready()) {
             throw new BadRequestException("POS_SECRETS_KEY isn't set on the server, so POS keys can't be stored yet");
         }
-        HotelPosConfig c = configs.findByHotelId(hotelId)
-                .orElseGet(() -> HotelPosConfig.builder().businessId(businessId).hotelId(hotelId).build());
-        Map<String, String> secrets = p.equals(c.getProvider()) && c.getSecrets() != null ? readMap(box.open(c.getSecrets())) : new LinkedHashMap<>();
+        HotelPosKey k = keys.findByHotelIdAndProvider(hotelId, p).orElse(null);
+        Map<String, String> secrets = k == null ? new LinkedHashMap<>() : readMap(box.open(k.getSecrets()));
         for (String f : FIELDS.get(p)) {
             String v = values == null ? null : values.get(f);
             if (StringUtils.hasText(v)) {
@@ -93,30 +104,43 @@ public class HotelPosService {
             }
         }
         secrets.keySet().retainAll(FIELDS.get(p));
+        if (secrets.isEmpty()) {
+            throw new BadRequestException("Enter at least one key");
+        }
         if (OPAY.equals(p)) {
             checkOpayKeys(secrets);
         }
         Map<String, String> masked = new LinkedHashMap<>();
-        secrets.forEach((k, v) -> masked.put(k, SecretBox.mask(v)));
-        c.setProvider(p);
-        c.setSecrets(box.seal(writeMap(secrets)));
-        c.setMasked(writeMap(masked));
-        c.setUpdatedByName(CurrentUser.get().map(u -> u.getFullName()).orElse("Hospio360"));
-        configs.save(c);
+        secrets.forEach((key, v) -> masked.put(key, SecretBox.mask(v)));
+        if (k == null) {
+            k = HotelPosKey.builder().businessId(businessId).hotelId(hotelId).provider(p).build();
+        }
+        k.setSecrets(box.seal(writeMap(secrets)));
+        k.setMasked(writeMap(masked));
+        k.setUpdatedByName(CurrentUser.get().map(u -> u.getFullName()).orElse("Hospio360"));
+        keys.save(k);
         return view(hotelId);
     }
 
-    /** Removes the hotel's provider and keys: its card payments go back to the server's POS setting. A POS pause stays as it is. */
+    /** Removes one provider's keys: payments on that provider's terminals go back to the server's POS setting. The pause stays. */
     @Transactional
-    public View remove(String hotelId) {
-        configs.findByHotelId(hotelId).ifPresent(c -> {
-            c.setProvider(null);
-            c.setSecrets(null);
-            c.setMasked(null);
-            c.setUpdatedByName(CurrentUser.get().map(u -> u.getFullName()).orElse("Hospio360"));
-            configs.save(c);
-        });
+    public View remove(String hotelId, String provider) {
+        keys.findByHotelIdAndProvider(hotelId, providerOf(provider)).ifPresent(keys::delete);
         return view(hotelId);
+    }
+
+    static String providerOf(String provider) {
+        String p = provider == null ? null : provider.trim().toUpperCase(Locale.ROOT);
+        if (p == null || !FIELDS.containsKey(p)) {
+            throw new BadRequestException("The provider is MONIEPOINT or OPAY");
+        }
+        return p;
+    }
+
+    /** The provider a terminal belongs to (its provider field, any case), or null when it isn't Moniepoint or OPay. */
+    public static String terminalProvider(String raw) {
+        String p = raw == null ? null : raw.trim().toUpperCase(Locale.ROOT);
+        return p != null && FIELDS.containsKey(p) ? p : null;
     }
 
     /** Refuses keys that can't work: a PKCS#1 private key or one that isn't RSA, a public key that isn't X.509. */
@@ -139,19 +163,32 @@ public class HotelPosService {
 
     // ---- for the router and the debit (never leaves payment-service) ----------------------------------
 
-    /** The hotel's provider and decrypted keys, when complete. */
-    public Optional<Credentials> credentials(String hotelId) {
-        return configs.findByHotelId(hotelId).filter(c -> c.getSecrets() != null && box.ready()).map(c -> {
-            Map<String, String> s = readMap(box.open(c.getSecrets()));
-            return complete(c.getProvider(), s) ? new Credentials(c.getHotelId(), c.getBusinessId(), c.getProvider(), s) : null;
+    /** The hotel's decrypted keys for {@code provider}, when complete. */
+    public Optional<Credentials> credentials(String hotelId, String provider) {
+        String p = terminalProvider(provider);
+        if (hotelId == null || p == null || !box.ready()) {
+            return Optional.empty();
+        }
+        return keys.findByHotelIdAndProvider(hotelId, p).map(k -> {
+            Map<String, String> s = readMap(box.open(k.getSecrets()));
+            return complete(p, s) ? new Credentials(k.getHotelId(), k.getBusinessId(), p, s) : null;
         });
+    }
+
+    /** The providers this hotel has complete keys for. */
+    @Transactional(readOnly = true)
+    public List<String> providersWithKeys(String hotelId) {
+        return keys.findByHotelIdOrderByProvider(hotelId).stream().filter(k -> complete(k.getProvider(), readMap(k.getMasked())))
+                .map(HotelPosKey::getProvider).toList();
     }
 
     /** Every hotel with complete keys for {@code provider} (the OPay webhook finds its hotel by which keys open it). */
     public List<Credentials> all(String provider) {
-        return TenantContext.runWith(Tenant.system("pos-config"), () -> configs.findByProvider(provider).stream()
-                .filter(c -> c.getSecrets() != null && box.ready())
-                .map(c -> new Credentials(c.getHotelId(), c.getBusinessId(), c.getProvider(), readMap(box.open(c.getSecrets()))))
+        if (!box.ready()) {
+            return List.of();
+        }
+        return TenantContext.runWith(Tenant.system("pos-config"), () -> keys.findByProvider(provider).stream()
+                .map(k -> new Credentials(k.getHotelId(), k.getBusinessId(), k.getProvider(), readMap(box.open(k.getSecrets()))))
                 .filter(c -> complete(c.provider(), c.values())).toList());
     }
 

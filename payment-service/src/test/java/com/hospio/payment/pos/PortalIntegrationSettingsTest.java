@@ -53,12 +53,13 @@ class PortalIntegrationSettingsTest {
 
     @Test
     void aHotelsPosKeysSealedBeforeTheMoveStillOpen() {
-        HotelPosConfigRepository repo = mock(HotelPosConfigRepository.class);
-        when(repo.findByHotelId("h1")).thenReturn(Optional.of(HotelPosConfig.builder().businessId("b1").hotelId("h1").provider("MONIEPOINT")
-                .secrets(SEALED_BEFORE_THE_MOVE).build()));
-        HotelPosService service = new HotelPosService(repo, new SecretBox(KEY), new ObjectMapper());
+        // Migration 010 copies the sealed text as it is into hotel_pos_keys: it must still open there.
+        HotelPosKeyRepository keys = mock(HotelPosKeyRepository.class);
+        when(keys.findByHotelIdAndProvider("h1", "MONIEPOINT")).thenReturn(Optional.of(HotelPosKey.builder().businessId("b1").hotelId("h1")
+                .provider("MONIEPOINT").secrets(SEALED_BEFORE_THE_MOVE).masked("{}").build()));
+        HotelPosService service = new HotelPosService(mock(HotelPosConfigRepository.class), keys, new SecretBox(KEY), new ObjectMapper());
 
-        HotelPosService.Credentials c = service.credentials("h1").orElseThrow();
+        HotelPosService.Credentials c = service.credentials("h1", "MONIEPOINT").orElseThrow();
 
         assertThat(c.moniepoint()).isEqualTo(new MoniepointApi.Keys("mp_live_abcdef123456", "whsec_staging_1"));
     }
@@ -98,7 +99,7 @@ class PortalIntegrationSettingsTest {
     @Test
     void theFeeDebitUsesTheEnvironmentUntilThePortalSwitchesItOn() {
         HotelPosService hotels = mock(HotelPosService.class);
-        when(hotels.credentials("h1")).thenReturn(Optional.empty());
+        when(hotels.providersWithKeys("h1")).thenReturn(List.of());
         FeeDebitService fees = new FeeDebitService(mock(FeeDebitRepository.class), hotels, mock(OpayApi.class), mock(TransactionTemplate.class),
                 false, "", "", "", "OPAY_WALLET", "");
         Portal portal = new Portal();
