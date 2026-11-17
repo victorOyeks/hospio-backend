@@ -98,4 +98,15 @@ class SetupValuesTest {
     private static Setting row(String section, String key, String value) {
         return Setting.builder().hotelId("h1").section(section).key(key).value(value).build();
     }
+
+    @Test
+    void theWholeSetupCarriesTheLiveFeeRateInPayments() {
+        HotelSetup all = HotelSetup.DEFAULTS;
+        HotelSetup filled = HotelSetupService.withFeeRate(all, new BigDecimal("1.5"));
+        assertThat(filled.payments().platformFeePct()).isEqualByComparingTo("1.5");
+        assertThat(filled.basics()).isEqualTo(all.basics());
+        assertThat(filled.pos()).isEqualTo(all.pos());
+        assertThat(filled.payments().guestPaysPlatformFee()).isEqualTo(all.payments().guestPaysPlatformFee());
+        assertThat(HotelSetupService.withFeeRate(all, null).payments().platformFeePct()).isNull();
+    }
 }

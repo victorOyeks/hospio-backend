@@ -85,7 +85,18 @@ public class HotelSetupService {
     /** Every catalogue section, the hotel's stored values laid over the defaults. */
     @Transactional(readOnly = true)
     public HotelSetup all(String hotelId) {
-        return SetupCatalogue.withDefaults(stored(objectMapper, settings.findByHotelId(hotelId)));
+        HotelSetup all = SetupCatalogue.withDefaults(stored(objectMapper, settings.findByHotelId(hotelId)));
+        // As for one section: Payments carries the business's live fee rate (Hotel setup names it next to the guest-fee switch).
+        return withFeeRate(all, tenantClient.feeRate(hotelId).orElse(null));
+    }
+
+    /** The setup with Payments' {@code platformFeePct} set to the business's fee rate (never stored). */
+    static HotelSetup withFeeRate(HotelSetup all, java.math.BigDecimal rate) {
+        if (all.payments() == null) {
+            return all;
+        }
+        SetupSection.Payments payments = all.payments().withPlatformFeePct(rate);
+        return HotelSetup.of(name -> SetupCatalogue.PAYMENTS.equals(name) ? payments : all.get(name));
     }
 
     /** Managers and owners edit; owner-only sections need the owner; the platform may write anything (onboarding). */
