@@ -642,6 +642,39 @@ class OrderServiceTest {
     }
 
     @Test
+    void cancellingTheLastDishCancelsTheOrderSoItLeavesTheBoardAndCannotBeMarkedReady() {
+        // DEF-078 / DEF-085: K-0002 sat on the kitchen board worth ₦0 with a Ready button after its only dish was taken off.
+        signIn(Map.of(Role.BAR, AccessLevel.FULL));
+        Order o = savedOrder(Order.Kind.ROOM_SERVICE, "1500.00");
+        o.setStatus(Order.Status.SENT);
+        OrderLine soup = line(OrderLine.Status.SENT);
+
+        assertThat(service.cancelLine("order-1", soup.getId(), "I no want").status()).isEqualTo(Order.Status.CANCELLED);
+        assertThat(o.getCancelReason()).isEqualTo("Every item was cancelled · I no want");
+        assertThat(o.getSettledBy()).isEqualTo("CANCELLED");
+        assertThat(o.getClosedAt()).isNotNull();
+        assertThatThrownBy(() -> service.setLineStatus("order-1", soup.getId(), OrderLine.Status.READY)).isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("cancelled");
+        verify(events, never()).publish(eq(KafkaTopics.ORDER_READY), any());
+    }
+
+    @Test
+    void cancellingOneOfTwoDishesKeepsTheOrderAndATabWithNothingLeftStaysOpen() {
+        signIn(Map.of(Role.BAR, AccessLevel.FULL));
+        Order o = savedOrder(Order.Kind.DINE_IN, "3000.00");
+        o.setStatus(Order.Status.SENT);
+        OrderLine first = line(OrderLine.Status.SENT);
+        line(OrderLine.Status.SENT);
+        assertThat(service.cancelLine("order-1", first.getId(), "wrong drink").status()).isEqualTo(Order.Status.SENT);
+
+        storedLines.clear();
+        Order tab = savedOrder(Order.Kind.TAB, "1500.00");
+        tab.setStatus(Order.Status.SENT);
+        OrderLine only = line(OrderLine.Status.SENT);
+        assertThat(service.cancelLine("order-1", only.getId(), "wrong drink").status()).isEqualTo(Order.Status.SENT);
+    }
+
+    @Test
     void anOrderWithSentLinesNeedsAManagerToCancelAndASettledOneCannotBeCancelled() {
         signIn(Map.of(Role.BAR, AccessLevel.EDIT));
         Order o = savedOrder(Order.Kind.DINE_IN, "1500.00");

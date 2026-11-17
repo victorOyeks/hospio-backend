@@ -20,7 +20,7 @@ Out of scope: inventory's own purchasing flow (requests, purchase orders, delive
 | POST | `/orders` | outlet staff, front office (room service), manager | TAB needs `OUTLETS.tabs`; ROOM_SERVICE / room orders need `OUTLETS.roomCharge` only when charged; numbers run per outlet per day (`B-0001`, `K-0001`) |
 | POST | `/orders/{id}/lines` | same | adding to a TAB refuses when the tab total would exceed `OUTLETS.tabLimit` (400 "Tab limit ₦X reached · settle or ask the manager") unless the caller is a manager |
 | PUT | `/orders/{id}/lines/{lineId}/status?status=READY|SERVED` | kitchen/bar | new: one dish ready / served; the order becomes READY when every live line is READY, SERVED when all served |
-| POST | `/orders/{id}/lines/{lineId}/cancel` | outlet staff before SENT; manager or FULL after | new: `{reason}`; line CANCELLED, totals recalculated |
+| POST | `/orders/{id}/lines/{lineId}/cancel` | outlet staff before SENT; manager or FULL after | new: `{reason}`; line CANCELLED, totals recalculated; cancelling the last live line of an order that is not a TAB cancels the order too ("Every item was cancelled · {reason}"), so it leaves the board (DEF-078/085) |
 | POST | `/orders/{id}/cancel` | outlet staff while OPEN with no sent lines; manager after | new: `{reason}`; refused once settled |
 | POST | `/orders/{id}/charge-to-room?roomId=` | outlet staff, front office, manager | refused when `OUTLETS.roomCharge` is off; checks synchronously that the room has an active stay **and an open folio** (folio internal `GET /internal/folios/open?bookingId=`); 400 "Nobody is checked in to room X" / "Room X has no open bill" instead of silently losing the charge; event carries actor |
 | POST | `/orders/{id}/paid` | internal / payment listener | becomes internal only; fnb listens to `PAYMENT_APPROVED` with `orderId` and marks the order paid (tabs close when paid in full) |
@@ -37,7 +37,7 @@ Out of scope: inventory's own purchasing flow (requests, purchase orders, delive
 | Method | Path | Who | Change |
 |---|---|---|---|
 | GET | `/outlets/{outletId}/menu?all=true` | manager / FULL | include inactive items for the manage-menu screen |
-| PUT | `/menu/{id}/price` | | instead of throwing 400 for "sent for approval", returns 202 `{status:"PENDING_APPROVAL", requestId}` |
+| PUT | `/menu/{id}/price` | | instead of throwing 400 for "sent for approval", returns 202 `{status:"PENDING_APPROVAL", requestId}`; 400 "₦X for {item} is already waiting for the manager's approval…" while one is pending (DEF-086). Menu items carry `pendingPrice` (the waiting request, else null); a QUESTION back to the requester keeps it waiting |
 | PUT | `/outlets/{outletId}/menu/{id}` | manager / FULL | `options` documented as JSON `[{group, choices:[{name, priceDelta}], required, multiple}]`; `recipe` `[{stockItemId, quantity}]` (see stock) |
 | GET/POST/PUT | `/outlets/{outletId}/categories` | read: staff; write: manager / FULL | new: categories with sort order (menu items keep `category` by name) |
 | — | outlets | | an outlet gains `storeId` (the inventory store it draws from) |

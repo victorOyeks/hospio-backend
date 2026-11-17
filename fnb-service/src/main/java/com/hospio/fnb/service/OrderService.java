@@ -408,7 +408,11 @@ public class OrderService {
         return OrderResponse.ticket(o, all.stream().filter(x -> stationId.equals(x.getPreparedAt())).toList(), seller.getName());
     }
 
-    /** Cancel one line with a reason. Before it is sent, anyone who took the order; after, a manager or Full access on the outlet's role. */
+    /**
+     * Cancel one line with a reason. Before it is sent, anyone who took the order; after, a manager or Full access on the outlet's role.
+     * When that was the last live line of an order (not a tab), the order is cancelled with it: nothing is left to make, serve or pay,
+     * so it leaves the board instead of sitting there worth ₦0 with a Ready button (DEF-078 / DEF-085). A tab stays open for the next drink.
+     */
     @Transactional
     public OrderResponse cancelLine(String orderId, String lineId, String reason) {
         HospioUserDetails user = CurrentUser.require();
@@ -439,11 +443,26 @@ public class OrderService {
             // Rolled back: the money already taken would be more than the order is worth.
             throw new BadRequestException(naira(o.getPaidAmount()) + " is already paid on " + o.getNumber() + ". A manager refunds before taking items off");
         }
+        if (o.getKind() != Order.Kind.TAB && all.stream().noneMatch(OrderLine::isLive)) {
+            String why = "Every item was cancelled · " + reason.trim();
+            cancelled(o, user, why.length() > 300 ? why.substring(0, 300) : why);
+            orders.save(o);
+            return view(o);
+        }
         Order.Status before = o.getStatus();
         o.setStatus(LineStatus.rollup(before, statuses(all)));
         orders.save(o);
         announceReady(before, o, outlet);
         return view(o);
+    }
+
+    private static void cancelled(Order o, HospioUserDetails user, String reason) {
+        o.setStatus(Order.Status.CANCELLED);
+        o.setSettledBy("CANCELLED");
+        o.setCancelReason(reason);
+        o.setClosedAt(Instant.now());
+        o.setClosedBy(user.getUserId());
+        o.setClosedByName(user.getFullName());
     }
 
     /** Cancel the order: staff while it is OPEN with nothing sent, a manager after. Refused once settled. */
@@ -466,12 +485,7 @@ public class OrderService {
         } else if (!OutletAccess.manager(user)) {
             throw new ForbiddenException("Cancelling an order already sent needs a manager");
         }
-        o.setStatus(Order.Status.CANCELLED);
-        o.setSettledBy("CANCELLED");
-        o.setCancelReason(reason.trim());
-        o.setClosedAt(Instant.now());
-        o.setClosedBy(user.getUserId());
-        o.setClosedByName(user.getFullName());
+        cancelled(o, user, reason.trim());
         orders.save(o);
         return view(o);
     }
