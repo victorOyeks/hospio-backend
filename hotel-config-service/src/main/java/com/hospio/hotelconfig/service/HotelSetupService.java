@@ -104,8 +104,13 @@ public class HotelSetupService {
         SetupSection sent = readSent(objectMapper, typeOf(sec), body);
         if (sent instanceof SetupSection.Payments p) {
             // Who pays the Hospio fee is the owner's decision; the fee rate is never stored here (it is the business's, read live).
+            // A manager saving the section sends the switch as it is; only changing it needs the owner.
             if (p.guestPaysPlatformFee() != null && !caller.isPlatform() && !caller.has(Role.OWNER)) {
-                throw new ForbiddenException("Only the owner decides whether guests pay the Hospio fee");
+                SetupSection current = section(TenantContext.requireHotel(), SetupCatalogue.PAYMENTS);
+                boolean now = current instanceof SetupSection.Payments c && Boolean.TRUE.equals(c.guestPaysPlatformFee());
+                if (now != p.guestPaysPlatformFee()) {
+                    throw new ForbiddenException("Only the owner decides whether guests pay the Hospio fee");
+                }
             }
             sent = p.withPlatformFeePct(null);
         }
