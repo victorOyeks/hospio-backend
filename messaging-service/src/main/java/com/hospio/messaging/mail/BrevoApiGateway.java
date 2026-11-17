@@ -62,8 +62,8 @@ public class BrevoApiGateway implements SmtpGateway {
                 String why = a.message() != null ? a.message() : a.code() != null ? a.code() : "HTTP " + res.statusCode();
                 return IntegrationTestResult.failed("Brevo refused the key (" + res.statusCode() + "): " + why.replace(apiKey, "***"));
             }
-            return IntegrationTestResult.ok("Brevo accepted the key: account " + (a.email() == null ? "?" : a.email())
-                    + (a.companyName() == null ? "" : " (" + a.companyName() + ")"));
+            // The account's own email address is not shown (Support can see this text).
+            return IntegrationTestResult.ok("Brevo account OK");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return IntegrationTestResult.failed("Interrupted");
