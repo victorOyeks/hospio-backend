@@ -90,8 +90,12 @@ public class DeliveryComposer {
      * same short text as its SMS fallback (docs/sms-whatsapp.md).
      */
     public Delivery forPhoneCode(UserAccount user, String code, Instant expiresAt, boolean whatsApp) {
-        String text = "Your Hospio360 code is " + code + ". It works for the next "
-                + Math.max(1, java.time.Duration.between(Instant.now(), expiresAt).toMinutes()) + " minutes. Don't share it.";
+        // Word for word the code template registered with Termii (and the SMS fallback): "Your {{Company Name}} verification code is
+        // {{OTP}}. This code expires in 10 minutes. Do not share with anyone." The minutes are the code's own, rounded up.
+        long seconds = Math.max(0, java.time.Duration.between(Instant.now(), expiresAt).getSeconds());
+        long minutes = Math.max(1, (seconds + 59) / 60);
+        String text = "Your Hospio360 verification code is " + code + ". This code expires in " + minutes + (minutes == 1 ? " minute" : " minutes")
+                + ". Do not share with anyone.";
         return whatsApp
                 ? Delivery.whatsApp(user.getPhone(), "Your Hospio360 code", text, Delivery.Kind.PHONE_CODE, user.getId())
                         .withTemplate("oyeks_otp", List.of(code))
