@@ -58,6 +58,8 @@ class DeliveryComposerTest {
         assertThat(code.channel()).isEqualTo(Delivery.Channel.SMS);
         assertThat(code.kind()).isEqualTo(Delivery.Kind.PHONE_CODE);
         assertThat(code.text()).contains("123456");
+        // Word for word the template registered with Termii.
+        assertThat(code.text()).isEqualTo("Your Hospio360 verification code is 123456. This code expires in 10 minutes. Do not share with anyone.");
     }
 
     @Test
