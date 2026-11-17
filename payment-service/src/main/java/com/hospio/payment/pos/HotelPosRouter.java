@@ -80,14 +80,15 @@ public class HotelPosRouter {
                 return Optional.empty();
             }
             return Optional.of(new WebhookResult(a.data().orderNo() == null ? providerRef : a.data().orderNo(), paymentId,
-                    opayOutcome(a.data().status()), a.data().amount(), a.data().status()));
+                    opayOutcome(a.data().status()), a.data().amount(), a.data().status(), declineReason(null, null, a.data().status())));
         }
         ProviderDtos.MoniepointStatus s = moniepoint.status(c.moniepoint(), ourRef(paymentId));
         if (s == null) {
             return Optional.empty();
         }
         return Optional.of(new WebhookResult(providerRef, paymentId, moniepointOutcome(s.processingStatus(), s.responseCode()),
-                kobo(s.actualAmount() != null ? s.actualAmount() : s.requestAmount()), s.processingStatus()));
+                kobo(s.actualAmount() != null ? s.actualAmount() : s.requestAmount()), s.processingStatus(),
+                declineReason(s.responseMessage(), s.responseCode(), s.processingStatus())));
     }
 
     // ---- webhooks ------------------------------------------------------------------------------------
@@ -107,7 +108,7 @@ public class HotelPosRouter {
         for (HotelPosService.Credentials c : hotels.all(HotelPosService.OPAY)) {
             ProviderDtos.OpayOrderData d = opay.openWebhook(c.opay(), env);
             if (d != null) {
-                return Optional.of(new WebhookResult(d.orderNo(), paymentId(d.outOrderNo()), opayOutcome(d.status()), d.amount(), d.status()));
+                return Optional.of(new WebhookResult(d.orderNo(), paymentId(d.outOrderNo()), opayOutcome(d.status()), d.amount(), d.status(), declineReason(null, null, d.status())));
             }
         }
         log.warn("OPay webhook not opened by any hotel's keys (signature or key mismatch)");
@@ -147,7 +148,9 @@ public class HotelPosRouter {
             case "PENDING" -> Outcome.UNKNOWN;
             default -> Outcome.DECLINED;
         };
-        return Optional.of(new WebhookResult(w.data().merchantReference(), paymentId, outcome, kobo(w.data().amount()), st));
+        log.info("Moniepoint webhook for payment {}: status {}, code {}, message {}", paymentId, st, w.data().responseCode(), w.data().responseMessage());
+        return Optional.of(new WebhookResult(w.data().merchantReference(), paymentId, outcome, kobo(w.data().amount()), st,
+                declineReason(w.data().responseMessage(), w.data().responseCode(), st)));
     }
 
     // ---- mapping -------------------------------------------------------------------------------------
@@ -168,6 +171,49 @@ public class HotelPosRouter {
             case "PROCESSED" -> "00".equals(responseCode) ? Outcome.APPROVED : Outcome.DECLINED;
             case "CANCELLED", "EXPIRED" -> Outcome.DECLINED;
             default -> Outcome.UNKNOWN;
+        };
+    }
+
+    /**
+     * The desk's words for why a payment didn't go through: the provider's message when it gave one ("Insufficient funds"), else the
+     * card-scheme meaning of its response code, else what its status says. Null when there's nothing to say (the caller's default).
+     */
+    static String declineReason(String message, String responseCode, String status) {
+        if (message != null && !message.isBlank() && !"approved".equalsIgnoreCase(message.trim()) && !"successful".equalsIgnoreCase(message.trim())) {
+            String m = message.trim();
+            return Character.toUpperCase(m.charAt(0)) + m.substring(1);
+        }
+        String byCode = responseCode == null ? null : switch (responseCode.trim()) {
+            case "00" -> null;
+            case "01", "02" -> "Refer to the card's bank";
+            case "03" -> "Invalid merchant";
+            case "04", "07", "41", "43" -> "Card restricted by the bank (pick-up card)";
+            case "05" -> "Do not honour: the bank declined the card";
+            case "06", "96" -> "System error at the bank";
+            case "12" -> "Invalid transaction";
+            case "13" -> "Invalid amount";
+            case "14" -> "Invalid card number";
+            case "15" -> "No such bank (issuer)";
+            case "51" -> "Insufficient funds";
+            case "54" -> "Expired card";
+            case "55" -> "Incorrect PIN";
+            case "57", "58" -> "Transaction not allowed on this card";
+            case "61" -> "Exceeds the card's withdrawal limit";
+            case "62" -> "Restricted card";
+            case "65" -> "Exceeds the card's daily transaction count";
+            case "75" -> "Too many wrong PIN attempts";
+            case "91" -> "The card's bank is unavailable";
+            default -> responseCode.isBlank() ? null : "Declined by the bank (code " + responseCode.trim() + ")";
+        };
+        if (byCode != null) {
+            return byCode;
+        }
+        String s = status == null ? "" : status.toUpperCase(Locale.ROOT);
+        return switch (s) {
+            case "CANCELLED", "CLOSED" -> "Cancelled on the POS";
+            case "EXPIRED" -> "Timed out on the POS: no card or transfer was made";
+            case "FAIL", "FAILED", "DECLINED" -> "Failed at the provider";
+            default -> null;
         };
     }
 

@@ -24,6 +24,13 @@ public interface PosProvider {
 
     enum Outcome { APPROVED, DECLINED, NO_RESPONSE, TERMINAL_OFFLINE, UNKNOWN }
 
-    record WebhookResult(String providerRef, String paymentRequestId, Outcome outcome, BigDecimal amount, String rawStatus) {
+    /**
+     * What the provider says about a payment. {@code reason} is the provider's own words for a decline or failure ("Insufficient
+     * funds"), shown to the desk; null when it gave none.
+     */
+    record WebhookResult(String providerRef, String paymentRequestId, Outcome outcome, BigDecimal amount, String rawStatus, String reason) {
+        public WebhookResult(String providerRef, String paymentRequestId, Outcome outcome, BigDecimal amount, String rawStatus) {
+            this(providerRef, paymentRequestId, outcome, amount, rawStatus, null);
+        }
     }
 }

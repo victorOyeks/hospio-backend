@@ -129,4 +129,48 @@ class PosProvidersTest {
         assertThat(FeeDebitService.payout(new OpayApi.Answer<>("00000", "OK",
                 new ProviderDtos.OpayPayoutData("m", "HF-1", "OP9", 1L, 0L, "FAILED", "limit")), BigDecimal.ONE).status()).isEqualTo("FAILED");
     }
+
+    @Test
+    void declineReasonsUseTheProvidersWordsElseTheCodeElseTheStatus() {
+        assertThat(HotelPosRouter.declineReason("insufficient funds", "51", "PROCESSED")).isEqualTo("Insufficient funds");
+        assertThat(HotelPosRouter.declineReason(null, "51", "PROCESSED")).isEqualTo("Insufficient funds");
+        assertThat(HotelPosRouter.declineReason(" ", "55", "PROCESSED")).isEqualTo("Incorrect PIN");
+        assertThat(HotelPosRouter.declineReason(null, "Z9", "PROCESSED")).isEqualTo("Declined by the bank (code Z9)");
+        assertThat(HotelPosRouter.declineReason("Approved", "00", "PROCESSED")).isNull();
+        assertThat(HotelPosRouter.declineReason(null, null, "EXPIRED")).isEqualTo("Timed out on the POS: no card or transfer was made");
+        assertThat(HotelPosRouter.declineReason(null, null, "CANCELLED")).isEqualTo("Cancelled on the POS");
+        assertThat(HotelPosRouter.declineReason(null, null, "PENDING")).isNull();
+    }
+
+    @Test
+    void moniepointStatusAndPushRefusalsComeBackInMoniepointsWords() throws Exception {
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/transactions/merchants/", ex -> {
+            byte[] b = "{\"merchantReference\":\"abc\",\"processingStatus\":\"PROCESSED\",\"responseCode\":\"51\",\"responseMessage\":\"Insufficient Funds\",\"requestAmount\":10000}"
+                    .getBytes(StandardCharsets.UTF_8);
+            ex.getResponseHeaders().add("Content-Type", "application/json");
+            ex.sendResponseHeaders(200, b.length);
+            ex.getResponseBody().write(b);
+            ex.close();
+        });
+        server.createContext("/v1/transactions", ex -> {
+            byte[] b = "{\"message\":\"Terminal not found\"}".getBytes(StandardCharsets.UTF_8);
+            ex.getResponseHeaders().add("Content-Type", "application/json");
+            ex.sendResponseHeaders(400, b.length);
+            ex.getResponseBody().write(b);
+            ex.close();
+        });
+        server.start();
+        try {
+            MoniepointApi api = new MoniepointApi("http://127.0.0.1:" + server.getAddress().getPort());
+            MoniepointApi.Keys keys = new MoniepointApi.Keys("mp_test", "whsec");
+            ProviderDtos.MoniepointStatus st = api.status(keys, "abc");
+            assertThat(HotelPosRouter.moniepointOutcome(st.processingStatus(), st.responseCode())).isEqualTo(Outcome.DECLINED);
+            assertThat(HotelPosRouter.declineReason(st.responseMessage(), st.responseCode(), st.processingStatus())).isEqualTo("Insufficient Funds");
+            assertThatThrownBy(() -> api.push(keys, "P123", new BigDecimal("100"), "abc"))
+                    .isInstanceOf(IllegalStateException.class).hasMessage("Moniepoint refused the payment: Terminal not found");
+        } finally {
+            server.stop(0);
+        }
+    }
 }

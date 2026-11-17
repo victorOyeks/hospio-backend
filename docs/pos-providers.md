@@ -75,3 +75,16 @@ The protocols below are ported from StationMagBackend (`service/PaymentService.j
 - OPay's payout API moves money **out of the merchant's own account** using the merchant's keys. With the hotel's consent, that could serve as the debit, sending the fee to Hospio's account, but it isn't confirmed for this use.
 - Each provider's debit is configured on the server: `FEE_DEBIT_OPAY_URL`, `FEE_DEBIT_MONIEPOINT_URL`, and the account Hospio is paid into.
 - An admin can switch debit on for a hotel only when its provider is configured. Until then the hotel runs in shadow mode: statements every day, no debit.
+
+## Decline reasons and logs
+
+- A decline or failure carries the provider's reason to the payment's `failureReason`, which the desk sees on the take-payment
+  screen and in My payments. Moniepoint: `responseMessage` from the status check or webhook; when that is empty, the card-scheme
+  meaning of `responseCode` (51 Insufficient funds, 55 Incorrect PIN, 54 Expired card, …); else the status (EXPIRED → timed out,
+  CANCELLED → cancelled on the POS). OPay gives only a status. `HotelPosRouter.declineReason` does the mapping.
+- A 4xx on Moniepoint's push is Moniepoint refusing the request: the payment fails with Moniepoint's message and the terminal stays
+  online. A 5xx or timeout still marks the terminal offline.
+- Every outbound call is logged by payment-service, without keys: Moniepoint push (`->` terminal, kobo, reference; `<-` HTTP
+  status, time, body) and status (status, code, message); OPay path, payload record, and the answer's code, message and data.
+- Waiting card and transfer payments are checked with the provider every 15 s (`hospio.payments.pending-check-ms`), from 10 s
+  after sending up to 30 minutes.

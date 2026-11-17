@@ -291,7 +291,7 @@ public class PaymentService {
             }
             switch (result.outcome()) {
                 case APPROVED -> approve(p, result.providerRef(), provider);
-                case DECLINED -> decline(p, "Declined at the POS");
+                case DECLINED -> decline(p, result.reason() == null ? "Declined at the POS" : result.reason());
                 case NO_RESPONSE -> {
                     p.setStatus(PaymentStatus.NO_RESPONSE);
                     p.setFailureReason("No response from the POS");
@@ -337,7 +337,7 @@ public class PaymentService {
             if (result.outcome() == PosProvider.Outcome.APPROVED) {
                 approve(p, result.providerRef(), p.getProvider());
             } else {
-                decline(p, "Failed at the POS");
+                decline(p, result.reason() == null ? "Failed at the POS" : result.reason());
             }
             return PaymentResponse.of(p);
         });

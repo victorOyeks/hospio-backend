@@ -284,6 +284,34 @@ class PaymentServiceTest {
     }
 
     @Test
+    void aDeclineCarriesTheProvidersReasonToTheDesk() {
+        com.hospio.common.integrations.PosProvider pos = mock(com.hospio.common.integrations.PosProvider.class);
+        when(pos.query("LOG-1")).thenReturn(Optional.of(new com.hospio.common.integrations.PosProvider.WebhookResult("LOG-1", "p1",
+                com.hospio.common.integrations.PosProvider.Outcome.DECLINED, new BigDecimal("100"), "PROCESSED", "Insufficient funds")));
+        PaymentService verifying = new PaymentService(payments, receipts, terminals, pos, hotelConfig, events, reservations, folios, hotelPos, hotelPosConfig, fnb,
+                new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)));
+        when(payments.findById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.PROCESSING)));
+        when(payments.lockById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.PROCESSING)));
+
+        PaymentResponse r = verifying.verify("p1");
+
+        assertThat(r.status()).isEqualTo(PaymentStatus.DECLINED);
+        assertThat(r.failureReason()).isEqualTo("Insufficient funds");
+    }
+
+    @Test
+    void aWebhookDeclineWithoutAReasonSaysDeclinedAtThePos() {
+        com.hospio.payment.entity.PaymentRequest waiting = card("p1", PaymentStatus.PROCESSING);
+        when(payments.lockById("p1")).thenReturn(Optional.of(waiting));
+
+        service.applyWebhook("moniepoint", new com.hospio.common.integrations.PosProvider.WebhookResult("R1", "p1",
+                com.hospio.common.integrations.PosProvider.Outcome.DECLINED, new BigDecimal("100"), "FAILED"));
+
+        assertThat(waiting.getStatus()).isEqualTo(PaymentStatus.DECLINED);
+        assertThat(waiting.getFailureReason()).isEqualTo("Declined at the POS");
+    }
+
+    @Test
     void aRetriedWebhookForAnApprovedPaymentPublishesNothing() {
         when(payments.lockById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.APPROVED)));
 
