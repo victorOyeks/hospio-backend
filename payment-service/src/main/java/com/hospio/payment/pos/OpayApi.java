@@ -118,9 +118,19 @@ public class OpayApi {
         String paramContent = encryptJson(payload, publicKey(k.opayPublicKey()));
         String sign = sign(paramContent + timestamp, privateKey(k.merchantPrivateKey()));
         ProviderDtos.OpayRequest body = new ProviderDtos.OpayRequest(paramContent, sign);
-        String raw = http().post().uri(path).header("Content-Type", "application/json").header("version", "V1.0.1").header("bodyFormat", "JSON")
-                .header("clientAuthKey", k.clientAuthKey()).header("timestamp", String.valueOf(timestamp)).body(body).retrieve().body(String.class);
+        // The payload records hold references, amounts, terminal and merchant ids only: logged as they are, never the keys.
+        log.info("OPay {} -> {}", path, payload);
+        long started = System.currentTimeMillis();
+        String raw;
+        try {
+            raw = http().post().uri(path).header("Content-Type", "application/json").header("version", "V1.0.1").header("bodyFormat", "JSON")
+                    .header("clientAuthKey", k.clientAuthKey()).header("timestamp", String.valueOf(timestamp)).body(body).retrieve().body(String.class);
+        } catch (RuntimeException e) {
+            log.warn("OPay {} failed after {} ms: {}", path, System.currentTimeMillis() - started, e.toString());
+            throw e;
+        }
         if (raw == null || raw.isBlank()) {
+            log.warn("OPay {} <- empty answer in {} ms", path, System.currentTimeMillis() - started);
             throw new IllegalStateException("OPay answered nothing");
         }
         ProviderDtos.OpayEnvelope env;
@@ -137,6 +147,7 @@ public class OpayApi {
                 log.warn("OPay {} answer couldn't be decrypted: {}", path, e.getMessage());
             }
         }
+        log.info("OPay {} <- in {} ms: code {}, message {}, data {}", path, System.currentTimeMillis() - started, env.code(), env.message(), data);
         return new Answer<>(env.code(), env.message(), data);
     }
 

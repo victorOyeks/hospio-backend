@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * A card payment waits at the POS until the provider's webhook says approved or declined. Should a webhook be late or lost,
- * every 30 seconds the backend asks the provider itself about card payments still waiting that were sent 20 seconds to 30
+ * every 15 seconds the backend asks the provider itself about card and transfer payments still waiting that were sent 10 seconds to 30
  * minutes ago ({@link PaymentService#verify}), so the folio, the desk's screen (which only ever asks our backend, every 4
  * seconds) and My payments catch up without anyone pressing anything. The development "logging" provider has nothing to
  * ask, so the job does nothing there. One instance runs it at a time (SingleInstanceScheduling).
@@ -30,7 +30,7 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(name = "hospio.worker.enabled", havingValue = "true", matchIfMissing = true)
 public class PendingPaymentCheckJob {
 
-    static final Duration SETTLE = Duration.ofSeconds(20);
+    static final Duration SETTLE = Duration.ofSeconds(10);
     static final Duration GIVE_UP = Duration.ofMinutes(30);
     static final List<PaymentStatus> WAITING = List.of(PaymentStatus.PENDING, PaymentStatus.PROCESSING);
     /** Both go to the POS (the guest picks card or transfer on the terminal). */
@@ -51,7 +51,7 @@ public class PendingPaymentCheckJob {
         this.hotelPos = hotelPos;
     }
 
-    @Scheduled(fixedDelayString = "${hospio.payments.pending-check-ms:30000}", initialDelayString = "${hospio.payments.pending-check-ms:30000}")
+    @Scheduled(fixedDelayString = "${hospio.payments.pending-check-ms:15000}", initialDelayString = "${hospio.payments.pending-check-ms:15000}")
     public void run() {
         if ("logging".equals(provider.name()) && !hotelPos.anyConfigured()) {
             return;

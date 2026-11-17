@@ -13,7 +13,7 @@ How a card payment travels, and what is real today.
    every 4 seconds and switches to approved or declined as soon as the backend knows. After 3 minutes without an answer it
    stops the spinner ("Still waiting for the POS") with **Check again** and **Continue to receipt**; the folio still updates
    on its own later. The browser never talks to the provider.
-5. **A late or lost webhook** is caught up by the backend: `PendingPaymentCheckJob` (every 30 s) asks the provider about card
+5. **A late or lost webhook** is caught up by the backend: `PendingPaymentCheckJob` (every 15 s, from 10 s after sending) asks the provider about card
    payments still PENDING / PROCESSING that were sent 20 seconds to 30 minutes ago (`PaymentService.verify`).
 
 ## Providers (`POS_PROVIDER`)
