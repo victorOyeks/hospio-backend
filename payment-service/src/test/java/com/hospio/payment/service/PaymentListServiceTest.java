@@ -26,7 +26,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 class PaymentListServiceTest {
 
     final PaymentListService service = new PaymentListService(mock(PaymentListQuery.class), mock(PaymentRequestRepository.class),
-            mock(RefundRepository.class), mock(DisputeRepository.class));
+            mock(RefundRepository.class), mock(DisputeRepository.class), mock(TerminalService.class));
 
     @AfterEach
     void clear() {

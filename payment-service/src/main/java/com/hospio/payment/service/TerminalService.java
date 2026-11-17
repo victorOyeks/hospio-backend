@@ -97,6 +97,24 @@ public class TerminalService {
         return t;
     }
 
+    /** A terminal's name, or null when there's no terminal (cash) or it was removed. */
+    public String nameOf(String terminalId) {
+        return terminalId == null ? null : terminals.findById(terminalId).map(PosTerminal::getName).orElse(null);
+    }
+
+    /** Names of a hotel's terminals by id, for lists. */
+    public java.util.Map<String, String> namesFor(java.util.Collection<String> terminalIds) {
+        java.util.Map<String, String> names = new java.util.HashMap<>();
+        terminals.findAllById(terminalIds.stream().filter(java.util.Objects::nonNull).distinct().toList())
+                .forEach(t -> names.put(t.getId(), t.getName()));
+        return names;
+    }
+
+    /** The terminal the desk picked, when it is one of this hotel's. */
+    public Optional<PosTerminal> picked(String hotelId, String terminalId) {
+        return terminals.findById(terminalId).filter(t -> hotelId.equals(t.getHotelId()));
+    }
+
     PosTerminal find(String id) {
         return terminals.findById(id).orElseThrow(() -> new ResourceNotFoundException("Terminal not found"));
     }

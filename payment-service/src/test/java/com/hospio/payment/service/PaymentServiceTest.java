@@ -148,6 +148,31 @@ class PaymentServiceTest {
     }
 
     @Test
+    void thePosTheDeskPickedIsUsedAndNamed() {
+        PosTerminal roles = PosTerminal.builder().name("Bar POS").provider("logging").terminalRef("T1").build();
+        roles.setId("t1");
+        PosTerminal picked = PosTerminal.builder().name("Lobby POS").provider("logging").terminalRef("T2").build();
+        picked.setId("t2");
+        when(terminals.forRole("h1", Role.BAR)).thenReturn(Optional.of(roles));
+        when(terminals.picked("h1", "t2")).thenReturn(Optional.of(picked));
+
+        PaymentResponse p = service.request(new PaymentRequestDto(PaymentMethod.CARD, new BigDecimal("6000"), null, "bk1", "Ada", null, null,
+                "Balance", null, null, null, "t2"));
+
+        assertThat(p.terminalId()).isEqualTo("t2");
+        assertThat(p.terminalName()).isEqualTo("Lobby POS");
+    }
+
+    @Test
+    void anotherHotelsPosIsRefused() {
+        when(terminals.picked("h1", "elsewhere")).thenReturn(Optional.empty());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CARD, new BigDecimal("6000"),
+                        null, "bk1", "Ada", null, null, "Balance", null, null, null, "elsewhere")))
+                .isInstanceOf(com.hospio.common.exception.BadRequestException.class).hasMessage("That POS isn't one of this hotel's. Pick another");
+    }
+
+    @Test
     void aTransferWithoutAPosIsRefusedLikeACard() {
         when(terminals.forRole("h1", Role.BAR)).thenReturn(Optional.empty());
 

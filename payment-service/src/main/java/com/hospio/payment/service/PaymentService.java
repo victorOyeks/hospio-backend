@@ -31,6 +31,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -80,7 +81,8 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public PaymentResponse get(String id) {
-        return PaymentResponse.of(find(id));
+        PaymentRequest found = find(id);
+        return PaymentResponse.of(found, terminals.nameOf(found.getTerminalId()));
     }
 
     @Transactional(readOnly = true)
@@ -144,7 +146,7 @@ public class PaymentService {
         }
         // Card and bank transfer both go to the POS: the terminal asks the guest which (Moniepoint and OPay take either on the
         // same request), and the payment is approved when the provider confirms it.
-        return sendToPos(p, role, hotelId);
+        return sendToPos(p, role, hotelId, blankToNull(dto.terminalId()));
     }
 
     /** The requested desk when the caller holds it, else the first of {@link #ROLE_PREFERENCE} they hold. */
@@ -218,11 +220,15 @@ public class PaymentService {
                 .guestPhone(old.getGuestPhone()).guestEmail(old.getGuestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
                 .role(old.getRole()).method(old.getMethod()).amount(old.getAmount()).description(old.getDescription())
                 .receiptPreference(old.getReceiptPreference()).build();
-        return sendToPos(p, old.getRole(), hotelId);
+        // The retry goes to the same POS as the first attempt.
+        return sendToPos(p, old.getRole(), hotelId, old.getTerminalId());
     }
 
-    private PaymentResponse sendToPos(PaymentRequest p, Role role, String hotelId) {
-        PosTerminal terminal = terminals.forRole(hotelId, role)
+    private PaymentResponse sendToPos(PaymentRequest p, Role role, String hotelId, String terminalId) {
+        // The POS the desk picked (one of this hotel's), else the one assigned to the desk's role.
+        PosTerminal terminal = (terminalId != null
+                ? Optional.of(terminals.picked(hotelId, terminalId).orElseThrow(() -> new BadRequestException("That POS isn't one of this hotel's. Pick another")))
+                : terminals.forRole(hotelId, role))
                 .orElseThrow(() -> new BadRequestException("No POS is assigned to " + role.name().toLowerCase().replace('_', ' ') + ". Take cash or ask a manager to assign one in Hotel setup"));
         if (terminal.getStatus() != PosTerminal.Status.ONLINE) {
             throw new BadRequestException("The POS " + terminal.getName() + " is offline. Cash only until it is back");
@@ -260,7 +266,7 @@ public class PaymentService {
         payments.save(p);
         events.publish(KafkaTopics.PAYMENT_REQUESTED, PaymentRequestedEvent.builder().paymentId(p.getId()).folioId(p.getFolioId())
                 .bookingId(p.getBookingId()).amount(p.getAmount()).method(p.getMethod().name()).role(role.name()).terminalId(terminal.getId()).build());
-        return PaymentResponse.of(p);
+        return PaymentResponse.of(p, terminal.getName());
     }
 
     /** The provider's webhook (Moniepoint/OPay). Public endpoint; the provider adapter validates the body. */
