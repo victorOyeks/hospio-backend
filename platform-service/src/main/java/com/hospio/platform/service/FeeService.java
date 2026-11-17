@@ -94,8 +94,9 @@ public class FeeService {
     @Transactional
     public FeeRule saveRule(PlatformRequests.FeeRuleRequest request) {
         String model = request.model().toUpperCase(Locale.ROOT);
-        if (!Set.of(PERCENT_OF_SALES, PERCENT_OF_PAYMENTS, PER_ROOM_NIGHT, PERCENT_OF_BOOKINGS).contains(model)) {
-            throw new BadRequestException("Fee model must be PERCENT_OF_SALES, PERCENT_OF_PAYMENTS, PER_ROOM_NIGHT or PERCENT_OF_BOOKINGS");
+        // One fee model: a share of daily sales, debited daily. The others remain only in old rules and statements.
+        if (!PERCENT_OF_SALES.equals(model)) {
+            throw new BadRequestException("Hospio360 has one fee model: a share of daily sales, debited daily (PERCENT_OF_SALES)");
         }
         if (request.value().signum() < 0) {
             throw new BadRequestException("The fee value cannot be negative");

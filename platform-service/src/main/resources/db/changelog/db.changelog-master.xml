@@ -19,5 +19,6 @@
     <include file="db/changelog/007-activity-six-months.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/008-daily-fees.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/009-integration-settings.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/010-one-fee-model.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

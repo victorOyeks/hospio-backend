@@ -169,10 +169,17 @@ public final class Fields {
         return v == null ? "" : v.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
-    /** The fee value for a model: required, 0 to 100 for a percentage (two decimals at most), 0 to ₦1,000,000 per room night. */
+    /**
+     * The fee: Hospio360 has one model, a share of each day's sales debited daily (PERCENT_OF_SALES); only the rate varies. The
+     * other models stay in the enum for businesses' history and are refused for anything new. The share is required, 0 to 100,
+     * two decimals at most.
+     */
     public static BigDecimal fee(Business.FeeModel model, BigDecimal value) {
         if (model == null) {
             throw new BadRequestException("Choose the fee model");
+        }
+        if (model != Business.FeeModel.PERCENT_OF_SALES) {
+            throw new BadRequestException("Hospio360 has one fee model: a share of daily sales, debited daily (PERCENT_OF_SALES)");
         }
         if (value == null) {
             throw new BadRequestException(model == Business.FeeModel.PER_ROOM_NIGHT ? "Enter the fee per room night" : "Enter the share (%)");
