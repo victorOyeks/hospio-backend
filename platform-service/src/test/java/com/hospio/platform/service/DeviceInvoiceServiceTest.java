@@ -244,4 +244,25 @@ class DeviceInvoiceServiceTest {
                 businessId == null ? JwtUtil.SCOPE_PLATFORM : JwtUtil.SCOPE_HOTEL);
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(u, null, u.getAuthorities()));
     }
+
+    @Test
+    void aStoppedDataPlanIsNotBilledFromItsStopDayAndARestartSkipsTheGap() {
+        // Installed 100 days ago: months 0..3 are due by today. Stopped from month 1, restarted from month 3.
+        DevicePackage p = DevicePackage.builder().businessId("b1").hotelId(HOTEL).hotelName("Simpas Ikeja").status(DevicePackage.PAID_OFF)
+                .paymentOption(DevicePackage.ONE_TIME).total(new BigDecimal("65000")).paid(new BigDecimal("65000"))
+                .dataPlanMonthly(new BigDecimal("30000")).installedAt(TODAY.minusDays(100)).build();
+        p.setId("pk9");
+        p.setDataPlanStoppedOn(TODAY.minusDays(100).plusMonths(1));
+        when(packages.findByStatusInOrderByUpdatedAtDesc(any())).thenReturn(List.of(p));
+        when(invoices.findByHotelIdAndStatusIn(eq(HOTEL), any())).thenReturn(List.of());
+        service.issue(TODAY);
+        assertThat(saved).extracting(DeviceInvoice::getSequence).containsExactly(1);
+
+        saved.clear();
+        p.setDataPlanStoppedOn(null);
+        p.setDataPlanFrom(TODAY.minusDays(100).plusMonths(3));
+        when(invoices.existsByPackageIdAndKindAndSequence("pk9", DeviceInvoice.DATA_PLAN, 1)).thenReturn(true);
+        service.issue(TODAY);
+        assertThat(saved).extracting(DeviceInvoice::getSequence).as("months 2 and 3 were stopped").containsExactly(4);
+    }
 }

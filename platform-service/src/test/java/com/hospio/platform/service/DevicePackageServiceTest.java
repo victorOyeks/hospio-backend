@@ -252,4 +252,84 @@ class DevicePackageServiceTest {
         when(packages.lockById("pk1")).thenReturn(Optional.of(installed("TRANSACTION", "425000", "1000")));
         assertThatThrownBy(() -> service.cancel("pk1")).hasMessageContaining("can't be cancelled");
     }
+
+    // ---- the data plan after installation ---------------------------------------------------------------
+
+    private DevicePackage withPlan(LocalDate installed) {
+        DevicePackage p = installed("TRANSACTION", "425000", "0");
+        p.setInstalledAt(installed);
+        p.setDataPlanMonthly(new BigDecimal("30000"));
+        when(packages.lockById("pk1")).thenReturn(Optional.of(p));
+        return p;
+    }
+
+    @Test
+    void stoppingTheDataPlanStopsBillingFromTheNextDueDayAndStartingResumesFromTheNextOne() {
+        DevicePackage p = withPlan(TODAY.minusDays(40));
+        DevicePackageService.PackageView v = service.setDataPlan("pk1", new DevicePackageService.DataPlanRequest("STOP", null));
+        LocalDate next = TODAY.minusDays(40).plusMonths(2);
+        assertThat(p.getDataPlanStoppedOn()).isEqualTo(next.isAfter(TODAY) ? next : TODAY.minusDays(40).plusMonths(3));
+        assertThat(v.dataPlanRunning()).isFalse();
+        assertThat(p.dataPlanBills(TODAY.minusDays(40).plusMonths(1))).as("already invoiced months stay").isTrue();
+        assertThat(p.dataPlanBills(p.getDataPlanStoppedOn())).isFalse();
+        assertThatThrownBy(() -> service.setDataPlan("pk1", new DevicePackageService.DataPlanRequest("STOP", null))).hasMessageContaining("isn't running");
+        assertThatThrownBy(() -> service.setDataPlan("pk1", new DevicePackageService.DataPlanRequest("PRICE", new BigDecimal("35000"))))
+                .hasMessageContaining("Start the data plan");
+
+        service.setDataPlan("pk1", new DevicePackageService.DataPlanRequest("START", new BigDecimal("35000")));
+        assertThat(p.dataPlanRunning()).isTrue();
+        assertThat(p.getDataPlanMonthly()).isEqualByComparingTo("35000");
+        assertThat(p.getDataPlanFrom()).isAfterOrEqualTo(TODAY);
+        assertThat(p.dataPlanBills(TODAY.minusDays(40).plusMonths(1))).as("the months it was stopped are never billed").isFalse();
+        assertThatThrownBy(() -> service.setDataPlan("pk1", new DevicePackageService.DataPlanRequest("START", null))).hasMessageContaining("already running");
+    }
+
+    @Test
+    void repricingAndItsRules() {
+        DevicePackage p = withPlan(TODAY.minusDays(10));
+        service.setDataPlan("pk1", new DevicePackageService.DataPlanRequest("PRICE", new BigDecimal("40000")));
+        assertThat(p.getDataPlanMonthly()).isEqualByComparingTo("40000");
+        assertThat(p.getDataPlanChangedByName()).isEqualTo("Amoria Nwosu");
+        assertThatThrownBy(() -> service.setDataPlan("pk1", new DevicePackageService.DataPlanRequest("PRICE", BigDecimal.ZERO))).hasMessageContaining("monthly price");
+        assertThatThrownBy(() -> service.setDataPlan("pk1", new DevicePackageService.DataPlanRequest("PRICE", new BigDecimal("-5")))).hasMessageContaining("between ₦0");
+        assertThatThrownBy(() -> service.setDataPlan("pk1", new DevicePackageService.DataPlanRequest("PAUSE", null))).hasMessageContaining("STOP, START or PRICE");
+        p.setStatus(DevicePackage.DRAFT);
+        assertThatThrownBy(() -> service.setDataPlan("pk1", new DevicePackageService.DataPlanRequest("STOP", null))).hasMessageContaining("until it is installed");
+        p.setStatus(DevicePackage.CANCELLED);
+        assertThatThrownBy(() -> service.setDataPlan("pk1", new DevicePackageService.DataPlanRequest("STOP", null))).hasMessageContaining("cancelled");
+        p.setStatus(DevicePackage.PAID_OFF);
+        service.setDataPlan("pk1", new DevicePackageService.DataPlanRequest("STOP", null));
+        assertThat(p.dataPlanRunning()).as("a paid-off package's data plan can still be stopped").isFalse();
+    }
+
+    @Test
+    void renewalsListTheSubscriptionsToRenewMostUrgentFirst() {
+        DevicePackage soon = withPlan(TODAY.minusDays(10));
+        soon.setDataPlanRenewedThrough(TODAY.plusDays(3));
+        DevicePackage never = installed("ONE_TIME", "65000", "65000");
+        never.setId("pk2");
+        never.setStatus(DevicePackage.PAID_OFF);
+        never.setDataPlanMonthly(new BigDecimal("30000"));
+        DevicePackage later = installed("ONE_TIME", "65000", "65000");
+        later.setId("pk3");
+        later.setDataPlanMonthly(new BigDecimal("30000"));
+        later.setDataPlanRenewedThrough(TODAY.plusDays(25));
+        DevicePackage stopped = installed("ONE_TIME", "65000", "65000");
+        stopped.setId("pk4");
+        stopped.setDataPlanMonthly(new BigDecimal("30000"));
+        stopped.setDataPlanStoppedOn(TODAY);
+        when(packages.findByStatusInOrderByUpdatedAtDesc(any())).thenReturn(List.of(soon, never, later, stopped));
+
+        List<DevicePackageService.RenewalView> r = service.dataPlanRenewals(7);
+
+        assertThat(r).extracting(DevicePackageService.RenewalView::packageId).containsExactly("pk2", "pk1");
+        assertThat(r.get(1).daysLeft()).isEqualTo(3);
+        assertThat(service.dataPlanRenewals(30)).extracting(DevicePackageService.RenewalView::packageId).containsExactly("pk2", "pk1", "pk3");
+
+        service.markDataPlanRenewed("pk1", new DevicePackageService.RenewedRequest(TODAY.plusDays(30)));
+        assertThat(soon.getDataPlanRenewedThrough()).isEqualTo(TODAY.plusDays(30));
+        assertThat(soon.getDataPlanRenewedByName()).isEqualTo("Amoria Nwosu");
+        assertThatThrownBy(() -> service.markDataPlanRenewed("pk1", new DevicePackageService.RenewedRequest(TODAY.minusDays(1)))).hasMessageContaining("from today");
+        assertThatThrownBy(() -> service.markDataPlanRenewed("pk1", new DevicePackageService.RenewedRequest(null))).hasMessageContaining("Enter the day");
+    }
 }

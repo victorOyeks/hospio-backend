@@ -82,7 +82,10 @@ public class DevicePackageService {
                               BigDecimal deviceRate, Integer months, BigDecimal monthlyInstalment, BigDecimal total, BigDecimal paid,
                               BigDecimal remaining, BigDecimal dataPlanMonthly, String notes, String agreedByName, Instant agreedAt,
                               LocalDate installedAt, Instant paidOffAt, List<ItemView> items, List<PaymentView> payments,
-                              BigDecimal last30Days, Integer daysLeft, LocalDate expectedFinish, Instant updatedAt) {
+                              BigDecimal last30Days, Integer daysLeft, LocalDate expectedFinish, Instant updatedAt,
+                              boolean dataPlanRunning, LocalDate dataPlanFrom, LocalDate dataPlanStoppedOn, LocalDate nextDataPlanDue,
+                              String dataPlanChangedByName, Instant dataPlanChangedAt, LocalDate dataPlanRenewedThrough, String dataPlanRenewedByName,
+                              Instant dataPlanRenewedAt) {
     }
 
     // ---- catalogue ------------------------------------------------------------------------------------
@@ -322,6 +325,122 @@ public class DevicePackageService {
         return view(p);
     }
 
+    // ---- the data plan after installation -------------------------------------------------------------
+
+    public record DataPlanRequest(String action, BigDecimal monthly) {
+    }
+
+    /**
+     * After installation the data plan can be stopped (no invoice due after today; what is invoiced stays owed), started again (from
+     * the next due day, at {@code monthly} or its last price) or repriced (invoices issued from now on). Drafts are edited as a whole.
+     */
+    public PackageView setDataPlan(String packageId, DataPlanRequest r) {
+        String action = r == null || r.action() == null ? "" : r.action().trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("STOP", "START", "PRICE").contains(action)) {
+            throw new BadRequestException("Say what to do with the data plan: STOP, START or PRICE");
+        }
+        HospioUserDetails user = CurrentUser.require();
+        LocalDate today = LocalDate.now(LAGOS);
+        DevicePackage p = tx.execute(st -> {
+            DevicePackage x = lock(packageId);
+            if (!DevicePackage.INSTALLED.equals(x.getStatus()) && !DevicePackage.PAID_OFF.equals(x.getStatus())) {
+                throw new BadRequestException(DevicePackage.DRAFT.equals(x.getStatus()) ? "Change the data plan in the package itself until it is installed"
+                        : "This package is cancelled");
+            }
+            switch (action) {
+                case "STOP" -> {
+                    if (!x.dataPlanRunning()) {
+                        throw new BadRequestException("The data plan isn't running");
+                    }
+                    // From the first due day after today: nothing more is billed; what is already invoiced stays owed.
+                    x.setDataPlanStoppedOn(x.dataPlanDueOnOrAfter(today.plusDays(1)));
+                }
+                case "START" -> {
+                    if (x.dataPlanRunning()) {
+                        throw new BadRequestException("The data plan is already running");
+                    }
+                    BigDecimal price = r.monthly() != null ? price(r.monthly(), "the data plan") : x.getDataPlanMonthly();
+                    if (price == null || price.signum() <= 0) {
+                        throw new BadRequestException("Enter the monthly price of the data plan");
+                    }
+                    x.setDataPlanMonthly(price);
+                    x.setDataPlanFrom(x.dataPlanDueOnOrAfter(today));
+                    x.setDataPlanStoppedOn(null);
+                }
+                default -> {
+                    if (!x.dataPlanRunning()) {
+                        throw new BadRequestException("Start the data plan to set its price");
+                    }
+                    BigDecimal price = price(r.monthly(), "the data plan");
+                    if (price.signum() <= 0) {
+                        throw new BadRequestException("Enter the monthly price of the data plan");
+                    }
+                    x.setDataPlanMonthly(price);
+                }
+            }
+            x.setDataPlanChangedByName(user.getFullName());
+            x.setDataPlanChangedAt(Instant.now());
+            return packages.save(x);
+        });
+        log.info("Data plan of package {} ({}): {} by {}", p.getId(), p.getHotelName(), action, user.getFullName());
+        return view(p);
+    }
+
+    public record RenewedRequest(LocalDate through) {
+    }
+
+    /** Hospio360 renewed the hotel's real data subscription with the provider (MTN, Airtel, Spectranet…) through this day. */
+    public PackageView markDataPlanRenewed(String packageId, RenewedRequest r) {
+        LocalDate today = LocalDate.now(LAGOS);
+        if (r == null || r.through() == null) {
+            throw new BadRequestException("Enter the day the provider subscription now runs to");
+        }
+        if (r.through().isBefore(today) || r.through().isAfter(today.plusDays(400))) {
+            throw new BadRequestException("The renewal date must be from today to about a year ahead");
+        }
+        HospioUserDetails user = CurrentUser.require();
+        DevicePackage p = tx.execute(st -> {
+            DevicePackage x = lock(packageId);
+            if (x.getDataPlanMonthly() == null || x.getDataPlanMonthly().signum() <= 0 || x.getInstalledAt() == null) {
+                throw new BadRequestException("This package has no installed data plan");
+            }
+            x.setDataPlanRenewedThrough(r.through());
+            x.setDataPlanRenewedByName(user.getFullName());
+            x.setDataPlanRenewedAt(Instant.now());
+            return packages.save(x);
+        });
+        return view(p);
+    }
+
+    /** One hotel's data plan for the renewals list: its next invoice and how long the real subscription still runs. */
+    public record RenewalView(String packageId, String businessId, String hotelId, String hotelName, BigDecimal monthly, LocalDate nextInvoiceDue,
+                              LocalDate renewedThrough, Integer daysLeft, String renewedByName, Instant renewedAt) {
+    }
+
+    /**
+     * Running data plans whose real subscription needs renewing within {@code days} (or was never recorded), the most urgent first:
+     * the team renews them with the provider and marks them renewed.
+     */
+    public List<RenewalView> dataPlanRenewals(int days) {
+        int window = Math.max(0, Math.min(days, 90));
+        LocalDate today = LocalDate.now(LAGOS);
+        List<RenewalView> out = new ArrayList<>();
+        for (DevicePackage p : packages.findByStatusInOrderByUpdatedAtDesc(List.of(DevicePackage.INSTALLED, DevicePackage.PAID_OFF))) {
+            if (!p.dataPlanRunning() || p.getInstalledAt() == null) {
+                continue;
+            }
+            LocalDate through = p.getDataPlanRenewedThrough();
+            if (through != null && through.isAfter(today.plusDays(window))) {
+                continue;
+            }
+            Integer left = through == null ? null : (int) java.time.temporal.ChronoUnit.DAYS.between(today, through);
+            out.add(new RenewalView(p.getId(), p.getBusinessId(), p.getHotelId(), p.getHotelName(), p.getDataPlanMonthly(), p.nextDataPlanDue(today),
+                    through, left, p.getDataPlanRenewedByName(), p.getDataPlanRenewedAt()));
+        }
+        out.sort(java.util.Comparator.comparing((RenewalView v) -> v.renewedThrough() == null ? LocalDate.MIN : v.renewedThrough()));
+        return out;
+    }
+
     // ---- the device line of the daily fee --------------------------------------------------------------
 
     /** The device line for a day: the package it collects towards, its rate and the day's fee. */
@@ -417,7 +536,10 @@ public class DevicePackageService {
         }
         return new PackageView(p.getId(), p.getBusinessId(), p.getHotelId(), p.getHotelName(), p.getStatus(), p.getPaymentOption(), p.getDeviceRate(),
                 p.getMonths(), instalment, p.getTotal(), p.getPaid(), p.remaining(), p.getDataPlanMonthly(), p.getNotes(), p.getAgreedByName(),
-                p.getAgreedAt(), p.getInstalledAt(), p.getPaidOffAt(), lines, paid, last30, daysLeft, finish, p.getUpdatedAt());
+                p.getAgreedAt(), p.getInstalledAt(), p.getPaidOffAt(), lines, paid, last30, daysLeft, finish, p.getUpdatedAt(),
+                p.dataPlanRunning(), p.getDataPlanFrom(), p.getDataPlanStoppedOn(), p.getInstalledAt() == null ? null : p.nextDataPlanDue(LocalDate.now(LAGOS)),
+                p.getDataPlanChangedByName(), p.getDataPlanChangedAt(), p.getDataPlanRenewedThrough(), p.getDataPlanRenewedByName(),
+                p.getDataPlanRenewedAt());
     }
 
     static CatalogueView catalogueView(DeviceCatalogueItem i) {

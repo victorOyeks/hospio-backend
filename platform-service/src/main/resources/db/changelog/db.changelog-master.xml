@@ -22,5 +22,6 @@
     <include file="db/changelog/010-one-fee-model.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/011-device-packages.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/012-device-invoices.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/013-data-plan-controls.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

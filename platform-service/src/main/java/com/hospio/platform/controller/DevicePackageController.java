@@ -187,4 +187,27 @@ public class DevicePackageController {
     public ApiResponse<com.hospio.platform.service.DeviceInvoiceService.InvoiceView> internalConfirm(@RequestParam String reference) {
         return ApiResponse.ok(invoices.confirm(reference));
     }
+
+    // ---- the data plan after installation -----------------------------------------------------------------------
+
+    @Operation(summary = "Stop, start again or reprice an installed package's data plan")
+    @PutMapping("/admin/device-packages/{id}/data-plan")
+    @PreAuthorize(AdminFeesController.MONEY)
+    public ApiResponse<DevicePackageService.PackageView> dataPlan(@PathVariable String id, @RequestBody DevicePackageService.DataPlanRequest r) {
+        return ApiResponse.ok("Data plan updated", devices.setDataPlan(id, r));
+    }
+
+    @Operation(summary = "Hospio360 renewed the hotel's real data subscription with the provider through a day")
+    @PostMapping("/admin/device-packages/{id}/data-plan/renewed")
+    @PreAuthorize(PLATFORM)
+    public ApiResponse<DevicePackageService.PackageView> renewed(@PathVariable String id, @RequestBody DevicePackageService.RenewedRequest r) {
+        return ApiResponse.ok("Renewal recorded", devices.markDataPlanRenewed(id, r));
+    }
+
+    @Operation(summary = "Running data plans whose real subscription needs renewing within N days (default 7)")
+    @GetMapping("/admin/devices/data-plans/renewals")
+    @PreAuthorize(PLATFORM)
+    public ApiResponse<List<DevicePackageService.RenewalView>> renewals(@RequestParam(defaultValue = "7") int days) {
+        return ApiResponse.ok(devices.dataPlanRenewals(days));
+    }
 }
