@@ -232,6 +232,12 @@ public class DailyFeeService {
         return fees.findByBusinessIdAndFeeDateBetweenOrderByFeeDateDescHotelNameAsc(user.getBusinessId(), r[0], r[1]).stream().map(this::view).toList();
     }
 
+    /** A manager's hotel (the hotel in the token, checked against the caller's hotels by the tenant filter), newest first. */
+    public List<DailyFeeView> forHotel(String hotelId, LocalDate from, LocalDate to) {
+        LocalDate[] r = range(from, to);
+        return fees.findByHotelIdAndFeeDateBetweenOrderByFeeDateDesc(hotelId, r[0], r[1]).stream().map(this::view).toList();
+    }
+
     /** Platform admins: one business, one hotel, or everything, newest first. */
     public List<DailyFeeView> forAdmin(String businessId, String hotelId, LocalDate from, LocalDate to) {
         LocalDate[] r = range(from, to);

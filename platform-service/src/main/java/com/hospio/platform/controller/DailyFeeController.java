@@ -33,6 +33,14 @@ public class DailyFeeController {
         return ApiResponse.ok(fees.forOwner(from, to));
     }
 
+    @Operation(summary = "Manager (read-only): the current hotel's daily fees (default the last 30 days), newest first, each with its sales lines")
+    @GetMapping("/fees/daily")
+    @PreAuthorize("@access.managerView()")
+    public ApiResponse<List<DailyFeeService.DailyFeeView>> hotel(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                                                @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ApiResponse.ok(fees.forHotel(com.hospio.common.tenancy.TenantContext.requireHotel(), from, to));
+    }
+
     @Operation(summary = "Admin: daily fees of a business, a hotel, or every hotel")
     @GetMapping("/admin/fees/daily")
     @PreAuthorize(AdminFeesController.MONEY)
