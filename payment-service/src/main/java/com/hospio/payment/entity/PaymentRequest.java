@@ -101,6 +101,8 @@ public class PaymentRequest extends TenantEntity {
     private Instant verifiedAt;
 
     public boolean isPendingOrProcessing() {
-        return status == PaymentStatus.PENDING || status == PaymentStatus.PROCESSING || status == PaymentStatus.NO_RESPONSE;
+        // A timed-out payment stays open to the provider: a late approval or decline still settles it.
+        return status == PaymentStatus.PENDING || status == PaymentStatus.PROCESSING || status == PaymentStatus.NO_RESPONSE
+                || status == PaymentStatus.TIMED_OUT;
     }
 }

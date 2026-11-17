@@ -337,6 +337,29 @@ class PaymentServiceTest {
     }
 
     @Test
+    void aPaymentWithNoAnswerTimesOutAndALateApprovalStillSettlesIt() {
+        com.hospio.payment.entity.PaymentRequest waiting = card("p1", PaymentStatus.PROCESSING);
+        when(payments.lockById("p1")).thenReturn(Optional.of(waiting));
+
+        assertThat(service.timeOut("p1", java.time.Duration.ofMinutes(5))).isTrue();
+        assertThat(waiting.getStatus()).isEqualTo(PaymentStatus.TIMED_OUT);
+        assertThat(waiting.getFailureReason()).isEqualTo("Timed out: no final answer from the POS within 5 minutes");
+        assertThat(service.timeOut("p1", java.time.Duration.ofMinutes(5))).as("already timed out").isFalse();
+
+        service.applyWebhook("moniepoint", new com.hospio.common.integrations.PosProvider.WebhookResult("R1", "p1",
+                com.hospio.common.integrations.PosProvider.Outcome.APPROVED, new BigDecimal("6000"), "APPROVED"));
+
+        assertThat(waiting.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        verify(events).publish(eq(KafkaTopics.PAYMENT_APPROVED), any());
+    }
+
+    @Test
+    void anAnsweredPaymentDoesNotTimeOut() {
+        when(payments.lockById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.DECLINED)));
+        assertThat(service.timeOut("p1", java.time.Duration.ofMinutes(5))).isFalse();
+    }
+
+    @Test
     void aRetriedWebhookForAnApprovedPaymentPublishesNothing() {
         when(payments.lockById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.APPROVED)));
 

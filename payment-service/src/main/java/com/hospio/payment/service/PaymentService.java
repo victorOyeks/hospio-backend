@@ -213,7 +213,8 @@ public class PaymentService {
         if (old.getMethod() != PaymentMethod.CARD && old.getMethod() != PaymentMethod.TRANSFER) {
             throw new BadRequestException("Only a card or transfer payment goes back to the POS");
         }
-        if (old.getStatus() != PaymentStatus.DECLINED && old.getStatus() != PaymentStatus.NO_RESPONSE && old.getStatus() != PaymentStatus.FAILED) {
+        if (old.getStatus() != PaymentStatus.DECLINED && old.getStatus() != PaymentStatus.NO_RESPONSE && old.getStatus() != PaymentStatus.FAILED
+                && old.getStatus() != PaymentStatus.TIMED_OUT) {
             throw new BadRequestException("Only a declined or unanswered payment can be retried");
         }
         PaymentRequest p = PaymentRequest.builder().folioId(old.getFolioId()).bookingId(old.getBookingId()).orderId(old.getOrderId()).desk(old.getDesk()).guestName(old.getGuestName())
@@ -347,6 +348,23 @@ public class PaymentService {
             }
             return PaymentResponse.of(p);
         });
+    }
+
+    /**
+     * The POS gave no final answer in time: the payment is marked timed out (locked, its status read again, so an answer that landed
+     * meanwhile wins). Answers true when it was timed out. It stays open to the provider: a late approval still settles it.
+     */
+    @Transactional
+    public boolean timeOut(String id, java.time.Duration after) {
+        PaymentRequest p = lock(id);
+        if (p.getStatus() != PaymentStatus.PENDING && p.getStatus() != PaymentStatus.PROCESSING) {
+            return false;
+        }
+        p.setStatus(PaymentStatus.TIMED_OUT);
+        p.setFailureReason("Timed out: no final answer from the POS within " + after.toMinutes() + " minutes");
+        p.setResolvedAt(Instant.now());
+        payments.save(p);
+        return true;
     }
 
     private static void checkPending(PaymentRequest p) {

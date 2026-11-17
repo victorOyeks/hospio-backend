@@ -88,3 +88,7 @@ The protocols below are ported from StationMagBackend (`service/PaymentService.j
   status, time, body) and status (status, code, message); OPay path, payload record, and the answer's code, message and data.
 - Waiting card and transfer payments are checked with the provider every 15 s (`hospio.payments.pending-check-ms`), from 10 s
   after sending up to 30 minutes.
+- **Timed out:** a card or transfer with no final answer 5 minutes after it was sent (`hospio.payments.pos-timeout-minutes`) is
+  marked `TIMED_OUT`, reason "Timed out: no final answer from the POS within 5 minutes". It stays open to the provider: the
+  15 s check keeps asking until 30 minutes, and a late approval (check or webhook) settles it as APPROVED, a late decline as
+  DECLINED. The desk can retry it on the POS.
