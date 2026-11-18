@@ -58,7 +58,7 @@ class DevicePackageServiceTest {
     private final TransactionTemplate tx = new TransactionTemplate(mock(PlatformTransactionManager.class));
     private final DeviceInvoiceRepository invoices = mock(DeviceInvoiceRepository.class);
     private final DevicePackageService service = new DevicePackageService(mock(DeviceCatalogueRepository.class), packages, items, payments, fees, tenant, tx,
-            invoices);
+            invoices, mock(LegalService.class));
     private static final LocalDate TODAY = LocalDate.now(ZoneId.of("Africa/Lagos"));
 
     @BeforeEach

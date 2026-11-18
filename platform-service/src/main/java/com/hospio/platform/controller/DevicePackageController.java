@@ -81,14 +81,24 @@ public class DevicePackageController {
         return ApiResponse.ok("Device package saved", devices.save(businessId, hotelId, r));
     }
 
-    public record InstallRequest(LocalDate installedOn) {
+    public record InstallRequest(LocalDate installedOn, String signedScheduleRef) {
+    }
+
+    public record AcceptTermsRequest(String version) {
+    }
+
+    @Operation(summary = "Owner: accept the device terms for a package before it is installed {version}")
+    @PostMapping("/owner/devices/{id}/accept-terms")
+    @PreAuthorize("hasRole('OWNER')")
+    public ApiResponse<DevicePackageService.PackageView> acceptTerms(@PathVariable String id, @RequestBody(required = false) AcceptTermsRequest r) {
+        return ApiResponse.ok("Device terms accepted", devices.acceptTerms(id, r == null ? null : r.version()));
     }
 
     @Operation(summary = "The devices are installed: collection starts that day")
     @PostMapping("/admin/device-packages/{id}/install")
     @PreAuthorize(PLATFORM)
     public ApiResponse<DevicePackageService.PackageView> install(@PathVariable String id, @RequestBody(required = false) InstallRequest r) {
-        return ApiResponse.ok("Devices marked installed", devices.install(id, r == null ? null : r.installedOn()));
+        return ApiResponse.ok("Devices marked installed", devices.install(id, r == null ? null : r.installedOn(), r == null ? null : r.signedScheduleRef()));
     }
 
     @Operation(summary = "Record money received for a device package (cash or transfer)")

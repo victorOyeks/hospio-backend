@@ -262,6 +262,54 @@ public class CommissionService {
         if (lines.isEmpty() && carriedIn.isEmpty()) {
             return null;
         }
+        return build(p, month, lines, carriedIn);
+    }
+
+    /**
+     * The ENDED marketer's final statement, made when they are ended: every line not on a statement yet (any month) and every statement
+     * carried over under the minimum, as a DRAFT approved and paid whatever the amount. Dated this month, or the month after the
+     * marketer's latest statement when that one is already made. Null when nothing is open. Emails "statement ready".
+     */
+    public MarketerStatement makeFinalStatement(String profileId) {
+        MarketerStatement s = asSystem(() -> tx.execute(st -> makeFinal(profileId, LocalDate.now(LAGOS))));
+        if (s != null) {
+            log.info("Final statement {} for ended marketer {}: payable {}", s.getMonth(), profileId, s.getPayable());
+            asSystem(() -> {
+                sendReady(s);
+                return null;
+            });
+        }
+        return s;
+    }
+
+    MarketerStatement makeFinal(String profileId, LocalDate today) {
+        MarketerProfile p = profiles.findById(profileId).orElse(null);
+        if (p == null) {
+            return null;
+        }
+        List<Commission> lines = new ArrayList<>(commissions.findByProfileIdAndStatementIdIsNullAndSourceIsNotNull(profileId));
+        lines.sort(Comparator.comparing(Commission::getEarnedOn, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(Commission::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())));
+        List<MarketerStatement> carriedIn = statements.findByProfileIdAndStatusAndCarriedToIdIsNull(profileId, MarketerStatement.CARRIED_OVER);
+        if (lines.isEmpty() && carriedIn.isEmpty()) {
+            return null;
+        }
+        String month = YearMonth.from(today).toString();
+        for (MarketerStatement prev : statements.findByProfileIdOrderByMonthDesc(profileId)) {
+            if (prev.getMonth().compareTo(month) >= 0) {
+                month = YearMonth.parse(prev.getMonth()).plusMonths(1).toString();
+            }
+            break;
+        }
+        return build(p, month, lines, carriedIn);
+    }
+
+    /**
+     * The statement for {@code lines} and {@code carriedIn}: CARRIED_OVER under the minimum, else DRAFT. An ENDED marketer's is never
+     * carried over while something is payable: it is their final statement, paid whatever the amount.
+     */
+    private MarketerStatement build(MarketerProfile p, String month, List<Commission> lines, List<MarketerStatement> carriedIn) {
+        String profileId = p.getId();
         BigDecimal base = BigDecimal.ZERO;
         BigDecimal gross = BigDecimal.ZERO;
         BigDecimal claw = BigDecimal.ZERO;
@@ -280,8 +328,10 @@ public class CommissionService {
         BigDecimal carry = carriedIn.stream().map(MarketerStatement::getPayable).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal payable = Money.of(net.add(carry));
         BigDecimal minimum = minimumPayout();
+        boolean last = "ENDED".equals(p.getStatus()) && payable.signum() > 0;
+        boolean carryOver = !last && payable.compareTo(minimum) < 0;
         MarketerStatement s = statements.save(MarketerStatement.builder().profileId(profileId).month(month)
-                .status(payable.compareTo(minimum) < 0 ? MarketerStatement.CARRIED_OVER : MarketerStatement.DRAFT).lineCount(lines.size())
+                .status(carryOver ? MarketerStatement.CARRIED_OVER : MarketerStatement.DRAFT).finalStatement(last).lineCount(lines.size())
                 .feesCollected(Money.of(base)).gross(Money.of(gross)).clawback(Money.of(claw)).wht(Money.of(wht)).net(Money.of(net))
                 .carriedIn(Money.of(carry)).payable(payable).minimumPayout(minimum)
                 .queryUntil(Instant.now().plus(QUERY_DAYS, ChronoUnit.DAYS)).build());
@@ -318,7 +368,11 @@ public class CommissionService {
             t.append("Carried from earlier months: NGN ").append(n.format(s.getCarriedIn())).append('\n');
         }
         t.append("To be paid: NGN ").append(n.format(s.getPayable())).append("\n\n");
-        if (MarketerStatement.CARRIED_OVER.equals(s.getStatus())) {
+        if (s.isFinalStatement()) {
+            t.append("This is your final statement now that your referral partnership has ended. It is paid whatever the amount ")
+                    .append("(the minimum payout doesn't apply). If something looks wrong, raise a query in the portal by ")
+                    .append(DAY.format(s.getQueryUntil().atZone(LAGOS))).append(".\n");
+        } else if (MarketerStatement.CARRIED_OVER.equals(s.getStatus())) {
             t.append("This is under the NGN ").append(n.format(s.getMinimumPayout()))
                     .append(" minimum payout, so it rolls over to your next statement.\n");
         } else {
@@ -490,7 +544,8 @@ public class CommissionService {
                                BigDecimal payable, BigDecimal minimumPayout, String carriedToMonth, Instant queryUntil, boolean canQuery,
                                String queryNote, Instant queriedAt, String queryAnswer, Instant approvedAt, String approvedByName,
                                BigDecimal paidAmount, String paidReference, LocalDate paidOn, String paidRecordedName, Instant paidEmailSentAt,
-                               String bankName, String bankAccount, String bankAccountName, boolean bankChecked, Instant createdAt) {
+                               String bankName, String bankAccount, String bankAccountName, boolean bankChecked, Instant createdAt,
+                               boolean finalStatement) {
     }
 
     public record StatementDetail(StatementRow statement, List<BusinessGroup> businesses, List<LineView> lines, List<StatementRow> carriedFrom) {
@@ -624,7 +679,7 @@ public class CommissionService {
                 s.getPaidEmailSentAt(), paidOrApproved ? s.getBankName() : p == null ? null : p.getBankName(),
                 paidOrApproved ? s.getBankAccount() : p == null ? null : p.getBankAccount(),
                 paidOrApproved ? s.getBankAccountName() : p == null ? null : p.getBankAccountName(), p != null && p.getBankCheckedAt() != null,
-                s.getCreatedAt());
+                s.getCreatedAt(), s.isFinalStatement());
     }
 
     private MarketerStatement find(String id) {

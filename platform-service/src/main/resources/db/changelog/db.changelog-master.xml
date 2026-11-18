@@ -24,5 +24,8 @@
     <include file="db/changelog/012-device-invoices.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/013-data-plan-controls.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/014-marketer-commission.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/015-legal-acceptance.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/016-fee-addendum.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/017-final-marketer-statement.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

@@ -15,17 +15,18 @@ QA script `hotel-internal-system-admin-FE/docs/qa/55-marketer-commission.md`). T
 | Clawback | A refunded/reversed collected fee gives a negative line on the next statement |
 | Statement | 07:00 Lagos on the 5th, for the month before; 7 days to query |
 | Payout | Manual bank transfer by finance by the 15th after approval; reference/date/amount recorded for the whole statement; marketer emailed |
-| Minimum | ₦5,000 (`fees.marketerMinPayout`); a smaller payable is CARRIED_OVER into the next statement |
+| Minimum | ₦5,000 (`fees.marketerMinPayout`); a smaller payable is CARRIED_OVER into the next statement, except an ENDED marketer's final statement (paid whatever the amount) |
 | Defaults | `fees.marketerSharePct 20`, `fees.marketerMonths 12` (was 24), `fees.whtPct 5`, `fees.marketerMinPayout 5000` |
 
 Decisions taken while building (tell the owner):
 - **Window anchor** = the business's first collected fee, not go-live: shadow-mode months (debit off) don't use up the marketer's year.
-- **Which agreement earns** = the one covering the **fee day** (`startedOn ≤ day < endedOn`), whatever its status now; the window is checked against the fee day too. A carried-over day collected later earns on the collection, for the agreement that covered the day it was for. A fee day inside the window collected after the window ended still earns.
+- **Which agreement earns** = the one covering the **fee day** (`startedOn ≤ day < endedOn`), whatever its status now; the window is checked against the fee day too. A carried-over day collected later earns on the collection, for the agreement that covered the day it was for. A fee day inside the window collected after the window ended still earns (see "Collection after the window" below).
 - **Line month** = the Lagos day the money was collected (`earnedOn`); a line goes on the first statement made for a month ≥ its month.
 - **Unknown/inactive referral code at sign-up** = refused with a readable message (the owner fixes it or clears it), not silently ignored. Only an ACTIVE marketer who accepted the agreement can refer.
 - **Reactivating an ENDED marketer**: their ended agreements stay ended; only new referrals open new ones. An ENDED marketer can't be set as Referred by.
 - **Bank details** must be checked by finance (Mark checked) after every save before a statement can be approved; the bank details are copied onto the statement at approval.
-- **Carried-over balance of an ENDED marketer** stays carried until a later statement reaches ₦5,000 (open question for the owner: pay it out at termination regardless of the minimum?).
+- **Carried-over balance of an ENDED marketer** (decided 18 Nov 2026): paid out with a **final statement regardless of the ₦5,000 minimum**. Setting a marketer to ENDED (`PUT /platform/admin/marketers/{id} {status:"ENDED"}`) immediately makes a final statement (`finalStatement: true`, DRAFT) with every line not on a statement yet (any month) and every CARRIED_OVER statement not yet carried; it goes through the usual query → approve → pay. It is dated the current month, or the month after the marketer's latest statement when that month's is already made. Nothing open → no statement. A later line (a fee day covered by the ended agreement collected after the end) goes on the 5th's statement, which for an ENDED marketer is never CARRIED_OVER while something is payable (also `finalStatement: true`); a zero or negative total is still carried (nothing to pay). Migration platform 017 (`marketer_statements.final_statement`).
+- **Collection after the window** (rule, tested in `CommissionServiceTest.aFeeDayInsideTheWindowCollectedAfterTheWindowEndedStillEarns`): what decides is the **fee day**, never the collection date. A fee day inside the 12-month window (and covered by an agreement) that is collected after the window ended, or after the agreement ended, still earns, on the month it was collected in. A fee day on or after the window end never earns, whenever it is collected.
 
 ## How it works
 
@@ -41,7 +42,7 @@ Decisions taken while building (tell the owner):
 | Method | Path | Who | Notes |
 |---|---|---|---|
 | GET | `/platform/public/referral-codes/{code}` | anyone | `{code, valid, referrerFirstName, message}` |
-| POST | `/platform/marketer/agreement` | MARKETER | `{version: "RPA-2026-11"}`; stores version, when, who |
+| POST | `/platform/marketer/agreement` | MARKETER | `{version}` (the RPA version in force); recorded by the one acceptance system (`docs/legal-acceptance.md`, method PORTAL, with IP and browser), which also keeps the version on the profile |
 | PUT | `/platform/marketer/me/bank` | MARKETER | `{bankName, bankAccount (10 digits), bankAccountName, note}`; note required for a change; clears the check |
 | GET | `/platform/marketer/me` | MARKETER | `{profile, totals{earnedTotal, due, paid, businesses, referrals, nextStatement, carried, byStage}, currentAgreementVersion, agreementAccepted, minimumPayout, whtPct}` |
 | GET | `/platform/marketer/statements`, `/statements/{id}` | MARKETER | own statements + next-statement lines; detail with lines per business |

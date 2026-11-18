@@ -15,6 +15,9 @@ public interface MarketerStatementRepository extends JpaRepository<MarketerState
     /** Statements under the minimum not yet carried into a later one. */
     List<MarketerStatement> findByProfileIdAndStatusAndCarriedToIdIsNullAndMonthLessThan(String profileId, String status, String month);
 
+    /** Every statement under the minimum not yet carried into a later one, whatever its month (an ENDED marketer's final statement). */
+    List<MarketerStatement> findByProfileIdAndStatusAndCarriedToIdIsNull(String profileId, String status);
+
     @org.springframework.data.jpa.repository.Query("select distinct s.profileId from MarketerStatement s where s.status = 'CARRIED_OVER' and s.carriedToId is null and s.month < :month")
     List<String> profilesWithCarry(@org.springframework.data.repository.query.Param("month") String month);
 }

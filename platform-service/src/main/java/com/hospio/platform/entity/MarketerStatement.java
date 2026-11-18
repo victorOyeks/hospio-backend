@@ -19,7 +19,7 @@ import lombok.experimental.SuperBuilder;
  *
  * <p>DRAFT (the marketer has 7 days to query it) → QUERIED (a note to Hospio360) → APPROVED (finance) → PAID (bank transfer recorded,
  * the marketer is emailed). CARRIED_OVER when {@code payable} is under the minimum payout: it moves into the next statement's
- * {@code carriedIn}. Platform-only table, no business column.
+ * {@code carriedIn}. An ENDED marketer's statements are never carried over while something is payable ({@code finalStatement}). Platform-only table, no business column.
  */
 @Getter
 @Setter
@@ -85,6 +85,14 @@ public class MarketerStatement extends BaseEntity {
     @Column(name = "minimum_payout", nullable = false)
     @lombok.Builder.Default
     private BigDecimal minimumPayout = BigDecimal.ZERO;
+
+    /**
+     * The ENDED marketer's last statement: every open line and carried-over statement, approved and paid whatever the amount (the
+     * minimum payout doesn't apply).
+     */
+    @Column(name = "final_statement", nullable = false)
+    @lombok.Builder.Default
+    private boolean finalStatement = false;
 
     /** The statement this one's payable was carried into (CARRIED_OVER). */
     @Column(name = "carried_to_id", length = 36)

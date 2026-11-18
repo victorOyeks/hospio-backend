@@ -1,5 +1,6 @@
 package com.hospio.tenant.service;
 
+import com.hospio.common.billing.FeeLock;
 import com.hospio.common.enums.Role;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.exception.ConflictException;
@@ -142,13 +143,30 @@ public class BusinessService {
         return list.stream().map(b -> toSummary(b, managers)).toList();
     }
 
-    /** A fee rule saved in platform-service keeps the business's own fee fields in step. */
+    /**
+     * A fee rule saved in platform-service keeps the business's own fee fields in step. platform-service has already applied the fee
+     * lock and recorded the change, so the addendum reference is stored as sent (and dropped at the platform default).
+     */
     @Transactional
-    public BusinessResponse setFee(String id, Business.FeeModel feeModel, BigDecimal feeValue) {
+    public BusinessResponse setFee(String id, Business.FeeModel feeModel, BigDecimal feeValue, String feeAddendumRef) {
         Business b = find(id);
         b.setFeeModel(feeModel);
         b.setFeeValue(Fields.fee(feeModel, feeValue));
+        boolean atDefault = FeeLock.isDefault(feeModel.name(), b.getFeeValue(), feeDefaultPct());
+        b.setFeeAddendumRef(atDefault || !StringUtils.hasText(feeAddendumRef) ? null : feeAddendumRef.trim());
         return toResponse(businesses.save(b));
+    }
+
+    /** The platform default share of daily sales (platform settings fees.revenuePct; 1.5 when platform-service can't be asked). */
+    private BigDecimal feeDefaultPct() {
+        BigDecimal pct = platformClient.feeDefaultPct();
+        return pct == null ? FeeLock.FALLBACK_PCT : pct;
+    }
+
+    /** Fee lock: the change log in platform-service gets a line for this fee (off the default with its addendum, or back to it). */
+    private void recordFee(Business b, BigDecimal previousValue, BigDecimal defaultPct) {
+        HospioUserDetails user = CurrentUser.require();
+        platformClient.recordFee(b.getId(), b.getFeeValue(), b.getFeeAddendumRef(), previousValue, defaultPct, user.getUserId(), user.getFullName());
     }
 
     @Transactional(readOnly = true)
@@ -168,17 +186,23 @@ public class BusinessService {
         String registration = Fields.registrationNumber(request.registrationNumber());
         String city = Fields.city(request.city(), true);
         java.math.BigDecimal feeValue = Fields.fee(request.feeModel(), request.feeValue());
+        // Fee lock: the platform default for everyone; another rate needs a signed addendum's reference.
+        BigDecimal defaultPct = feeDefaultPct();
+        String feeAddendumRef = FeeLock.addendumFor(request.feeModel().name(), feeValue, request.feeAddendumRef(), defaultPct);
         assertUnique("", name, registration, ownerEmail, ownerPhone);
         Business business = businesses.save(Business.builder()
                 .name(name).legalName(legalName).registrationNumber(registration)
                 .businessType(request.businessType()).ownerName(ownerName).ownerEmail(ownerEmail)
-                .ownerPhone(ownerPhone).feeModel(request.feeModel()).feeValue(feeValue)
+                .ownerPhone(ownerPhone).feeModel(request.feeModel()).feeValue(feeValue).feeAddendumRef(feeAddendumRef)
                 .currency(request.currency() == null ? "NGN" : request.currency()).country(request.country())
                 .timezone(request.timezone() == null ? "Africa/Lagos" : request.timezone())
                 .city(city).source(request.source() == null ? Business.Source.BACK_OFFICE : request.source())
                 .marketerId(request.marketerId()).referralId(request.referralId()).accountManagerId(CurrentUser.require().getUserId())
                 .stage(Business.Stage.ONBOARDING)
                 .build());
+        if (feeAddendumRef != null) {
+            recordFee(business, null, defaultPct);
+        }
         openDraft(business, CurrentUser.require().getUserId());
         publishCreated(business);
         return toResponse(business);
@@ -251,6 +275,7 @@ public class BusinessService {
         String ownerPhone = r.ownerPhone() == null ? null : Fields.phone(r.ownerPhone(), "the owner's phone", false);
         Business.FeeModel feeModel = r.feeModel() != null ? r.feeModel() : b.getFeeModel();
         java.math.BigDecimal feeValue = r.feeValue() == null ? null : Fields.fee(feeModel, r.feeValue());
+        FeeChange fee = feeChange(b, feeModel, feeValue, r);
         // Only what changes is checked against the other businesses: an old duplicate never blocks saving another step.
         assertUnique(b.getId(),
                 name != null && !Fields.nameKey(name).equals(Fields.nameKey(b.getName())) ? name : null,
@@ -272,6 +297,7 @@ public class BusinessService {
         if (r.ownerPhone() != null) b.setOwnerPhone(ownerPhone);
         if (r.feeModel() != null) b.setFeeModel(r.feeModel());
         if (feeValue != null) b.setFeeValue(feeValue);
+        if (fee != null) b.setFeeAddendumRef(fee.addendumRef());
         if (r.currency() != null) b.setCurrency(r.currency());
         if (r.country() != null) b.setCountry(r.country());
         if (r.timezone() != null) b.setTimezone(r.timezone());
@@ -283,7 +309,41 @@ public class BusinessService {
         }
         if (r.accountManagerId() != null) b.setAccountManagerId(r.accountManagerId());
         if (r.source() != null) b.setSource(r.source());
-        return toResponse(businesses.save(b));
+        Business saved = businesses.save(b);
+        if (fee != null && fee.record()) {
+            recordFee(saved, fee.previousValue(), fee.defaultPct());
+        }
+        return toResponse(saved);
+    }
+
+    /** What an edit does to the fee under the fee lock: the reference to store, and whether the change log gets a line. */
+    record FeeChange(String addendumRef, boolean record, BigDecimal previousValue, BigDecimal defaultPct) {
+    }
+
+    /**
+     * Fee lock for an edit. Null when the edit leaves the fee alone: no fee field sent, or the same model and value sent again without
+     * a new reference (the wizard and the edit form resend the whole form; an older rate is not re-checked). Otherwise the new fee must
+     * be the platform default or come with an addendum reference; a rate off the default, or a move back to it, is recorded.
+     */
+    FeeChange feeChange(Business b, Business.FeeModel feeModel, BigDecimal feeValue, UpdateBusinessRequest r) {
+        if (r.feeModel() == null && r.feeValue() == null && r.feeAddendumRef() == null) {
+            return null;
+        }
+        BigDecimal newValue = feeValue != null ? feeValue : b.getFeeValue();
+        String sentRef = r.feeAddendumRef() == null ? null : r.feeAddendumRef().trim();
+        boolean sameFee = feeModel == b.getFeeModel() && newValue != null && b.getFeeValue() != null && newValue.compareTo(b.getFeeValue()) == 0;
+        if (sameFee && (sentRef == null || sentRef.equals(b.getFeeAddendumRef() == null ? "" : b.getFeeAddendumRef()))) {
+            return null;
+        }
+        if (newValue == null) {
+            return null;
+        }
+        BigDecimal defaultPct = feeDefaultPct();
+        String ref = FeeLock.addendumFor(feeModel == null ? null : feeModel.name(), newValue, sentRef, defaultPct);
+        String oldModel = b.getFeeModel() == null ? null : b.getFeeModel().name();
+        boolean wasOff = b.getFeeValue() != null && !FeeLock.isDefault(oldModel, b.getFeeValue(), defaultPct);
+        boolean record = ref != null ? !(sameFee && ref.equals(b.getFeeAddendumRef())) : wasOff;
+        return new FeeChange(ref, record, b.getFeeValue(), defaultPct);
     }
 
     @Transactional
@@ -565,7 +625,7 @@ public class BusinessService {
                 b.getOwnerUserId(), b.getOwnerName(), b.getOwnerEmail(), b.getOwnerPhone(), b.getStage(), b.getAccountManagerId(),
                 b.getMarketerId(), b.getReferralId(), b.getFeeModel(), b.getFeeValue(), b.getCurrency(), b.getCountry(), b.getTimezone(),
                 b.getContractStartsOn(), b.getContractNotes(), b.getHotelCount(), b.getSuspendedAt(), b.getSuspensionReason(),
-                b.getCreatedAt(), hotelsOf(b.getId()), onboarding);
+                b.getCreatedAt(), hotelsOf(b.getId()), onboarding, b.getFeeAddendumRef());
     }
 
     /** {@code lastActiveAt} stays null: activity lives in platform-service, which fills it from its own log. */
@@ -577,6 +637,6 @@ public class BusinessService {
         int rooms = hs.stream().mapToInt(Hotel::getRoomCount).sum();
         return new BusinessSummary(b.getId(), b.getName(), b.getStage(), b.getSource(), b.getCity(), hs.size(), rooms,
                 b.getOwnerName(), b.getOwnerEmail(), b.getAccountManagerId(), managerNames.get(b.getAccountManagerId()), b.getMarketerId(),
-                b.getFeeModel(), b.getFeeValue(), b.getCreatedAt(), null);
+                b.getFeeModel(), b.getFeeValue(), b.getCreatedAt(), null, b.getFeeAddendumRef());
     }
 }

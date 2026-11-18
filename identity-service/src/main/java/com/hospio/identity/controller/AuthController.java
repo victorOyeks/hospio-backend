@@ -118,11 +118,21 @@ public class AuthController {
     }
 
     @Operation(summary = "Send a 6-digit code to the signed-in person's phone: by SMS, or {\"channel\":\"WHATSAPP\"} on WhatsApp "
-            + "(an SMS while the WhatsApp code template isn't approved)")
+            + "(an SMS while the WhatsApp code template isn't approved). Within 60 s of the last code nothing is sent: "
+            + "sent=false with the waiting code's expiresAt and retryInSeconds. {\"ifNone\":true} sends only when no code is valid")
     @PostMapping("/phone/send-code")
-    public ApiResponse<PhoneCodeResponse> sendPhoneCode(@RequestBody(required = false) java.util.Map<String, String> body) {
-        boolean whatsApp = body != null && "WHATSAPP".equalsIgnoreCase(body.get("channel"));
-        return ApiResponse.ok("Code sent", phoneVerification.sendCode(CurrentUser.require().getUserId(), whatsApp));
+    public ApiResponse<PhoneCodeResponse> sendPhoneCode(@RequestBody(required = false) java.util.Map<String, Object> body) {
+        boolean whatsApp = body != null && "WHATSAPP".equalsIgnoreCase(String.valueOf(body.get("channel")));
+        boolean ifNone = body != null && "true".equalsIgnoreCase(String.valueOf(body.get("ifNone")));
+        PhoneCodeResponse code = phoneVerification.sendCode(CurrentUser.require().getUserId(), whatsApp, ifNone);
+        return ApiResponse.ok(code.sent() ? "Code sent" : "A code was already sent", code);
+    }
+
+    @Operation(summary = "The code waiting for the signed-in person (expiresAt, null when none is valid) and retryInSeconds "
+            + "before another may be sent; sends nothing")
+    @GetMapping("/phone/code")
+    public ApiResponse<PhoneCodeResponse> phoneCode() {
+        return ApiResponse.ok("OK", phoneVerification.current(CurrentUser.require().getUserId()));
     }
 
     @Operation(summary = "Confirm the phone with the code; 400 when wrong or expired")

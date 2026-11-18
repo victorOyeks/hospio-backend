@@ -82,6 +82,7 @@ public class FeeService {
     private final DeliveryService deliveries;
     private final ObjectMapper objectMapper;
     private final org.springframework.transaction.support.TransactionTemplate tx;
+    private final ChangeService changes;
 
     // ---- rules ---------------------------------------------------------------------------------------
 
@@ -104,12 +105,32 @@ public class FeeService {
         if (!PER_ROOM_NIGHT.equals(model) && request.value().compareTo(java.math.BigDecimal.valueOf(100)) > 0) {
             throw new BadRequestException("A percentage fee must be between 0 and 100");
         }
+        // Fee lock: the platform default for everyone; another rate needs a signed addendum, recorded in the change log.
+        BigDecimal defaultPct = settings.fees().revenuePct();
+        String addendumRef = com.hospio.common.billing.FeeLock.addendumFor(model, request.value(), request.feeAddendumRef(), defaultPct);
+        BigDecimal previous = feeRules.findByBusinessIdOrderByStartsOnDesc(request.businessId()).stream().findFirst().map(FeeRule::getValue)
+                .orElseGet(() -> addendumRef != null ? null : tenant.business(request.businessId()).map(TenantClient.Business::feeValue).orElse(null));
         FeeRule rule = feeRules.save(FeeRule.builder().businessId(request.businessId()).model(model).value(request.value())
-                .startsOn(request.startsOn()).endsOn(request.endsOn()).build());
-        if (!tenant.setFee(request.businessId(), model, request.value())) {
+                .startsOn(request.startsOn()).endsOn(request.endsOn()).addendumRef(addendumRef).build());
+        if (feeChangeToRecord(previous, addendumRef, defaultPct)) {
+            HospioUserDetails user = CurrentUser.require();
+            changes.recordFee(request.businessId(), request.value(), addendumRef, defaultPct, previous, user.getUserId(), user.getFullName());
+        }
+        if (!tenant.setFee(request.businessId(), model, request.value(), addendumRef)) {
             log.warn("Fee rule {} saved but tenant-service did not take the business's fee model; the Businesses list may show the old one", rule.getId());
         }
         return rule;
+    }
+
+    /**
+     * A rule at another rate than the default is always recorded (the addendum is the reason); one at the default only when it puts
+     * a business back from another rate.
+     */
+    static boolean feeChangeToRecord(BigDecimal previousValue, String addendumRef, BigDecimal defaultPct) {
+        if (addendumRef != null) {
+            return true;
+        }
+        return previousValue != null && !com.hospio.common.billing.FeeLock.isDefault(null, previousValue, defaultPct);
     }
 
     // ---- statements ----------------------------------------------------------------------------------

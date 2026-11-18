@@ -71,7 +71,7 @@ class BusinessRulesTest {
     private static CreateBusinessRequest create(String name, String owner, String email, String phone, String city,
                                                 Business.FeeModel model, String fee) {
         return new CreateBusinessRequest(name, null, null, null, owner, email, phone, model, fee == null ? null : new BigDecimal(fee),
-                null, null, null, null, city, null, null);
+                null, null, null, null, city, null, null, null);
     }
 
     private static CreateBusinessRequest valid() {
@@ -230,7 +230,7 @@ class BusinessRulesTest {
         when(businesses.findById("b1")).thenReturn(Optional.of(mine));
         when(businesses.otherWithRegistration("b1", "RC1873402", "1873402")).thenReturn(Optional.of("Smiles fc"));
         UpdateBusinessRequest r = new UpdateBusinessRequest(null, null, "rc 1873402", null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null);
         assertThatThrownBy(() -> service.update("b1", r)).isInstanceOf(ConflictException.class)
                 .hasMessage("CAC number RC 1873402 is already used by Smiles fc. Check the number on the certificate");
     }
@@ -243,7 +243,7 @@ class BusinessRulesTest {
         when(businesses.findById("b1")).thenReturn(Optional.of(mine));
         when(businesses.otherWithName(anyString(), anyString())).thenReturn(Optional.of("SMILES FC"));
         UpdateBusinessRequest r = new UpdateBusinessRequest("Smiles  FC", null, null, null, null, null, null, "Abuja", null, null, null,
-                "M@hospio-qa.test", null, null, new BigDecimal("2"), null, null, null, null, null, null, null, null);
+                "M@hospio-qa.test", null, null, new BigDecimal("2"), null, null, null, null, null, null, null, null, "ADD-2026-001");
         assertThat(service.update("b1", r).feeValue()).isEqualByComparingTo("2");
         verify(businesses, never()).otherWithName(anyString(), anyString());
         verify(identity, never()).taken(eq("m@hospio-qa.test"), isNull());

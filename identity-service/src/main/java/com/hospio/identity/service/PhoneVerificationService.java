@@ -47,6 +47,9 @@ public class PhoneVerificationService {
     @Value("${hospio.auth.phone-code-max-attempts:5}")
     private int maxAttempts;
 
+    @Value("${hospio.auth.phone-code-cooldown-seconds:60}")
+    private long cooldownSeconds = 60;
+
     @Transactional
     public PhoneCodeResponse sendCode(String userId) {
         return sendCode(userId, false);
@@ -55,13 +58,32 @@ public class PhoneVerificationService {
     /** {@code whatsApp}: the code goes on WhatsApp ("Send on WhatsApp instead"), else by SMS. */
     @Transactional
     public PhoneCodeResponse sendCode(String userId, boolean whatsApp) {
+        return sendCode(userId, whatsApp, false);
+    }
+
+    /**
+     * Sends a code unless one went out less than the cooldown ago (then nothing is sent and the waiting code's expiry
+     * and the seconds left come back with {@code sent=false}). {@code ifNone}: send only when no code is still valid,
+     * which is what the "Check your phone" page asks when it opens, so reopening it never sends another.
+     */
+    @Transactional
+    public PhoneCodeResponse sendCode(String userId, boolean whatsApp, boolean ifNone) {
         return TenantContext.runWith(Tenant.system("phone-code"), () -> {
             UserAccount user = find(userId);
             if (!StringUtils.hasText(user.getPhone())) {
                 throw new BadRequestException("Add a phone number first");
             }
+            if (ifNone && validExpiry(user, Instant.now()) != null) {
+                return status(user);
+            }
             return issue(user, whatsApp);
         });
+    }
+
+    /** Whether a code is waiting (its expiry, or null) and how long before another may be sent; sends nothing. */
+    @Transactional(readOnly = true)
+    public PhoneCodeResponse current(String userId) {
+        return TenantContext.runWith(Tenant.system("phone-code"), () -> status(find(userId)));
     }
 
     /**
@@ -78,16 +100,44 @@ public class PhoneVerificationService {
         if (!StringUtils.hasText(user.getPhone())) {
             return null;
         }
+        Instant now = Instant.now();
+        long wait = retryIn(user, now);
+        if (wait > 0) {
+            log.info("Phone code for user {} not sent: the last one went out less than {}s ago", user.getId(), cooldownSeconds);
+            return new PhoneCodeResponse(validExpiry(user, now), List.of(), false, wait);
+        }
         String code = String.format("%06d", RANDOM.nextInt(1_000_000));
-        Instant expires = Instant.now().plus(codeMinutes, ChronoUnit.MINUTES);
+        Instant expires = now.plus(codeMinutes, ChronoUnit.MINUTES);
         user.setPhoneCodeHash(Hashing.sha256(code));
         user.setPhoneCodeExpiresAt(expires);
+        user.setPhoneCodeSentAt(now);
         user.setPhoneCodeAttempts(0);
         users.save(user);
         // Never the code itself (docs/sms-whatsapp.md): it is a credential, and logs are read by more people than the phone's owner.
         log.info("Phone verification code issued for user {} by {} (valid until {})", user.getId(), whatsApp ? "WhatsApp" : "SMS", expires);
         List<Delivery> sent = deliveryService.send(composer.forPhoneCode(user, code, expires, whatsApp));
-        return new PhoneCodeResponse(expires, sent);
+        return new PhoneCodeResponse(expires, sent, true, cooldownSeconds);
+    }
+
+    private PhoneCodeResponse status(UserAccount user) {
+        Instant now = Instant.now();
+        return new PhoneCodeResponse(validExpiry(user, now), List.of(), false, retryIn(user, now));
+    }
+
+    /** The waiting code's expiry, or null when there is none or it has expired. */
+    private static Instant validExpiry(UserAccount user, Instant now) {
+        Instant expires = user.getPhoneCodeExpiresAt();
+        return user.getPhoneCodeHash() != null && expires != null && expires.isAfter(now) ? expires : null;
+    }
+
+    /** Seconds left before another code may be sent (0 = now). */
+    private long retryIn(UserAccount user, Instant now) {
+        Instant sentAt = user.getPhoneCodeSentAt();
+        if (sentAt == null) {
+            return 0;
+        }
+        long left = cooldownSeconds - java.time.Duration.between(sentAt, now).getSeconds();
+        return Math.max(0, Math.min(left, cooldownSeconds));
     }
 
     /** A wrong code is counted; after {@code maxAttempts} the code is dropped and a new one must be sent. */

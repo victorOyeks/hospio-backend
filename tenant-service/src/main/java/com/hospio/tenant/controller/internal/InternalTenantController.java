@@ -47,6 +47,12 @@ public class InternalTenantController {
         return ApiResponse.ok(service.hotel(hotelId));
     }
 
+    /** Every hotel of every business (inventory's default-stores backfill reads businessId and id). */
+    @GetMapping("/hotels")
+    public ApiResponse<List<HotelResponse>> allHotels() {
+        return ApiResponse.ok(asSystem(service::allHotels));
+    }
+
     @GetMapping("/businesses/{businessId}/hotels")
     public ApiResponse<List<HotelResponse>> hotels(@PathVariable String businessId) {
         return ApiResponse.ok(service.hotelsOf(businessId));
@@ -78,7 +84,7 @@ public class InternalTenantController {
     /** platform-service keeps the business's fee in step with the fee rule it saved. */
     @PutMapping("/businesses/{businessId}/fee")
     public ApiResponse<BusinessResponse> fee(@PathVariable String businessId, @Valid @RequestBody FeeRequest request) {
-        return ApiResponse.ok("Fee updated", asSystem(() -> service.setFee(businessId, request.feeModel(), request.feeValue())));
+        return ApiResponse.ok("Fee updated", asSystem(() -> service.setFee(businessId, request.feeModel(), request.feeValue(), request.feeAddendumRef())));
     }
 
     /** platform-service sets who referred the business (its marketer profile id; null clears it). */

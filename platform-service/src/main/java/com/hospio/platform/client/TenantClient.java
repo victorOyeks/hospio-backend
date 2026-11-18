@@ -207,10 +207,17 @@ public class TenantClient {
         }
     }
 
-    /** PUT /internal/businesses/{id}/fee {feeModel, feeValue} (tenant, new). Returns false when it could not be written. */
-    public boolean setFee(String businessId, String feeModel, BigDecimal feeValue) {
+    /**
+     * PUT /internal/businesses/{id}/fee {feeModel, feeValue, feeAddendumRef} (tenant). The addendum reference is null at the platform
+     * default (fee lock). Returns false when it could not be written.
+     */
+    public boolean setFee(String businessId, String feeModel, BigDecimal feeValue, String feeAddendumRef) {
+        java.util.Map<String, Object> body = new java.util.HashMap<>();
+        body.put("feeModel", feeModel);
+        body.put("feeValue", feeValue);
+        body.put("feeAddendumRef", feeAddendumRef);
         try {
-            restClient.put().uri("/internal/businesses/{id}/fee", businessId).body(Map.of("feeModel", feeModel, "feeValue", feeValue))
+            restClient.put().uri("/internal/businesses/{id}/fee", businessId).body(body)
                     .retrieve().toBodilessEntity();
             return true;
         } catch (Exception e) {

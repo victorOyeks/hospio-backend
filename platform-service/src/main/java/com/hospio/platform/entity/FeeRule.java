@@ -37,4 +37,8 @@ public class FeeRule extends TenantEntity {
 
     @Column(name = "ends_on")
     private LocalDate endsOn;
+
+    /** The signed addendum that allows a rate other than the platform default (fee lock); null at the default. */
+    @Column(name = "addendum_ref", length = 120)
+    private String addendumRef;
 }

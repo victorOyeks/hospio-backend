@@ -81,6 +81,8 @@ hospio:
     invite-days: 7
     # Phone confirmation codes stay valid this long; the code is logged, no SMS goes out yet.
     phone-code-minutes: 10
+    # No new phone code within this many seconds of the last one; the page shows the code already sent and a countdown.
+    phone-code-cooldown-seconds: 60
     # When set (staging: 123456) this code is always accepted as a phone confirmation code.
     otp-dev-code: ${OTP_DEV_CODE:}
     # A support-access token ("view as owner") never lives longer than this, whatever the grant says.

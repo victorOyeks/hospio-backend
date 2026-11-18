@@ -6,12 +6,13 @@ import java.time.LocalDate;
 
 /**
  * Platform edit of a business: profile, owner contacts, fee model and value, contract. A field left
- * null is left as it is, so the wizard can save one step at a time.
+ * null is left as it is, so the wizard can save one step at a time. {@code feeAddendumRef} goes with a fee other than the
+ * platform default (fee lock).
  */
 public record UpdateBusinessRequest(String name, String legalName, String registrationNumber, String businessType,
                                     String email, String phone, String address, String city, String logoUrl, String brandColour,
                                     String ownerName, String ownerEmail, String ownerPhone,
                                     Business.FeeModel feeModel, BigDecimal feeValue, String currency, String country, String timezone,
                                     LocalDate contractStartsOn, String contractNotes, String marketerId, String accountManagerId,
-                                    Business.Source source) {
+                                    Business.Source source, String feeAddendumRef) {
 }

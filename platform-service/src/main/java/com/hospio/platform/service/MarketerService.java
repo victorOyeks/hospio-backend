@@ -85,13 +85,14 @@ public class MarketerService {
     private final BusinessNames businessNames;
     private final PlatformSettingsService settings;
     private final DeliveryService deliveries;
+    private final LegalService legal;
     private final jakarta.persistence.EntityManager em;
     private final CommissionService commissionService;
     private final com.hospio.platform.repository.MarketerStatementRepository statements;
     private final ChangeService changes;
 
     /** The Referral Partner Agreement version marketers accept in the portal (Downloads template 10, docs/plan-marketers.md). */
-    public static final String AGREEMENT_VERSION = "RPA-2026-11";
+    public static final String FIRST_AGREEMENT_VERSION = "RPA-2026-11";
     static final java.util.regex.Pattern NUBAN = java.util.regex.Pattern.compile("\\d{10}");
 
     @Value("${hospio.apps.admin-url:https://admin-staging.hospio360.com}")
@@ -163,12 +164,13 @@ public class MarketerService {
         Money3 m = money(p.getId(), cs);
         return new MarketerDetail(p, marketers.findByProfileIdOrderByCreatedAtDesc(p.getId()), referrals.findByProfileIdOrderBySentAtDesc(p.getId()),
                 cs.stream().map(c -> row(c, p.getFullName())).toList(), m.earned(), m.due(), m.paid(), referred(p.getId()), businessesByStage(p.getId()),
-                commissionService.openLines(p.getId()), commissionService.forProfile(p.getId()), AGREEMENT_VERSION);
+                commissionService.openLines(p.getId()), commissionService.forProfile(p.getId()), agreementVersion());
     }
 
     @Transactional
     public MarketerProfile update(String profileId, PlatformRequests.MarketerUpdateRequest request) {
         MarketerProfile p = findProfile(profileId);
+        boolean wasNotEnded = !"ENDED".equals(p.getStatus());
         if (request.sharePct() != null) {
             if (request.sharePct().signum() < 0 || request.sharePct().compareTo(new BigDecimal("100")) > 0) {
                 throw new BadRequestException("sharePct must be between 0 and 100");
@@ -204,7 +206,13 @@ public class MarketerService {
                 }
             }
         }
-        return profiles.save(p);
+        boolean ending = "ENDED".equals(p.getStatus()) && wasNotEnded;
+        MarketerProfile saved = profiles.save(p);
+        if (ending) {
+            // Their carried-over balance and open lines are paid out on a final statement, whatever the minimum (docs/plan-marketers.md).
+            commissionService.makeFinalStatement(saved.getId());
+        }
+        return saved;
     }
 
     // ---- platform: referrals and commissions ---------------------------------------------------------
@@ -338,7 +346,7 @@ public class MarketerService {
             Money3 m = money(p.getId(), cs);
             FeeSettings fees = settings.fees();
             return new MarketerMe(p, new MarketerTotals(m.earned(), m.due(), m.paid(), referred(p.getId()), (int) referrals.countByProfileId(p.getId()),
-                    m.open(), m.carried(), businessesByStage(p.getId())), AGREEMENT_VERSION, AGREEMENT_VERSION.equals(p.getAgreementVersion()),
+                    m.open(), m.carried(), businessesByStage(p.getId())), agreementVersion(), agreementVersion().equals(p.getAgreementVersion()),
                     commissionService.minimumPayout(), fees.whtPct());
         });
     }
@@ -392,27 +400,28 @@ public class MarketerService {
         return profiles.save(p);
     }
 
-    /** The marketer accepts the Referral Partner Agreement (the current version) in the portal; who and when are kept. */
+    /**
+     * The marketer accepts the Referral Partner Agreement (the version in force) in the portal. Recorded by the one acceptance system
+     * ({@link LegalService#accept}, method PORTAL, with IP and browser), which also keeps the version on the profile.
+     */
     @Transactional
     public MarketerProfile acceptAgreement(String version) {
-        if (!AGREEMENT_VERSION.equals(version)) {
-            throw new BadRequestException("Accept the current agreement (" + AGREEMENT_VERSION + "); reload the page");
+        String current = agreementVersion();
+        if (!current.equals(version)) {
+            throw new BadRequestException("Accept the current agreement (" + current + "); reload the page");
         }
-        HospioUserDetails user = CurrentUser.require();
-        return asSystem(() -> {
-            MarketerProfile p = myProfile();
-            if ("ENDED".equals(p.getStatus())) {
-                throw new BadRequestException("Your marketer account has ended");
-            }
-            if (AGREEMENT_VERSION.equals(p.getAgreementVersion())) {
-                return p;
-            }
-            p.setAgreementVersion(AGREEMENT_VERSION);
-            p.setAgreementAcceptedAt(Instant.now());
-            p.setAgreementAcceptedBy(user.getUserId());
-            p.setAgreementAcceptedName(user.getFullName());
-            return profiles.save(p);
-        });
+        MarketerProfile before = asSystem(this::myProfile);
+        if ("ENDED".equals(before.getStatus())) {
+            throw new BadRequestException("Your marketer account has ended");
+        }
+        legal.accept(new LegalService.AcceptRequest(List.of(new LegalService.AcceptItem(LegalService.RPA, current)), "PORTAL"));
+        return asSystem(this::myProfile);
+    }
+
+    /** The Referral Partner Agreement version in force (legal records); the first published one when none is found. */
+    String agreementVersion() {
+        String v = legal.currentVersion(LegalService.RPA);
+        return v == null ? FIRST_AGREEMENT_VERSION : v;
     }
 
     /** My statements, newest first, and what goes on the next one. */
@@ -445,7 +454,7 @@ public class MarketerService {
             return java.util.Optional.empty();
         }
         return asSystem(() -> profiles.findByReferralCode(code.trim().toUpperCase(Locale.ROOT)).map(p -> new ReferralCodeInfo(p.getId(), p.getReferralCode(),
-                p.getFullName(), p.getStatus(), "ACTIVE".equals(p.getStatus()) && AGREEMENT_VERSION.equals(p.getAgreementVersion()))));
+                p.getFullName(), p.getStatus(), "ACTIVE".equals(p.getStatus()) && agreementVersion().equals(p.getAgreementVersion()))));
     }
 
     public record ReferralCodeInfo(String profileId, String code, String fullName, String status, boolean canRefer) {
@@ -743,7 +752,7 @@ public class MarketerService {
         Money3 m = money(p.getId(), cs);
         Map<String, Integer> byStage = businessesByStage(p.getId());
         return new MarketerRow(p, byStage.values().stream().mapToInt(Integer::intValue).sum(), m.earned(), m.due(), byStage,
-                AGREEMENT_VERSION.equals(p.getAgreementVersion()), p.getBankCheckedAt() != null);
+                agreementVersion().equals(p.getAgreementVersion()), p.getBankCheckedAt() != null);
     }
 
     /**
