@@ -35,4 +35,9 @@ public interface DeviceInvoiceRepository extends JpaRepository<DeviceInvoice, St
             Collection<String> statuses, LocalDate to);
 
     List<DeviceInvoice> findByMonthlyInvoiceId(String monthlyInvoiceId);
+
+    /** The highest number used with this prefix (DEV-YYYYMM-0001 → 1), 0 when none. */
+    @Query(value = "SELECT COALESCE(MAX(CAST(split_part(number, '-', 3) AS INTEGER)), 0) FROM platform.device_invoices WHERE number LIKE :prefix",
+            nativeQuery = true)
+    int lastNumber(@Param("prefix") String prefix);
 }
