@@ -196,6 +196,28 @@ public class InventoryService {
         return storeView(saved, levels.findByHotelId(hotel), itemMap(), true);
     }
 
+    /** The stores a new hotel starts with, so its first kitchen, restaurant or bar has a store to draw from (DEF-077). */
+    static final List<Store> DEFAULT_STORES = List.of(
+            Store.builder().name("Main store").kind("MAIN").build(),
+            Store.builder().name("Kitchen store").kind("KITCHEN").build(),
+            Store.builder().name("Bar store").kind("BAR").build(),
+            Store.builder().name("Housekeeping store").kind("HOUSEKEEPING").build());
+
+    /**
+     * A hotel was created: give it the default stores, only when it has none at all (active or not), so a hotel whose
+     * stores someone already set up, or a redelivered event, is left alone. Runs with the hotel's tenant bound.
+     */
+    @Transactional
+    public int createDefaultStores(String hotelId) {
+        if (!stores.findByHotelIdOrderByName(hotelId).isEmpty()) {
+            return 0;
+        }
+        for (Store d : DEFAULT_STORES) {
+            stores.save(Store.builder().hotelId(hotelId).name(d.getName()).kind(d.getKind()).build());
+        }
+        return DEFAULT_STORES.size();
+    }
+
     // ---- items --------------------------------------------------------------------------------------
 
     @Transactional(readOnly = true)
