@@ -5,7 +5,7 @@ Built 18 Nov 2026. Standard customers accept the Hospio360 terms online by ticki
 owners, staff and referral partners (marketers), in platform-service. Templates: "Oyeks Global - Hospio360 Contract Templates
 (Nov 2026)" (document 00 explains the approach). Public text: hospio360.com/legal (apps/landing in hospio-frontend).
 
-Company: Oyeks Global Limited, RC 10001123, registered office 9 Remi Omoniyi Crescent, Ikorodu, Lagos State, Nigeria ·
+Company: Oyeks Global Ltd, RC 10001123, Lagos, Nigeria (published documents give no street address) ·
 hello@oyeksglobal.com · oyeksglobal.com. Hospio360 is a product of Oyeks Global Limited.
 
 ## Documents
@@ -66,7 +66,8 @@ A Super admin publishes a version (admin → Platform → Legal documents, or `P
 whose effective date has passed is in force; from then, everyone who accepts that document sees the modal at their next page load.
 Text changes that aren't material (an address, a typo) are made on hospio360.com/legal without a new version, so nobody is
 asked again: the platform holds only versions, the text lives in the landing site (`apps/landing/src/legal/documents.json`). The
-registered office address replaced "Lagos, Nigeria (full address on request)" in Terms 17.1 this way on 18 Nov 2026.
+Terms 17.1 (notices: "our registered office in Lagos, Nigeria") and the entity line on every legal page were reworded this way
+on 18 Nov 2026.
 A **material** change needs 30 days' notice (`hospio.legal.material-notice-days`): its effective date must be at least 30 days ahead,
 and until then it shows as "Coming" in My profile → Terms & acceptances. Put the new text on hospio360.com/legal first.
 
