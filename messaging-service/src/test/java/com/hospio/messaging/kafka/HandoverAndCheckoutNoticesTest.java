@@ -71,4 +71,12 @@ class HandoverAndCheckoutNoticesTest {
         listener.onHandoverAccepted(HandoverAcceptedEvent.builder().eventId("ev-2").businessId("biz-2").businessName("B").accountManagerId("am-2").build());
         verify(notifications).notify(eq("ev-2"), eq("am-2"), eq(null), eq("HANDOVER_ACCEPTED"), anyString(), anyString(), anyString());
     }
+
+    @Test
+    void anOldAcceptanceReplayedFromTheTopicRingsNobody() {
+        listener.setIdentity(mock(IdentityClient.class));
+        listener.onHandoverAccepted(HandoverAcceptedEvent.builder().eventId("ev-old").businessId("biz-3").businessName("Old")
+                .accountManagerId("am-3").occurredAt(java.time.Instant.now().minus(java.time.Duration.ofDays(3))).build());
+        verify(notifications, never()).notify(any(), any(), any(), any(), any(), any(), any());
+    }
 }

@@ -77,6 +77,11 @@ public class MessagingEventListener {
     @Transactional
     @KafkaListener(topics = KafkaTopics.HANDOVER_ACCEPTED)
     public void onHandoverAccepted(com.hospio.common.kafka.events.HandoverAcceptedEvent e) {
+        // A replayed topic (a new consumer reading from the start) must not ring old acceptances: older than a day is skipped.
+        if (e.getOccurredAt() != null && e.getOccurredAt().isBefore(java.time.Instant.now().minus(java.time.Duration.ofDays(1)))) {
+            log.info("Handover accepted for {} at {}: too old to notify", e.getBusinessId(), e.getOccurredAt());
+            return;
+        }
         bound(e, () -> {
             java.util.Set<String> who = new java.util.LinkedHashSet<>();
             if (e.getAccountManagerId() != null && !e.getAccountManagerId().isBlank()) {
