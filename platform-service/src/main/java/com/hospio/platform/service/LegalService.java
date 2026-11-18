@@ -15,6 +15,7 @@ import com.hospio.platform.repository.LegalAcceptanceRepository;
 import com.hospio.platform.repository.LegalDocumentRepository;
 import com.hospio.platform.repository.MarketerProfileRepository;
 import jakarta.servlet.http.HttpServletRequest;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -71,6 +72,7 @@ public class LegalService {
     private final LegalAcceptanceRepository acceptances;
     private final MarketerProfileRepository marketerProfiles;
     private final BusinessNames businessNames;
+    private final FeeService fees;
 
     @Value("${hospio.legal.site-url:https://hospio360.com}")
     private String siteUrl;
@@ -80,20 +82,26 @@ public class LegalService {
 
     // ---- views -----------------------------------------------------------------------------------------
 
+    /** {@code ratePct}: on DEBIT only, the share of daily sales the box states (the business's rate for its owner, else the default). */
     public record DocView(String key, String version, String title, String slug, String url, Instant effectiveFrom, boolean material,
-                          String summary) {
+                          String summary, BigDecimal ratePct) {
     }
 
     public record RecordView(String id, String event, String method, String docKey, String title, String version, String userId, String userName,
                              String userEmail, String role, String businessId, String businessName, String hotelId, String reference, String channel,
-                             LocalDate sharedOn, String note, String ip, String userAgent, String recordedByName, Instant at) {
+                             LocalDate sharedOn, String note, String ip, String userAgent, String recordedByName, Instant at, BigDecimal ratePct) {
     }
 
     /** What the signed-in person must accept now ({@code pending}), what is coming with notice, and what they accepted. */
     public record MyLegal(List<DocView> required, List<DocView> pending, List<DocView> upcoming, List<RecordView> records, boolean canAccept) {
     }
 
-    public record AcceptItem(String key, String version) {
+    /** {@code ratePct}: for DEBIT, the rate the box showed; missing means the platform default (older clients always said 1.5%). */
+    public record AcceptItem(String key, String version, BigDecimal ratePct) {
+
+        public AcceptItem(String key, String version) {
+            this(key, version, null);
+        }
     }
 
     public record AcceptRequest(List<AcceptItem> documents, String method) {
@@ -151,7 +159,9 @@ public class LegalService {
     /** The public list for the sign-up page and the landing site: the version in force of each document, and what is coming. */
     @Transactional(readOnly = true)
     public Map<String, List<DocView>> publicDocuments() {
-        return Map.of("current", current().values().stream().map(this::view).toList(), "upcoming", upcoming().stream().map(this::view).toList());
+        BigDecimal rate = fees.defaultSalesPct();
+        return Map.of("current", current().values().stream().map(d -> view(d, rate)).toList(), "upcoming",
+                upcoming().stream().map(d -> view(d, rate)).toList());
     }
 
     /** A new version (SUPER_ADMIN). A material change needs {@code material-notice-days} of notice; others may start at once. */
@@ -216,18 +226,23 @@ public class LegalService {
             List<LegalAcceptance> mine = acceptances.findByUserIdAndEventOrderByCreatedAtDesc(user.getUserId(), LegalAcceptance.ACCEPTED);
             List<DocView> required = new ArrayList<>();
             List<DocView> pending = new ArrayList<>();
+            // The debit box states the business's own rate; worked out only when the box is to be shown.
+            LegalDocument debit = current.get(DEBIT);
+            boolean debitPending = keys.contains(DEBIT) && debit != null
+                    && mine.stream().noneMatch(a -> DEBIT.equals(a.getDocKey()) && debit.getVersion().equals(a.getVersion()));
+            BigDecimal rate = debitPending ? fees.dailySalesPct(user.getBusinessId()) : null;
             for (String k : keys) {
                 LegalDocument d = current.get(k);
                 if (d == null) {
                     continue;
                 }
-                required.add(view(d));
+                required.add(view(d, rate));
                 boolean done = mine.stream().anyMatch(a -> k.equals(a.getDocKey()) && d.getVersion().equals(a.getVersion()));
                 if (!done) {
-                    pending.add(view(d));
+                    pending.add(view(d, rate));
                 }
             }
-            List<DocView> coming = upcoming().stream().filter(d -> keys.contains(d.getDocKey())).map(this::view).toList();
+            List<DocView> coming = upcoming().stream().filter(d -> keys.contains(d.getDocKey())).map(d -> view(d, null)).toList();
             return new MyLegal(required, pending, coming, mine.stream().limit(100).map(this::record).toList(), !(user.getActedBy() != null));
         });
     }
@@ -266,9 +281,11 @@ public class LegalService {
                 if (acceptances.existsByUserIdAndDocKeyAndVersionAndEvent(user.getUserId(), key, d.getVersion(), LegalAcceptance.ACCEPTED)) {
                     continue;
                 }
+                BigDecimal rate = DEBIT.equals(key) ? debitRateShown(user, item) : null;
                 String method = StringUtils.hasText(asked) ? asked
                         : acceptances.existsByUserIdAndDocKeyAndEvent(user.getUserId(), key, LegalAcceptance.ACCEPTED) ? "RE_ACCEPTANCE" : "FIRST_SIGN_IN";
-                acceptances.save(base(user, client, businessName).event(LegalAcceptance.ACCEPTED).method(method).docKey(key).version(d.getVersion()).build());
+                acceptances.save(base(user, client, businessName).event(LegalAcceptance.ACCEPTED).method(method).docKey(key).version(d.getVersion())
+                        .ratePct(rate).build());
                 if (RPA.equals(key)) {
                     marketerAccepted(user, d.getVersion());
                 }
@@ -366,6 +383,28 @@ public class LegalService {
 
     // ---- helpers ---------------------------------------------------------------------------------------
 
+    /**
+     * The rate the owner's debit box showed, checked against the rate the business is actually debited: a box that said 1.5% can't
+     * authorise a 1.2% addendum rate (or the other way round), so a mismatch is a 409 and the page reloads with the right figure.
+     */
+    private BigDecimal debitRateShown(HospioUserDetails user, AcceptItem item) {
+        BigDecimal actual = fees.dailySalesPct(user.getBusinessId());
+        if (actual == null) {
+            throw new ConflictException("Your business's fee rate could not be checked right now. Try again in a minute");
+        }
+        BigDecimal shown = item.ratePct() != null ? item.ratePct() : fees.defaultSalesPct();
+        if (shown.compareTo(actual) != 0) {
+            throw new ConflictException("Your business's daily fee is " + pct(actual) + "% of daily sales, not " + pct(shown)
+                    + "%. Reload the page and read it");
+        }
+        return shown.stripTrailingZeros();
+    }
+
+    /** 1.50 → "1.5", 2.000 → "2". */
+    static String pct(BigDecimal v) {
+        return v == null ? "" : v.stripTrailingZeros().toPlainString();
+    }
+
     private void marketerAccepted(HospioUserDetails user, String version) {
         MarketerProfile p = marketerProfiles.findByUserId(user.getUserId()).orElse(null);
         if (p == null && StringUtils.hasText(user.getEmail())) {
@@ -400,24 +439,26 @@ public class LegalService {
         return user.roleSet().stream().filter(STAFF_ROLES::contains).map(Enum::name).sorted().reduce((a, b) -> a + "," + b).orElse(null);
     }
 
-    private DocView view(LegalDocument d) {
+    private DocView view(LegalDocument d, BigDecimal debitRate) {
         String base = siteUrl.endsWith("/") ? siteUrl.substring(0, siteUrl.length() - 1) : siteUrl;
+        BigDecimal rate = DEBIT.equals(d.getDocKey()) && debitRate != null ? debitRate.stripTrailingZeros() : null;
         return new DocView(d.getDocKey(), d.getVersion(), d.getTitle(), d.getSlug(), base + "/legal/" + d.getSlug(), d.getEffectiveFrom(), d.isMaterial(),
-                d.getSummary());
+                d.getSummary(), rate);
     }
 
     private RecordView record(LegalAcceptance a) {
-        return new RecordView(a.getId(), a.getEvent(), a.getMethod(), a.getDocKey(), title(a.getDocKey()), a.getVersion(), a.getUserId(), a.getUserName(),
-                a.getUserEmail(), a.getRole(), a.getBusinessId(), a.getBusinessName(), a.getHotelId(), a.getReference(), a.getChannel(), a.getSharedOn(),
-                a.getNote(), a.getIp(), a.getUserAgent(), a.getRecordedByName(), a.getCreatedAt());
+        return new RecordView(a.getId(), a.getEvent(), a.getMethod(), a.getDocKey(), title(a.getDocKey(), a.getRatePct()), a.getVersion(), a.getUserId(),
+                a.getUserName(), a.getUserEmail(), a.getRole(), a.getBusinessId(), a.getBusinessName(), a.getHotelId(), a.getReference(), a.getChannel(),
+                a.getSharedOn(), a.getNote(), a.getIp(), a.getUserAgent(), a.getRecordedByName(), a.getCreatedAt(), a.getRatePct());
     }
 
-    static String title(String key) {
+    /** A DEBIT record names the rate its box stated; records from before the rate was stored said 1.5% (the box's fixed text then). */
+    static String title(String key, BigDecimal ratePct) {
         return switch (key) {
             case TERMS -> "Terms of Service";
             case PRIVACY -> "Privacy Policy";
             case DPA -> "Data Processing Terms";
-            case DEBIT -> "Daily debit authority (1.5%)";
+            case DEBIT -> "Daily debit authority (" + (ratePct == null ? "1.5" : pct(ratePct)) + "%)";
             case DEVICES -> "Devices & equipment terms";
             case SUPPORT -> "Support & services";
             case RPA -> "Referral partner terms";

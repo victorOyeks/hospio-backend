@@ -27,5 +27,6 @@
     <include file="db/changelog/015-legal-acceptance.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/016-fee-addendum.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/017-final-marketer-statement.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/018-legal-debit-rate.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

@@ -24,6 +24,7 @@ import com.hospio.platform.entity.MarketerProfile;
 import com.hospio.platform.repository.LegalAcceptanceRepository;
 import com.hospio.platform.repository.LegalDocumentRepository;
 import com.hospio.platform.repository.MarketerProfileRepository;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -46,7 +47,8 @@ class LegalServiceTest {
     private final LegalAcceptanceRepository acceptances = mock(LegalAcceptanceRepository.class);
     private final MarketerProfileRepository profiles = mock(MarketerProfileRepository.class);
     private final BusinessNames names = mock(BusinessNames.class);
-    private final LegalService service = new LegalService(documents, acceptances, profiles, names);
+    private final FeeService fees = mock(FeeService.class);
+    private final LegalService service = new LegalService(documents, acceptances, profiles, names, fees);
     private final List<LegalDocument> docs = new ArrayList<>();
     private static final Instant PAST = Instant.parse("2026-11-17T23:00:00Z");
 
@@ -62,6 +64,8 @@ class LegalServiceTest {
         when(documents.findAllByOrderByDocKeyAscEffectiveFromDescCreatedAtDesc()).thenAnswer(inv -> sorted());
         when(acceptances.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(names.name("b1")).thenReturn("Royal Suites");
+        when(fees.defaultSalesPct()).thenReturn(new BigDecimal("1.5"));
+        when(fees.dailySalesPct("b1")).thenReturn(new BigDecimal("1.50"));
     }
 
     @AfterEach
@@ -217,5 +221,49 @@ class LegalServiceTest {
         assertThat(LegalService.cell("Ada, Lagos")).isEqualTo("\"Ada, Lagos\"");
         assertThat(LegalService.cell("=HYPERLINK(1)")).isEqualTo("'=HYPERLINK(1)");
         assertThat(LegalService.cell(null)).isEmpty();
+    }
+
+    @Test
+    void theDebitBoxStatesTheBusinessesOwnRateAndTheRecordKeepsIt() {
+        owner();
+        when(fees.dailySalesPct("b1")).thenReturn(new BigDecimal("1.200"));
+        when(acceptances.findByUserIdAndEventOrderByCreatedAtDesc("o1", "ACCEPTED")).thenReturn(List.of());
+        LegalService.DocView debit = service.me().pending().stream().filter(d -> d.key().equals("DEBIT")).findFirst().orElseThrow();
+        assertThat(debit.ratePct()).isEqualByComparingTo("1.2");
+        assertThat(service.me().pending().get(0).ratePct()).isNull();
+
+        service.accept(new LegalService.AcceptRequest(List.of(new LegalService.AcceptItem("DEBIT", "FEES-2026-11", new BigDecimal("1.2"))), "HANDOVER"));
+        ArgumentCaptor<LegalAcceptance> saved = ArgumentCaptor.forClass(LegalAcceptance.class);
+        verify(acceptances).save(saved.capture());
+        assertThat(saved.getValue().getRatePct()).isEqualByComparingTo("1.2");
+        assertThat(LegalService.title("DEBIT", saved.getValue().getRatePct())).isEqualTo("Daily debit authority (1.2%)");
+        assertThat(LegalService.title("DEBIT", null)).isEqualTo("Daily debit authority (1.5%)");
+    }
+
+    @Test
+    void aDebitBoxThatShowedAnotherRateOrNoneForABusinessOffTheDefaultIsRefused() {
+        owner();
+        when(fees.dailySalesPct("b1")).thenReturn(new BigDecimal("1.2"));
+        // An older client never sends the rate: its box said 1.5%.
+        assertThatThrownBy(() -> service.accept(new LegalService.AcceptRequest(List.of(new LegalService.AcceptItem("DEBIT", "FEES-2026-11")), null)))
+                .isInstanceOf(ConflictException.class).hasMessageContaining("1.2% of daily sales, not 1.5%");
+        assertThatThrownBy(() -> service.accept(new LegalService.AcceptRequest(
+                List.of(new LegalService.AcceptItem("DEBIT", "FEES-2026-11", new BigDecimal("2"))), null))).isInstanceOf(ConflictException.class);
+        when(fees.dailySalesPct("b1")).thenReturn(null);
+        assertThatThrownBy(() -> service.accept(new LegalService.AcceptRequest(
+                List.of(new LegalService.AcceptItem("DEBIT", "FEES-2026-11", new BigDecimal("1.5"))), null))).isInstanceOf(ConflictException.class)
+                .hasMessageContaining("could not be checked");
+        verify(acceptances, never()).save(any());
+    }
+
+    @Test
+    void atTheDefaultTheBoxSaysTheDefaultAndAnOldClientStillWorks() {
+        owner();
+        service.accept(new LegalService.AcceptRequest(List.of(new LegalService.AcceptItem("DEBIT", "FEES-2026-11")), "SELF_SIGN_UP"));
+        ArgumentCaptor<LegalAcceptance> saved = ArgumentCaptor.forClass(LegalAcceptance.class);
+        verify(acceptances).save(saved.capture());
+        assertThat(saved.getValue().getRatePct()).isEqualByComparingTo("1.5");
+        LegalService.DocView pub = service.publicDocuments().get("current").stream().filter(d -> d.key().equals("DEBIT")).findFirst().orElseThrow();
+        assertThat(pub.ratePct()).isEqualByComparingTo("1.5");
     }
 }

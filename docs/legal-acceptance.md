@@ -5,8 +5,8 @@ Built 18 Nov 2026. Standard customers accept the Hospio360 terms online by ticki
 owners, staff and referral partners (marketers), in platform-service. Templates: "Oyeks Global - Hospio360 Contract Templates
 (Nov 2026)" (document 00 explains the approach). Public text: hospio360.com/legal (apps/landing in hospio-frontend).
 
-Company: Oyeks Global Limited, RC 10001123, Lagos, Nigeria · hello@oyeksglobal.com · oyeksglobal.com. Hospio360 is a product of
-Oyeks Global Limited.
+Company: Oyeks Global Limited, RC 10001123, registered office 9 Remi Omoniyi Crescent, Ikorodu, Lagos State, Nigeria ·
+hello@oyeksglobal.com · oyeksglobal.com. Hospio360 is a product of Oyeks Global Limited.
 
 ## Documents
 
@@ -28,7 +28,9 @@ The boxes:
 
 1. "I agree to the [Terms of Service], [Privacy Policy] and [Data Processing Terms] on behalf of my business." (TERMS, PRIVACY, DPA)
 2. "I authorise Hospio360 (a product of Oyeks Global Limited) to debit 1.5% of my business's daily sales from my business account each
-   day at 06:00." (DEBIT)
+   day at 06:00." (DEBIT) The figure is **that business's rate**: the rate its daily fee uses (newest fee rule, else tenant's
+   `feeValue`; `FeeService.dailySalesPct`), so a business on a signed addendum rate reads e.g. "debit 1.2% …". Self sign-up shows
+   the platform default (`fees.revenuePct`). See "The debit rate" below.
 3. Staff: "I agree to the [Staff terms of use]." · Marketer: "I agree to the [Referral partner terms]." · Owner, device package: "I agree
    to the [Devices & equipment terms] for this package…".
 
@@ -39,17 +41,32 @@ The boxes:
 | Owner, self-serve | `/sign-up`: both boxes required (identity `POST /auth/sign-up` refuses without `acceptTerms` and `acceptDebit`); the web app records them right after sign-up | `SELF_SIGN_UP` |
 | Owner onboarded by Hospio360 | `/handover` (first sign-in, after choosing a password): both boxes required before "Accept and go to my dashboard". The admin never ticks for the owner; in the handover step the admin records how the links were shared (channel + date) | `HANDOVER` (owner) · `LINKS_SHARED` note (admin, `BACK_OFFICE`) |
 | Existing owners, staff, marketers | A modal over every screen at the next sign-in (dashboard shell, both apps) until accepted; the only other button is Sign out | `FIRST_SIGN_IN` |
-| Anyone, new version | The same modal ("We've updated our terms", with what changed) | `RE_ACCEPTANCE` |
+| Anyone, new version | The same modal ("We've updated our terms. Please accept to continue.") | `RE_ACCEPTANCE` |
 | Marketer | The portal's agreement step (`POST /platform/marketer/agreement`) and the modal both record through the same system | `PORTAL` |
 | Owner, devices | Hospio fees → Devices & internet: "Accept device terms" on a package not yet installed | `DEVICE_PACKAGE` (reference = package id) |
 
 Device packages: the admin can mark a package installed only after the owner accepted the device terms for it, or by entering the
 reference of a signed device schedule (`signedScheduleRef`, the exception path). Changing a draft package clears the owner's acceptance.
 
+## The debit rate (18 Nov 2026)
+
+- `/legal/me` (owner, DEBIT pending) and `/public/legal/documents` give the DEBIT document a `ratePct`: the business's rate, or the
+  platform default on the public list. Other documents have `ratePct: null`. The rate is only worked out while the box is to be shown.
+- `POST /legal/accept` takes `ratePct` on the DEBIT item: the rate the box showed. The server compares it with the business's rate now;
+  a different one (or none from an older client, which always said 1.5%, for a business not on 1.5%) is **409** "Your business's daily
+  fee is 1.2% of daily sales, not 1.5%. Reload the page and read it", and nothing is recorded. If the rate can't be told (no fee rule
+  and tenant-service didn't answer) it is 409 "…could not be checked right now. Try again in a minute".
+- The record keeps it: `legal_acceptances.rate_pct` (migration 018); the record's title is "Daily debit authority (1.2%)" (also in
+  the CSV). Records from before 18 Nov have no rate: their box said 1.5%, and the title says so.
+- A later rate change (a new addendum) does not by itself ask the owner to accept again; the addendum is the signed authority for it.
+
 ## New versions and notice
 
 A Super admin publishes a version (admin → Platform → Legal documents, or `POST /platform/admin/legal/documents`). The newest version
 whose effective date has passed is in force; from then, everyone who accepts that document sees the modal at their next page load.
+Text changes that aren't material (an address, a typo) are made on hospio360.com/legal without a new version, so nobody is
+asked again: the platform holds only versions, the text lives in the landing site (`apps/landing/src/legal/documents.json`). The
+registered office address replaced "Lagos, Nigeria (full address on request)" in Terms 17.1 this way on 18 Nov 2026.
 A **material** change needs 30 days' notice (`hospio.legal.material-notice-days`): its effective date must be at least 30 days ahead,
 and until then it shows as "Coming" in My profile → Terms & acceptances. Put the new text on hospio360.com/legal first.
 
@@ -69,9 +86,9 @@ Who sees them: admins on the business page → **Acceptance** tab (with Export C
 
 | Method | Path | Who | Notes |
 |---|---|---|---|
-| GET | `/platform/public/legal/documents` | anyone | `{current: [DocView], upcoming: [DocView]}`; DocView `{key, version, title, slug, url, effectiveFrom, material, summary}` |
+| GET | `/platform/public/legal/documents` | anyone | `{current: [DocView], upcoming: [DocView]}`; DocView `{key, version, title, slug, url, effectiveFrom, material, summary, ratePct}` (ratePct on DEBIT only) |
 | GET | `/platform/legal/me` | signed in | `{required, pending, upcoming, records, canAccept}` |
-| POST | `/platform/legal/accept` | signed in | `{documents: [{key, version}], method?: SELF_SIGN_UP\|HANDOVER\|PORTAL}`; 409 when a newer version is in force; 400 for a document that isn't theirs; already accepted → nothing new |
+| POST | `/platform/legal/accept` | signed in | `{documents: [{key, version, ratePct?}], method?: SELF_SIGN_UP\|HANDOVER\|PORTAL}`; 409 when a newer version is in force or the DEBIT `ratePct` isn't the business's rate; 400 for a document that isn't theirs; already accepted → nothing new |
 | GET | `/platform/owner/legal/acceptances` | owner | the business's records |
 | GET | `/platform/admin/legal/acceptances?businessId=` · `/export?businessId=` | platform | records · CSV |
 | POST | `/platform/admin/legal/businesses/{id}/links-shared` | platform | `{channel: WHATSAPP\|EMAIL\|SMS\|IN_PERSON\|PHONE_CALL\|OTHER, sharedOn, note?}` (note required for OTHER) |
