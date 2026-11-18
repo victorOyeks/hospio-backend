@@ -128,6 +128,10 @@ public class UserAccount extends BaseEntity {
     @Column(name = "phone_code_expires_at")
     private Instant phoneCodeExpiresAt;
 
+    /** When the last code was sent; no new one within the cooldown (hospio.auth.phone-code-cooldown-seconds). */
+    @Column(name = "phone_code_sent_at")
+    private Instant phoneCodeSentAt;
+
     /** A pause ends by itself at this instant (Lagos midnight after the last paused day); null while it lasts until resumed. */
     @Column(name = "paused_until")
     private Instant pausedUntil;
