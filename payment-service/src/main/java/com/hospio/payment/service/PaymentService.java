@@ -328,6 +328,10 @@ public class PaymentService {
     }
 
     private PaymentResponse sendToPos(PaymentRequest p, Role role, String hotelId, String terminalId) {
+        // An unpaid Hospio360 invoice past its grace period pauses card/transfer through the POS (docs/plan-monthly-invoices.md); cash still works.
+        if (billingHold != null) {
+            billingHold.require("Card and transfer payments through the POS");
+        }
         // The POS the desk picked (one of this hotel's), else the one assigned to the desk's role.
         PosTerminal terminal = (terminalId != null
                 ? Optional.of(terminals.picked(hotelId, terminalId).orElseThrow(() -> new BadRequestException("That POS isn't one of this hotel's. Pick another")))
@@ -335,10 +339,6 @@ public class PaymentService {
                 .orElseThrow(() -> new BadRequestException("No POS is assigned to " + role.name().toLowerCase().replace('_', ' ') + ". Pick another POS or take cash; a manager can assign one in Hotel setup"));
         if (terminal.getStatus() != PosTerminal.Status.ONLINE) {
             throw new BadRequestException("The POS " + terminal.getName() + " is offline. Use another POS or take cash");
-        }
-        // An unpaid Hospio360 invoice past its grace period pauses card/transfer through the POS (docs/plan-monthly-invoices.md); cash still works.
-        if (billingHold != null) {
-            billingHold.require("Card and transfer payments through the POS");
         }
         if (hotelPosConfig.paused(hotelId)) {
             throw new BadRequestException("POS payments are paused until the Hospio360 invoice is paid. Take cash; the owner can pay the invoice under Billing & invoices");
