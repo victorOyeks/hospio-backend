@@ -23,6 +23,13 @@ public class InternalPlatformController {
     private final ApprovalRepository approvals;
     private final PlatformSettingsService settings;
     private final IntegrationSettingsService integrations;
+    private final com.hospio.platform.service.MarketerService marketers;
+
+    /** tenant-service sign-up with a referral code: the marketer it belongs to and whether they can refer; 404 when nobody has it. */
+    @GetMapping("/marketers/referral-codes/{code}")
+    public ApiResponse<com.hospio.platform.service.MarketerService.ReferralCodeInfo> referralCode(@PathVariable String code) {
+        return ApiResponse.ok(marketers.referralCode(code).orElseThrow(() -> new com.hospio.common.exception.ResourceNotFoundException("No marketer has that referral code")));
+    }
 
     /** finance's today screen: how many approvals are waiting at a hotel. */
     @GetMapping("/approvals/pending-count")

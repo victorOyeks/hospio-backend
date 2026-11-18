@@ -17,6 +17,7 @@ import com.hospio.common.security.HospioUserDetails;
 import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.tenant.client.IdentityClient;
+import com.hospio.tenant.client.PlatformClient;
 import com.hospio.tenant.dto.BusinessResponse;
 import com.hospio.tenant.dto.BusinessSummary;
 import com.hospio.tenant.dto.BusinessesSummaryResponse;
@@ -67,6 +68,7 @@ public class BusinessService {
     private final DraftData draftData;
     private final EventPublisher events;
     private final IdentityClient identityClient;
+    private final PlatformClient platformClient;
 
     // ---- platform: list, read, create, edit ---------------------------------------------------------
 
@@ -189,12 +191,13 @@ public class BusinessService {
         if (businesses.existsById(request.id())) {
             throw new BadRequestException("A business with that id already exists");
         }
+        String marketerId = StringUtils.hasText(request.referralCode()) ? marketerForCode(request.referralCode()) : request.marketerId();
         Business business = Business.builder()
                 .name(request.name()).city(StringUtils.hasText(request.city()) ? request.city() : null)
                 .ownerUserId(request.ownerUserId()).ownerName(request.ownerName()).ownerEmail(request.ownerEmail().toLowerCase())
                 .ownerPhone(StringUtils.hasText(request.ownerPhone()) ? request.ownerPhone() : null)
                 .source(request.source() == null ? Business.Source.SELF_SERVE : request.source())
-                .marketerId(request.marketerId()).referralId(request.referralId())
+                .marketerId(marketerId).referralId(request.referralId())
                 .stage(Business.Stage.ONBOARDING)
                 .build();
         business.setId(request.id());
@@ -202,6 +205,33 @@ public class BusinessService {
         openDraft(business, request.ownerUserId());
         publishCreated(business);
         return toResponse(business);
+    }
+
+    /**
+     * The marketer a sign-up's referral code belongs to (docs/plan-marketers.md). Only an ACTIVE marketer who accepted the Referral
+     * Partner Agreement can refer; anything else is refused with a message the owner can act on (fix the code or leave it empty).
+     */
+    String marketerForCode(String raw) {
+        String code = raw.trim().toUpperCase(java.util.Locale.ROOT);
+        PlatformClient.ReferralCode found = platformClient.referralCode(code).orElse(null);
+        if (found == null) {
+            throw new BadRequestException("Referral code " + code + " isn't recognised. Check it with the person who referred you, or leave it empty");
+        }
+        if (!found.canRefer()) {
+            throw new BadRequestException("Referral code " + code + " isn't active. Check it with the person who referred you, or leave it empty");
+        }
+        return found.profileId();
+    }
+
+    /**
+     * Who referred the business, set by platform-service (PUT /admin/businesses/{id}/marketer there), which ends the old marketer's
+     * agreement, opens the new one and records the change. Null clears it.
+     */
+    @Transactional
+    public BusinessResponse setMarketer(String id, String marketerId) {
+        Business b = find(id);
+        b.setMarketerId(StringUtils.hasText(marketerId) ? marketerId : null);
+        return toResponse(businesses.save(b));
     }
 
     @Transactional
@@ -247,7 +277,10 @@ public class BusinessService {
         if (r.timezone() != null) b.setTimezone(r.timezone());
         if (r.contractStartsOn() != null) b.setContractStartsOn(r.contractStartsOn());
         if (r.contractNotes() != null) b.setContractNotes(r.contractNotes());
-        if (r.marketerId() != null) b.setMarketerId(r.marketerId());
+        // Who referred the business changes only through platform-service, so the marketer's agreements follow (docs/plan-marketers.md).
+        if (r.marketerId() != null && !r.marketerId().equals(b.getMarketerId() == null ? "" : b.getMarketerId())) {
+            throw new BadRequestException("Change who referred the business with Referred by on its page, so the marketer's agreement follows");
+        }
         if (r.accountManagerId() != null) b.setAccountManagerId(r.accountManagerId());
         if (r.source() != null) b.setSource(r.source());
         return toResponse(businesses.save(b));

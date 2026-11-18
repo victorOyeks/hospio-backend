@@ -16,7 +16,12 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
-/** A marketer who referred this business: 20% of Hospio360's share for 24 months, 5% WHT, paid monthly. */
+/**
+ * A marketer's agreement for one business they referred (docs/plan-marketers.md): {@code sharePct} % of the platform fee collected from
+ * it, for {@code months} months from the business's first collected fee ({@code windowStart}), {@code whtPct} % WHT. Opens when the
+ * business goes live (or when the marketer is set later); ends when the marketer changes or is ended. It earns on fee days in
+ * [startedOn, endedOn) that fall inside the window.
+ */
 @Getter
 @Setter
 @SuperBuilder
@@ -38,7 +43,7 @@ public class Marketer extends TenantEntity {
 
     @Column(nullable = false)
     @lombok.Builder.Default
-    private int months = 24;
+    private int months = 12;
 
     @Column(name = "wht_pct", nullable = false)
     @lombok.Builder.Default
@@ -57,6 +62,22 @@ public class Marketer extends TenantEntity {
     /** The person behind this agreement ({@link MarketerProfile}); null for agreements made before profiles existed. */
     @Column(name = "profile_id", length = 36)
     private String profileId;
+
+    /** The first day of the window: the business's first collected platform fee. Null until one is collected. */
+    @Column(name = "window_start")
+    private LocalDate windowStart;
+
+    /** The day after the last day that earns (windowStart + months). */
+    @Column(name = "window_end")
+    private LocalDate windowEnd;
+
+    @Column(name = "ended_reason", length = 300)
+    private String endedReason;
+
+    /** The agreement covers {@code day}: on or after its start and before its end (whatever its status now). */
+    public boolean covers(LocalDate day) {
+        return startedOn != null && !day.isBefore(startedOn) && (endedOn == null || day.isBefore(endedOn));
+    }
 
     /** The agreement still earns in {@code month} (yyyy-MM) when active and within its months from the start. */
     public boolean earnsIn(java.time.YearMonth month) {

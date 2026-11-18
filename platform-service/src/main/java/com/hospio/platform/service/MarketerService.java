@@ -72,6 +72,7 @@ public class MarketerService {
 
     static final Set<String> REFERRAL_STAGES = Set.of("LEAD", "CONTACTED", "ONBOARDING", "LIVE", "LOST");
     static final Set<String> PROFILE_STATUSES = Set.of("PENDING", "ACTIVE", "ENDED");
+    static final ZoneId LAGOS = ZoneId.of("Africa/Lagos");
     static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm").withZone(ZoneId.of("Africa/Lagos"));
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -85,6 +86,13 @@ public class MarketerService {
     private final PlatformSettingsService settings;
     private final DeliveryService deliveries;
     private final jakarta.persistence.EntityManager em;
+    private final CommissionService commissionService;
+    private final com.hospio.platform.repository.MarketerStatementRepository statements;
+    private final ChangeService changes;
+
+    /** The Referral Partner Agreement version marketers accept in the portal (Downloads template 10, docs/plan-marketers.md). */
+    public static final String AGREEMENT_VERSION = "RPA-2026-11";
+    static final java.util.regex.Pattern NUBAN = java.util.regex.Pattern.compile("\\d{10}");
 
     @Value("${hospio.apps.admin-url:https://admin-staging.hospio360.com}")
     private String adminUrl;
@@ -152,8 +160,10 @@ public class MarketerService {
     public MarketerDetail detail(String profileId) {
         MarketerProfile p = findProfile(profileId);
         List<Commission> cs = commissions.findByProfileIdOrderByMonthDesc(p.getId());
+        Money3 m = money(p.getId(), cs);
         return new MarketerDetail(p, marketers.findByProfileIdOrderByCreatedAtDesc(p.getId()), referrals.findByProfileIdOrderBySentAtDesc(p.getId()),
-                cs.stream().map(c -> row(c, p.getFullName())).toList(), sum(cs, null), sum(cs, "DUE"), sum(cs, "PAID"));
+                cs.stream().map(c -> row(c, p.getFullName())).toList(), m.earned(), m.due(), m.paid(), referred(p.getId()), businessesByStage(p.getId()),
+                commissionService.openLines(p.getId()), commissionService.forProfile(p.getId()), AGREEMENT_VERSION);
     }
 
     @Transactional
@@ -182,7 +192,8 @@ public class MarketerService {
                 for (Marketer m : marketers.findByProfileIdOrderByCreatedAtDesc(p.getId())) {
                     if ("ACTIVE".equals(m.getStatus())) {
                         m.setStatus("ENDED");
-                        m.setEndedOn(LocalDate.now());
+                        m.setEndedOn(LocalDate.now(LAGOS));
+                        m.setEndedReason("Marketer ended");
                         marketers.save(m);
                     }
                 }
@@ -307,6 +318,9 @@ public class MarketerService {
         if ("PAID".equals(c.getStatus())) {
             throw new BadRequestException("Already paid");
         }
+        if (c.getSource() != null) {
+            throw new BadRequestException("Commission on collected fees is paid through the marketer's monthly statement (Statements)");
+        }
         c.setStatus("PAID");
         c.setPaidAt(Instant.now());
         c.setPaidOn(request == null || request.paidOn() == null ? LocalDate.now() : request.paidOn());
@@ -321,20 +335,191 @@ public class MarketerService {
         return asSystem(() -> {
             MarketerProfile p = myProfile();
             List<Commission> cs = commissions.findByProfileIdOrderByMonthDesc(p.getId());
-            return new MarketerMe(p, new MarketerTotals(sum(cs, null), sum(cs, "DUE"), sum(cs, "PAID"),
-                    marketers.findByProfileIdOrderByCreatedAtDesc(p.getId()).size(), (int) referrals.countByProfileId(p.getId())));
+            Money3 m = money(p.getId(), cs);
+            FeeSettings fees = settings.fees();
+            return new MarketerMe(p, new MarketerTotals(m.earned(), m.due(), m.paid(), referred(p.getId()), (int) referrals.countByProfileId(p.getId()),
+                    m.open(), m.carried(), businessesByStage(p.getId())), AGREEMENT_VERSION, AGREEMENT_VERSION.equals(p.getAgreementVersion()),
+                    commissionService.minimumPayout(), fees.whtPct());
         });
     }
 
+    /**
+     * The marketer's bank details: bank, 10-digit NUBAN account number, account name. Changing saved details needs a note (why), and
+     * every save clears finance's check, so a statement can't be approved until finance has checked the new details.
+     */
     @Transactional
     public MarketerProfile updateBank(PlatformRequests.BankRequest request) {
+        String bank = request.bankName().trim();
+        String account = request.bankAccount().replaceAll("\\s", "");
+        String name = request.bankAccountName().trim();
+        if (!NUBAN.matcher(account).matches()) {
+            throw new BadRequestException("The account number is the 10-digit NUBAN");
+        }
+        if (name.length() < 3 || !name.matches(".*[A-Za-z].*")) {
+            throw new BadRequestException("Enter the account name as the bank shows it");
+        }
         return asSystem(() -> {
             MarketerProfile p = myProfile();
-            p.setBankName(request.bankName().trim());
-            p.setBankAccount(request.bankAccount().trim());
-            p.setBankAccountName(request.bankAccountName().trim());
+            boolean had = StringUtils.hasText(p.getBankAccount());
+            boolean same = had && bank.equals(p.getBankName()) && account.equals(p.getBankAccount()) && name.equals(p.getBankAccountName());
+            if (same) {
+                return p;
+            }
+            if (had && (request.note() == null || request.note().trim().length() < 5)) {
+                throw new BadRequestException("Say why the bank details are changing; finance checks them again before the next payment");
+            }
+            p.setBankName(bank);
+            p.setBankAccount(account);
+            p.setBankAccountName(name);
+            p.setBankSavedAt(Instant.now());
+            p.setBankChangeNote(had ? request.note().trim() : null);
+            p.setBankCheckedAt(null);
+            p.setBankCheckedByName(null);
             return profiles.save(p);
         });
+    }
+
+    /** Finance checked the marketer's bank details (account name matches the bank's): statements can be approved again. */
+    @Transactional
+    public MarketerProfile markBankChecked(String profileId) {
+        HospioUserDetails user = CurrentUser.require();
+        MarketerProfile p = findProfile(profileId);
+        if (!StringUtils.hasText(p.getBankAccount())) {
+            throw new BadRequestException(p.getFullName() + " hasn't added bank details yet");
+        }
+        p.setBankCheckedAt(Instant.now());
+        p.setBankCheckedByName(user.getFullName());
+        return profiles.save(p);
+    }
+
+    /** The marketer accepts the Referral Partner Agreement (the current version) in the portal; who and when are kept. */
+    @Transactional
+    public MarketerProfile acceptAgreement(String version) {
+        if (!AGREEMENT_VERSION.equals(version)) {
+            throw new BadRequestException("Accept the current agreement (" + AGREEMENT_VERSION + "); reload the page");
+        }
+        HospioUserDetails user = CurrentUser.require();
+        return asSystem(() -> {
+            MarketerProfile p = myProfile();
+            if ("ENDED".equals(p.getStatus())) {
+                throw new BadRequestException("Your marketer account has ended");
+            }
+            if (AGREEMENT_VERSION.equals(p.getAgreementVersion())) {
+                return p;
+            }
+            p.setAgreementVersion(AGREEMENT_VERSION);
+            p.setAgreementAcceptedAt(Instant.now());
+            p.setAgreementAcceptedBy(user.getUserId());
+            p.setAgreementAcceptedName(user.getFullName());
+            return profiles.save(p);
+        });
+    }
+
+    /** My statements, newest first, and what goes on the next one. */
+    @Transactional
+    public MyStatements myStatements() {
+        return asSystem(() -> {
+            MarketerProfile p = myProfile();
+            return new MyStatements(commissionService.forProfile(p.getId()), commissionService.openLines(p.getId()), commissionService.minimumPayout());
+        });
+    }
+
+    public record MyStatements(List<CommissionService.StatementRow> statements, List<CommissionService.LineView> nextStatement, BigDecimal minimumPayout) {
+    }
+
+    @Transactional
+    public CommissionService.StatementDetail myStatementDetail(String id) {
+        return asSystem(() -> commissionService.detailFor(myProfile(), id));
+    }
+
+    @Transactional
+    public CommissionService.StatementDetail queryStatement(String id, String note) {
+        MarketerProfile p = asSystem(this::myProfile);
+        return commissionService.query(p, id, note);
+    }
+
+    /** A referral code's marketer (sign-up with ?ref=); only an ACTIVE marketer who accepted the agreement can refer. */
+    @Transactional(readOnly = true)
+    public java.util.Optional<ReferralCodeInfo> referralCode(String code) {
+        if (!StringUtils.hasText(code)) {
+            return java.util.Optional.empty();
+        }
+        return asSystem(() -> profiles.findByReferralCode(code.trim().toUpperCase(Locale.ROOT)).map(p -> new ReferralCodeInfo(p.getId(), p.getReferralCode(),
+                p.getFullName(), p.getStatus(), "ACTIVE".equals(p.getStatus()) && AGREEMENT_VERSION.equals(p.getAgreementVersion()))));
+    }
+
+    public record ReferralCodeInfo(String profileId, String code, String fullName, String status, boolean canRefer) {
+    }
+
+    /**
+     * Who referred a business (admin, onboarding step details or the business page). The old marketer's active agreement ends today;
+     * when the business is live (or at risk) the new marketer's agreement opens today (keeping the business's 12-month window, so it
+     * isn't extended); before go-live it opens when the business goes live. Recorded in Changes by Hospio360 (the audit log).
+     */
+    @Transactional
+    public MarketerChange changeMarketer(String businessId, String profileId, String reason) {
+        HospioUserDetails user = CurrentUser.require();
+        TenantClient.Business b = tenant.business(businessId).orElseThrow(() -> new ResourceNotFoundException("Business not found"));
+        String to = StringUtils.hasText(profileId) ? profileId : null;
+        MarketerProfile next = to == null ? null : findProfile(to);
+        if (next != null && "ENDED".equals(next.getStatus())) {
+            throw new BadRequestException(next.getFullName() + "'s marketer account has ended; choose an active marketer");
+        }
+        String from = StringUtils.hasText(b.marketerId()) ? b.marketerId() : null;
+        if (java.util.Objects.equals(from, to)) {
+            throw new BadRequestException(to == null ? "No marketer is set on this business" : next.getFullName() + " is already set on this business");
+        }
+        if (!StringUtils.hasText(reason) || reason.trim().length() < 5) {
+            throw new BadRequestException("Say why the marketer is changing (it goes in the audit log)");
+        }
+        String fromName = from == null ? "nobody" : profiles.findById(from).map(MarketerProfile::getFullName).orElse(from);
+        String toName = next == null ? "nobody" : next.getFullName();
+        if (!tenant.setMarketer(businessId, to)) {
+            throw new com.hospio.common.exception.ExternalServiceException("Couldn't save the marketer on the business right now; try again", null);
+        }
+        LocalDate today = LocalDate.now(LAGOS);
+        List<Marketer> ended = new ArrayList<>();
+        Marketer opened = asSystem(() -> {
+            for (Marketer m : marketers.findByBusinessId(businessId)) {
+                if ("ACTIVE".equals(m.getStatus()) && (to == null || !to.equals(m.getProfileId()))) {
+                    m.setStatus("ENDED");
+                    m.setEndedOn(today);
+                    m.setEndedReason("Marketer changed to " + toName + " by " + user.getFullName() + ": " + reason.trim());
+                    ended.add(marketers.save(m));
+                }
+            }
+            if (next != null && java.util.Set.of("LIVE", "AT_RISK").contains(b.stage())) {
+                return openAgreement(b, next, today);
+            }
+            return null;
+        });
+        changes.record(new PlatformRequests.PlatformChangeRequest(businessId, null, "Marketer",
+                "Referred by changed from " + fromName + " to " + toName + (ended.isEmpty() ? "" : "; the earlier agreement ended " + today)
+                        + (opened == null ? "" : "; " + toName + "'s agreement opened " + today),
+                reason.trim(), "{\"marketerId\":" + (from == null ? "null" : "\"" + from + "\"") + "}",
+                "{\"marketerId\":" + (to == null ? "null" : "\"" + to + "\"") + "}"));
+        return new MarketerChange(businessId, from, fromName, to, toName, ended, opened);
+    }
+
+    public record MarketerChange(String businessId, String fromProfileId, String fromName, String toProfileId, String toName, List<Marketer> ended,
+                                 Marketer opened) {
+    }
+
+    /** A new ACTIVE agreement from {@code start} with the profile's share and months, keeping the business's window if it has one. */
+    Marketer openAgreement(TenantClient.Business b, MarketerProfile p, LocalDate start) {
+        FeeSettings fees = settings.fees();
+        LocalDate windowStart = null;
+        for (Marketer m : marketers.findByBusinessId(b.id())) {
+            if (m.getWindowStart() != null && (windowStart == null || m.getWindowStart().isBefore(windowStart))) {
+                windowStart = m.getWindowStart();
+            }
+        }
+        Marketer m = marketers.save(Marketer.builder().businessId(b.id()).profileId(p.getId()).userId(p.getUserId() == null ? p.getId() : p.getUserId())
+                .fullName(p.getFullName()).sharePct(p.getSharePct()).months(p.getMonths()).whtPct(fees.whtPct())
+                .status("ACTIVE").startedOn(start).windowStart(windowStart).windowEnd(windowStart == null ? null : windowStart.plusMonths(p.getMonths()))
+                .build());
+        log.info("Marketer agreement opened for {} on business {} from {}", p.getFullName(), b.name(), start);
+        return m;
     }
 
     @Transactional
@@ -389,8 +574,12 @@ public class MarketerService {
             for (TenantClient.Business b : businesses) {
                 Marketer m = agreements.get(b.id());
                 Commission last = commissions.findByProfileIdOrderByMonthDesc(p.getId()).stream().filter(c -> b.id().equals(c.getBusinessId())).findFirst().orElse(null);
+                BigDecimal earned = Money.of(commissions.findByProfileIdOrderByMonthDesc(p.getId()).stream().filter(c -> b.id().equals(c.getBusinessId()))
+                        .map(Commission::getNet).reduce(BigDecimal.ZERO, BigDecimal::add));
                 out.add(new MarketerBusiness(b.id(), b.name(), b.city(), b.stage(), b.hotelCount(), b.createdAt(),
-                        m == null ? p.getSharePct() : m.getSharePct(), last == null ? null : last.getNet(), last == null ? null : last.getMonth()));
+                        m == null ? p.getSharePct() : m.getSharePct(), last == null ? null : last.getNet(), last == null ? null : last.getMonth(),
+                        m == null ? null : m.getStatus(), m == null ? null : m.getStartedOn(), m == null ? null : m.getEndedOn(),
+                        m == null ? null : m.getWindowStart(), m == null ? null : m.getWindowEnd(), m == null ? p.getMonths() : m.getMonths(), earned));
             }
             return out;
         });
@@ -488,12 +677,19 @@ public class MarketerService {
                 log.warn("Business {} names marketer {} but no profile has that id; no agreement created", businessId, b.marketerId());
                 return null;
             }
-            if (marketers.findByBusinessIdAndProfileId(businessId, p.getId()).isEmpty()) {
-                FeeSettings fees = settings.fees();
-                marketers.save(Marketer.builder().businessId(businessId).profileId(p.getId()).userId(p.getUserId() == null ? p.getId() : p.getUserId())
-                        .fullName(p.getFullName()).sharePct(p.getSharePct()).months(p.getMonths()).whtPct(fees.whtPct())
-                        .status("ACTIVE").startedOn(LocalDate.now()).build());
-                log.info("Marketer agreement opened for {} on business {}", p.getFullName(), b.name());
+            LocalDate today = LocalDate.now(LAGOS);
+            // Never two earning at once: an agreement of another marketer still open on this business ends today.
+            for (Marketer m : marketers.findByBusinessId(businessId)) {
+                if ("ACTIVE".equals(m.getStatus()) && !p.getId().equals(m.getProfileId())) {
+                    m.setStatus("ENDED");
+                    m.setEndedOn(today);
+                    m.setEndedReason("The business names another marketer (" + p.getFullName() + ")");
+                    marketers.save(m);
+                }
+            }
+            // Once per business and marketer: back to LIVE from AT_RISK keeps the same agreement; an ENDED marketer opens none.
+            if (marketers.findByBusinessIdAndProfileId(businessId, p.getId()).isEmpty() && !"ENDED".equals(p.getStatus())) {
+                openAgreement(b, p, today);
             }
             return null;
         });
@@ -544,7 +740,61 @@ public class MarketerService {
 
     private MarketerRow row(MarketerProfile p) {
         List<Commission> cs = commissions.findByProfileIdOrderByMonthDesc(p.getId());
-        return new MarketerRow(p, marketers.findByProfileIdOrderByCreatedAtDesc(p.getId()).size(), sum(cs, null), sum(cs, "DUE"));
+        Money3 m = money(p.getId(), cs);
+        Map<String, Integer> byStage = businessesByStage(p.getId());
+        return new MarketerRow(p, byStage.values().stream().mapToInt(Integer::intValue).sum(), m.earned(), m.due(), byStage,
+                AGREEMENT_VERSION.equals(p.getAgreementVersion()), p.getBankCheckedAt() != null);
+    }
+
+    /**
+     * earned: every line's net (old monthly rows too); due: statements made and not paid yet (draft, queried, approved); paid: what was
+     * paid; open: lines waiting for the next statement; carried: statements under the minimum waiting to be carried into the next.
+     */
+    record Money3(BigDecimal earned, BigDecimal due, BigDecimal paid, BigDecimal open, BigDecimal carried) {
+    }
+
+    Money3 money(String profileId, List<Commission> cs) {
+        BigDecimal earned = BigDecimal.ZERO;
+        BigDecimal open = BigDecimal.ZERO;
+        BigDecimal legacyDue = BigDecimal.ZERO;
+        BigDecimal legacyPaid = BigDecimal.ZERO;
+        for (Commission c : cs) {
+            earned = earned.add(c.getNet());
+            if (c.getSource() == null) {
+                if ("PAID".equals(c.getStatus())) {
+                    legacyPaid = legacyPaid.add(c.getNet());
+                } else if ("DUE".equals(c.getStatus())) {
+                    legacyDue = legacyDue.add(c.getNet());
+                }
+            } else if (c.getStatementId() == null) {
+                open = open.add(c.getNet());
+            }
+        }
+        BigDecimal due = legacyDue;
+        BigDecimal paid = legacyPaid;
+        BigDecimal carried = BigDecimal.ZERO;
+        for (com.hospio.platform.entity.MarketerStatement s : statements.findByProfileIdOrderByMonthDesc(profileId)) {
+            switch (s.getStatus()) {
+                case "DRAFT", "QUERIED", "APPROVED" -> due = due.add(s.getPayable());
+                case "PAID" -> paid = paid.add(s.getPaidAmount() == null ? s.getPayable() : s.getPaidAmount());
+                case "CARRIED_OVER" -> carried = s.getCarriedToId() == null ? carried.add(s.getPayable()) : carried;
+                default -> { }
+            }
+        }
+        return new Money3(Money.of(earned), Money.of(due), Money.of(paid), Money.of(open), Money.of(carried));
+    }
+
+    /** Every business that names this marketer, whatever its stage (tenant), by stage. */
+    Map<String, Integer> businessesByStage(String profileId) {
+        Map<String, Integer> out = new java.util.TreeMap<>();
+        for (TenantClient.Business b : tenant.businesses(null, profileId)) {
+            out.merge(b.stage() == null ? "UNKNOWN" : b.stage(), 1, Integer::sum);
+        }
+        return out;
+    }
+
+    int referred(String profileId) {
+        return tenant.businesses(null, profileId).size();
     }
 
     private CommissionRow row(Commission c, String marketerName) {

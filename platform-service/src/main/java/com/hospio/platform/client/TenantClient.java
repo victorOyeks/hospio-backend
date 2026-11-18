@@ -219,6 +219,19 @@ public class TenantClient {
         }
     }
 
+    /** PUT /internal/businesses/{id}/marketer {marketerId} (null clears it). Returns false when it could not be written. */
+    public boolean setMarketer(String businessId, String marketerId) {
+        try {
+            Map<String, String> body = new java.util.HashMap<>();
+            body.put("marketerId", marketerId);
+            restClient.put().uri("/internal/businesses/{id}/marketer", businessId).body(body).retrieve().toBodilessEntity();
+            return true;
+        } catch (Exception e) {
+            warn("PUT /internal/businesses/" + businessId + "/marketer", e);
+            return false;
+        }
+    }
+
     static <T> T data(ApiResponse<T> body) {
         return body == null ? null : body.data();
     }

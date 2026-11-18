@@ -110,6 +110,14 @@ public class DailyFee extends TenantEntity {
     @lombok.Builder.Default
     private BigDecimal deviceCarriedIn = BigDecimal.ZERO;
 
+    /** What Hospio360 gave back of the platform fee collected (a provider reversal or a refund); the marketer's share of it is clawed back. */
+    @Column(nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal refunded = BigDecimal.ZERO;
+
+    @Column(name = "refund_note", length = 300)
+    private String refundNote;
+
     public BigDecimal remaining() {
         return due.subtract(collected).max(BigDecimal.ZERO);
     }

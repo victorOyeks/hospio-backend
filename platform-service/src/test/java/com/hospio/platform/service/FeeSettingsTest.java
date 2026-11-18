@@ -44,7 +44,7 @@ class FeeSettingsTest {
         assertThat(f.dueDay()).isEqualTo(5);
         assertThat(f.graceDays()).isEqualTo(10);
         assertThat(f.marketerSharePct()).isEqualByComparingTo("20");
-        assertThat(f.marketerMonths()).isEqualTo(24);
+        assertThat(f.marketerMonths()).isEqualTo(12);
         assertThat(f.whtPct()).isEqualByComparingTo("5");
         assertThat(f.providerFeePct()).isEqualByComparingTo("0.5");
         assertThat(f.hmsSharePct()).isEqualByComparingTo("1.5");
@@ -85,7 +85,7 @@ class FeeSettingsTest {
         assertThat(json).containsOnlyKeys("general", "fees", "security");
         assertThat((Map<String, Object>) json.get("general")).containsOnlyKeys("company", "supportEmail", "supportWhatsApp", "website", "timezone");
         assertThat(((Map<String, Object>) json.get("fees")).keySet()).containsExactly("model", "perRoom", "revenuePct", "trialDays", "dueDay",
-                "graceDays", "marketerSharePct", "marketerMonths", "whtPct", "providerFeePct", "hmsSharePct");
+                "graceDays", "marketerSharePct", "marketerMonths", "whtPct", "providerFeePct", "hmsSharePct", "marketerMinPayout");
         assertThat((Map<String, Object>) json.get("fees")).containsEntry("perRoom", 1500).containsEntry("revenuePct", 1.5).containsEntry("trialDays", 30);
         assertThat((Map<String, Object>) json.get("security")).containsEntry("sessionHours", 12).containsEntry("require2Step", false)
                 .containsEntry("adminIpAllowlist", false).containsEntry("auditRetentionDays", 183);
@@ -99,7 +99,7 @@ class FeeSettingsTest {
             saved.add(inv.getArgument(0));
             return inv.getArgument(0);
         });
-        FeeSettings body = new FeeSettings(null, new BigDecimal("2000"), null, null, 6, null, null, null, null, null, null);
+        FeeSettings body = new FeeSettings(null, new BigDecimal("2000"), null, null, 6, null, null, null, null, null, null, null);
         service.update(body);
         assertThat(saved).extracting(PlatformSetting::getSettingKey).containsExactly("perRoom", "dueDay");
         assertThat(saved).extracting(PlatformSetting::getValue).containsExactly("2000", "6");
@@ -109,7 +109,7 @@ class FeeSettingsTest {
     @Test
     void seedingWritesEveryDefaultOnce() {
         when(repo.findByGroupNameAndSettingKey(anyString(), anyString())).thenReturn(Optional.empty());
-        assertThat(service.seedDefaults()).isEqualTo(5 + 11 + 4);
+        assertThat(service.seedDefaults()).isEqualTo(5 + 12 + 4);
     }
 
     @Test

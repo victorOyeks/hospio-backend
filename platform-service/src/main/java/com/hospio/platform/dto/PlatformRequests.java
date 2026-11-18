@@ -54,7 +54,27 @@ public final class PlatformRequests {
     public record ReferralStageRequest(@NotBlank String stage, String note) {
     }
 
-    public record BankRequest(@NotBlank String bankName, @NotBlank String bankAccount, @NotBlank String bankAccountName) {
+    /** {@code note}: why saved bank details are changing (required for a change, not the first save). */
+    public record BankRequest(@NotBlank @Size(max = 100) String bankName, @NotBlank @Size(max = 30) String bankAccount,
+                              @NotBlank @Size(max = 150) String bankAccountName, @Size(max = 500) String note) {
+    }
+
+    public record AgreementRequest(@NotBlank String version) {
+    }
+
+    public record StatementQueryRequest(@NotBlank @Size(max = 1000) String note) {
+    }
+
+    public record StatementApproveRequest(@Size(max = 1000) String answer) {
+    }
+
+    public record StatementPaymentRequest(@NotBlank @Size(max = 100) String reference, LocalDate paidOn, BigDecimal amount) {
+    }
+
+    public record BusinessMarketerRequest(String profileId, @Size(max = 300) String reason) {
+    }
+
+    public record FeeRefundRequest(BigDecimal amount, @Size(max = 300) String reason) {
     }
 
     public record PayCommissionRequest(String reference, LocalDate paidOn) {

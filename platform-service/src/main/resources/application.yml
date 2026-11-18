@@ -83,6 +83,10 @@ hospio:
   worker:
     # The nightly job (01:30 Lagos): overdue statements, health scores, alert sweep.
     enabled: ${WORKER_ENABLED:true}
+  qa:
+    # QA only, never in production: a hotel can be switched to a simulated daily-fee debit and its debits answered by hand
+    # (QaFeeController, docs/plan-marketers.md). On for staging with QA_FEE_SIMULATION=true.
+    fee-simulation: ${QA_FEE_SIMULATION:false}
   storage:
     type: ${STORAGE_TYPE:local}
     local-dir: ${STORAGE_DIR:./storage}

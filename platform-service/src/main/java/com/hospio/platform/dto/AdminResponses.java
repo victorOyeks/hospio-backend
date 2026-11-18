@@ -53,7 +53,9 @@ public final class AdminResponses {
 
     // ---- marketers -----------------------------------------------------------------------------------
 
-    public record MarketerRow(MarketerProfile profile, int businesses, BigDecimal earnedTotal, BigDecimal due) {
+    /** {@code businesses}: every business naming the marketer (all stages, {@code byStage}). */
+    public record MarketerRow(MarketerProfile profile, int businesses, BigDecimal earnedTotal, BigDecimal due, java.util.Map<String, Integer> byStage,
+                              boolean agreementAccepted, boolean bankChecked) {
     }
 
     public record MarketerLogin(String userId, String temporaryPassword, Instant temporaryPasswordExpiresAt, String inviteToken, Instant inviteExpiresAt) {
@@ -63,20 +65,32 @@ public final class AdminResponses {
     }
 
     public record MarketerDetail(MarketerProfile profile, List<Marketer> agreements, List<Referral> referrals, List<CommissionRow> commissions,
-                                 BigDecimal earnedTotal, BigDecimal due, BigDecimal paid) {
+                                 BigDecimal earnedTotal, BigDecimal due, BigDecimal paid, int businesses, java.util.Map<String, Integer> byStage,
+                                 List<com.hospio.platform.service.CommissionService.LineView> nextStatement,
+                                 List<com.hospio.platform.service.CommissionService.StatementRow> statements, String currentAgreementVersion) {
     }
 
     public record CommissionRow(Commission commission, String marketerName, String businessName) {
     }
 
-    public record MarketerTotals(BigDecimal earnedTotal, BigDecimal due, BigDecimal paid, int businesses, int referrals) {
+    /**
+     * earnedTotal: every commission line's net; due: statements made and not paid yet; paid: paid out; nextStatement: lines waiting for
+     * the next statement (the 5th); carried: statements under the minimum payout, rolled into the next; businesses: every business
+     * naming the marketer, by stage in {@code byStage}.
+     */
+    public record MarketerTotals(BigDecimal earnedTotal, BigDecimal due, BigDecimal paid, int businesses, int referrals, BigDecimal nextStatement,
+                                 BigDecimal carried, java.util.Map<String, Integer> byStage) {
     }
 
-    public record MarketerMe(MarketerProfile profile, MarketerTotals totals) {
+    public record MarketerMe(MarketerProfile profile, MarketerTotals totals, String currentAgreementVersion, boolean agreementAccepted,
+                             BigDecimal minimumPayout, BigDecimal whtPct) {
     }
 
+    /** A business the marketer referred, with its agreement: status, start, end, the 12-month window and what it earned (net). */
     public record MarketerBusiness(String id, String name, String city, String stage, int hotels, Instant since, BigDecimal sharePct,
-                                   BigDecimal lastMonthShare, String lastMonth) {
+                                   BigDecimal lastMonthShare, String lastMonth, String agreementStatus, java.time.LocalDate agreementStartedOn,
+                                   java.time.LocalDate agreementEndedOn, java.time.LocalDate windowStart, java.time.LocalDate windowEnd, int months,
+                                   BigDecimal earnedNet) {
     }
 
     public record CommissionStatement(String month, String marketerName, BigDecimal gross, BigDecimal wht, BigDecimal net, String text) {

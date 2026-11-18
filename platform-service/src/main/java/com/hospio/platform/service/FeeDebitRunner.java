@@ -41,6 +41,10 @@ public class FeeDebitRunner {
     private final FeeDebitClient debits;
     private final TransactionTemplate tx;
     private final DevicePackageService devices;
+    private final CommissionService commission;
+
+    /** QA-only provider (staging, QA_FEE_SIMULATION=true): the runner never debits it; QaFeeController answers its debits instead. */
+    public static final String SIMULATED = "SIMULATED";
 
     public record DebitRun(int tried, int paid, int pending, int unpaid, int paused, int resumed) {
     }
@@ -77,6 +81,10 @@ public class FeeDebitRunner {
     /** One day's next step; the status it ends in, or null when nothing was done (debit off, out of tries, carried). */
     String step(DailyFee f) {
         FeeCollection c = collections.findByHotelId(f.getHotelId()).orElse(null);
+        if (c != null && SIMULATED.equals(c.getProvider())) {
+            // A QA hotel on staging: nothing is ever sent to a provider; the QA endpoint plays the provider's answer.
+            return null;
+        }
         if (c == null || !c.isDebitEnabled() || c.getProvider() == null) {
             // Switched off since the day was worked out: back to shadow, nothing owed.
             if (DailyFee.SCHEDULED.equals(f.getStatus())) {
@@ -101,8 +109,36 @@ public class FeeDebitRunner {
         return apply(f, debits.debit(f.getHotelId(), c.getProvider(), amount, ref, "Hospio360 fee " + f.getFeeDate()), true);
     }
 
+    /**
+     * QA only (QaFeeController, QA_FEE_SIMULATION=true): one debit try on a day of a SIMULATED hotel answered as {@code result}
+     * (APPROVED with {@code amount}, or FAILED) through the same bookkeeping as a real answer: carry-over, device share, commission.
+     */
+    public String simulate(DailyFee f, String result, BigDecimal amount) {
+        return TenantContext.runWith(Tenant.system("fee-debit-qa"), () -> {
+            FeeCollection c = collections.findByHotelId(f.getHotelId()).orElse(null);
+            if (c == null || !SIMULATED.equals(c.getProvider()) || !c.isDebitEnabled()) {
+                throw new com.hospio.common.exception.BadRequestException("Only a hotel switched to the simulated debit (QA) can be simulated");
+            }
+            if (!List.of(DailyFee.SCHEDULED, DailyFee.UNPAID, DailyFee.PART_PAID).contains(f.getStatus())) {
+                throw new com.hospio.common.exception.BadRequestException("This day is " + f.getStatus() + ": only a scheduled, unpaid or part-paid day can be debited");
+            }
+            String ref = "QA-" + REF_DAY.format(f.getFeeDate()) + "-" + f.getHotelId().replace("-", "").substring(0, 8).toUpperCase() + "-" + (f.getAttempts() + 1);
+            save(f, x -> {
+                x.setAttempts(x.getAttempts() + 1);
+                x.setDebitRef(ref);
+                x.setProvider(SIMULATED);
+                x.setStatus(DailyFee.PENDING);
+            });
+            com.hospio.common.billing.FeeDebitDtos.DebitResult r = "APPROVED".equalsIgnoreCase(result)
+                    ? new com.hospio.common.billing.FeeDebitDtos.DebitResult("APPROVED", amount, ref, null)
+                    : com.hospio.common.billing.FeeDebitDtos.DebitResult.failed("QA: simulated failure (insufficient funds)");
+            return apply(f, r, true);
+        });
+    }
+
     private String apply(DailyFee f, com.hospio.common.billing.FeeDebitDtos.DebitResult r, boolean fresh) {
         BigDecimal deviceBefore = f.devicePaid();
+        BigDecimal platformBefore = f.platformPaid();
         String status = switch (r.status()) {
             case "APPROVED" -> {
                 BigDecimal got = r.collected() == null || r.collected().signum() <= 0 ? f.remaining() : r.collected().min(f.remaining());
@@ -120,6 +156,10 @@ public class FeeDebitRunner {
             x.setStatus(status);
             x.setLastError(error == null ? null : error.length() > 500 ? error.substring(0, 500) : error);
         });
+        // The marketer's share of the platform part this debit took (docs/plan-marketers.md); never fails the debit.
+        if (f.platformPaid().compareTo(platformBefore) > 0) {
+            commission.onCollected(f, f.getDebitRef());
+        }
         // The device part of what this debit took (the platform fee is paid first) goes to the hotel's device package, once per reference.
         BigDecimal toDevices = f.devicePaid().subtract(deviceBefore);
         if (toDevices.signum() > 0) {

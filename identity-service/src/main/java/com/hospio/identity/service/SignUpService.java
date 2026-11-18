@@ -87,7 +87,7 @@ public class SignUpService {
                     .role(Role.OWNER).level(AccessLevel.FULL).grantedBy(owner.getId()).build());
 
             tenantClient.createBusiness(new TenantClient.NewBusiness(businessId, request.businessName().trim(), request.city().trim(),
-                    owner.getId(), owner.getFullName(), owner.getEmail(), owner.getPhone(), SOURCE_SELF_SERVE));
+                    owner.getId(), owner.getFullName(), owner.getEmail(), owner.getPhone(), SOURCE_SELF_SERVE, request.referralCode()));
 
             owner.setLastSignInAt(Instant.now());
             users.save(owner);

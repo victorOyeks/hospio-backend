@@ -27,4 +27,8 @@ public interface DailyFeeRepository extends JpaRepository<DailyFee, String> {
 
     /** Days in a row, newest first, up to {@code date} (the POS pause counts unpaid days). */
     List<DailyFee> findTop5ByHotelIdAndFeeDateLessThanEqualOrderByFeeDateDesc(String hotelId, LocalDate date);
+
+    /** The business's first day with a fee collected: the start of a marketer's 12 months (docs/plan-marketers.md). */
+    @org.springframework.data.jpa.repository.Query("select min(f.feeDate) from DailyFee f where f.businessId = :businessId and f.collected > 0")
+    LocalDate firstCollectedDate(@org.springframework.data.repository.query.Param("businessId") String businessId);
 }
