@@ -167,13 +167,24 @@ public class DeviceInvoiceService {
             }
         }
         BigDecimal fAmount = Money.of(amount);
-        DeviceInvoice saved = TenantContext.runWith(Tenant.systemFor(p.getBusinessId(), p.getHotelId(), null, "device-invoices"), () -> tx.execute(st -> {
-            String prefix = "DEV-" + due.getYear() + String.format("%02d", due.getMonthValue()) + "-";
-            String number = prefix + String.format("%04d", invoices.countByNumberPrefix(prefix) + 1);
-            return invoices.save(DeviceInvoice.builder().businessId(p.getBusinessId()).hotelId(p.getHotelId()).packageId(p.getId())
-                    .hotelName(p.getHotelName()).number(number).kind(kind).sequence(sequence).ofCount(ofCount).amount(fAmount).dueOn(due)
-                    .status(DeviceInvoice.DUE).build());
-        }));
+        String prefix = "DEV-" + due.getYear() + String.format("%02d", due.getMonthValue()) + "-";
+        // Numbers are per month across every hotel: read the highest as the platform (row security would only show this hotel's,
+        // and the second hotel invoiced in a month then collided with DEV-…-0001). A race with another instance is retried.
+        for (int attempt = 0; ; attempt++) {
+            String number = prefix + String.format("%04d", TenantContext.runWith(Tenant.system("device-invoices"),
+                    () -> invoices.lastNumber(prefix + "%")) + 1);
+            try {
+                TenantContext.runWith(Tenant.systemFor(p.getBusinessId(), p.getHotelId(), null, "device-invoices"), () -> tx.execute(st ->
+                        invoices.save(DeviceInvoice.builder().businessId(p.getBusinessId()).hotelId(p.getHotelId()).packageId(p.getId())
+                                .hotelName(p.getHotelName()).number(number).kind(kind).sequence(sequence).ofCount(ofCount).amount(fAmount).dueOn(due)
+                                .status(DeviceInvoice.DUE).build())));
+                break;
+            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                if (attempt >= 2) {
+                    throw e;
+                }
+            }
+        }
         return true;
     }
 
