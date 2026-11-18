@@ -280,6 +280,8 @@ public class BusinessService {
     @Transactional
     public BusinessResponse updateMine(UpdateMyBusinessRequest r) {
         requireOwner();
+        // A real address or nothing: "0000000" saved here became the hotels' Reply-To fallback (18 Nov 2026 audit).
+        String email = Fields.email(r.email(), "the business email", false);
         Business b = find(TenantContext.requireBusiness());
         String registrationKey = Fields.registrationKey(r.registrationNumber());
         if (registrationKey != null && !registrationKey.equals(Fields.registrationKey(b.getRegistrationNumber()))) {
@@ -289,7 +291,7 @@ public class BusinessService {
         b.setLegalName(r.legalName());
         b.setRegistrationNumber(r.registrationNumber());
         b.setBusinessType(r.businessType());
-        b.setEmail(r.email());
+        b.setEmail(email);
         b.setPhone(r.phone());
         b.setAddress(r.address());
         b.setCity(r.city());
