@@ -37,14 +37,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 /**
- * Hospio's daily fee (docs/plan-daily-fees.md): a share of what each hotel sold on a Lagos day, worked out after midnight and
- * debited at 06:00 from the hotel's own Moniepoint or OPay account. A business is billed this way when its fee model is
- * PERCENT_OF_SALES (the platform default, 1.5 %).
+ * Hospio's daily fee (docs/plan-daily-fees.md): a share of what each hotel sold on a Lagos day, worked out after midnight. Since
+ * 18 Nov 2026 nothing is debited: each day is ACCRUED and billed on the business's monthly invoice (docs/plan-monthly-invoices.md,
+ * MonthlyInvoiceService). A business is billed this way when its fee model is PERCENT_OF_SALES (the platform default, 1.5 %).
  *
  * <p>Each hotel and day is worked out once (a row per hotel and date); a day is never worked out on part of its sales (a service
- * that doesn't answer leaves the day for the next run). While a hotel's debit is off it is in shadow mode: the statement still goes
- * out, nothing is owed or carried. With the debit on, what a day leaves unpaid is carried to the next day; after 3 unpaid days in a
- * row POS push pauses for the hotel until a debit goes through.
+ * that doesn't answer leaves the day for the next run).
  */
 @Slf4j
 @Service
@@ -126,35 +124,16 @@ public class DailyFeeService {
         List<DailySales.Line> lines = sales.sales(h.id(), date);
         BigDecimal total = Money.of(lines.stream().map(DailySales.Line::amount).reduce(BigDecimal.ZERO, BigDecimal::add));
         BigDecimal fee = feeOn(total, rate);
-        // The device line (a TRANSACTION package) is worked out before earlier days are carried, so its cap counts them once.
+        // The device line (a TRANSACTION package): its share of the day's sales, capped at what the package has left.
         DevicePackageService.DeviceLine device = devices.lineFor(h.id(), date, total);
         return tx.execute(st -> {
-            FeeCollection c = collections.findByHotelId(h.id()).orElse(null);
-            boolean debitOn = c != null && c.isDebitEnabled();
-            BigDecimal carried = BigDecimal.ZERO;
-            BigDecimal deviceCarried = BigDecimal.ZERO;
-            String devicePackage = device.packageId();
-            if (debitOn) {
-                // Every earlier day left short (including one whose pending debit failed after its next day was worked out). Its platform
-                // and device remainders are carried separately, so the platform fee keeps being paid first.
-                for (DailyFee prev : fees.findByHotelIdAndStatusInAndFeeDateBefore(h.id(), List.of(DailyFee.PART_PAID, DailyFee.UNPAID), date)) {
-                    carried = carried.add(prev.platformRemaining());
-                    deviceCarried = deviceCarried.add(prev.deviceRemaining());
-                    if (devicePackage == null && prev.getDevicePackageId() != null && prev.deviceRemaining().signum() > 0) {
-                        devicePackage = prev.getDevicePackageId();
-                    }
-                    prev.setStatus(DailyFee.CARRIED);
-                    fees.save(prev);
-                }
-            }
-            // Shadow mode (debit off) collects nothing, so the device line is only shown, not owed.
+            // No debits (docs/plan-monthly-invoices.md): the day's fee and device share wait for the month's invoice; nothing is carried.
             BigDecimal deviceFee = device.fee();
-            BigDecimal due = Money.of(fee.add(carried).add(deviceFee).add(deviceCarried));
-            String status = due.signum() <= 0 ? DailyFee.NO_FEE : debitOn ? DailyFee.SCHEDULED : DailyFee.SHADOW;
+            BigDecimal due = Money.of(fee.add(deviceFee));
+            String status = due.signum() <= 0 ? DailyFee.NO_FEE : DailyFee.ACCRUED;
             DailyFee f = DailyFee.builder().businessId(b.id()).hotelId(h.id()).hotelName(h.name()).feeDate(date).salesTotal(total)
-                    .salesLines(write(lines)).rate(rate).fee(fee).carriedIn(Money.of(carried)).due(due).status(status)
-                    .provider(c == null ? null : c.getProvider()).devicePackageId(devicePackage).deviceRate(device.rate())
-                    .deviceFee(deviceFee).deviceCarriedIn(Money.of(deviceCarried)).build();
+                    .salesLines(write(lines)).rate(rate).fee(fee).carriedIn(BigDecimal.ZERO).due(due).status(status)
+                    .devicePackageId(device.packageId()).deviceRate(device.rate()).deviceFee(deviceFee).deviceCarriedIn(BigDecimal.ZERO).build();
             return fees.save(f);
         });
     }
@@ -193,8 +172,7 @@ public class DailyFeeService {
         StringBuilder t = new StringBuilder();
         t.append("Hello ").append(StringUtils.hasText(b.ownerName()) ? b.ownerName() : "there").append(",\n\n");
         t.append("Here is what ").append(b.name()).append(" sold on ").append(DAY.format(date)).append(" (VAT excluded) and Hospio360's fee.\n\n");
-        BigDecimal debit = BigDecimal.ZERO;
-        boolean anyShadow = false;
+        BigDecimal billed = BigDecimal.ZERO;
         for (DailyFee f : made) {
             t.append(f.getHotelName()).append('\n');
             for (DailySales.Line l : read(f.getSalesLines())) {
@@ -204,30 +182,19 @@ public class DailyFeeService {
             }
             t.append("  Sales: NGN ").append(n.format(f.getSalesTotal())).append("\n");
             t.append("  Fee at ").append(f.getRate().stripTrailingZeros().toPlainString()).append(" %: NGN ").append(n.format(f.getFee())).append('\n');
-            if (f.getCarriedIn().signum() > 0) {
-                t.append("  Unpaid from earlier days: NGN ").append(n.format(f.getCarriedIn())).append('\n');
-            }
             if (f.getDeviceFee().signum() > 0) {
                 t.append("  Devices at ").append(f.getDeviceRate().stripTrailingZeros().toPlainString()).append(" %: NGN ").append(n.format(f.getDeviceFee()))
                         .append('\n');
             }
-            if (f.getDeviceCarriedIn().signum() > 0) {
-                t.append("  Devices unpaid from earlier days: NGN ").append(n.format(f.getDeviceCarriedIn())).append('\n');
-            }
-            if (DailyFee.SCHEDULED.equals(f.getStatus())) {
-                debit = debit.add(f.getDue());
-            } else if (DailyFee.SHADOW.equals(f.getStatus())) {
-                anyShadow = true;
-            }
+            billed = billed.add(f.getDue());
             t.append('\n');
         }
-        if (debit.signum() > 0) {
-            t.append("NGN ").append(n.format(debit)).append(" will be debited from your account at 6:00am today.\n");
+        if (billed.signum() > 0) {
+            t.append("NGN ").append(n.format(billed)).append(" is added to your Hospio360 invoice for ")
+                    .append(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.UK).format(date))
+                    .append(", issued on the 1st of next month. Nothing is debited from your account.\n");
         }
-        if (anyShadow) {
-            t.append("Nothing is debited yet: this is how your daily fee will look once automatic debit is switched on.\n");
-        }
-        t.append("\nSee every day and every line in Hospio360 under Hospio fees. Reply to this email if something looks wrong.\n\nHospio360\n");
+        t.append("\nSee every day and every line in Hospio360 under Hospio fees (this month so far) and Billing & invoices. Reply to this email if something looks wrong.\n\nHospio360\n");
         return t.toString();
     }
 
@@ -298,8 +265,8 @@ public class DailyFeeService {
     /** Works a shadow or no-fee day out again (e.g. after a correction); a day with a debit on it is never redone. */
     public DailyFeeView redo(String id) {
         DailyFee f = fees.findById(id).orElseThrow(() -> new ResourceNotFoundException("Daily fee not found"));
-        if (!DailyFee.SHADOW.equals(f.getStatus()) && !DailyFee.NO_FEE.equals(f.getStatus())) {
-            throw new BadRequestException("Only a day in shadow mode or with no fee can be worked out again");
+        if (f.getMonthlyInvoiceId() != null || !List.of(DailyFee.SHADOW, DailyFee.NO_FEE, DailyFee.ACCRUED).contains(f.getStatus())) {
+            throw new BadRequestException("Only a day not on an invoice yet can be worked out again");
         }
         TenantClient.Business b = tenant.business(f.getBusinessId()).orElseThrow(() -> new ResourceNotFoundException("Business not found"));
         TenantClient.Hotel h = b.hotels().stream().filter(x -> x.id().equals(f.getHotelId())).findFirst()
@@ -349,6 +316,9 @@ public class DailyFeeService {
         String p = StringUtils.hasText(provider) ? provider.trim().toUpperCase(Locale.ROOT) : null;
         if (p != null && !Set.of("MONIEPOINT", "OPAY").contains(p)) {
             throw new BadRequestException("The provider is MONIEPOINT or OPAY");
+        }
+        if (debitEnabled) {
+            throw new BadRequestException("Hospio360 no longer debits accounts: every business pays one monthly invoice (docs/plan-monthly-invoices.md)");
         }
         if (debitEnabled) {
             if (p == null) {
@@ -407,8 +377,6 @@ public class DailyFeeService {
             return List.of();
         }
     }
-
-    // ---- the 06:00 debit (Phase 4) is in FeeDebitRunner --------------------------------------------------
 
     DailyFeeRepository repository() {
         return fees;

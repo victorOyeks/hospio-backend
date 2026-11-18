@@ -90,9 +90,17 @@ hospio:
     # The nightly job (01:30 Lagos): overdue statements, health scores, alert sweep.
     enabled: ${WORKER_ENABLED:true}
   qa:
-    # QA only, never in production: a hotel can be switched to a simulated daily-fee debit and its debits answered by hand
-    # (QaFeeController, docs/plan-marketers.md). On for staging with QA_FEE_SIMULATION=true.
+    # QA only, never in production: one hotel's day worked out, and the monthly invoice issued / its daily steps run for a chosen date
+    # (QaFeeController, QaBillingController, docs/plan-monthly-invoices.md). On for staging with QA_FEE_SIMULATION=true.
     fee-simulation: ${QA_FEE_SIMULATION:false}
+  billing:
+    # Monthly invoice (docs/plan-monthly-invoices.md). On staging BILLING_QA_ONLY=true: only QA businesses (name starting "QA", an owner at
+    # @hospio-qa.test, or an id in BILLING_QA_BUSINESS_IDS) are invoiced, reminded or restricted; real-looking businesses never are.
+    qa-only: ${BILLING_QA_ONLY:false}
+    qa-business-ids: ${BILLING_QA_BUSINESS_IDS:}
+  legal:
+    # A material new version of a legal document needs this many days' notice (docs/legal-acceptance.md).
+    material-notice-days: ${LEGAL_MATERIAL_NOTICE_DAYS:30}
   storage:
     type: ${STORAGE_TYPE:local}
     local-dir: ${STORAGE_DIR:./storage}

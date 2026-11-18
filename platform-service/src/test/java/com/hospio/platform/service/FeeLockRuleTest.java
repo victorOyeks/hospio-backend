@@ -107,7 +107,7 @@ class FeeLockRuleTest {
     void theMessageUsesThePlatformDefaultFromSettings() {
         FeeSettings d = FeeSettings.DEFAULTS;
         when(settings.fees()).thenReturn(new FeeSettings(d.model(), d.perRoom(), new BigDecimal("1.75"), d.trialDays(), d.dueDay(), d.graceDays(),
-                d.marketerSharePct(), d.marketerMonths(), d.whtPct(), d.providerFeePct(), d.hmsSharePct(), d.marketerMinPayout()));
+                d.marketerSharePct(), d.marketerMonths(), d.whtPct(), d.providerFeePct(), d.hmsSharePct(), d.marketerMinPayout(), d.invoiceVatPct(), d.invoiceMinimum()));
         assertThatThrownBy(() -> service.saveRule(rule("1.5", null)))
                 .hasMessage("The platform fee is 1.75% for everyone. A different rate needs a signed addendum: enter its reference");
         assertThat(service.saveRule(rule("1.75", null)).getAddendumRef()).isNull();

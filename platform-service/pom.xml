@@ -61,6 +61,12 @@
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
         </dependency>
+        <!-- Monthly invoice and receipt PDFs (docs/plan-monthly-invoices.md). -->
+        <dependency>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf</artifactId>
+            <version>1.3.43</version>
+        </dependency>
     </dependencies>
 
     <build>

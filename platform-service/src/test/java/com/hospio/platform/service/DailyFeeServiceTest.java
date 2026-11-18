@@ -25,13 +25,6 @@ class DailyFeeServiceTest {
     }
 
     @Test
-    void threeShortDaysInARowPausePos() {
-        assertThat(FeeDebitRunner.shortRun(List.of(day(18, DailyFee.UNPAID), day(17, DailyFee.CARRIED), day(16, DailyFee.PART_PAID)))).isEqualTo(3);
-        assertThat(FeeDebitRunner.shortRun(List.of(day(18, DailyFee.UNPAID), day(17, DailyFee.PAID), day(16, DailyFee.UNPAID)))).isEqualTo(1);
-        assertThat(FeeDebitRunner.shortRun(List.of(day(18, DailyFee.PAID)))).isZero();
-    }
-
-    @Test
     void remainingIsWhatTheDebitHasNotTaken() {
         DailyFee f = DailyFee.builder().due(new BigDecimal("18600")).collected(new BigDecimal("10000")).build();
         assertThat(f.remaining()).isEqualByComparingTo("8600");

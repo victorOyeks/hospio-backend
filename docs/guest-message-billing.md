@@ -1,5 +1,7 @@
 # Guest messages as a paid service
 
+> **18 Nov 2026:** the `MSG-` invoices below are still made at 00:30 on the 1st, but silently: they are billed on the business's **monthly invoice** (`docs/plan-monthly-invoices.md`, `hospio.billing.monthly-invoice=true`), are not paid on their own, and never suspend guest messages by themselves. Paying the monthly invoice settles them.
+
 Hotels pay for the emails, SMS and WhatsApp messages they send outside. Hospio360 charges per message and invoices each
 hotel monthly. Everything lives in messaging-service (`billing/`), next to the deliveries it counts.
 

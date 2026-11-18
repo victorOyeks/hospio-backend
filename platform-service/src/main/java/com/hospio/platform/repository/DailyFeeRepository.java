@@ -31,4 +31,10 @@ public interface DailyFeeRepository extends JpaRepository<DailyFee, String> {
     /** The business's first day with a fee collected: the start of a marketer's 12 months (docs/plan-marketers.md). */
     @org.springframework.data.jpa.repository.Query("select min(f.feeDate) from DailyFee f where f.businessId = :businessId and f.collected > 0")
     LocalDate firstCollectedDate(@org.springframework.data.repository.query.Param("businessId") String businessId);
+
+    /** The business's days up to {@code to} not on an invoice yet, in the statuses that are billed (ACCRUED, and the trial's SHADOW/NO_FEE). */
+    List<DailyFee> findByBusinessIdAndMonthlyInvoiceIdIsNullAndStatusInAndFeeDateLessThanEqualOrderByHotelNameAscFeeDateAsc(String businessId,
+            List<String> statuses, LocalDate to);
+
+    List<DailyFee> findByMonthlyInvoiceIdOrderByHotelNameAscFeeDateAsc(String monthlyInvoiceId);
 }

@@ -2,7 +2,6 @@ package com.hospio.platform.controller;
 
 import com.hospio.common.response.ApiResponse;
 import com.hospio.platform.service.DailyFeeService;
-import com.hospio.platform.service.FeeDebitRunner;
 import io.swagger.v3.oas.annotations.Operation;
 import java.time.LocalDate;
 import java.util.List;
@@ -23,7 +22,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class DailyFeeController {
 
     private final DailyFeeService fees;
-    private final FeeDebitRunner debits;
 
     @Operation(summary = "Owner: the business's daily fees (default the last 30 days), newest first, each with its sales lines")
     @GetMapping("/owner/fees/daily")
@@ -62,13 +60,6 @@ public class DailyFeeController {
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ApiResponse<DailyFeeService.RunResult> run(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return ApiResponse.ok(fees.runDay(date));
-    }
-
-    @Operation(summary = "Admin: run the debit now (what the 06:00 job does)")
-    @PostMapping("/admin/fees/daily/debit")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ApiResponse<FeeDebitRunner.DebitRun> debit() {
-        return ApiResponse.ok(debits.run());
     }
 
     @Operation(summary = "Admin: work a shadow or no-fee day out again")

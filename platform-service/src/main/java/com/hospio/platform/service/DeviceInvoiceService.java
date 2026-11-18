@@ -38,9 +38,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 /**
- * Monthly device invoices (docs/plan-device-packages.md): a MONTHLY package's instalments and the data plan. Each is issued on its
- * due day (the install day, then the same day each month), debited from the hotel's Moniepoint/OPay account once a day until paid,
- * or paid by Paystack or by hand. Overdue: a reminder at 3 days, an alert at 7, POS payments paused at 14 until it is paid.
+ * Device schedule items (docs/plan-device-packages.md): a MONTHLY package's instalments and the data plan, one per due day (the install
+ * day, then the same day each month). Since 18 Nov 2026 each is billed on the business's monthly invoice for its month and paid with it
+ * (docs/plan-monthly-invoices.md); the debit, the Paystack link of its own and the 3/7/14-day overdue steps of the first version are gone
+ * (an admin can still mark an older one paid by hand).
  */
 @Slf4j
 @Service
@@ -70,7 +71,8 @@ public class DeviceInvoiceService {
 
     public record InvoiceView(String id, String packageId, String businessId, String hotelId, String hotelName, String number, String kind,
                               int sequence, Integer ofCount, BigDecimal amount, LocalDate dueOn, String status, BigDecimal paidAmount, Instant paidAt,
-                              String paidVia, String paidReference, String lastError, int daysOverdue, boolean posPaused) {
+                              String paidVia, String paidReference, String lastError, int daysOverdue, boolean posPaused, String monthlyInvoiceId,
+                              String monthlyInvoiceNumber) {
     }
 
     public record RunResult(int issued, int paid, int failed, int overdue, int reminded, int flagged, int paused, int voided) {
@@ -78,12 +80,16 @@ public class DeviceInvoiceService {
 
     // ---- the daily run ---------------------------------------------------------------------------------
 
-    /** Issues what is due, debits what is open, then moves the overdue along. Runs as the system (07:00 daily, or by a Super admin). */
+    /**
+     * Makes the schedule items due by today (instalments and data-plan months). Since 18 Nov 2026 they are not debited, emailed or chased on
+     * their own: the business's monthly invoice bills every item due in its month and paying it pays them (docs/plan-monthly-invoices.md).
+     * Runs as the system (07:00 daily, or by a Super admin).
+     */
     public RunResult run(LocalDate today) {
         return TenantContext.runWith(Tenant.system("device-invoices"), () -> {
             int[] issued = issue(today);
-            int[] collected = collect(today);
-            int[] late = overdue(today);
+            int[] collected = {0, 0};
+            int[] late = {0, 0, 0, 0};
             log.info("Device invoices {}: {} issued, {} voided, {} paid, {} failed, {} overdue, {} reminded, {} flagged, {} paused", today,
                     issued[0], issued[1], collected[0], collected[1], late[0], late[1], late[2], late[3]);
             return new RunResult(issued[0], collected[0], collected[1], late[0], late[1], late[2], late[3], issued[1]);
@@ -168,9 +174,6 @@ public class DeviceInvoiceService {
                     .hotelName(p.getHotelName()).number(number).kind(kind).sequence(sequence).ofCount(ofCount).amount(fAmount).dueOn(due)
                     .status(DeviceInvoice.DUE).build());
         }));
-        notifyOwner(saved, "Hospio360 · device invoice " + saved.getNumber(), "Here is a device invoice for " + nz(saved.getHotelName()) + ".\n\n"
-                + describe(saved) + ": NGN " + naira(saved.getAmount()) + ", due " + DAY.format(saved.getDueOn()) + ".\n\n"
-                + "It is debited from the hotel's Moniepoint or OPay account. If that doesn't go through, pay it online under Hospio fees → Devices.");
         return true;
     }
 
@@ -378,7 +381,7 @@ public class DeviceInvoiceService {
         return pay(invoiceId, "MANUAL", reference.trim(), null, user.getFullName());
     }
 
-    /** The owner or manager pays online: a Paystack checkout for what is still owed; they come back to {@code callbackUrl}. */
+    /** Refused since 18 Nov 2026: an item is paid with the monthly invoice it is billed on. */
     public PlatformPaystackClient.Checkout payOnline(String invoiceId, String callbackUrl) {
         HospioUserDetails user = CurrentUser.require();
         DeviceInvoice i = invoices.findById(invoiceId).orElseThrow(() -> new ResourceNotFoundException("Device invoice not found"));
@@ -389,10 +392,9 @@ public class DeviceInvoiceService {
         if (!i.open()) {
             throw new BadRequestException("This invoice is already " + i.getStatus().toLowerCase(Locale.ROOT));
         }
-        String reference = i.getNumber() + "-" + (System.currentTimeMillis() / 1000);
-        PlatformPaystackClient.Checkout c = paystack.initialize(user.getEmail(), i.getAmount().subtract(i.getPaidAmount()), reference, callbackUrl);
-        save(i, x -> x.setPaystackRef(c.reference()));
-        return c;
+        throw new BadRequestException("Devices and internet are billed on your Hospio360 monthly invoice"
+                + (i.getMonthlyInvoiceNumber() == null ? " for " + DateTimeFormatter.ofPattern("MMMM yyyy", Locale.UK).format(i.getDueOn())
+                : " " + i.getMonthlyInvoiceNumber()) + ". The owner pays it under Billing & invoices");
     }
 
     /** Back from Paystack (or its webhook): the payment is checked with Paystack and the invoice settled once. */
@@ -438,7 +440,8 @@ public class DeviceInvoiceService {
         int days = i.open() ? (int) Math.max(0, ChronoUnit.DAYS.between(i.getDueOn(), LocalDate.now(LAGOS))) : 0;
         return new InvoiceView(i.getId(), i.getPackageId(), i.getBusinessId(), i.getHotelId(), i.getHotelName(), i.getNumber(), i.getKind(),
                 i.getSequence(), i.getOfCount(), i.getAmount(), i.getDueOn(), i.getStatus(), i.getPaidAmount(), i.getPaidAt(), i.getPaidVia(),
-                i.getPaidReference(), WAITING.equals(i.getLastError()) ? null : i.getLastError(), days, i.getPausedAt() != null && i.open());
+                i.getPaidReference(), WAITING.equals(i.getLastError()) ? null : i.getLastError(), days, i.getPausedAt() != null && i.open(),
+                i.getMonthlyInvoiceId(), i.getMonthlyInvoiceNumber());
     }
 
     // ---- helpers ----------------------------------------------------------------------------------------

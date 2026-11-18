@@ -50,6 +50,15 @@ class CommBillingTest {
         billing = new CommBilling(plans, prices, invoices, deliveries, tenants, notices, paystack,
                 new TransactionTemplate(mock(PlatformTransactionManager.class)), mail, "https://web.example");
         billing.setIdentity(identity);
+        // The standalone guest-message invoice (before the monthly invoice, docs/plan-monthly-invoices.md); monthly mode is tested below.
+        org.springframework.test.util.ReflectionTestUtils.setField(billing, "monthlyInvoice", false);
+    }
+
+    @Test
+    void onTheMonthlyInvoiceAMessageInvoiceIsNeverChasedOnItsOwn() {
+        org.springframework.test.util.ReflectionTestUtils.setField(billing, "monthlyInvoice", true);
+        assertThat(billing.suspendOverdue()).isZero();
+        verify(invoices, never()).findByStatusAndDueOnBefore(any(), any());
     }
 
     private CommPlan plan(boolean enabled, Instant suspended) {

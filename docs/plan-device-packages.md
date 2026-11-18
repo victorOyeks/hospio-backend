@@ -1,5 +1,7 @@
 # Device packages and the guest service charge
 
+> **18 Nov 2026:** no auto-debit. TRANSACTION device shares and every MONTHLY instalment / data-plan month are billed on the business's **monthly invoice** (`docs/plan-monthly-invoices.md`); the device items keep their schedule and stay viewable, but their own debit, Paystack link, emails and 3/7/14-day overdue steps are gone. The restriction for an unpaid monthly invoice replaces the device POS pause.
+
 Tracker for the devices-and-internet package Hospio360 supplies to hotels that lack tablets or internet, and for the owner's choice
 of who pays the platform fee. Agreed on 17 Nov 2026.
 

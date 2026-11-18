@@ -145,6 +145,75 @@ public class CommissionService {
         return c;
     }
 
+    /**
+     * Monthly invoice (docs/plan-monthly-invoices.md): what Hospio360 has now received of day {@code f}'s platform fee is {@code target}
+     * (the fee times the share of the invoice paid, after credit notes). A line for the difference with what already earned: positive
+     * when more was received (an accrual, subject to the agreement and its 12-month window like a collected fee), negative when a credit
+     * note or void took some back (a clawback, up to what earned). {@code f.collected} must already hold the new amount. Null when
+     * nothing changes. Runs inside the caller's transaction.
+     */
+    Commission syncReceived(DailyFee f, BigDecimal target, String invoiceNumber, LocalDate on) {
+        BigDecimal earned = BigDecimal.ZERO;
+        Commission first = null;
+        for (Commission c : commissions.findBySourceIdOrderByCreatedAtAsc(f.getId())) {
+            if (Commission.DAILY_FEE.equals(c.getSource()) || Commission.CLAWBACK.equals(c.getSource())) {
+                earned = earned.add(c.getBaseAmount());
+                if (first == null && Commission.DAILY_FEE.equals(c.getSource())) {
+                    first = c;
+                }
+            }
+        }
+        BigDecimal diff = Money.of(Money.of(target).subtract(earned));
+        String tag = invoiceNumber + ":" + f.getId().substring(0, 8) + ":" + Money.of(target).toPlainString();
+        if (diff.signum() < 0) {
+            if (first == null) {
+                return null;
+            }
+            String ref = "CLAW:" + tag;
+            if (commissions.findBySourceAndSourceRef(Commission.CLAWBACK, ref).isPresent()) {
+                return null;
+            }
+            BigDecimal base = diff.max(earned.negate());
+            BigDecimal gross = Money.percent(base.negate(), first.getSharePct()).negate();
+            BigDecimal wht = Money.percent(gross.negate(), first.getWhtPct()).negate();
+            return commissions.save(Commission.builder().businessId(f.getBusinessId()).hotelId(f.getHotelId()).marketerId(first.getMarketerId())
+                    .profileId(first.getProfileId()).month(YearMonth.from(on).toString()).baseAmount(base).gross(gross).wht(wht)
+                    .net(Money.of(gross.subtract(wht))).status(Commission.ACCRUED).source(Commission.CLAWBACK).sourceId(f.getId()).sourceRef(ref)
+                    .feeDate(f.getFeeDate()).earnedOn(on).sharePct(first.getSharePct()).whtPct(first.getWhtPct())
+                    .note("Credit note or void on invoice " + invoiceNumber).build());
+        }
+        if (diff.signum() == 0) {
+            return null;
+        }
+        Marketer m = agreementFor(f.getBusinessId(), f.getFeeDate());
+        if (m == null) {
+            return null;
+        }
+        LocalDate anchor = fees.firstCollectedDate(f.getBusinessId());
+        if (anchor == null || anchor.isAfter(f.getFeeDate())) {
+            anchor = f.getFeeDate();
+        }
+        if (m.getWindowStart() == null || anchor.isBefore(m.getWindowStart())) {
+            m.setWindowStart(anchor);
+            m.setWindowEnd(anchor.plusMonths(m.getMonths()));
+            agreements.save(m);
+        }
+        if (!f.getFeeDate().isBefore(m.getWindowEnd())) {
+            return null;
+        }
+        if (commissions.findBySourceAndSourceRef(Commission.DAILY_FEE, tag).isPresent()) {
+            return null;
+        }
+        BigDecimal gross = Money.percent(diff, m.getSharePct());
+        BigDecimal wht = Money.percent(gross, m.getWhtPct());
+        Commission c = commissions.save(Commission.builder().businessId(f.getBusinessId()).hotelId(f.getHotelId()).marketerId(m.getId())
+                .profileId(m.getProfileId()).month(YearMonth.from(on).toString()).baseAmount(diff).gross(gross).wht(wht).net(Money.of(gross.subtract(wht)))
+                .status(Commission.ACCRUED).source(Commission.DAILY_FEE).sourceId(f.getId()).sourceRef(tag).feeDate(f.getFeeDate()).earnedOn(on)
+                .sharePct(m.getSharePct()).whtPct(m.getWhtPct()).note("Paid on invoice " + invoiceNumber).build());
+        log.info("Commission {} for {} on {} ({} of the fee received on {})", c.getNet(), m.getFullName(), f.getFeeDate(), diff, invoiceNumber);
+        return c;
+    }
+
     /** The agreement covering the fee day: started on or before it, not ended before it (newest first). */
     Marketer agreementFor(String businessId, LocalDate day) {
         return agreements.findByBusinessId(businessId).stream().filter(m -> m.covers(day))

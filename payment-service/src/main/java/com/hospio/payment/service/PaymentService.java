@@ -51,6 +51,14 @@ public class PaymentService {
 
     private static final Set<Role> PAYING_ROLES = Set.of(Role.FRONT_OFFICE, Role.CASHIER, Role.BAR, Role.KITCHEN, Role.LAUNDRY, Role.WAITER, Role.MANAGER,
             Role.OWNER);
+    /** The Hospio360 invoice restriction (docs/plan-monthly-invoices.md); absent in unit tests. */
+    private com.hospio.common.billing.BillingHold billingHold;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setBillingHold(com.hospio.common.billing.BillingHold billingHold) {
+        this.billingHold = billingHold;
+    }
+
     /** Which desk a payment is taken for when the caller holds several roles and doesn't say: the same answer every time. */
     static final List<Role> ROLE_PREFERENCE = List.of(Role.FRONT_OFFICE, Role.CASHIER, Role.BAR, Role.KITCHEN, Role.LAUNDRY, Role.WAITER, Role.MANAGER,
             Role.OWNER);
@@ -328,8 +336,12 @@ public class PaymentService {
         if (terminal.getStatus() != PosTerminal.Status.ONLINE) {
             throw new BadRequestException("The POS " + terminal.getName() + " is offline. Use another POS or take cash");
         }
+        // An unpaid Hospio360 invoice past its grace period pauses card/transfer through the POS (docs/plan-monthly-invoices.md); cash still works.
+        if (billingHold != null) {
+            billingHold.require("Card and transfer payments through the POS");
+        }
         if (hotelPosConfig.paused(hotelId)) {
-            throw new BadRequestException("POS payments are paused: Hospio360's fee is unpaid for 3 days. Take cash or a transfer; the owner can settle it with Hospio360");
+            throw new BadRequestException("POS payments are paused until the Hospio360 invoice is paid. Take cash; the owner can pay the invoice under Billing & invoices");
         }
         p.setTerminalId(terminal.getId());
         p.setProvider(terminal.getProvider());

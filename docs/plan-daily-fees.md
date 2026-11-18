@@ -1,5 +1,7 @@
 # Daily Hospio fee, debited at source · build tracker
 
+> **18 Nov 2026: no more debits.** The daily fee is still worked out every day, but nothing is debited: each day is billed on the business's **monthly invoice** (`docs/plan-monthly-invoices.md`). The debit, carry-over, 3-day POS pause, `FeeDebitRunner` and the QA simulated debit described below are removed; the rest of this page is history.
+
 Started 16 Nov 2026. Hospio takes **1.5 % of everything a hotel sells** (rate set per business in the admin portal, no cap).
 The fee is worked out each day and debited from the hotel's own Moniepoint or OPay account at 6am. There are no invoices
 (messaging keeps its invoice).

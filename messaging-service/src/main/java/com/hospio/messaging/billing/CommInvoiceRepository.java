@@ -55,4 +55,11 @@ public interface CommInvoiceRepository extends JpaRepository<CommInvoice, String
     @Query("update CommInvoice i set i.paymentReference = :ref, i.updatedAt = :now where i.id = :id and i.status in :open")
     int setPaymentReference(@Param("id") String id, @Param("ref") String reference, @Param("open") Collection<CommInvoice.Status> open,
                             @Param("now") Instant now);
+
+    /** A business's open message invoices not on a monthly invoice yet, for months up to {@code month} (YYYY-MM). */
+    @Query("select i from CommInvoice i where i.businessId = :businessId and i.monthlyInvoiceId is null and i.status in :open and i.month <= :month "
+            + "and i.totalAmount > 0 order by i.month, i.number")
+    List<CommInvoice> toBill(@Param("businessId") String businessId, @Param("open") Collection<CommInvoice.Status> open, @Param("month") String month);
+
+    List<CommInvoice> findByMonthlyInvoiceId(String monthlyInvoiceId);
 }

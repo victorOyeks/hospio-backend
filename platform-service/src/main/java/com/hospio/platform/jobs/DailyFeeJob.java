@@ -1,7 +1,6 @@
 package com.hospio.platform.jobs;
 
 import com.hospio.platform.service.DailyFeeService;
-import com.hospio.platform.service.FeeDebitRunner;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import lombok.RequiredArgsConstructor;
@@ -12,8 +11,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * Hospio's daily fee (docs/plan-daily-fees.md). 00:05 Lagos: yesterday is worked out for every hotel billed daily and each owner
- * gets the statement; the two days before are worked out too if a run missed them. 06:00: the debit; 09:00, 13:00 and 18:00: pending
- * debits are asked about and unpaid days tried again. One instance runs each (SingleInstanceScheduling). Off with WORKER_ENABLED=false.
+ * gets the statement; the two days before are worked out too if a run missed them. Nothing is debited: the days are billed on the
+ * monthly invoice (MonthlyInvoiceJob, docs/plan-monthly-invoices.md). One instance runs it (SingleInstanceScheduling). Off with
+ * WORKER_ENABLED=false.
  */
 @Slf4j
 @Component
@@ -24,7 +24,6 @@ public class DailyFeeJob {
     static final ZoneId LAGOS = ZoneId.of("Africa/Lagos");
 
     private final DailyFeeService fees;
-    private final FeeDebitRunner debits;
 
     @Scheduled(cron = "0 5 0 * * *", zone = "Africa/Lagos")
     public void workOut() {
@@ -38,15 +37,6 @@ public class DailyFeeJob {
             } catch (RuntimeException e) {
                 log.error("Daily fee for {} failed: {}", today.minusDays(back), e.getMessage(), e);
             }
-        }
-    }
-
-    @Scheduled(cron = "0 0 6,9,13,18 * * *", zone = "Africa/Lagos")
-    public void debit() {
-        try {
-            debits.run();
-        } catch (RuntimeException e) {
-            log.error("Fee debit run failed: {}", e.getMessage(), e);
         }
     }
 }

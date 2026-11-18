@@ -199,45 +199,6 @@ class DevicePackageServiceTest {
         verify(payments, times(1)).save(any());
     }
 
-    @Test
-    void theMorningDebitSendsItsDeviceShareToThePackage() {
-        DailyFeeRepository dailyFees = mock(DailyFeeRepository.class);
-        FeeCollectionRepository collections = mock(FeeCollectionRepository.class);
-        FeeDebitClient debits = mock(FeeDebitClient.class);
-        DevicePackageService devices = mock(DevicePackageService.class);
-        FeeDebitRunner runner = new FeeDebitRunner(dailyFees, collections, debits, tx, devices, mock(CommissionService.class));
-        when(collections.findByHotelId("a0000000-0000-4000-8000-000000000001")).thenReturn(Optional.of(FeeCollection.builder().hotelId("a0000000-0000-4000-8000-000000000001").provider("OPAY").debitEnabled(true).build()));
-        DailyFee f = DailyFee.builder().businessId("b1").hotelId("a0000000-0000-4000-8000-000000000001").feeDate(TODAY.minusDays(1)).fee(new BigDecimal("2000")).carriedIn(BigDecimal.ZERO)
-                .deviceFee(new BigDecimal("3000")).deviceCarriedIn(BigDecimal.ZERO).due(new BigDecimal("5000")).devicePackageId("pk1")
-                .status(DailyFee.SCHEDULED).build();
-        f.setId("df1");
-        when(dailyFees.findById("df1")).thenReturn(Optional.of(f));
-        when(debits.debit(eq("a0000000-0000-4000-8000-000000000001"), eq("OPAY"), any(), anyString(), anyString())).thenReturn(new FeeDebitDtos.DebitResult("APPROVED", new BigDecimal("2500"), "OP1", null));
-
-        assertThat(runner.step(f)).isEqualTo(DailyFee.PART_PAID);
-
-        verify(devices).creditTransaction(eq(f), eq(new BigDecimal("500.00")), anyString());
-    }
-
-    @Test
-    void aFailedDebitCreditsNothing() {
-        DailyFeeRepository dailyFees = mock(DailyFeeRepository.class);
-        FeeCollectionRepository collections = mock(FeeCollectionRepository.class);
-        FeeDebitClient debits = mock(FeeDebitClient.class);
-        DevicePackageService devices = mock(DevicePackageService.class);
-        FeeDebitRunner runner = new FeeDebitRunner(dailyFees, collections, debits, tx, devices, mock(CommissionService.class));
-        when(collections.findByHotelId("a0000000-0000-4000-8000-000000000001")).thenReturn(Optional.of(FeeCollection.builder().hotelId("a0000000-0000-4000-8000-000000000001").provider("OPAY").debitEnabled(true).build()));
-        DailyFee f = DailyFee.builder().businessId("b1").hotelId("a0000000-0000-4000-8000-000000000001").feeDate(TODAY.minusDays(1)).fee(new BigDecimal("2000")).carriedIn(BigDecimal.ZERO)
-                .deviceFee(new BigDecimal("3000")).deviceCarriedIn(BigDecimal.ZERO).due(new BigDecimal("5000")).devicePackageId("pk1")
-                .status(DailyFee.SCHEDULED).build();
-        f.setId("df1");
-        when(dailyFees.findById("df1")).thenReturn(Optional.of(f));
-        when(debits.debit(eq("a0000000-0000-4000-8000-000000000001"), eq("OPAY"), any(), anyString(), anyString())).thenReturn(new FeeDebitDtos.DebitResult("FAILED", BigDecimal.ZERO, null, "insufficient balance"));
-
-        assertThat(runner.step(f)).isEqualTo(DailyFee.UNPAID);
-        verify(devices, never()).creditTransaction(any(), any(), any());
-    }
-
     // ---- payments by hand ---------------------------------------------------------------------------
 
     @Test

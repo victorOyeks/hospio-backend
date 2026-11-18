@@ -29,4 +29,10 @@ public interface DeviceInvoiceRepository extends JpaRepository<DeviceInvoice, St
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select i from DeviceInvoice i where i.id = :id")
     Optional<DeviceInvoice> lockById(@Param("id") String id);
+
+    /** Open schedule items of a business due by {@code to} and not on a monthly invoice yet. */
+    List<DeviceInvoice> findByBusinessIdAndMonthlyInvoiceIdIsNullAndStatusInAndDueOnLessThanEqualOrderByDueOnAsc(String businessId,
+            Collection<String> statuses, LocalDate to);
+
+    List<DeviceInvoice> findByMonthlyInvoiceId(String monthlyInvoiceId);
 }
