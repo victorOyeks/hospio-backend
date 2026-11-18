@@ -38,10 +38,45 @@ not get past "Rooms & prices", and room features (bookings, folios, charge-to-ro
 |---|---|---|
 | 1 | Foundation: venue type per location + business kind; capability helper; admin wizard (kind, Locations step with type, times only for hotels, Rooms "Not needed", go-live without rooms, handover text); owner self-serve (kind, location step without times, Outlets step); hide hotel-only modules for the active location (nav, routes, quick actions, front office role); charge-to-room off; dashboards without room cards; night audit tabs-only; QA lounges set to LOUNGE | Done (18 Nov 2026) |
 | 2 | Venue dashboards and reports: sales by outlet, item and staff; open tabs; tills and cash-ups; best sellers; hour-of-day; owner comparison across locations by kind (only real comparisons) | Done (18 Nov 2026) |
-| 3 | "Lounge / bar / restaurant" setup template (no stay rules or housekeeping, tabs on with a limit, service charge, happy hours) applied by kind in both wizards; Waiter and Cashier roles with default access levels; role pickers offer them for venues | To do |
-| 4 | Bill splitting on tabs and sales (by item, by share, equal), each part paid its own way; receipts per part | To do |
+| 3 | "Lounge / bar / restaurant" setup template (no stay rules or housekeeping, tabs on with a limit, service charge, happy hours) applied by kind in both wizards; Waiter and Cashier roles with default access levels; role pickers offer them for venues | Done (18 Nov 2026) |
+| 4 | The bill: splitting (equally, by item, by amount) with each part paid its own way and a receipt per part; manual discounts and complimentary items with a limit and a reason; void and discount requests from the floor, approved from the dashboard or with the manager's PIN on the device; optional tips; outlets per person | Done (18 Nov 2026) |
 | 5 | Wording: landing page, sign-up and sign-in ("hotel, lounge or restaurant"), handover pack and owner acceptance, admin portal ("Hotels" directory → Locations with kind), owner "Hotels" page → Locations, server messages that still say "hotel", Hotel setup → Location setup | To do |
 | 6 | Regression across hotel customers and docs: every role on a hotel, a lounge and a mixed business; contracts (onboarding.md, roles-permissions.md, restaurant-bar.md) updated | To do |
+
+## Phase 4: the bill
+
+How it works for staff (the contract is docs/restaurant-bar.md, "The bill").
+
+- **Splitting.** From an open tab or sale, whoever takes its payment (bar or kitchen staff, the cashier, a manager; the waiter
+  where "Waiters take payment" is on) opens the bill and splits what is still to pay: equally between 2 to 20 people, by item
+  (each item on one guest's bill, or shared between several; an item of several units can be divided by unit), or by amount (each
+  amount typed, the rest of the bill is the last part). Each part is then paid on its own, by any method: cash into the payer's
+  till (a waiter's into the cashier's), card or transfer on the outlet's POS, or a room at a location with rooms. Each payment has
+  its own receipt naming the part. What is still to pay is always on the bill. The split can be undone until a part is paid;
+  while it stands nothing is added, taken off or discounted. The tab closes by itself with the last part.
+- **To the kobo.** Parts are rounded down and the last takes the remainder, so they always add up to the bill: ₦10,000 between
+  three is 3,333.33 + 3,333.33 + 3,333.34. VAT and the service charge inside the bill are shared in the same proportion.
+- **One sale.** A split sale stays one order: sales by outlet, item, staff and hour count it once; payments by method count each
+  part's money under its method.
+- **Discounts and complimentary.** On a line or the whole bill, a percentage or an amount, or free, always with a reason from the
+  location's list. "Who gives a discount without asking" (Hotel setup → Restaurant & bar; cashier and bar by default) up to the
+  discount limit (Approval limits, 10 %); managers and owners any. More than the limit, a free item, or anyone else (waiters by
+  default) sends a request. The Voids & discounts report shows what was given by hand, why, by whom and who approved it.
+- **Requests from the floor.** A void of something already sent (or of a whole sale) and a discount over the limit are asked for
+  from the bill with a reason. The manager and the owner get a notification; it is in the manager's "Needs your action" and both
+  approvals lists. They approve or decline there, or on the requester's screen ("Manager is here": the manager picks their name
+  and types their own PIN; the owner their password). The requester sees the outcome on the bill and in their notifications. A
+  void counts against whoever asked, with "approved by …" in its reason. Everything is in the approvals history and activity log.
+- **Tips** (optional, off by default: "Record tips"). When on, the payment step takes a tip on top of the bill, in cash or on the
+  card. It is kept against whoever opened the sale, shown in Reports → Tips (by staff, by day) and on the till as cash tips held.
+  It is never a sale: not in sales, income, payments by method or the base of Hospio360's daily fee. When off, nothing shows.
+- **Outlets per person.** Optional list of outlets for a waiter, cashier, bar or kitchen person (Add / Edit staff, onboarding
+  People). Empty = every outlet. "Serving at" offers only theirs and the server refuses the rest.
+
+Data: fnb `009-splits-discounts-tips` (`order_splits`, `order_split_parts`, `order_tips`, `sale_requests`, `staff_outlets`,
+`orders.room_amount`, `split_parts`, bill discount columns, `order_lines.manual_discount`, `bill_discount`, `complimentary`…),
+payment `011-payment-part-tip`, finance `007-till-cash-tips`; settings `OUTLETS.discountRoles`, `OUTLETS.recordTips`.
+QA script: `hotel-internal-system-admin-FE/docs/qa/66-bill-splitting-discounts-approvals-tips.md`.
 
 ## Phase 3: venue setup, waiters and cashiers
 
