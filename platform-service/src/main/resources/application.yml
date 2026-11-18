@@ -75,6 +75,12 @@ hospio:
   seed:
     # Creates the admin portal's staging data (settings defaults, Royal Suites statements and tickets, the marketer) when missing (env SEED_DEMO_DATA).
     enabled: ${SEED_DEMO_DATA:false}
+  # Our own servers other than this machine whose X-Client-Address is believed (the landing site passing on a visitor's address
+  # for the public forms' hourly limit); comma separated. This machine's own addresses are always believed.
+  site-addresses: ${SITE_ADDRESSES:}
+  partner-applications:
+    per-address-per-hour: ${PARTNER_APPLICATIONS_PER_ADDRESS:3}
+    per-email-per-hour: ${PARTNER_APPLICATIONS_PER_EMAIL:3}
   apps:
     # Where the marketer invite link points.
     admin-url: ${ADMIN_APP_URL:https://admin-staging.hospio360.com}

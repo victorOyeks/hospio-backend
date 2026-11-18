@@ -211,6 +211,19 @@ class PartnerApplicationServiceTest {
     }
 
     @Test
+    void aVisitorsAddressIsBelievedOnlyFromOurOwnSite() {
+        SiteCallers site = new SiteCallers("10.9.8.7");
+        // The landing site's server (this machine, or one listed) passes the visitor on.
+        assertThat(site.visitorAddress("127.0.0.1", "197.210.1.1")).isEqualTo("197.210.1.1");
+        assertThat(site.visitorAddress("10.9.8.7", "2001:db8::1")).isEqualTo("2001:db8::1");
+        // Anyone else naming an address is counted by their own.
+        assertThat(site.visitorAddress("105.113.68.139", "197.210.1.1")).isEqualTo("105.113.68.139");
+        // Not an address: ignored.
+        assertThat(site.visitorAddress("127.0.0.1", "<script>")).isEqualTo("127.0.0.1");
+        assertThat(site.visitorAddress("127.0.0.1", null)).isEqualTo("127.0.0.1");
+    }
+
+    @Test
     void supportApprovesWithTheStandardTermsThroughTheUsualInvite() {
         service.submit(valid("ada@hospio-qa.test"), "1.1.1.1", null);
         signIn(Role.SUPPORT);
