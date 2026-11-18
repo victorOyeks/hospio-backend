@@ -1,7 +1,7 @@
 # Roles & permissions (identity-service)
 
 The hotel app's Manager → Roles and Owner → Roles screens. Hotels don't create roles: they give the module roles
-(MANAGER, FRONT_OFFICE, HOUSEKEEPING, LAUNDRY, MAINTENANCE, KITCHEN, BAR, INVENTORY, FINANCE) to people at a hotel
+(MANAGER, FRONT_OFFICE, HOUSEKEEPING, LAUNDRY, MAINTENANCE, KITCHEN, BAR, WAITER, CASHIER, INVENTORY, FINANCE) to people at a hotel
 at one of three levels: FULL, EDIT ("Can edit") and VIEW ("View only"). What each level allows is enforced by the
 services' guards (`@access.has`, `@access.atLeast(role, level)`, `@access.manager()`). The web app describes them in
 `packages/api/src/roles.ts` (`ROLE_PERMISSIONS`, `MANAGER_ONLY_ACTIONS`).
@@ -53,3 +53,11 @@ waiting for expiry:
 - Limits: the change reaches a service as fast as Kafka delivers it (normally under a second). A token issued in the
   same second as the change is accepted. If Kafka is down, tokens fall back to their 1-hour expiry. Support-access
   tokens (`act`) are not checked.
+
+## Waiter and cashier (venue type, phase 3)
+
+`WAITER` and `CASHIER` are outlet floor roles for restaurants, bars and lounges, offered at hotels too; both start at Can edit.
+A waiter takes orders and serves, on the orders they opened (Full access = head waiter: anyone's); a cashier takes payment for any
+open tab or sale and keeps the CASHIER till. Neither marks a dish ready, cancels what was sent or changes the menu. Whether waiters
+take payment (and cash) is Hotel setup → Restaurant & bar (`OUTLETS.waitersTakePayment`, `waiterCash`). The full table is in
+`docs/plan-venue-type.md` (Phase 3) and `packages/api/src/roles.ts` (`ROLE_PERMISSIONS.WAITER`, `.CASHIER`).

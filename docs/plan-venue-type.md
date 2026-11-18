@@ -11,7 +11,7 @@ not get past "Rooms & prices", and room features (bookings, folios, charge-to-ro
 |---|---|
 | 1 | The type lives on the **location** (tenant-service `hotels` row = a location/branch): `venueType` = HOTEL, LOUNGE, BAR, RESTAURANT or CLUB. One business can own a hotel and a lounge. |
 | 2 | The **business** has a kind (`venueKind`: the same values plus MIXED), asked in both wizards ("What kind of business?"). It only sets the type a new location starts with (MIXED starts each as a hotel; the type is picked per location). |
-| 3 | Features key off a **capability**, never the label: `hasAccommodation` = type HOTEL **or** the location has rooms (`roomCount > 0`, kept current by property-service). A lounge that later adds rooms gets bookings, folios and charge-to-room on its own. Shared as `com.hospio.common.venue.VenueType.hasAccommodation` and `packages/api/src/venue.ts hasAccommodation`. |
+| 3 | "Lounge / bar / restaurant" setup (built in, no stay rules or housekeeping, tab rules, receipts only, opening hours) for every location without rooms, in both wizards; Hospio360 adds a venue's outlets during onboarding; Waiter and Cashier roles (hotels too) with tills, permissions, PIN tiles, reports | Done (18 Nov 2026) |
 | 4 | Backwards compatible: both columns are `NOT NULL DEFAULT 'HOTEL'`, every existing location and business is a hotel, older events and responses without the field read as HOTEL. Real customers stay HOTEL; only QA lounge test businesses were switched. |
 | 5 | The apps gate on the **active location** (branch switcher). An owner of a hotel and a lounge sees room features while the hotel is active, not while the lounge is. |
 | 6 | Room pages opened directly at a location without accommodation answer **"Not used at a lounge"** (with the way back), never a 404. |
@@ -42,6 +42,58 @@ not get past "Rooms & prices", and room features (bookings, folios, charge-to-ro
 | 4 | Bill splitting on tabs and sales (by item, by share, equal), each part paid its own way; receipts per part | To do |
 | 5 | Wording: landing page, sign-up and sign-in ("hotel, lounge or restaurant"), handover pack and owner acceptance, admin portal ("Hotels" directory → Locations with kind), owner "Hotels" page → Locations, server messages that still say "hotel", Hotel setup → Location setup | To do |
 | 6 | Regression across hotel customers and docs: every role on a hotel, a lounge and a mixed business; contracts (onboarding.md, roles-permissions.md, restaurant-bar.md) updated | To do |
+
+## Phase 3: venue setup, waiters and cashiers
+
+**Setup template.** The "Lounge / bar / restaurant" setup is built in (`common SetupCatalogue.VENUE_DEFAULTS`, `VENUE_LISTS`), not a row
+in tenant-service: one source for a new location and for re-applying.
+
+- A new location without accommodation (HotelCreated with its `venueType`, so admin onboarding and the owner's sign-up alike) gets it
+  from hotel-config `createDefaults`; a hotel keeps the catalogue ("Standard hotel") defaults.
+- What it sets: tabs on, tab limit ₦100,000, a tab flagged when open over 4 hours (`OUTLETS.tabMaxHours`, read by `GET /fnb/sales/today`
+  when `staleHours` is left out), a tab needs the guest's name or a table (`tabNameRequired`), waiters don't take payment
+  (`waitersTakePayment`, `waiterCash` off); cash, card and transfer, till float ₦10,000, receipts printed; VAT as the catalogue
+  (7.5 % included), service charge 0; guest messages receipts only; opening hours 10:00 to 02:00 (`BASICS.openingTime`,
+  `closingTime`), receipt footer, day closes 04:00; reasons for sales (void, cancel, discount/complimentary), Day and Evening shifts,
+  Service, Cashier, Kitchen, Bar, Inventory, Finance departments.
+- What it leaves out (nothing stored): STAY_RULES, HOUSEKEEPING, check-in/out times, `OUTLETS.roomCharge`, the night audit's arrivals
+  check, the housekeeping checklist and public areas. Reads lay the catalogue under what is stored, so a location that later gains
+  rooms keeps its settings and reads the hotel defaults for the stay keys (charge to a room on).
+- `POST /hotel-config/setup/apply-template {"builtIn": "VENUE"}` (manager, owner, Hospio360) re-applies it to a location already set up
+  as a hotel: the venue values, the venue list entries, and the hotel catalogue's own entries a venue has no use for ("No-show",
+  "Booked elsewhere", "Night" shift, Front office…) are hidden; entries the business added are kept. 400 at a location with rooms.
+- Admin onboarding step 6: locations with rooms pick a template as before; each location without rooms shows what the venue setup
+  sets and an **Outlets** card (name + Bar / lounge, Restaurant, Kitchen). Continue applies the setup and creates the outlets
+  (`POST /fnb/outlets` as Hospio360: fnb binds the location's business), each linked to the store of its kind (read
+  back from fnb each time, not kept in the draft). The owner's review then lists them.
+- Discounts and complimentary sales: fnb has happy hours and nothing else (no manual discount on a sale), so the template only seeds
+  the reasons and keeps the approval limit (`APPROVAL_LIMITS.discountPct` 10 %). A manual discount with "who can give, up to x %" is
+  not built.
+
+**Roles.** `WAITER` and `CASHIER` (common `Role`), given like any department role (new staff start at Can edit), at hotels too.
+They work every outlet of the location (the waiter picks one in "Serving at"); there is no per-person outlet list.
+
+| | Waiter | Cashier |
+|---|---|---|
+| Orders | opens a tab or order, adds items, sends, marks served, moves the table, takes off an item not yet sent, on the orders **they opened** (Full access, a head waiter: anyone's) | sees every order; rings nothing up ("A cashier takes payments…") |
+| Kitchen/bar steps | never marks ready | none |
+| Voids | never cancels what was sent (the outlet's Full access or a manager) | none |
+| Payment | only when `OUTLETS.waitersTakePayment` is on, for their own sales; cash only when `waiterCash` is on, into the cashier's open till | any open tab or sale (role `CASHIER`); cash into the CASHIER till; card/transfer on the outlet's POS (the outlet desk's when the cashier has none) |
+| Charge to a room (hotels) | their own orders | any |
+| Till | none | CASHIER till: open, pay in/out, close, hand over |
+| Sales history | their own sales only (never widened) | every outlet; settles anyone's |
+| Menu, prices, happy hours | read only | read only |
+
+- fnb `OutletAccess` (`takes`, `ownOnly`, `waiter`, `cashier`), `OrderService` (own-order checks, tab name rule), `SalesHistoryService`
+  (scope and `can`), guards on the order and sales routes; `GET /internal/orders/{id}/due` adds `openedBy`.
+- payment `PaymentService`: `CASHIER` and `WAITER` are paying roles for outlet sales only; `requireWaiterMayPay`; the cashier till
+  (`TILL_DESKS`, a waiter's cash checks the CASHIER till); receipts routes. finance `MoneyService`: CASHIER till, a waiter's cash
+  lands in it (`tillRole`). Income stays the outlet's (`desk` BAR/KITCHEN), so Sales by staff shows the waiter who opened the sale
+  and the till shows the cashier's cash.
+- identity: default level, shared-device roles (PIN tiles), labels; platform: staff terms; tenant: handover pack labels.
+- Web: `/waiter` (My tabs, My sales) and `/cashier` (To pay, Sales, My payments, Till); Roles & Permissions matrix, Add staff,
+  onboarding People, role picker, shared-device roles, help, rota departments (Service, Cashier).
+- QA script: `hotel-internal-system-admin-FE/docs/qa/65-venue-setup-waiters-cashiers.md`.
 
 ## Phase 2: venue dashboards and reports
 
@@ -107,3 +159,33 @@ QA script: `hotel-internal-system-admin-FE/docs/qa/62-venue-dashboards-reports.m
   (last Wednesday 1 sale ₦2,400 = SQL). Mixed cvt5: hotel KPIs with the hotel chosen plus the lounge's section ("No sales yet
   today"); lounge chosen → its section. Simpas front office and bar unchanged (charge to a room still offered). 820/1024 no
   sideways scroll. Bar/kitchen get 403 on the venue APIs; 94 days → 400.
+- 18 Nov 2026 (night): phase 3 built and shipped (backend `bdd049b` + `4179855` old-tab flag from Hotel setup + `d4c543f` wording, web
+  `cd32242e`, `b0222043`, `8853cc08`, `d09a1237`, QA 65). Staging e2e, QA venues only, cash and the Bar test terminal:
+  **Setup**: admin-onboarded "QA Venue wy4f" (Lounge) and self-serve "QA Venue Resto yrio" (Restaurant) got the venue setup by
+  themselves (44 keys written by "venue defaults", none for stay rules, housekeeping, check-in times, room charge or the arrivals
+  check; 7 sale lists; outlets on Bar store / Kitchen store). Re-applied (`builtIn: VENUE`) to QA Lounge qhye, QA Venue 5jf4 (it had
+  the hotel template: "No-show", "Booked elsewhere", Morning/Afternoon/Night shifts, Front office… now hidden), Resto feke, Resto
+  66bs and the Mixed cvt5 lounge; refused (400) at the Mixed cvt5 hotel and Simpas Ikeja, whose settings did not change.
+  **Outlets by Hospio360**: Main Bar and Kitchen through the API (500 before the fix: a platform caller had no business), Terrace
+  through step 6; the step lists all three with "setup applied".
+  **Flow at QA Lounge Main Bar** (Wale and Kemi waiters, Chika cashier, all created at Can edit): Wale opened a tab at Table 4
+  (2 Star, peppered chicken, Coke; a tab with no name or table refused), the kitchen saw a ticket with only the chicken, marked it
+  ready, Wale served, Chika took ₦8,300 cash after opening the cashier till (float ₦10,000 from Hotel setup; refused while the till
+  was closed), tab closed; a second tab by card on the Bar test terminal (the cashier has no POS: the outlet desk's was used).
+  Refusals seen: waiter paying with the switch off (403), voiding a sent item or tab (403), marking the kitchen's dish ready (403),
+  serving it before it was ready (400), changing a price or the sold-out switch (403), opening the cashier till (403); Kemi opening,
+  listing or adding to Wale's tab (403, not on her board or in her sales); cashier ringing up, adding, voiding, editing the menu or a
+  price (403); either on a folio payment (400) or the venue reports (403). With "Waiters take payment" on: Wale paid his tab by
+  card, cash refused (400), Kemi's tab refused to Wale (403); with "Waiters can take cash" on too: Kemi's ₦1,500 and a ₦800 tab from
+  the screen landed in the cashier's till. Till closed balanced at ₦26,600 (10,000 + 8,300 + 6,000 + 1,500 + 800). Both switches off
+  again. **By SQL**: sales under Wale 5 / ₦18,200 and Kemi 1 / ₦1,500 (Sales by staff shows the same; nothing under the cashier);
+  payments role CASHIER 3 (cash ₦14,300, card ₦1,600) and WAITER 3 (card ₦1,500, cash ₦2,300), income desk BAR, every cash entry in the
+  CASHIER till opened by Chika. **PIN**: a shared device for Waiter, Cashier, Bar showed the three tiles; Wale and Chika unlocked
+  onto My tabs and To pay; device revoked. **Hotel** (Simpas Ikeja, new `qa.pin.waiter` / `qa.pin.cashier` only): waiter tab at the
+  Bar, bar staff still see it, waiter can't pay (403), cashier may pay or charge to a room, cash into a cashier till closed
+  balanced; front office and Hotel setup unchanged. 820 and 1024 wide: no sideways scroll on My tabs, My sales, To pay, Till, Sales
+  and the manager dashboard. Found and fixed on the way: saving step 6 with outlets in the draft ("Request body could not be read"),
+  the waiter's default outlet was the kitchen, a stale error line after a tab opened.
+  Not built (decisions for the owner): a per-person outlet list (waiters and cashiers work every outlet of their location); manual
+  discounts or complimentary items on an outlet sale with a limit (only happy hours exist), so the setup seeds reasons only;
+  manager approval of a void from the waiter's or cashier's screen (they are refused and a manager does it).
