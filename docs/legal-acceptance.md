@@ -39,7 +39,7 @@ The boxes:
 | Owner, self-serve | `/sign-up`: both boxes required (identity `POST /auth/sign-up` refuses without `acceptTerms` and `acceptDebit`); the web app records them right after sign-up | `SELF_SIGN_UP` |
 | Owner onboarded by Hospio360 | `/handover` (first sign-in, after choosing a password): both boxes required before "Accept and go to my dashboard". The admin never ticks for the owner; in the handover step the admin records how the links were shared (channel + date) | `HANDOVER` (owner) · `LINKS_SHARED` note (admin, `BACK_OFFICE`) |
 | Existing owners, staff, marketers | A modal over every screen at the next sign-in (dashboard shell, both apps) until accepted; the only other button is Sign out | `FIRST_SIGN_IN` |
-| Anyone, new version | The same modal ("We've updated our terms", with what changed) | `RE_ACCEPTANCE` |
+| Anyone, new version | The same modal ("We've updated our terms. Please accept to continue.") | `RE_ACCEPTANCE` |
 | Marketer | The portal's agreement step (`POST /platform/marketer/agreement`) and the modal both record through the same system | `PORTAL` |
 | Owner, devices | Hospio fees → Devices & internet: "Accept device terms" on a package not yet installed | `DEVICE_PACKAGE` (reference = package id) |
 
