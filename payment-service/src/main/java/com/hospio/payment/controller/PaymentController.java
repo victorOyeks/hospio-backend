@@ -57,6 +57,15 @@ public class PaymentController {
         return ApiResponse.ok(lists.payments(new PaymentListService.Params(page, size, sort, q, status, method, role, from, to, mine, hotelId, today)));
     }
 
+    /**
+     * Before the desk picks cash: does cash here need a till ({@code needed}), and is it open? {@code role} is the desk the
+     * payment is taken for (as on POST /payments); without it, the caller's first paying desk.
+     */
+    @GetMapping("/cash-till")
+    public ApiResponse<PaymentService.CashTill> cashTill(@RequestParam(required = false) com.hospio.common.enums.Role role) {
+        return ApiResponse.ok(payments.cashTill(role));
+    }
+
     @GetMapping("/{id}")
     public ApiResponse<PaymentResponse> get(@PathVariable String id) {
         return ApiResponse.ok(payments.get(id));

@@ -27,6 +27,8 @@ Out of scope for this flow (later): payroll, bills to pay, branch P&L, organisat
 
 ### Tills
 
+Cash at a till desk needs the till open. The desks with a till are the front office, bar and kitchen (each has a Till page). payment-service `POST /payments` with `method: CASH` for one of these desks (the `role` sent, else the caller's first paying desk) asks finance whether that desk's till is open and refuses with 400 "Open your till first: cash taken at the bar goes into the bar till, and it isn't open. Open it on the Till page (count the float), then take the cash. Card and transfer still work". `GET /payment/payments/cash-till?role=` gives `{role, needed, open, message}`, so the payment step can say so before the cash is counted and open the till in place. Card, transfer and charge to room are unchanged. Not asked: laundry, which hands its cash in and has no till page, and managers and owners taking cash under their own role (Sales, Payments, bookings), who have no till of their own. Their cash is recorded as before and Today's money and the night audit list it as cash taken with no till. A manager who also holds a desk role and sends `role` for that desk is asked like the desk. When finance-service can't be reached the cash goes through and is recorded as cash with no till, so a finance outage never stops a desk.
+
 | Method | Path | Who | Change |
 |---|---|---|---|
 | GET | `/tills` | manager view or FINANCE | unchanged list; add `entries` count and `openedByName` |
@@ -38,6 +40,7 @@ Out of scope for this flow (later): payroll, bills to pay, branch P&L, organisat
 | — | refunds | | consume `REFUND_APPROVED`: a CASH refund adds a negative TillEntry to that role's open till |
 | — | cash expenses | | an APPROVED/RECORDED expense with `paidFrom = TILL` adds a PAY_OUT to the caller's role till when marked paid |
 | — | cash with no open till | | `recordPayment` keeps a RevenueEntry flagged `unattachedCash = true`; `GET /today` returns `unattachedCash` so the manager sees it |
+| GET | `/internal/tills/open?hotelId&role` | internal key | `{open, tillId}`: payment-service asks before it takes cash |
 
 ### Expenses
 

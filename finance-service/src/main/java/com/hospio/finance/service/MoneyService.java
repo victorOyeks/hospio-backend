@@ -382,6 +382,17 @@ public class MoneyService {
         return null;
     }
 
+    /** Whether {@code role}'s till is open at {@code hotelId}, and which one. */
+    public record OpenTill(boolean open, String tillId) {
+    }
+
+    /** payment-service, before it takes cash: is this desk's till open at the hotel? Read for the hotel named, whoever asks. */
+    @Transactional(readOnly = true)
+    public OpenTill openTillOf(String hotelId, String role) {
+        String r = role == null ? "" : role.trim().toUpperCase(java.util.Locale.ROOT);
+        return openTill(hotelId, r).map(t -> new OpenTill(true, t.getId())).orElse(new OpenTill(false, null));
+    }
+
     /** The tills of the caller's paying role(s) closed in the last 7 days, newest first (the desk's "Past tills"). */
     @Transactional(readOnly = true)
     public List<Till> myClosedTills() {
