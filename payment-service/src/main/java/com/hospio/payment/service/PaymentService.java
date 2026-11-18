@@ -51,6 +51,12 @@ public class PaymentService {
     private static final Set<Role> PAYING_ROLES = Set.of(Role.FRONT_OFFICE, Role.BAR, Role.KITCHEN, Role.LAUNDRY, Role.MANAGER, Role.OWNER);
     /** Which desk a payment is taken for when the caller holds several roles and doesn't say: the same answer every time. */
     static final List<Role> ROLE_PREFERENCE = List.of(Role.FRONT_OFFICE, Role.BAR, Role.KITCHEN, Role.LAUNDRY, Role.MANAGER, Role.OWNER);
+    /**
+     * The desks whose cash goes into a till (each has a Till screen). Cash taken for one of them needs that desk's till open, so
+     * every naira counted at the close is in a drawer. Laundry hands its cash in (no till screen) and managers and owners have no
+     * till of their own: their cash is still recorded, and Today's money lists it as cash taken with no till.
+     */
+    static final Set<Role> TILL_DESKS = Set.of(Role.FRONT_OFFICE, Role.BAR, Role.KITCHEN);
 
     private final PaymentRequestRepository payments;
     private final ReceiptRepository receipts;
@@ -64,6 +70,7 @@ public class PaymentService {
     private final com.hospio.payment.pos.HotelPosService hotelPosConfig;
     private final com.hospio.payment.client.FnbClient fnb;
     private final TransactionTemplate tx;
+    private final com.hospio.payment.client.FinanceClient finance;
 
     /**
      * The unpaged list (scripts, docs/pagination.md): payments taken since {@code from} (a Lagos day; default 90 days ago), newest first.
@@ -139,6 +146,7 @@ public class PaymentService {
                 .role(role).method(dto.method()).amount(Money.of(dto.amount())).description(dto.description())
                 .receiptPreference(dto.receiptPreference() == null ? settings.receipts() : dto.receiptPreference()).build();
         if (dto.method() == PaymentMethod.CASH) {
+            requireOpenTill(hotelId, role);
             // Cash is counted at the desk and approved on the spot.
             payments.save(p);
             approve(p, null, "cash");
@@ -147,6 +155,43 @@ public class PaymentService {
         // Card and bank transfer both go to the POS: the terminal asks the guest which (Moniepoint and OPay take either on the
         // same request), and the payment is approved when the provider confirms it.
         return sendToPos(p, role, hotelId, blankToNull(dto.terminalId()));
+    }
+
+    /**
+     * Cash at a till desk needs that desk's till open: 400 "Open your till first" otherwise. When finance-service can't be reached the
+     * cash is let through (it is then recorded as cash with no till, as before), so a finance outage never stops the desk.
+     */
+    void requireOpenTill(String hotelId, Role role) {
+        if (!TILL_DESKS.contains(role)) {
+            return;
+        }
+        if (finance.tillOpen(hotelId, role.name()).orElse(true)) {
+            return;
+        }
+        String desk = deskName(role);
+        throw new BadRequestException("Open your till first: cash taken at the " + desk + " goes into the " + desk
+                + " till, and it isn't open. Open it on the Till page (count the float), then take the cash. Card and transfer still work");
+    }
+
+    /** {@code needed}: cash taken for {@code role} goes into a till; {@code open}: that till is open (true when it isn't needed). */
+    public record CashTill(String role, boolean needed, boolean open, String message) {
+    }
+
+    @Transactional(readOnly = true)
+    public CashTill cashTill(Role requested) {
+        HospioUserDetails user = CurrentUser.require();
+        String hotelId = TenantContext.requireHotel();
+        Role role = payingRole(user, requested);
+        if (!TILL_DESKS.contains(role)) {
+            return new CashTill(role.name(), false, true, null);
+        }
+        boolean open = finance.tillOpen(hotelId, role.name()).orElse(true);
+        String desk = deskName(role);
+        return new CashTill(role.name(), true, open, open ? null : "Open your till first: cash taken at the " + desk + " goes into the " + desk + " till, and it isn't open");
+    }
+
+    static String deskName(Role role) {
+        return role == Role.FRONT_OFFICE ? "front office" : role.name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ');
     }
 
     /** The requested desk when the caller holds it, else the first of {@link #ROLE_PREFERENCE} they hold. */

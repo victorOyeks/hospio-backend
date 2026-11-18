@@ -370,44 +370,54 @@ public class InventoryService {
      */
     @Transactional
     public void onOrderSettled(OrderSettledEvent e) {
-        if (e.getStoreId() == null || e.getLines() == null || e.getOrderId() == null) {
+        if (e.getLines() == null || e.getOrderId() == null) {
             return;
         }
         String reference = "ORDER-" + e.getOrderId();
         if (movements.existsByReferenceAndKind(reference, StockMovement.Kind.USED)) {
             return;
         }
-        Store store = stores.findById(e.getStoreId()).orElse(null);
-        if (store == null) {
-            log.warn("Order {} names store {} which this hotel doesn't have; nothing drawn", e.getOrderNumber(), e.getStoreId());
-            return;
-        }
-        Map<String, BigDecimal> needed = new LinkedHashMap<>();
+        // Each line draws from its own store (a dish made at another outlet: that outlet's store), else the order's.
+        Map<String, Map<String, BigDecimal>> neededByStore = new LinkedHashMap<>();
         for (OrderSettledEvent.Line line : e.getLines()) {
-            if (line.getRecipe() == null) {
+            String storeId = line.getStoreId() != null && !line.getStoreId().isBlank() ? line.getStoreId() : e.getStoreId();
+            if (line.getRecipe() == null || storeId == null) {
                 continue;
             }
             for (OrderSettledEvent.Ingredient i : line.getRecipe()) {
                 if (i.getStockItemId() != null && i.getQuantity() != null) {
-                    needed.merge(i.getStockItemId(), i.getQuantity().multiply(BigDecimal.valueOf(line.getQuantity())), BigDecimal::add);
+                    neededByStore.computeIfAbsent(storeId, k -> new LinkedHashMap<>())
+                            .merge(i.getStockItemId(), i.getQuantity().multiply(BigDecimal.valueOf(line.getQuantity())), BigDecimal::add);
                 }
             }
         }
-        levels.lockLevels(needed.keySet(), List.of(e.getStoreId()));
-        for (Map.Entry<String, BigDecimal> n : needed.entrySet()) {
-            if (items.findById(n.getKey()).isEmpty()) {
-                log.warn("Order {} uses stock item {} which this hotel doesn't have", e.getOrderNumber(), n.getKey());
+        if (neededByStore.isEmpty()) {
+            return;
+        }
+        java.util.Set<String> allItems = new java.util.LinkedHashSet<>();
+        neededByStore.values().forEach(m -> allItems.addAll(m.keySet()));
+        levels.lockLevels(allItems, List.copyOf(neededByStore.keySet()));
+        for (Map.Entry<String, Map<String, BigDecimal>> byStore : neededByStore.entrySet()) {
+            Store store = stores.findById(byStore.getKey()).orElse(null);
+            if (store == null) {
+                log.warn("Order {} names store {} which this hotel doesn't have; nothing drawn from it", e.getOrderNumber(), byStore.getKey());
                 continue;
             }
-            StockLevel level = level(n.getKey(), e.getStoreId());
-            BigDecimal take = Money.of(n.getValue()).min(level.getQuantity());
-            if (take.signum() <= 0) {
-                log.warn("Order {} needed {} of stock item {} but the store has none", e.getOrderNumber(), n.getValue(), n.getKey());
-                continue;
+            for (Map.Entry<String, BigDecimal> n : byStore.getValue().entrySet()) {
+                if (items.findById(n.getKey()).isEmpty()) {
+                    log.warn("Order {} uses stock item {} which this hotel doesn't have", e.getOrderNumber(), n.getKey());
+                    continue;
+                }
+                StockLevel level = level(n.getKey(), store.getId());
+                BigDecimal take = Money.of(n.getValue()).min(level.getQuantity());
+                if (take.signum() <= 0) {
+                    log.warn("Order {} needed {} of stock item {} but store {} has none", e.getOrderNumber(), n.getValue(), n.getKey(), store.getName());
+                    continue;
+                }
+                move(level, StockMovement.Kind.USED, take.negate(), reference, "Sold on order " + e.getOrderNumber()
+                        + (take.compareTo(Money.of(n.getValue())) < 0 ? " (store was short by " + Money.of(n.getValue()).subtract(take) + ")" : ""),
+                        teamOfStore(store), null);
             }
-            move(level, StockMovement.Kind.USED, take.negate(), reference, "Sold on order " + e.getOrderNumber()
-                    + (take.compareTo(Money.of(n.getValue())) < 0 ? " (store was short by " + Money.of(n.getValue()).subtract(take) + ")" : ""),
-                    teamOfStore(store), null);
         }
     }
 

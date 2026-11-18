@@ -51,11 +51,13 @@ class PaymentServiceTest {
     private final com.hospio.payment.pos.HotelPosRouter hotelPos = mock(com.hospio.payment.pos.HotelPosRouter.class);
     private final com.hospio.payment.pos.HotelPosService hotelPosConfig = mock(com.hospio.payment.pos.HotelPosService.class);
     private final com.hospio.payment.client.FnbClient fnb = mock(com.hospio.payment.client.FnbClient.class);
+    private final com.hospio.payment.client.FinanceClient finance = mock(com.hospio.payment.client.FinanceClient.class);
     private final PaymentService service = new PaymentService(payments, receipts, terminals, new LoggingPosProvider(), hotelConfig, events, reservations, folios, hotelPos, hotelPosConfig, fnb,
-            new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)));
+            new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)), finance);
 
     @BeforeEach
     void setUp() {
+        when(finance.tillOpen(anyString(), anyString())).thenReturn(Optional.of(true));
         when(reservations.booking(anyString())).thenReturn(Optional.of(new ReservationClient.BookingState("BOOKED", "h1")));
         when(fnb.order(anyString())).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "B-0007", "SERVED", false, new BigDecimal("3000"), "BAR")));
         when(payments.save(any())).thenAnswer(inv -> {
@@ -297,7 +299,7 @@ class PaymentServiceTest {
         when(pos.query("LOG-1")).thenReturn(Optional.of(new com.hospio.common.integrations.PosProvider.WebhookResult("LOG-1", "p1",
                 com.hospio.common.integrations.PosProvider.Outcome.APPROVED, new BigDecimal("5000"), "APPROVED")));
         PaymentService verifying = new PaymentService(payments, receipts, terminals, pos, hotelConfig, events, reservations, folios, hotelPos, hotelPosConfig, fnb,
-                new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)));
+                new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)), finance);
         when(payments.findById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.PROCESSING)));
         when(payments.lockById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.APPROVED)));
 
@@ -314,7 +316,7 @@ class PaymentServiceTest {
         when(pos.query("LOG-1")).thenReturn(Optional.of(new com.hospio.common.integrations.PosProvider.WebhookResult("LOG-1", "p1",
                 com.hospio.common.integrations.PosProvider.Outcome.DECLINED, new BigDecimal("100"), "PROCESSED", "Insufficient funds")));
         PaymentService verifying = new PaymentService(payments, receipts, terminals, pos, hotelConfig, events, reservations, folios, hotelPos, hotelPosConfig, fnb,
-                new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)));
+                new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)), finance);
         when(payments.findById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.PROCESSING)));
         when(payments.lockById("p1")).thenReturn(Optional.of(card("p1", PaymentStatus.PROCESSING)));
 
@@ -390,5 +392,48 @@ class PaymentServiceTest {
         org.mockito.ArgumentCaptor<com.hospio.payment.entity.Receipt> saved = org.mockito.ArgumentCaptor.forClass(com.hospio.payment.entity.Receipt.class);
         order.verify(receipts).save(saved.capture());
         assertThat(saved.getValue().getNumber()).endsWith("-000042");
+    }
+
+    @Test
+    void cashAtATillDeskNeedsThatDesksTillOpen() {
+        when(finance.tillOpen("h1", "BAR")).thenReturn(Optional.of(false));
+
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("22400"), null, null, "Walk-in", null, null, "Drinks", null)))
+                .isInstanceOf(BadRequestException.class).hasMessageStartingWith("Open your till first: cash taken at the bar goes into the bar till");
+        verify(payments, org.mockito.Mockito.never()).save(any());
+        assertThat(service.cashTill(null)).isEqualTo(new PaymentService.CashTill("BAR", true, false,
+                "Open your till first: cash taken at the bar goes into the bar till, and it isn't open"));
+
+        when(finance.tillOpen("h1", "BAR")).thenReturn(Optional.of(true));
+        PaymentResponse p = service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("22400"), null, null, "Walk-in", null, null, "Drinks", null));
+        assertThat(p.status()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(service.cashTill(Role.BAR).open()).isTrue();
+    }
+
+    @Test
+    void cardIsNotAskedForATillAndFinanceDownLetsCashThrough() {
+        when(finance.tillOpen("h1", "BAR")).thenReturn(Optional.of(false));
+        PosTerminal pos = PosTerminal.builder().name("Bar POS").provider("logging").terminalRef("T-1").build();
+        pos.setId("t1");
+        when(terminals.forRole("h1", Role.BAR)).thenReturn(Optional.of(pos));
+        service.request(new PaymentRequestDto(PaymentMethod.CARD, new BigDecimal("5000"), null, null, "Walk-in", null, null, "Drinks", null));
+
+        when(finance.tillOpen("h1", "BAR")).thenReturn(Optional.empty());
+        assertThat(service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), null, null, "Walk-in", null, null, "Drinks", null)).status())
+                .isEqualTo(PaymentStatus.APPROVED);
+    }
+
+    @Test
+    void managersAndLaundryHaveNoTillSoTheirCashIsNotRefused() {
+        when(finance.tillOpen(anyString(), anyString())).thenReturn(Optional.of(false));
+        for (Role role : List.of(Role.MANAGER, Role.LAUNDRY)) {
+            HospioUserDetails user = new HospioUserDetails("u2", "m@x.ng", "Ada", "b1", List.of("h1"), Map.of(role, AccessLevel.FULL), JwtUtil.SCOPE_HOTEL);
+            SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities()));
+            TenantContext.set(Tenant.fromUser(user, "h1"));
+            assertThat(service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), null, null, "Walk-in", null, null, "Sales", null)).status())
+                    .isEqualTo(PaymentStatus.APPROVED);
+            assertThat(service.cashTill(null).needed()).isFalse();
+        }
+        verify(finance, org.mockito.Mockito.never()).tillOpen(anyString(), anyString());
     }
 }

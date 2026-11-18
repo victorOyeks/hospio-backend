@@ -41,6 +41,7 @@ import com.hospio.fnb.rules.LineStatus;
 import com.hospio.fnb.rules.OrderPricing;
 import com.hospio.fnb.rules.OutletAccess;
 import com.hospio.fnb.rules.Recipes;
+import com.hospio.fnb.rules.StockSource;
 import java.math.BigDecimal;
 import java.text.NumberFormat;
 import java.time.Instant;
@@ -731,15 +732,19 @@ public class OrderService {
             o.setSettledByName(t.actorName());
         }
         Map<String, MenuItem> menu = new HashMap<>();
+        Map<String, java.util.Optional<Outlet>> outletCache = new HashMap<>();
+        Map<String, List<MenuItem>> menus = new HashMap<>();
         List<OrderSettledEvent.Line> sold = new ArrayList<>();
         for (OrderLine l : all) {
             if (!l.isLive()) {
                 continue;
             }
             MenuItem m = menu.computeIfAbsent(l.getMenuItemId(), id -> items.findById(id).orElse(null));
-            List<OrderSettledEvent.Ingredient> recipe = m == null ? List.of()
-                    : Recipes.read(m.getRecipeJson()).stream().map(r -> new OrderSettledEvent.Ingredient(r.stockItemId(), r.quantity())).toList();
-            sold.add(new OrderSettledEvent.Line(l.getMenuItemId(), l.getName(), l.getQuantity(), recipe));
+            // A dish made at another outlet draws from that outlet's store, with the recipe it keeps there (StockSource).
+            StockSource.Source src = StockSource.of(m, l.getPreparedAt(), outlet, id -> outletCache.computeIfAbsent(id, outlets::findById),
+                    id -> menus.computeIfAbsent(id, items::findByOutletIdOrderByCategoryAscSortOrderAscNameAsc));
+            List<OrderSettledEvent.Ingredient> recipe = src.recipe().stream().map(r -> new OrderSettledEvent.Ingredient(r.stockItemId(), r.quantity())).toList();
+            sold.add(new OrderSettledEvent.Line(l.getMenuItemId(), l.getName(), l.getQuantity(), recipe, src.storeId()));
         }
         events.publish(KafkaTopics.ORDER_SETTLED, OrderSettledEvent.builder().orderId(o.getId()).orderNumber(o.getNumber()).outletId(outlet.getId())
                 .storeId(outlet.getStoreId()).settledBy(by).lines(sold).build());
