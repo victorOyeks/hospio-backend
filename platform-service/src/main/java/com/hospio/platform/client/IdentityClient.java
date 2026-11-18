@@ -97,6 +97,18 @@ public class IdentityClient {
         }
     }
 
+    /** GET /internal/users/platform?role=: active holders of a platform role (SUPER_ADMIN, SUPPORT, FINANCE_ADMIN). Empty on failure. */
+    public List<Contact> platformStaff(String role) {
+        try {
+            List<Contact> d = TenantClient.data(restClient.get().uri(b -> b.path("/internal/users/platform").queryParam("role", role).build())
+                    .retrieve().body(CONTACTS));
+            return d == null ? new ArrayList<>() : new ArrayList<>(d);
+        } catch (Exception e) {
+            log.warn("identity-service platform staff ({}) lookup failed: {}", role, e.getMessage());
+            return List.of();
+        }
+    }
+
     /** POST /internal/users with role MARKETER and no business: the marketer portal login. Throws when it cannot be created. */
     public CreatedLogin createMarketer(String fullName, String email, String phone) {
         try {
