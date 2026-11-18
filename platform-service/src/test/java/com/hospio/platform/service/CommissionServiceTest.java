@@ -207,4 +207,81 @@ class CommissionServiceTest {
         when(statements.findByProfileIdAndMonth("p1", "2026-11")).thenReturn(Optional.of(MarketerStatement.builder().build()));
         assertThat(service.makeOne("p1", "2026-11")).isNull();
     }
+
+    @Test
+    void aFeeDayInsideTheWindowCollectedAfterTheWindowEndedStillEarns() {
+        // Agreement ended (marketer changed) and the 12 months ran out before the carried debt for 9 Jan 2027 was collected in March.
+        Marketer a = agreement("a1", LocalDate.of(2026, 1, 1), LocalDate.of(2027, 2, 1));
+        when(agreements.findByBusinessId("b1")).thenReturn(List.of(a));
+        when(fees.firstCollectedDate("b1")).thenReturn(LocalDate.of(2026, 1, 10));
+        Commission late = service.accrue(day(LocalDate.of(2027, 1, 9), "1000.00", "0", "0", "1000.00"), "HF-LATE", LocalDate.of(2027, 3, 15));
+        assertThat(late).isNotNull();
+        assertThat(a.getWindowEnd()).isEqualTo(LocalDate.of(2027, 1, 10));
+        assertThat(late.getFeeDate()).isEqualTo(LocalDate.of(2027, 1, 9));
+        assertThat(late.getEarnedOn()).isEqualTo(LocalDate.of(2027, 3, 15));
+        assertThat(late.getMonth()).isEqualTo("2027-03");
+        assertThat(late.getNet()).isEqualByComparingTo("190.00");
+    }
+
+    static MarketerProfile ended() {
+        MarketerProfile p = MarketerProfile.builder().fullName("Ese").email("ese@hospio-qa.test").status("ENDED").build();
+        p.setId("p1");
+        return p;
+    }
+
+    @Test
+    void anEndedMarketersStatementUnderTheMinimumIsAFinalDraftNotCarriedOver() {
+        when(profiles.findById("p1")).thenReturn(Optional.of(ended()));
+        when(statements.findByProfileIdAndMonth(eq("p1"), anyString())).thenReturn(Optional.empty());
+        when(commissions.findByProfileIdAndStatementIdIsNullAndSourceIsNotNullAndMonthLessThanEqualOrderByEarnedOnAscCreatedAtAsc("p1", "2026-12"))
+                .thenReturn(List.of(line("997.50", "2026-12")));
+        when(statements.findByProfileIdAndStatusAndCarriedToIdIsNullAndMonthLessThan("p1", MarketerStatement.CARRIED_OVER, "2026-12")).thenReturn(List.of());
+        MarketerStatement dec = service.makeOne("p1", "2026-12");
+        assertThat(dec.getStatus()).isEqualTo(MarketerStatement.DRAFT);
+        assertThat(dec.isFinalStatement()).isTrue();
+        assertThat(dec.getPayable()).isEqualByComparingTo("997.50");
+    }
+
+    @Test
+    void endingAMarketerPutsEveryOpenLineAndCarriedBalanceOnAFinalStatement() {
+        when(profiles.findById("p1")).thenReturn(Optional.of(ended()));
+        MarketerStatement oct = MarketerStatement.builder().profileId("p1").month("2026-10").status(MarketerStatement.CARRIED_OVER)
+                .payable(new BigDecimal("3000.00")).build();
+        oct.setId("st-2026-10");
+        when(statements.findByProfileIdAndStatusAndCarriedToIdIsNull("p1", MarketerStatement.CARRIED_OVER)).thenReturn(List.of(oct));
+        Commission dec = line("1000.00", "2026-12");
+        when(commissions.findByProfileIdAndStatementIdIsNullAndSourceIsNotNull("p1")).thenReturn(List.of(dec));
+        when(statements.findByProfileIdOrderByMonthDesc("p1")).thenReturn(List.of(oct));
+
+        MarketerStatement fin = service.makeFinal("p1", LocalDate.of(2026, 12, 3));
+
+        assertThat(fin.getMonth()).isEqualTo("2026-12");
+        assertThat(fin.getStatus()).isEqualTo(MarketerStatement.DRAFT);
+        assertThat(fin.isFinalStatement()).isTrue();
+        assertThat(fin.getCarriedIn()).isEqualByComparingTo("3000.00");
+        assertThat(fin.getPayable()).isEqualByComparingTo("4000.00");
+        assertThat(oct.getCarriedToId()).isEqualTo(fin.getId());
+        assertThat(dec.getStatementId()).isEqualTo(fin.getId());
+        assertThat(dec.getStatus()).isEqualTo(Commission.ON_STATEMENT);
+    }
+
+    @Test
+    void theFinalStatementTakesTheNextMonthWhenThisMonthsIsAlreadyMade() {
+        when(profiles.findById("p1")).thenReturn(Optional.of(ended()));
+        MarketerStatement dec = MarketerStatement.builder().profileId("p1").month("2026-12").status(MarketerStatement.PAID).build();
+        when(statements.findByProfileIdOrderByMonthDesc("p1")).thenReturn(List.of(dec));
+        when(statements.findByProfileIdAndStatusAndCarriedToIdIsNull("p1", MarketerStatement.CARRIED_OVER)).thenReturn(List.of());
+        when(commissions.findByProfileIdAndStatementIdIsNullAndSourceIsNotNull("p1")).thenReturn(List.of(line("50.00", "2026-12")));
+
+        assertThat(service.makeFinal("p1", LocalDate.of(2026, 12, 20)).getMonth()).isEqualTo("2027-01");
+    }
+
+    @Test
+    void nothingOpenNoFinalStatement() {
+        when(profiles.findById("p1")).thenReturn(Optional.of(ended()));
+        when(statements.findByProfileIdAndStatusAndCarriedToIdIsNull("p1", MarketerStatement.CARRIED_OVER)).thenReturn(List.of());
+        when(commissions.findByProfileIdAndStatementIdIsNullAndSourceIsNotNull("p1")).thenReturn(List.of());
+        assertThat(service.makeFinal("p1", LocalDate.of(2026, 12, 3))).isNull();
+        verify(statements, never()).save(any());
+    }
 }

@@ -169,6 +169,7 @@ public class MarketerService {
     @Transactional
     public MarketerProfile update(String profileId, PlatformRequests.MarketerUpdateRequest request) {
         MarketerProfile p = findProfile(profileId);
+        boolean wasNotEnded = !"ENDED".equals(p.getStatus());
         if (request.sharePct() != null) {
             if (request.sharePct().signum() < 0 || request.sharePct().compareTo(new BigDecimal("100")) > 0) {
                 throw new BadRequestException("sharePct must be between 0 and 100");
@@ -204,7 +205,13 @@ public class MarketerService {
                 }
             }
         }
-        return profiles.save(p);
+        boolean ending = "ENDED".equals(p.getStatus()) && wasNotEnded;
+        MarketerProfile saved = profiles.save(p);
+        if (ending) {
+            // Their carried-over balance and open lines are paid out on a final statement, whatever the minimum (docs/plan-marketers.md).
+            commissionService.makeFinalStatement(saved.getId());
+        }
+        return saved;
     }
 
     // ---- platform: referrals and commissions ---------------------------------------------------------
