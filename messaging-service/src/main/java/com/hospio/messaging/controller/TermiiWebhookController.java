@@ -62,10 +62,18 @@ public class TermiiWebhookController {
         try {
             // Parsed only after the signature is checked against the raw bytes exactly as Termii sent them.
             TermiiDtos.Report r = json.readValue(raw, TermiiDtos.Report.class);
-            String id = r.messageId() != null ? r.messageId() : r.messageIdStr() != null ? r.messageIdStr() : r.id();
             String status = r.status() == null ? "" : r.status();
             String group = group(status);
-            boolean applied = id != null && group != null && dispatcher.applyReport("termii:" + id, group, status);
+            // The send answer's message_id_str (else message_id) is what was recorded; a report names it as message_id,
+            // message_id_str or id depending on the account, so each is tried.
+            String id = null;
+            boolean applied = false;
+            for (String candidate : new java.util.LinkedHashSet<>(java.util.Arrays.asList(r.messageId(), r.messageIdStr(), r.id()))) {
+                if (StringUtils.hasText(candidate) && group != null && !applied) {
+                    id = candidate.trim();
+                    applied = dispatcher.applyReport("termii:" + id, group, status);
+                }
+            }
             log.info("Termii report {}: {} ({})", id, status, applied ? "applied" : "not applied");
         } catch (Exception e) {
             log.warn("Termii report could not be read: {}", e.getMessage());

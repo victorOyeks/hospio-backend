@@ -227,7 +227,30 @@ public class GuestInboxService {
         if (StringUtils.hasText(r.subject())) {
             c.setSubject(r.subject().trim());
         }
-        return send(c, me, r.channel() == null ? c.getChannel() : r.channel(), r.body(), c.getSubject());
+        NotificationChannel channel = r.channel() != null ? r.channel()
+                // A conversation on WhatsApp is answered by email when WhatsApp can't carry a typed message (no template).
+                : c.getChannel() == NotificationChannel.WHATSAPP && !whatsAppMessages() && StringUtils.hasText(c.getGuestEmail())
+                ? NotificationChannel.EMAIL : c.getChannel();
+        return send(c, me, channel, r.body(), c.getSubject());
+    }
+
+    /**
+     * A message to a guest goes by email; WhatsApp only once a typed message has an approved template (common WhatsAppTemplates),
+     * which it hasn't, so it is refused in words instead of being queued to fail. SMS is only for one-time codes.
+     */
+    static void checkGuestChannel(NotificationChannel channel) {
+        if (channel == null || channel == NotificationChannel.IN_APP || channel == NotificationChannel.SMS) {
+            throw new BadRequestException("Pick email or WhatsApp for a guest");
+        }
+        if (channel == NotificationChannel.WHATSAPP && !whatsAppMessages()) {
+            throw new BadRequestException("A typed message can't go on WhatsApp yet (WhatsApp only carries approved templates). "
+                    + "Send it by email, or call the guest and log their reply");
+        }
+    }
+
+    /** Whether a typed message can go on WhatsApp: only with an approved template (common WhatsAppTemplates), which it hasn't. */
+    private static boolean whatsAppMessages() {
+        return com.hospio.common.delivery.WhatsAppTemplates.capable(Delivery.Kind.MESSAGE);
     }
 
     /** What the guest said by phone, WhatsApp or at the desk, logged so the conversation is whole. Reopens a done one. */
@@ -303,9 +326,7 @@ public class GuestInboxService {
     }
 
     private GuestInbox.Sent send(Conversation c, HospioUserDetails me, NotificationChannel channel, String text, String subject) {
-        if (channel == null || channel == NotificationChannel.IN_APP || channel == NotificationChannel.SMS) {
-            throw new BadRequestException("Pick email or WhatsApp for a guest");
-        }
+        checkGuestChannel(channel);
         if (billing != null) {
             com.hospio.messaging.billing.CommBilling.Gate gate = billing.gate(TenantContext.requireHotel(), Delivery.Kind.MESSAGE.name());
             if (!gate.allowed()) {
@@ -316,7 +337,7 @@ public class GuestInboxService {
         String to = channel == NotificationChannel.EMAIL ? c.getGuestEmail() : c.getGuestPhone();
         if (!StringUtils.hasText(to)) {
             throw new BadRequestException(channel == NotificationChannel.EMAIL
-                    ? nz(c.getGuestName()) + " has no email; add it to the guest or pick WhatsApp (coming soon)"
+                    ? nz(c.getGuestName()) + " has no email; add it to the guest first"
                     : nz(c.getGuestName()) + " has no phone number for WhatsApp");
         }
         if (channel == NotificationChannel.EMAIL && !to.contains("@")) {

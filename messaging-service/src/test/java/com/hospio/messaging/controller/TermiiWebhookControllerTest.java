@@ -62,6 +62,16 @@ class TermiiWebhookControllerTest {
     }
 
     @Test
+    void theRecordedIdIsFoundWhicheverFieldTheReportNamesItIn() throws Exception {
+        ReflectionTestUtils.setField(controller, "secretKey", "s3cret");
+        // The send answer's message_id_str was recorded; this report carries its own id first and the message id in message_id_str.
+        String raw = "{\"type\":\"outbound\",\"id\":\"rep-1\",\"message_id_str\":\"3017544054459083819856413\",\"status\":\"Delivered\"}";
+        when(dispatcher.applyReport("termii:3017544054459083819856413", "DELIVERED", "Delivered")).thenReturn(true);
+        assertThat(controller.report(sign(raw, "s3cret"), raw).getStatusCode().value()).isEqualTo(200);
+        verify(dispatcher).applyReport("termii:3017544054459083819856413", "DELIVERED", "Delivered");
+    }
+
+    @Test
     void termiisWordsBecomeTheStatusGroups() {
         assertThat(TermiiWebhookController.group("DELIVERED")).isEqualTo("DELIVERED");
         assertThat(TermiiWebhookController.group("Delivered")).isEqualTo("DELIVERED");

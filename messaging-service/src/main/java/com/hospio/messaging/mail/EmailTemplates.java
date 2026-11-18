@@ -111,6 +111,7 @@ public class EmailTemplates {
             Map.entry("PASSWORD_RESET", new Look("Security", Tone.WARNING, "Your password was reset", "Sign in")),
             Map.entry("PHONE_CODE", new Look("Verification", Tone.BRAND, "Your code", null)),
             Map.entry("HANDOVER_PACK", new Look("Welcome", Tone.BRAND, "Your hotel is ready on Hospio360", "Sign in")),
+            Map.entry("WELCOME", new Look("You're live", Tone.SUCCESS, "Welcome to Hospio360", "Open Hospio360")),
             Map.entry("BOOKING_CONFIRMATION", new Look("Booking confirmed", Tone.SUCCESS, "Your booking is confirmed", "View booking")),
             Map.entry("BOOKING_CHANGED", new Look("Booking updated", Tone.INFO, "Your stay has changed", "View booking")),
             Map.entry("ARRIVAL_REMINDER", new Look("See you tomorrow", Tone.INFO, "See you tomorrow", "View booking")),

@@ -15,6 +15,9 @@ import lombok.experimental.SuperBuilder;
 public class HandoverAcceptedEvent extends HospioEvent {
     private String ownerUserId;
     private String businessName;
+    /** The business's account manager (a platform admin), told in the app; null when none is assigned. */
+    private String accountManagerId;
+    private String ownerName;
 
     @Override
     public String summary() {

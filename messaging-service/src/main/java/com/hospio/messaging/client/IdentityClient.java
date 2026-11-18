@@ -60,6 +60,17 @@ public class IdentityClient {
         return out;
     }
 
+    /** GET /internal/users/platform: active holders of a platform role (SUPER_ADMIN…). Throws when identity can't be reached. */
+    public List<Contact> platformStaff(String role) {
+        ApiResponse<List<UserContact>> body = restClient.get().uri(b -> b.path("/internal/users/platform").queryParam("role", role).build())
+                .retrieve().body(MANY);
+        List<Contact> out = new ArrayList<>();
+        if (body != null && body.data() != null) {
+            body.data().forEach(n -> out.add(contact(n)));
+        }
+        return out;
+    }
+
     private static Contact contact(UserContact n) {
         List<String> roles = n.roles() == null ? new ArrayList<>() : new ArrayList<>(n.roles());
         return new Contact(n.id(), n.fullName(), n.email(), n.phone(), n.businessId(), n.status(), roles);

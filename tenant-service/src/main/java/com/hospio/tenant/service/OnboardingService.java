@@ -108,6 +108,7 @@ public class OnboardingService {
         if (request.step() == 2 && request.data() != null) {
             checkSecondContact(request.data());
         }
+        checkEmails(request.data());
         OnboardingDraft draft = drafts.findByBusinessId(businessId).orElseGet(() -> OnboardingDraft.builder()
                 .businessId(businessId).assignedTo(CurrentUser.require().getUserId()).data(draftData.empty()).build());
         save(draft, business, request, BACK_OFFICE_STEPS);
@@ -186,7 +187,8 @@ public class OnboardingService {
             throw new ForbiddenException("Only the owner can accept the handover");
         }
         Handover handover = handovers.findByBusinessId(businessId).orElseThrow(() -> new ResourceNotFoundException("No handover to accept"));
-        if (handover.getAcceptedAt() == null) {
+        boolean first = handover.getAcceptedAt() == null;
+        if (first) {
             handover.setAcceptedAt(Instant.now());
             handovers.save(handover);
         }
@@ -196,9 +198,34 @@ public class OnboardingService {
             drafts.save(d);
         });
         businessService.moveStage(business, Business.Stage.LIVE, null);
-        events.publish(KafkaTopics.HANDOVER_ACCEPTED, HandoverAcceptedEvent.builder()
-                .businessId(businessId).ownerUserId(owner.getUserId()).businessName(business.getName()).build());
+        if (first) {
+            // Told once (docs/onboarding.md, K3): messaging-service puts it in the account manager's and every super admin's
+            // bell; the owner gets a short welcome email from Hospio360 (email only, never SMS or WhatsApp).
+            events.publish(KafkaTopics.HANDOVER_ACCEPTED, HandoverAcceptedEvent.builder()
+                    .businessId(businessId).ownerUserId(owner.getUserId()).businessName(business.getName())
+                    .accountManagerId(business.getAccountManagerId()).ownerName(business.getOwnerName()).build());
+            String to = org.springframework.util.StringUtils.hasText(business.getOwnerEmail()) ? business.getOwnerEmail() : owner.getEmail();
+            if (org.springframework.util.StringUtils.hasText(to)) {
+                Delivery welcome = Delivery.email(to.trim(), "Welcome to Hospio360 · " + business.getName() + " is live",
+                        welcomeText(business.getOwnerName(), business.getName(), handoverPack.signInUrl()), Delivery.Kind.WELCOME, businessId);
+                // From Hospio360 itself (no business in the context: the From name is Hospio360's, not the hotel's).
+                com.hospio.common.tenancy.TenantContext.runWith(com.hospio.common.tenancy.Tenant.system("handover-accepted"),
+                        () -> deliveryService.send(welcome));
+            }
+        }
         return businessService.toResponse(business);
+    }
+
+    /** The owner's welcome after accepting the handover: what's next, in a few lines. */
+    static String welcomeText(String ownerName, String businessName, String signInUrl) {
+        return "Hello " + (org.springframework.util.StringUtils.hasText(ownerName) ? ownerName.trim().split("\\s+")[0] : "there") + ",\n\n"
+                + "Thank you for accepting the handover. " + businessName + " is now live on Hospio360.\n\n"
+                + "What to do next:\n"
+                + "- Sign in and check each hotel's rooms, prices and staff.\n"
+                + "- Ask your managers to sign in and change their temporary passwords.\n"
+                + "- Take your first booking or sale; your account manager will check in with you this week.\n\n"
+                + "Sign in: " + signInUrl + "\n\n"
+                + "Questions? Reply to this email or open Help in the app.";
     }
 
     // ---- the owner's self-serve wizard ----------------------------------------------------------------
@@ -214,6 +241,7 @@ public class OnboardingService {
         if (request.step() > SELF_SERVE_STEPS) {
             throw new BadRequestException("The sign-up wizard has " + SELF_SERVE_STEPS + " steps");
         }
+        checkEmails(request.data());
         Business business = ownersBusiness();
         OnboardingDraft draft = draftFor(business);
         save(draft, business, request, SELF_SERVE_STEPS);
@@ -266,6 +294,19 @@ public class OnboardingService {
         OnboardingDraftData data = draftData.saveStep(draftData.parse(draft.getData()), request.step(), request.data(), request.nextAction());
         draft.setData(draftData.write(data));
         draft.setStep(Math.max(draft.getStep(), Math.min(request.step() + 1, totalSteps)));
+    }
+
+    /**
+     * Any email a step carries (the business's, the owner's, the second contact's, a manager's) must be an address: "0000000" or
+     * "wuse@" saved here ended up as the hotel's Reply-To and lost its emails (18 Nov 2026). Blank is fine.
+     */
+    static void checkEmails(OnboardingStepData data) {
+        if (data == null) {
+            return;
+        }
+        Fields.email(data.email(), data.fullName() != null ? "the manager's email" : "the business email", false);
+        Fields.email(data.ownerEmail(), "the owner's email", false);
+        Fields.email(data.contactEmail(), "the second contact's email", false);
     }
 
     /** Step 2's optional second contact: blank is fine, anything typed must be a real name, email or phone. */

@@ -30,11 +30,17 @@ public class OutboundService {
     public record Sent(String to, String channel, List<Delivery> deliveries) {
     }
 
-    /** Sends the stay summary to the guest. {@code channel} is EMAIL or WHATSAPP; {@code to} defaults to the folio's contact. */
+    /**
+     * Sends the stay summary to the guest by email; {@code to} defaults to the folio's email. WhatsApp is refused: the folio has
+     * no approved WhatsApp template (common WhatsAppTemplates), so it would never arrive.
+     */
     @Transactional(readOnly = true)
     public Sent sendFolio(String folioId, String channel, String to) {
+        boolean email = channel == null || "EMAIL".equalsIgnoreCase(channel);
+        if (!email && !com.hospio.common.delivery.WhatsAppTemplates.capable(Delivery.Kind.FOLIO)) {
+            throw new BadRequestException("The folio can't go on WhatsApp yet (no approved WhatsApp template). Email it or print it.");
+        }
         var f = folios.find(folioId);
-        boolean email = "EMAIL".equalsIgnoreCase(channel);
         String target = blank(to) ? (email ? f.getGuestEmail() : f.getGuestPhone()) : to.trim();
         if (blank(target)) {
             throw new BadRequestException(email ? "Add the guest's email to send the folio" : "Add the guest's WhatsApp number to send the folio");

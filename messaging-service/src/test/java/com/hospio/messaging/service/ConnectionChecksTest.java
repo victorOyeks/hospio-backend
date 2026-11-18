@@ -177,4 +177,50 @@ class ConnectionChecksTest {
         assertThat(r.get("email").detail()).contains("SMTP relay (no Brevo API key)", "couldn't be checked: IllegalStateException")
                 .doesNotContain(BREVO_KEY);
     }
+
+    private static com.hospio.messaging.entity.DeliveryRecord row(String channel, com.hospio.messaging.entity.DeliveryRecord.Status status,
+                                                                  String error, String event, java.time.Instant at) {
+        com.hospio.messaging.entity.DeliveryRecord r = com.hospio.messaging.entity.DeliveryRecord.builder().channel(channel).toAddress("x")
+                .status(status).error(error).providerEvent(event).sentAt(at).build();
+        r.setCreatedAt(at);
+        return r;
+    }
+
+    @Test
+    void eachRowShowsItsLastOutcomesAndFailingOnesTurnItToError() {
+        InfobipClient infobip = new InfobipClient(server.url(), INFOBIP_KEY, "", "+2348148849797", "", "", "");
+        TermiiClient termii = new TermiiClient(true, server.url(), TERMII_KEY, "OE Alert", "dnd");
+        TextSender texts = new TextSender(infobip, termii, true, true, "en", "");
+        ConnectionChecks checks = new ConnectionChecks(infobip, termii, texts, mail(BREVO_KEY), mailer, false, 3000);
+        com.hospio.messaging.repository.DeliveryRecordRepository log = mock(com.hospio.messaging.repository.DeliveryRecordRepository.class);
+        checks.setDeliveries(log);
+        java.time.Instant now = java.time.Instant.now();
+        var failed = com.hospio.messaging.entity.DeliveryRecord.Status.FAILED;
+        var sent = com.hospio.messaging.entity.DeliveryRecord.Status.SENT;
+        var delivered = com.hospio.messaging.entity.DeliveryRecord.Status.DELIVERED;
+        String account = "Message sent not delivered - Account issue (EC_ACCOUNT_ISSUE)";
+        when(log.latest(org.mockito.ArgumentMatchers.eq("WHATSAPP"), any(), any(), any())).thenReturn(List.of(
+                row("WHATSAPP", failed, account, null, now.minusSeconds(7200)),
+                // The staging allow-list's own refusal is not the provider's answer: skipped.
+                row("WHATSAPP", failed, "Held back: not on this environment's allow-list (TEXTS_ALLOW_ONLY)", null, now.minusSeconds(7300)),
+                row("WHATSAPP", failed, account, null, now.minusSeconds(7400)),
+                row("WHATSAPP", failed, account, null, now.minusSeconds(7500))));
+        when(log.latest(org.mockito.ArgumentMatchers.eq("EMAIL"), any(), any(), any())).thenReturn(List.of(
+                row("EMAIL", delivered, null, "delivered", now.minusSeconds(300)),
+                row("EMAIL", failed, "Bounced (soft): Unable to find MX of domain hospio-qa.test", "soft_bounce", now.minusSeconds(600)),
+                row("EMAIL", sent, null, null, now.minusSeconds(900)),
+                row("EMAIL", delivered, null, "delivered", now.minusSeconds(1200))));
+        when(log.latest(org.mockito.ArgumentMatchers.eq("SMS"), any(), any(), any())).thenReturn(List.of());
+
+        Map<String, ConnectionCheck> r = byKey(checks.run());
+
+        assertThat(r.get("whatsapp").status()).isEqualTo("ERROR");
+        assertThat(r.get("whatsapp").detail()).contains("Last message: failed 2 h ago — " + account,
+                "Last 7 days: 3 sent, 0 delivered, 3 failed", "The last 3 all failed").doesNotContain("Held back");
+        assertThat(r.get("email").status()).isEqualTo("CONNECTED");
+        assertThat(r.get("email").detail()).contains("Last email: delivered 5 min ago", "4 sent, 2 delivered, 1 failed, 1 bounced (25% bounce rate)",
+                "the Brevo webhook key isn't set");
+        assertThat(r.get("sms").detail()).contains("No SMS code sent in the last 7 days", "until its secret key is set");
+    }
 }
+

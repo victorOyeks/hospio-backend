@@ -503,6 +503,16 @@ public class UserService {
         return users.findAllById(userIds).stream().map(u -> contact(u.getId())).toList();
     }
 
+    /** Active people holding a platform role (SUPER_ADMIN, SUPPORT, FINANCE_ADMIN…), once each: who to tell about platform events. */
+    @Transactional(readOnly = true)
+    public List<UserContactResponse> platformStaff(Role role) {
+        if (role == null || !role.isPlatform() || role == Role.SYSTEM) {
+            throw new BadRequestException("Name a platform role, e.g. SUPER_ADMIN");
+        }
+        return grants.findByRoleAndHotelIdIsNull(role).stream().filter(RoleGrant::isActive).map(RoleGrant::getUserId).distinct()
+                .map(this::contact).filter(c -> "ACTIVE".equals(c.status())).toList();
+    }
+
     @Transactional(readOnly = true)
     public List<UserContactResponse> withRole(String hotelId, Role role) {
         return grants.findByHotelIdAndRole(hotelId, role).stream().filter(RoleGrant::isActive)

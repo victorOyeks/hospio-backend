@@ -16,6 +16,9 @@ public interface RoleGrantRepository extends JpaRepository<RoleGrant, String> {
 
     List<RoleGrant> findByHotelIdAndRole(String hotelId, Role role);
 
+    /** Platform grants (no hotel) of a role, e.g. every SUPER_ADMIN. */
+    List<RoleGrant> findByRoleAndHotelIdIsNull(Role role);
+
     List<RoleGrant> findByBusinessId(String businessId);
 
     List<RoleGrant> findByHotelId(String hotelId);

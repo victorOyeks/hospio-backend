@@ -38,6 +38,16 @@ public class JwtFilter extends OncePerRequestFilter {
     private final JwtUtil jwtUtil;
     private final AccessRevocations revocations;
 
+    /**
+     * Providers' webhooks never carry a user's token: Brevo sends its own webhook key as "Bearer <key>", which is checked by the
+     * webhook itself (and must not be read, or logged as an invalid JWT, here).
+     */
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        return uri != null && uri.contains("/webhooks/");
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {

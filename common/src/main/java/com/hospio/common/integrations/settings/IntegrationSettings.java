@@ -8,9 +8,13 @@ public sealed interface IntegrationSettings permits IntegrationSettings.Brevo, I
         IntegrationSettings.Termii, IntegrationSettings.Paystack, IntegrationSettings.Moniepoint, IntegrationSettings.Opay,
         IntegrationSettings.FeeDebitOpay, IntegrationSettings.FeeDebitMoniepoint {
 
-    /** Email through Brevo's API (messaging-service). */
+    /** Email through Brevo's API (messaging-service); {@code webhookKey} proves an email event (delivered, bounce) comes from Brevo. */
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
-    record Brevo(String apiKey, String fromAddress, String fromName) implements IntegrationSettings {
+    record Brevo(String apiKey, String fromAddress, String fromName, String webhookKey) implements IntegrationSettings {
+
+        public Brevo(String apiKey, String fromAddress, String fromName) {
+            this(apiKey, fromAddress, fromName, null);
+        }
     }
 
     /** Email through an SMTP relay when there is no Brevo API key; {@code enabled} switches all email on or off. */
