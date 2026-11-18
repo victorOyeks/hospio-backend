@@ -40,4 +40,14 @@ class GuestInboxRulesTest {
     void unknownPlaceholdersAreRefused() {
         assertThat(GuestInboxService.unknownPlaceholders("Hi {{guest}} {{balance}} {{Room}}")).containsExactly("{{balance}}");
     }
+
+    @Test
+    void aTypedMessageGoesByEmailAndIsRefusedOnWhatsAppInWords() {
+        GuestInboxService.checkGuestChannel(com.hospio.common.enums.NotificationChannel.EMAIL);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> GuestInboxService.checkGuestChannel(com.hospio.common.enums.NotificationChannel.WHATSAPP))
+                .isInstanceOf(com.hospio.common.exception.BadRequestException.class)
+                .hasMessageStartingWith("A typed message can't go on WhatsApp yet");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> GuestInboxService.checkGuestChannel(com.hospio.common.enums.NotificationChannel.SMS))
+                .hasMessage("Pick email or WhatsApp for a guest");
+    }
 }

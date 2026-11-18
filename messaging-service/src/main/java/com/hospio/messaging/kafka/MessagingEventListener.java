@@ -62,6 +62,48 @@ public class MessagingEventListener {
         this.guestMessaging = guestMessaging;
     }
 
+    /** Who the platform staff are, for the handover-accepted notice (absent in tests). */
+    private com.hospio.messaging.client.IdentityClient identity;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setIdentity(com.hospio.messaging.client.IdentityClient identity) {
+        this.identity = identity;
+    }
+
+    /**
+     * The owner accepted the handover (docs/onboarding.md, K3): the business's account manager and every super admin get it in
+     * their bell, once (idempotent per event). The owner's welcome email is sent by tenant-service.
+     */
+    @Transactional
+    @KafkaListener(topics = KafkaTopics.HANDOVER_ACCEPTED)
+    public void onHandoverAccepted(com.hospio.common.kafka.events.HandoverAcceptedEvent e) {
+        bound(e, () -> {
+            java.util.Set<String> who = new java.util.LinkedHashSet<>();
+            if (e.getAccountManagerId() != null && !e.getAccountManagerId().isBlank()) {
+                who.add(e.getAccountManagerId());
+            }
+            if (identity != null) {
+                try {
+                    identity.platformStaff("SUPER_ADMIN").forEach(c -> who.add(c.id()));
+                } catch (RuntimeException ex) {
+                    log.warn("Handover accepted for {}: super admins not looked up ({}); account manager told only", e.getBusinessId(),
+                            ex.getClass().getSimpleName());
+                }
+            }
+            String business = nz(e.getBusinessName()).isBlank() ? "A business" : e.getBusinessName();
+            String body = (nz(e.getOwnerName()).isBlank() ? "The owner" : e.getOwnerName()) + " accepted the handover. "
+                    + business + " is live; a welcome email went to the owner.";
+            for (String userId : who) {
+                if (userId != null) {
+                    notifications.notify(e.getEventId(), userId, null, "HANDOVER_ACCEPTED", business + " accepted the handover", body,
+                            "/dashboard/businesses/" + e.getBusinessId());
+                }
+            }
+            log.info("Handover accepted for {}: {} platform people told", e.getBusinessId(), who.size());
+            return null;
+        });
+    }
+
     /** Every email, SMS and WhatsApp any service asked for (docs/email.md): recorded here, emails sent through SMTP. */
     @KafkaListener(topics = KafkaTopics.DELIVERY_REQUESTED)
     public void onDeliveryRequested(com.hospio.common.kafka.events.DeliveryRequestedEvent e) {
@@ -95,7 +137,7 @@ public class MessagingEventListener {
                         .eventId(java.util.UUID.nameUUIDFromBytes(("RECEIPT-W-" + e.getPaymentId()).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString())
                         .occurredAt(e.getOccurredAt()).businessId(e.getBusinessId()).hotelId(e.getHotelId()).channel("WHATSAPP")
                         .to(e.getGuestPhone()).subject("Receipt").text(body).kind("RECEIPT").ref(e.getPaymentId())
-                        .template("hospio_payment_receipt_v2")
+                        .template(com.hospio.common.delivery.WhatsAppTemplates.RECEIPT)
                         .params(java.util.List.of(first.isBlank() ? "there" : first, "@hotel", naira(e.getAmount()),
                                 nz(e.getMethod()).isBlank() ? "Payment" : cap(nz(e.getMethod()).toLowerCase()),
                                 !nz(e.getProviderRef()).isBlank() ? e.getProviderRef()
@@ -119,7 +161,9 @@ public class MessagingEventListener {
                         outbound.queue(NotificationChannel.EMAIL, e.getGuestEmail(), "Your stay summary", body, "STAY_SUMMARY", "SUMMARY-E-" + e.getBookingId());
                     }
                     if ("WHATSAPP".equalsIgnoreCase(ch) && e.getGuestPhone() != null) {
-                        outbound.queue(NotificationChannel.WHATSAPP, e.getGuestPhone(), "Stay summary", body, "STAY_SUMMARY", "SUMMARY-W-" + e.getBookingId());
+                        // The stay summary has no WhatsApp template (common WhatsAppTemplates): never queued, so a check-out
+                        // never leaves a failed WhatsApp behind. Older screens still ask for it.
+                        log.info("Stay summary for booking {} not sent on WhatsApp: no approved template", e.getBookingId());
                     }
                 }
             }

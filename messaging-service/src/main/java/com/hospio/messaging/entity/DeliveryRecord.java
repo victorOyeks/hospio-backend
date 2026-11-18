@@ -78,6 +78,17 @@ public class DeliveryRecord extends BaseEntity {
     @Column(name = "delivered_at")
     private Instant deliveredAt;
 
+    /** The provider's last word on an email (Brevo's webhook: "delivered", "hard_bounce", "spam"…) and when it came. */
+    @Column(name = "provider_event", length = 30)
+    private String providerEvent;
+
+    @Column(name = "provider_event_at")
+    private Instant providerEventAt;
+
+    /** When the email was first opened (Brevo's "opened" event; images blocked means it may never come). */
+    @Column(name = "opened_at")
+    private Instant openedAt;
+
     /** A message the hotel pays for (docs/guest-message-billing.md); priced at {@code unitPrice} by how it went ({@code sentVia}). */
     @Column(nullable = false)
     @lombok.Builder.Default

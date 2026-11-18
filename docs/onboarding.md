@@ -18,7 +18,7 @@ Both paths end in the same place: an owner with a business, one or more hotels w
 - Platform callers act on a business by naming it: `businessId` in the body or query, or `X-Hotel-Id` for hotel-scoped calls. Inside the service that work runs as `Tenant.systemFor(businessId, hotelId, …)` so the row-level policies pass.
 - A new hotel gets defaults from hotel-config (via the `HotelCreated` event): sections, lists and the catalogue below. Nothing else is created until the wizard says so.
 - Temporary passwords are returned once in the API response and shown once on screen. Every created user also gets an **invite token** (7 days) that opens `/accept-invite?token=…` on the right app; accepting sets the password and signs the user in. No email or WhatsApp is sent yet (messaging-service does not consume these events).
-- Phone verification uses a 6-digit code. The code is logged on identity-service and, when `hospio.auth.otp-dev-code` is set (staging: `123456`), that code is always accepted. Sign-in is not blocked by an unverified phone; the wizard just shows the step.
+- Phone verification uses a 6-digit code. The code is never logged (18 Nov 2026; before that identity-service logged it at INFO) and, when `hospio.auth.otp-dev-code` is set (staging: `123456`), that code is always accepted. Sign-in is not blocked by an unverified phone; the wizard just shows the step.
 
 ## Back-office field rules (admin "Set up a business" and the 10-step wizard)
 
@@ -135,7 +135,7 @@ Hotel gains `status` values `ACTIVE | PAUSED | CLOSED`, `checkInTime`, `checkOut
 | GET | `/onboarding/mine` | owner | the owner's own draft (self-serve wizard progress) |
 | PUT | `/onboarding/mine/step` | owner | `{step (1..4), data}` |
 | POST | `/onboarding/mine/complete` | owner | stage `LIVE`, draft `DONE` → `BusinessResponse` |
-| POST | `/handover/accept` | owner | unchanged → `BusinessResponse` (stage `LIVE`) |
+| POST | `/handover/accept` | owner | unchanged → `BusinessResponse` (stage `LIVE`). The first acceptance only (18 Nov 2026): `HANDOVER_ACCEPTED` carries `accountManagerId` and `ownerName`; messaging-service puts "<business> accepted the handover" in the bell of the account manager and of every active SUPER_ADMIN (link `/dashboard/businesses/{id}`, identity `GET /internal/users/platform?role=SUPER_ADMIN`), and tenant-service emails the owner "Welcome to Hospio360 · <business> is live" (kind `WELCOME`, from Hospio360, next steps and the sign-in link). Email only, never SMS or WhatsApp. Accepting again sends nothing. |
 | GET | `/setup-templates` | authenticated | unchanged; the default template is seeded (see hotel-config catalogue) |
 
 Events: `BusinessCreated` (with `ownerUserId` when known and `source`), `HotelCreated`, `BusinessStageChanged` on every change, `HandoverSent`, new `HandoverAccepted`.

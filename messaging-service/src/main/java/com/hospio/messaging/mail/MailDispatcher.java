@@ -214,15 +214,20 @@ public class MailDispatcher {
             boolean email = "EMAIL".equals(channel);
             // SMS is only for one-time codes (docs/sms-whatsapp.md): any other SMS is recorded, never sent.
             boolean smsRefused = "SMS".equals(channel) && !com.hospio.common.delivery.Delivery.smsAllowed(e.getKind());
-            boolean text = !email && !smsRefused && texts != null && texts.live(channel, e.getKind());
+            // WhatsApp carries approved templates only (common WhatsAppTemplates): a stay summary, folio, typed guest message
+            // or staff notice has none, so it is recorded SKIPPED with the reason and never queued (it is not a failure).
+            boolean noTemplate = "WHATSAPP".equals(channel) && (!com.hospio.common.delivery.WhatsAppTemplates.capable(e.getKind())
+                    || !notBlank(e.getTemplate()));
+            boolean text = !email && !smsRefused && !noTemplate && texts != null && texts.live(channel, e.getKind());
             DeliveryRecord.Status wanted = !email ? (text ? DeliveryRecord.Status.QUEUED : DeliveryRecord.Status.NOT_CONNECTED)
                     : !enabled() ? DeliveryRecord.Status.DISABLED : DeliveryRecord.Status.QUEUED;
             // A message the hotel pays for goes only while its guest-message service is on and not suspended.
             com.hospio.messaging.billing.CommBilling.Gate gate = billing == null ? com.hospio.messaging.billing.CommBilling.Gate.FREE
                     : billing.gate(e.getHotelId(), e.getKind());
-            DeliveryRecord.Status status = gate.billable() && !gate.allowed() ? DeliveryRecord.Status.SKIPPED : wanted;
+            DeliveryRecord.Status status = noTemplate || (gate.billable() && !gate.allowed()) ? DeliveryRecord.Status.SKIPPED : wanted;
             if (status == DeliveryRecord.Status.SKIPPED) {
-                log.info("{} {} to {} not sent: {}", channel, e.getKind(), e.getTo(), gate.reason());
+                log.info("{} {} to {} not sent: {}", channel, e.getKind(), e.getTo(),
+                        noTemplate ? com.hospio.common.delivery.WhatsAppTemplates.NO_TEMPLATE : gate.reason());
             }
             boolean queued = status == DeliveryRecord.Status.QUEUED;
             String params = queued && text && e.getParams() != null ? json(e.getParams()) : null;
@@ -237,8 +242,9 @@ public class MailDispatcher {
                 return records.save(DeliveryRecord.builder().eventId(e.getEventId()).businessId(e.getBusinessId()).hotelId(e.getHotelId())
                         .channel(channel).toAddress(cut(e.getTo() == null ? "" : e.getTo().trim(), 255)).subject(cut(e.getSubject(), 300))
                         .kind(cut(e.getKind(), 40)).ref(cut(e.getRef(), 80)).fromName(cut(trimmed(e.getFromName()), 200))
-                        .replyTo(cut(trimmed(e.getReplyTo()), 255)).status(status).billable(gate.billable() && gate.allowed())
-                        .error(!gate.allowed() ? cut(gate.reason(), 500)
+                        .replyTo(cut(trimmed(e.getReplyTo()), 255)).status(status).billable(!noTemplate && gate.billable() && gate.allowed())
+                        .error(noTemplate ? com.hospio.common.delivery.WhatsAppTemplates.NO_TEMPLATE
+                                : !gate.allowed() ? cut(gate.reason(), 500)
                                 : smsRefused ? "Not sent: SMS is only used for sign-in codes. Send by WhatsApp or email." : null)
                         .nextAttemptAt(queued ? Instant.now() : null).bodyText(queued ? nz(e.getText()) : null)
                         .bodyHtml(queued && email && notBlank(e.getHtml()) ? e.getHtml() : null)
@@ -515,6 +521,103 @@ public class MailDispatcher {
             log.warn("Delivery report for {} not applied: {}", providerRef, ex.getMessage());
             return false;
         }
+    }
+
+    /** Brevo's events that end an email badly: the address bounced for good, Brevo blocked it, or it isn't an address. */
+    private static final Set<String> HARD_EMAIL_EVENTS = Set.of("hard_bounce", "blocked", "invalid_email", "error");
+
+    /**
+     * Brevo's word on an email (its webhook, docs/email.md "Delivery tracking"): {@code delivered} makes the record DELIVERED;
+     * {@code hard_bounce}, {@code soft_bounce}, {@code blocked}, {@code invalid_email} and {@code error} make it FAILED with the
+     * reason; {@code spam} (a complaint) and {@code opened} are noted without changing the status (an open of a SENT email shows
+     * it arrived: DELIVERED). A soft bounce after the email was delivered, or "delivered" after a hard bounce, changes nothing.
+     * {@code messageId} is Brevo's message id ("&lt;…@smtp-relay.mailin.fr&gt;"); an unknown one, or an email still being sent, is
+     * ignored. Returns whether a record changed.
+     */
+    public boolean applyEmailEvent(String messageId, String event, String reason, Instant at) {
+        if (!notBlank(messageId) || !notBlank(event)) {
+            return false;
+        }
+        String ev = event.trim().toLowerCase(java.util.Locale.ROOT);
+        boolean delivered = ev.equals("delivered");
+        boolean hard = HARD_EMAIL_EVENTS.contains(ev);
+        boolean soft = ev.equals("soft_bounce");
+        boolean spam = ev.equals("spam") || ev.equals("complaint");
+        boolean opened = ev.equals("opened") || ev.equals("unique_opened") || ev.equals("proxy_open");
+        if (!delivered && !hard && !soft && !spam && !opened) {
+            return false;
+        }
+        String id = messageId.trim();
+        String prefix = id.replace("!", "!!").replace("%", "!%").replace("_", "!_") + " %";
+        Instant when = at == null ? Instant.now() : at;
+        String why = notBlank(reason) ? reason.trim() : null;
+        try {
+            Boolean changed = asSystem(() -> tx.execute(s -> {
+                DeliveryRecord r = records.findEmailByMessageId(id, prefix).orElse(null);
+                if (r == null || !(r.getStatus() == DeliveryRecord.Status.SENT || r.getStatus() == DeliveryRecord.Status.DELIVERED
+                        || r.getStatus() == DeliveryRecord.Status.FAILED)) {
+                    return false;
+                }
+                boolean hardBefore = r.getProviderEvent() != null && HARD_EMAIL_EVENTS.contains(r.getProviderEvent());
+                if (delivered) {
+                    if (hardBefore) {
+                        return false;
+                    }
+                    r.setStatus(DeliveryRecord.Status.DELIVERED);
+                    r.setDeliveredAt(r.getDeliveredAt() == null ? when : r.getDeliveredAt());
+                    r.setError(null);
+                } else if (hard) {
+                    r.setStatus(DeliveryRecord.Status.FAILED);
+                    r.setError(cut(emailEventWords(ev, why), 500));
+                } else if (soft) {
+                    if (r.getStatus() == DeliveryRecord.Status.DELIVERED || hardBefore) {
+                        return false;
+                    }
+                    r.setStatus(DeliveryRecord.Status.FAILED);
+                    r.setError(cut(emailEventWords(ev, why), 500));
+                } else if (spam) {
+                    r.setError(cut(emailEventWords(ev, why), 500));
+                } else {
+                    // opened
+                    if (r.getOpenedAt() != null) {
+                        return false;
+                    }
+                    r.setOpenedAt(when);
+                    if (r.getStatus() == DeliveryRecord.Status.SENT) {
+                        r.setStatus(DeliveryRecord.Status.DELIVERED);
+                        r.setDeliveredAt(when);
+                    }
+                    records.save(r);
+                    follow(r);
+                    return true;
+                }
+                r.setProviderEvent(cut(ev, 30));
+                r.setProviderEventAt(when);
+                records.save(r);
+                follow(r);
+                return true;
+            }));
+            if (Boolean.TRUE.equals(changed)) {
+                log.info("Brevo event {} applied to an email", ev);
+            }
+            return Boolean.TRUE.equals(changed);
+        } catch (RuntimeException ex) {
+            log.warn("Brevo event {} not applied: {}", ev, ex.getMessage());
+            return false;
+        }
+    }
+
+    /** What the delivery log says about a Brevo event: "Bounced (hard): Unable to find MX of domain hospio-qa.test". */
+    static String emailEventWords(String event, String reason) {
+        String head = switch (event) {
+            case "hard_bounce" -> "Bounced (hard)";
+            case "soft_bounce" -> "Bounced (soft)";
+            case "blocked" -> "Blocked by Brevo";
+            case "invalid_email" -> "Not a valid address";
+            case "spam" , "complaint" -> "Marked as spam by the recipient";
+            default -> "Brevo couldn't send it";
+        };
+        return reason == null ? head : head + ": " + reason;
     }
 
     /** How a message went, and (when the hotel pays for it) its price by that channel at the hotel's prices today. */

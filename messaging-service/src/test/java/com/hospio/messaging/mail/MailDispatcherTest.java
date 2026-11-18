@@ -358,6 +358,96 @@ class MailDispatcherTest {
     }
 
     @Test
+    void aWhatsAppWithNoTemplateIsSkippedNeverQueuedNorFailed() {
+        // Stay summary, folio, a typed guest message, a staff notice: no approved template (common WhatsAppTemplates).
+        com.hospio.messaging.text.TextSender texts = mock(com.hospio.messaging.text.TextSender.class);
+        when(texts.live(any(), any())).thenReturn(true);
+        when(texts.send(any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any()))
+                .thenReturn(new com.hospio.messaging.text.TextSender.Outcome(true, "WHATSAPP", "whatsapp:wa-9", null));
+        dispatcher.setTexts(texts);
+        for (String kind : java.util.List.of("STAY_SUMMARY", "FOLIO", "MESSAGE", "NOTICE")) {
+            DeliveryRecord r = dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-nt-" + kind).businessId("b-royal").hotelId("h-royal")
+                    .channel("WHATSAPP").to("+2348030000000").text("Thank you for staying").kind(kind).build());
+            assertThat(r.getStatus()).as(kind).isEqualTo(DeliveryRecord.Status.SKIPPED);
+            assertThat(r.getError()).as(kind).isEqualTo(com.hospio.common.delivery.WhatsAppTemplates.NO_TEMPLATE);
+            assertThat(r.getNextAttemptAt()).as(kind).isNull();
+            assertThat(r.isBillable()).as(kind).isFalse();
+        }
+        // A receipt still goes, queued with its template.
+        DeliveryRecord receipt = dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-nt-r").businessId("b-royal").hotelId("h-royal")
+                .channel("WHATSAPP").to("+2348030000000").text("Thanks").kind("RECEIPT").template("hospio_payment_receipt_v2")
+                .params(java.util.List.of("Ada")).build());
+        assertThat(rows.get(receipt.getId()).getStatus()).isEqualTo(DeliveryRecord.Status.SENT);
+        verify(texts).send(org.mockito.ArgumentMatchers.eq("WHATSAPP"), any(), any(), org.mockito.ArgumentMatchers.eq("hospio_payment_receipt_v2"),
+                any(), org.mockito.ArgumentMatchers.anyBoolean(), any());
+    }
+
+    private DeliveryRecord sentEmail(String providerId) {
+        DeliveryRecord r = DeliveryRecord.builder().channel("EMAIL").toAddress("qa.msg@hospio-qa.test").kind("INVITE")
+                .status(DeliveryRecord.Status.SENT).providerMessageId(providerId).build();
+        r.setId(UUID.randomUUID().toString());
+        rows.put(r.getId(), r);
+        when(records.findEmailByMessageId(any(), any())).thenAnswer(i -> {
+            String id = i.getArgument(0);
+            return rows.values().stream().filter(x -> "EMAIL".equals(x.getChannel()) && x.getProviderMessageId() != null
+                    && (x.getProviderMessageId().equals(id) || x.getProviderMessageId().startsWith(id + " "))).findFirst();
+        });
+        return r;
+    }
+
+    @Test
+    void brevosEventsMoveAnEmailToDeliveredOrFailedWithTheReason() {
+        DeliveryRecord bounced = sentEmail("<m1@smtp-relay.mailin.fr> · Brevo API 201");
+        java.time.Instant at = java.time.Instant.parse("2026-11-18T11:00:00Z");
+        assertThat(dispatcher.applyEmailEvent("<m1@smtp-relay.mailin.fr>", "soft_bounce", "Unable to find MX of domain hospio-qa.test", at)).isTrue();
+        assertThat(bounced.getStatus()).isEqualTo(DeliveryRecord.Status.FAILED);
+        assertThat(bounced.getError()).isEqualTo("Bounced (soft): Unable to find MX of domain hospio-qa.test");
+        assertThat(bounced.getProviderEvent()).isEqualTo("soft_bounce");
+        assertThat(bounced.getProviderEventAt()).isEqualTo(at);
+
+        DeliveryRecord ok = sentEmail("<m2@smtp-relay.mailin.fr> · Brevo API 201");
+        assertThat(dispatcher.applyEmailEvent("<m2@smtp-relay.mailin.fr>", "delivered", null, at)).isTrue();
+        assertThat(ok.getStatus()).isEqualTo(DeliveryRecord.Status.DELIVERED);
+        assertThat(ok.getDeliveredAt()).isEqualTo(at);
+        // A late soft bounce of a delivered email changes nothing; a spam complaint is noted, the status stays.
+        assertThat(dispatcher.applyEmailEvent("<m2@smtp-relay.mailin.fr>", "soft_bounce", "mailbox full", at)).isFalse();
+        assertThat(dispatcher.applyEmailEvent("<m2@smtp-relay.mailin.fr>", "spam", null, at)).isTrue();
+        assertThat(ok.getStatus()).isEqualTo(DeliveryRecord.Status.DELIVERED);
+        assertThat(ok.getError()).isEqualTo("Marked as spam by the recipient");
+
+        DeliveryRecord hard = sentEmail("<m3@relay>");
+        assertThat(dispatcher.applyEmailEvent("<m3@relay>", "hard_bounce", "550 5.1.1 no such user", at)).isTrue();
+        assertThat(hard.getStatus()).isEqualTo(DeliveryRecord.Status.FAILED);
+        // "delivered" after a hard bounce is out of order: ignored.
+        assertThat(dispatcher.applyEmailEvent("<m3@relay>", "delivered", null, at)).isFalse();
+        assertThat(hard.getStatus()).isEqualTo(DeliveryRecord.Status.FAILED);
+
+        DeliveryRecord opened = sentEmail("<m4@relay>");
+        assertThat(dispatcher.applyEmailEvent("<m4@relay>", "opened", null, at)).isTrue();
+        assertThat(opened.getOpenedAt()).isEqualTo(at);
+        assertThat(opened.getStatus()).isEqualTo(DeliveryRecord.Status.DELIVERED);
+
+        // Unknown events and ids change nothing.
+        assertThat(dispatcher.applyEmailEvent("<m4@relay>", "request", null, at)).isFalse();
+        assertThat(dispatcher.applyEmailEvent("<nobody@relay>", "delivered", null, at)).isFalse();
+        assertThat(dispatcher.applyEmailEvent(null, "delivered", null, at)).isFalse();
+    }
+
+    @Test
+    void aBrevoEventForAnEmailStillBeingSentIsIgnored() {
+        DeliveryRecord q = sentEmail("<q@relay>");
+        q.setStatus(DeliveryRecord.Status.QUEUED);
+        assertThat(dispatcher.applyEmailEvent("<q@relay>", "delivered", null, null)).isFalse();
+        assertThat(q.getStatus()).isEqualTo(DeliveryRecord.Status.QUEUED);
+    }
+
+    @Test
+    void theMessageIdsWildcardsAreEscapedForTheLookup() {
+        dispatcher.applyEmailEvent("<a_b%c!@relay>", "delivered", null, null);
+        verify(records).findEmailByMessageId("<a_b%c!@relay>", "<a!_b!%c!!@relay> %");
+    }
+
+    @Test
     void hotelPhoneIsTheHotelsPhoneOrItsFrontDesk() {
         com.hospio.messaging.text.TextSender texts = mock(com.hospio.messaging.text.TextSender.class);
         when(texts.live(org.mockito.ArgumentMatchers.eq("WHATSAPP"), any())).thenReturn(true);

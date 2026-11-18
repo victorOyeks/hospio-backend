@@ -24,7 +24,9 @@ public enum IntegrationProvider {
     BREVO("Brevo (email API)", "EMAIL", Owner.MESSAGING, true, IntegrationSettings.Brevo.class, List.of(
             entry("apiKey", "API key", SECRET, "BREVO_API_KEY", "Brevo → SMTP & API → API keys. When set, email goes through Brevo's API instead of SMTP."),
             entry("fromAddress", "From address", TEXT, "MAIL_FROM_ADDRESS", "A verified Brevo sender, e.g. no-reply@hospio360.com."),
-            entry("fromName", "Default From name", TEXT, "MAIL_FROM_NAME_DEFAULT", "Used when the hotel or business has no name of its own."))),
+            entry("fromName", "Default From name", TEXT, "MAIL_FROM_NAME_DEFAULT", "Used when the hotel or business has no name of its own."),
+            entry("webhookKey", "Webhook key", SECRET, "BREVO_WEBHOOK_KEY", "Any long random text. Brevo sends it with each email event "
+                    + "(delivered, bounced) to https://<api>/messaging/webhooks/brevo as a Bearer token; without it every event is refused."))),
 
     SMTP("SMTP (email fallback)", "EMAIL", Owner.MESSAGING, true, IntegrationSettings.Smtp.class, List.of(
             entry("host", "Host", TEXT, "SMTP_HOST", "e.g. smtp-relay.brevo.com. Used only while there is no Brevo API key."),

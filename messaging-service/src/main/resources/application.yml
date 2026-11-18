@@ -89,6 +89,10 @@ hospio:
     sender-id: ${TERMII_SENDER_ID:Hospio360}
     # Delivery reports: X-Termii-Signature is checked against this (Termii console → webhook). Empty = reports refused.
     secret-key: ${TERMII_SECRET_KEY:}
+  # Brevo's email events (docs/email.md, "Delivery tracking"): posted to /messaging/webhooks/brevo with this key as a Bearer
+  # token. Empty (and none saved in the admin portal) = events refused.
+  brevo:
+    webhook-key: ${BREVO_WEBHOOK_KEY:}
   whatsapp:
     enabled: ${WHATSAPP_ENABLED:false}
     language: ${WHATSAPP_LANGUAGE:en}

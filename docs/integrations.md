@@ -26,6 +26,7 @@ all and type them again.
 | BREVO | EMAIL | apiKey | SECRET | `BREVO_API_KEY` | messaging (Brevo API when set, else SMTP) |
 | | | fromAddress | TEXT | `MAIL_FROM_ADDRESS` | messaging |
 | | | fromName | TEXT | `MAIL_FROM_NAME_DEFAULT` | messaging |
+| | | webhookKey | SECRET | `BREVO_WEBHOOK_KEY` | messaging: Brevo's email events (`POST /messaging/webhooks/brevo`, the key as a Bearer token), docs/email.md "Delivery tracking" |
 | SMTP | EMAIL | host | TEXT | `SMTP_HOST` | messaging (a sender is built from the saved values over spring.mail.*) |
 | | | port | NUMBER | `SMTP_PORT` | |
 | | | username | TEXT | `SMTP_USERNAME` | |
@@ -69,6 +70,8 @@ IntegrationView = { provider, label, group: "EMAIL"|"MESSAGING"|"PAYMENTS"|"POS"
 ```
 
 The connection-status list that used to be `GET /platform/admin/integrations` is now `GET /platform/admin/integrations/status`: live checks made by the service that owns each row (docs/admin-portal.md); the messaging and POS rows reuse the same read-only provider calls as the Test buttons here, with a ~3.5 s limit, and never send or charge anything.
+
+Since 18 Nov 2026 the WhatsApp, Email and SMS rows also read the delivery log (read-only, newest 200 of the last 7 days): "Last message: failed 2 h ago — Message sent not delivered - Account issue (EC_ACCOUNT_ISSUE). Last 7 days: 4 sent, 0 delivered, 4 failed." (email adds "n bounced (x% bounce rate)"). Our own refusals (the staging allow-list's "Held back", "Not sent: …", not a phone number) are not outcomes. A row is **ERROR** when its newest three outcomes all failed, even if the key works. Email says when bounces can't be reported (no Brevo webhook key), SMS when Termii's reports can't be believed (no secret key).
 
 Internal: `GET /platform/internal/integrations/{provider}` (internal API key only) → the decrypted typed record
 (`IntegrationSettings.*` in common), `null` when nothing is saved. messaging-service and payment-service read it through

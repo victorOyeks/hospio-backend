@@ -101,6 +101,20 @@ public class TextSender {
         return t != null && t.approved();
     }
 
+    /**
+     * The kinds of message that go on WhatsApp right now: those with a template in common's WhatsAppTemplates whose template is
+     * approved, while WhatsApp is on (empty otherwise). The app offers WhatsApp only for these.
+     */
+    public List<String> whatsAppKinds() {
+        if (!whatsAppEnabled() || !infobip.whatsAppConfigured()) {
+            return List.of();
+        }
+        java.util.Map<String, InfobipClient.TemplateInfo> approved = infobip.templates();
+        return com.hospio.common.delivery.WhatsAppTemplates.byKind().entrySet().stream()
+                .filter(e -> approved.get(e.getValue()) != null && approved.get(e.getValue()).approved())
+                .map(java.util.Map.Entry::getKey).toList();
+    }
+
     /** SMS can go: switched on, through Termii when it is on, else Infobip. */
     public boolean smsLive() {
         return smsEnabled() && (termii.configured() || infobip.configured());

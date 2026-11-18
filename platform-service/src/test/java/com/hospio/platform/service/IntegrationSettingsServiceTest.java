@@ -198,7 +198,7 @@ class IntegrationSettingsServiceTest {
                 .isInstanceOf(ResourceNotFoundException.class).hasMessageStartingWith("There is no integration called SMS.");
         assertThatThrownBy(() -> service.update("BREVO", fields(Map.of("password", "x"))))
                 .isInstanceOf(BadRequestException.class)
-                .hasMessage("Brevo (email API) has no field called password. Its fields are: apiKey, fromAddress, fromName");
+                .hasMessage("Brevo (email API) has no field called password. Its fields are: apiKey, fromAddress, fromName, webhookKey");
         assertThatThrownBy(() -> service.update("SMTP", fields(Map.of("port", "smtp"))))
                 .hasMessage("Port (SMTP (email fallback)) must be a whole number from 1 to 65535");
         assertThatThrownBy(() -> service.update("MONIEPOINT", fields(Map.of("baseUrl", "moniepoint"))))

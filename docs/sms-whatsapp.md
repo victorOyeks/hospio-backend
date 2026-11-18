@@ -20,7 +20,14 @@ Codes go through **Termii**, as CoRyd's notification-service does: `POST {TERMII
 route (the `generic` route is promotional and never reaches a number on Nigeria's DND list, while Termii still says
 "sent") from the approved sender ID `Hospio360`. Until `TERMII_ENABLED` is on, codes go by Infobip SMS as before.
 Termii's delivery reports post to `POST /messaging/webhooks/termii/reports`, believed only with a valid
-`X-Termii-Signature` (HMAC-SHA512 of the body under `TERMII_SECRET_KEY`); records are `termii:<message_id>`.
+`X-Termii-Signature` (HMAC-SHA512 of the raw body under the secret key: Settings · Integrations · Termii → Secret key, else
+`TERMII_SECRET_KEY`); records are `termii:<message_id>` (the report's `message_id`, `message_id_str` or `id` is tried in turn).
+Until the secret key is set every report is 401 and codes stay `SENT`.
+
+**Setting it up (owner, once):** Termii dashboard → Settings (API / Webhook) → copy the account's **Secret key** and paste it in
+the admin portal, Settings · Integrations · Termii → Secret key (Save; in force within a minute). Then, in Termii's webhook
+setting, put `https://api-staging.hospio360.com/messaging/webhooks/termii/reports` (production: the production API host) and
+save. The next code's report moves its record to `DELIVERED` (or `FAILED` "DND Active on Phone Number").
 
 ## How a text is sent
 
@@ -53,6 +60,22 @@ is approved (and set in `INFOBIP_SMS_SENDER`), SMS goes from Infobip's shared se
 
 Write code texts to fit anyway: the code first. A WhatsApp's `text` is kept on its delivery record (and is a phone code's
 SMS fallback); the long version lives in the template.
+
+## Which messages can go on WhatsApp (one list, 18 Nov 2026)
+
+WhatsApp carries only templates Meta approved, so the kinds that can go on it are listed once, in common's
+`WhatsAppTemplates`: `BOOKING_CONFIRMATION`, `BOOKING_CHANGED`, `BOOKING_CANCELLED`, `ARRIVAL_REMINDER`, `RECEIPT` and
+`PHONE_CODE` (each with its template below). Every producer takes the template name from there.
+
+- `GET /messaging/channels` adds **`whatsappKinds`**: those kinds whose template is approved right now, while WhatsApp is on.
+  The hotel app (`useWhatsAppKinds`) offers WhatsApp only for a kind in it: the folio windows, Message guest / Messages,
+  staff messages ("WhatsApp copy") and the take-payment receipt.
+- Stay summary, folio, a typed guest message and staff messages have **no template**: messaging-service records any such
+  WhatsApp `SKIPPED` ("Not sent: WhatsApp has no approved template for this message; it goes by email"), never queued and
+  never `FAILED`; check-out no longer asks for a WhatsApp stay summary (the app sends `["EMAIL"]`, or nothing without an
+  email, and messaging ignores `WHATSAPP` for it); `POST /folio/folios/{id}/send` with WHATSAPP and a guest message with
+  `channel: WHATSAPP` are refused 400 in words; a staff message's `whatsapp: true` sends only the in-app notice.
+- The echo (`MailPolicy`) says `NOT_CONNECTED` for such a WhatsApp.
 
 ## Templates in use
 
@@ -123,8 +146,9 @@ opens Google Maps at the hotel's name and address, or its name and city when it 
 neither says "Contact the hotel for directions".
 
 `@hotel` is replaced by messaging-service with the sending hotel's name (the same name an email is from), in the values
-and in the text kept on the record. Everything else on WhatsApp (folios, stay summaries, staff messages to guests) has no
-template yet, so it is not sent on WhatsApp (and never by SMS); it goes by email when there is one.
+and in the text kept on the record. Everything else on WhatsApp (folios, stay summaries, typed messages to guests, staff
+messages) has no template, so it is never offered or queued on WhatsApp (and never by SMS); it goes by email when there is
+one (above, "Which messages can go on WhatsApp").
 
 ## Settings (environment, `/opt/hospio-staging/.env.staging` on staging)
 

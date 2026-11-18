@@ -22,7 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 /**
- * Phone confirmation with a 6-digit code. The code is logged here and handed to {@link DeliveryService}
+ * Phone confirmation with a 6-digit code. The code is never logged; it is handed to {@link DeliveryService}
  * as a PHONE_CODE SMS (echoed in the response on staging, where {@code hospio.auth.otp-dev-code} 123456
  * is also always accepted). Sign-in never depends on it; the sign-up wizard just shows the step.
  */
@@ -84,7 +84,8 @@ public class PhoneVerificationService {
         user.setPhoneCodeExpiresAt(expires);
         user.setPhoneCodeAttempts(0);
         users.save(user);
-        log.info("Phone verification code for {} ({}): {} (valid until {})", user.getEmail(), user.getPhone(), code, expires);
+        // Never the code itself (docs/sms-whatsapp.md): it is a credential, and logs are read by more people than the phone's owner.
+        log.info("Phone verification code issued for user {} by {} (valid until {})", user.getId(), whatsApp ? "WhatsApp" : "SMS", expires);
         List<Delivery> sent = deliveryService.send(composer.forPhoneCode(user, code, expires, whatsApp));
         return new PhoneCodeResponse(expires, sent);
     }

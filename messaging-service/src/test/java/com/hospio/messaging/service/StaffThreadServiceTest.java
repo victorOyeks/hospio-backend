@@ -81,7 +81,7 @@ class StaffThreadServiceTest {
     }
 
     @Test
-    void ownerMessagesAManagerWhoIsToldAndGetsItOnWhatsApp() {
+    void ownerMessagesAManagerWhoIsToldInTheAppAndNotOnWhatsApp() {
         ThreadDtos.ThreadSent sent = service.start(new ThreadDtos.NewThread("tunde", false, null, "Please send the diesel usage", true));
 
         assertThat(sent.thread().withName()).isEqualTo("Tunde Bakare");
@@ -90,8 +90,8 @@ class StaffThreadServiceTest {
         assertThat(sent.thread().subject()).isEqualTo("Please send the diesel usage");
         verify(notifications).notify(isNull(), eq("tunde"), isNull(), eq("STAFF_MESSAGE"), eq("Message from Godwin Kwin"),
                 eq("Please send the diesel usage"), anyString());
-        assertThat(sent.deliveries()).hasSize(1);
-        assertThat(sent.deliveries().get(0).to()).isEqualTo("+2348010000002");
+        // Staff messages have no approved WhatsApp template: the copy asked for is not queued (nothing to fail).
+        assertThat(sent.deliveries()).isEmpty();
     }
 
     @Test

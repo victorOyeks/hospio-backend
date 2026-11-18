@@ -41,7 +41,7 @@ public class GuestNotices {
             return List.of();
         }
         return tell(b, "Your booking " + b.reference() + " is confirmed", Delivery.Kind.BOOKING_CONFIRMATION,
-                first -> new Text("hospio_booking_confirmation_v2",
+                first -> new Text(com.hospio.common.delivery.WhatsAppTemplates.BOOKING_CONFIRMATION,
                         List.of(first, "@hotel", b.reference(), DAY.format(b.checkInDate()), DAY.format(b.checkOutDate()),
                                 b.roomTypeName() == null ? "To be assigned" : b.roomTypeName(), "@hotelPhone"),
                         "@hotel: Hello " + first + ", booking " + b.reference() + " is confirmed, " + DAY.format(b.checkInDate()) + " to "
@@ -57,7 +57,7 @@ public class GuestNotices {
             return List.of();
         }
         return tell(after, "Your stay has changed", Delivery.Kind.BOOKING_CHANGED,
-                first -> new Text("hospio_booking_changed_v2",
+                first -> new Text(com.hospio.common.delivery.WhatsAppTemplates.BOOKING_CHANGED,
                         List.of(first, "@hotel", after.reference(), DAY.format(after.checkInDate()), DAY.format(after.checkOutDate()), "@hotelPhone"),
                         "@hotel: Hello " + first + ", booking " + after.reference() + " is now " + DAY.format(after.checkInDate()) + " to "
                                 + DAY.format(after.checkOutDate()) + "."),
@@ -72,7 +72,7 @@ public class GuestNotices {
         String why = StringUtils.hasText(b.cancellationReason()) ? b.cancellationReason().trim().replaceAll("[.\\s]+$", "")
                 : "Not given";
         return tell(b, "Your booking " + b.reference() + " is cancelled", Delivery.Kind.BOOKING_CANCELLED,
-                first -> new Text("hospio_booking_cancelled_v2",
+                first -> new Text(com.hospio.common.delivery.WhatsAppTemplates.BOOKING_CANCELLED,
                         List.of(first, "@hotel", b.reference(), DAY.format(b.checkInDate()) + " to " + DAY.format(b.checkOutDate()), why, "@hotelPhone"),
                         "@hotel: Hello " + first + ", booking " + b.reference() + " has been cancelled."),
                 first -> "Hello " + first + ",\n\nYour booking has been cancelled.\n\nReference: " + b.reference()
@@ -88,7 +88,7 @@ public class GuestNotices {
     public List<Delivery> arrivalReminder(BookingResponse b, String checkInFrom) {
         String from = StringUtils.hasText(checkInFrom) ? checkInFrom : "the hotel's check-in time";
         return tell(b, "See you tomorrow", Delivery.Kind.ARRIVAL_REMINDER,
-                first -> new Text("hospio_checkin_reminder_v2", List.of(first, "@hotel", b.reference(), from, "@hotelPhone"),
+                first -> new Text(com.hospio.common.delivery.WhatsAppTemplates.ARRIVAL_REMINDER, List.of(first, "@hotel", b.reference(), from, "@hotelPhone"),
                         "@hotel: Hello " + first + ", we look forward to welcoming you tomorrow. Booking " + b.reference() + "."),
                 first -> "Hello " + first + ",\n\nWe look forward to welcoming you tomorrow.\n\nReference: " + b.reference()
                         + "\nCheck-in: " + DAY.format(b.checkInDate()) + (StringUtils.hasText(checkInFrom) ? ", from " + checkInFrom : "")

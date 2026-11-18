@@ -43,10 +43,17 @@ public class MessagingController {
      * {@code counts.unread}; filters {@code unread}, {@code kind}, {@code q}, {@code from}, {@code to}. Without either: the old full list
      * (operations scripts read it), {@code unreadOnly} narrowing it.
      */
-    /** Which text channels go out here, and whether a code can go on WhatsApp (its template approved), for "Send on WhatsApp instead". */
+    /**
+     * Which text channels go out here, whether a code can go on WhatsApp (its template approved), for "Send on WhatsApp instead",
+     * and {@code whatsappKinds}: the kinds of message that go on WhatsApp right now (common WhatsAppTemplates, each with its
+     * template approved and WhatsApp on), the one list the app offers WhatsApp from. A stay summary, folio, typed guest message
+     * or staff message is never in it.
+     */
     @GetMapping("/channels")
-    public ApiResponse<java.util.Map<String, Boolean>> channels() {
-        return ApiResponse.ok(java.util.Map.of("sms", texts.smsLive(), "whatsapp", texts.live("WHATSAPP", null), "whatsappCodes", texts.whatsAppTemplateReady("oyeks_otp")));
+    public ApiResponse<java.util.Map<String, Object>> channels() {
+        return ApiResponse.ok(java.util.Map.of("sms", texts.smsLive(), "whatsapp", texts.live("WHATSAPP", null),
+                "whatsappCodes", texts.whatsAppTemplateReady(com.hospio.common.delivery.WhatsAppTemplates.PHONE_CODE),
+                "whatsappKinds", texts.whatsAppKinds()));
     }
 
     @GetMapping("/notifications")

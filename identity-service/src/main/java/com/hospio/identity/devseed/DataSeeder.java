@@ -53,8 +53,8 @@ public class DataSeeder implements ApplicationRunner {
             return n;
         }));
         if (created > 0) {
-            log.info("Seeded {} test accounts (owner, manager, staff, admins) with password '{}' and PIN {}",
-                    created, SeedFixtures.SEED_PASSWORD, SeedFixtures.SEED_PIN);
+            // The shared password and PIN are in SeedFixtures and the QA docs, never in the log.
+            log.info("Seeded {} test accounts (owner, manager, staff, admins)", created);
         } else {
             log.info("Test accounts already present; nothing seeded");
         }

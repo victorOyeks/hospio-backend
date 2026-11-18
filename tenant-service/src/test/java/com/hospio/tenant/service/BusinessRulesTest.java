@@ -109,6 +109,38 @@ class BusinessRulesTest {
     }
 
     @Test
+    void myBusinessRefusesAnEmailThatIsNotAnAddress() {
+        // 18 Nov 2026: "0000000" saved on My business became the hotels' Reply-To and their emails failed.
+        HospioUserDetails owner = new HospioUserDetails("o1", "owner@hospio-qa.test", "Owner", "b1", List.of("h1"),
+                Map.of(Role.OWNER, AccessLevel.FULL), JwtUtil.SCOPE_BUSINESS);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(owner, null, owner.getAuthorities()));
+        com.hospio.common.tenancy.TenantContext.set(com.hospio.common.tenancy.Tenant.fromUser(owner, null));
+        try {
+            for (String bad : List.of("0000000", "wuse@", "info@hotel", "a b@hotel.ng", "<x@hotel.ng>", "x@hotel..ng")) {
+                assertThatThrownBy(() -> service.updateMine(new com.hospio.tenant.dto.UpdateMyBusinessRequest("Wiseman Hotels", null, null,
+                        null, bad, null, null, null, null, null, null)))
+                        .as(bad).isInstanceOf(BadRequestException.class)
+                        .hasMessage("Business email must be a valid email, like name@hotel.com");
+            }
+            verify(businesses, never()).save(any());
+        } finally {
+            com.hospio.common.tenancy.TenantContext.clear();
+        }
+    }
+
+    @Test
+    void anOnboardingStepRefusesAnEmailThatIsNotAnAddress() throws Exception {
+        ObjectMapper json = new ObjectMapper();
+        assertThatThrownBy(() -> OnboardingService.checkEmails(json.readValue("{\"name\":\"Wiseman\",\"email\":\"0000000\"}",
+                com.hospio.tenant.dto.OnboardingStepData.class))).hasMessage("Business email must be a valid email, like name@hotel.com");
+        assertThatThrownBy(() -> OnboardingService.checkEmails(json.readValue("{\"ownerEmail\":\"wuse@\"}",
+                com.hospio.tenant.dto.OnboardingStepData.class))).hasMessage("Owner's email must be a valid email, like name@hotel.com");
+        OnboardingService.checkEmails(json.readValue("{\"name\":\"Wiseman\",\"email\":\"\"}", com.hospio.tenant.dto.OnboardingStepData.class));
+        OnboardingService.checkEmails(json.readValue("{\"email\":\"frontdesk@wiseman.ng\"}", com.hospio.tenant.dto.OnboardingStepData.class));
+        OnboardingService.checkEmails(null);
+    }
+
+    @Test
     void cacNumbersAreRcBnOrItWithDigits() {
         assertThat(Fields.registrationNumber("rc-1873402")).isEqualTo("RC 1873402");
         assertThat(Fields.registrationNumber("1873402")).isEqualTo("RC 1873402");

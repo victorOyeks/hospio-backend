@@ -98,7 +98,7 @@ public class DeliveryComposer {
                 + ". Do not share with anyone.";
         return whatsApp
                 ? Delivery.whatsApp(user.getPhone(), "Your Hospio360 code", text, Delivery.Kind.PHONE_CODE, user.getId())
-                        .withTemplate("oyeks_otp", List.of(code))
+                        .withTemplate(com.hospio.common.delivery.WhatsAppTemplates.PHONE_CODE, List.of(code))
                 : Delivery.sms(user.getPhone(), text, Delivery.Kind.PHONE_CODE, user.getId());
     }
 

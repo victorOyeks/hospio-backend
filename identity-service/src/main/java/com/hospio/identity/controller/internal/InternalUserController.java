@@ -53,6 +53,12 @@ public class InternalUserController {
         return ApiResponse.ok(userService.taken(email, phone));
     }
 
+    /** Active holders of a platform role, e.g. every SUPER_ADMIN (messaging tells them when an owner accepts a handover). */
+    @GetMapping("/platform")
+    public ApiResponse<List<UserContactResponse>> platform(@RequestParam Role role) {
+        return ApiResponse.ok(userService.platformStaff(role));
+    }
+
     /** Everyone holding a role at a hotel, e.g. HOUSEKEEPING for the cleaning rota. */
     @GetMapping("/with-role")
     public ApiResponse<List<UserContactResponse>> withRole(@RequestParam String hotelId, @RequestParam Role role) {

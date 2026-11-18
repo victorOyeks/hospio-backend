@@ -19,6 +19,19 @@ public interface DeliveryRecordRepository extends JpaRepository<DeliveryRecord, 
     /** The SMS or WhatsApp a delivery report is about ("sms:<id>" / "whatsapp:<id>"). */
     Optional<DeliveryRecord> findFirstByProviderMessageId(String providerMessageId);
 
+    /**
+     * The email a Brevo event is about: its message id exactly, or recorded with the provider's reply after it
+     * ("<id@smtp-relay.mailin.fr> · Brevo API 201"). {@code prefix} is the id with LIKE's wildcards escaped by '!', followed by " %".
+     */
+    @Query(value = "SELECT * FROM messaging.deliveries WHERE channel = 'EMAIL' AND (provider_message_id = :id "
+            + "OR provider_message_id LIKE :prefix ESCAPE '!') ORDER BY created_at DESC LIMIT 1", nativeQuery = true)
+    Optional<DeliveryRecord> findEmailByMessageId(@Param("id") String id, @Param("prefix") String prefix);
+
+    /** The newest finished deliveries of a channel since {@code since} (the connection checks' last outcomes). */
+    @Query("select d from DeliveryRecord d where d.channel = :channel and d.createdAt >= :since and d.status in :statuses order by d.createdAt desc")
+    List<DeliveryRecord> latest(@Param("channel") String channel, @Param("statuses") java.util.Collection<DeliveryRecord.Status> statuses,
+                                @Param("since") Instant since, Pageable page);
+
     // ---- the send queue (docs/email.md, "Sending") ----
 
     /**

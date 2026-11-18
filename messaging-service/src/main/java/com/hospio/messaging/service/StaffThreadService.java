@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -33,9 +34,10 @@ import org.springframework.util.StringUtils;
 /**
  * Staff threads (docs/owner-portal.md · Messaging): the owner or a manager writes to one person or to a hotel's
  * managers; the owner can write to every manager at once (one thread each). Only the people in a thread see it and
- * reply; the other side gets an in-app notice that opens it in their Inbox, and with {@code whatsapp} the message goes
- * to their phone too (echoed in the response on staging, where no provider is connected).
+ * reply; the other side gets an in-app notice that opens it in their Inbox. {@code whatsapp} is ignored while staff messages
+ * have no approved WhatsApp template (common WhatsAppTemplates).
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class StaffThreadService {
@@ -236,6 +238,12 @@ public class StaffThreadService {
 
     private List<Delivery> whatsapp(Boolean wanted, List<IdentityClient.Contact> people, HospioUserDetails me, Conversation c, String body) {
         if (!Boolean.TRUE.equals(wanted)) {
+            return List.of();
+        }
+        if (!com.hospio.common.delivery.WhatsAppTemplates.capable(Delivery.Kind.NOTICE)) {
+            // Staff messages have no approved WhatsApp template (common WhatsAppTemplates): the in-app notice is the message;
+            // nothing is queued for WhatsApp, so nothing fails.
+            log.info("Staff message {}: WhatsApp copy not sent (no approved template)", c.getId());
             return List.of();
         }
         List<Delivery> out = new ArrayList<>();
