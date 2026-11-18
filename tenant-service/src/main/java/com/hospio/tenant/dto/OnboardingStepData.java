@@ -14,7 +14,7 @@ import java.util.Map;
  *   <li>business (both): name, legalName, registrationNumber, businessType, email, phone, address, city, country, timezone</li>
  *   <li>owner (back office 2): ownerName, ownerEmail, ownerPhone, contactName, contactEmail, contactPhone (the second contact)</li>
  *   <li>hotel (self-serve 2): hotelId, name, city</li>
- *   <li>fee (back office 3): feeModel, feeValue, currency, contractStartsOn, contractNotes, marketerId</li>
+ *   <li>fee (back office 3): feeModel, feeValue, currency, contractStartsOn, contractNotes, marketerId, feeAddendumRef</li>
  *   <li>rooms (self-serve 3): roomTypes, created; (back office 5): byHotel</li>
  *   <li>manager (self-serve 4): userId, fullName, email, temporaryPassword, inviteToken</li>
  *   <li>hotels (back office 4): hotelIds</li>
@@ -33,6 +33,7 @@ public record OnboardingStepData(
         String ownerName, String ownerEmail, String ownerPhone, String contactName, String contactEmail, String contactPhone,
         String hotelId,
         String feeModel, BigDecimal feeValue, String currency, String contractStartsOn, String contractNotes, String marketerId,
+        String feeAddendumRef,
         List<RoomTypeSummary> roomTypes, Integer created, Map<String, HotelRooms> byHotel,
         String userId, String fullName, String temporaryPassword, String inviteToken,
         List<String> hotelIds,
@@ -43,7 +44,7 @@ public record OnboardingStepData(
         String sentAt, String ownerUserId) {
 
     /** A step saved with no form ({@code {}}). */
-    public static final OnboardingStepData EMPTY = new OnboardingStepData(null, null, null, null, null, null, null, null, null, null, null,
+    public static final OnboardingStepData EMPTY = new OnboardingStepData(null, null, null, null, null, null, null, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null);
 

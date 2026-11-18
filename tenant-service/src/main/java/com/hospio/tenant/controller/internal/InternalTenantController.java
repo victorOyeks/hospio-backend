@@ -78,7 +78,7 @@ public class InternalTenantController {
     /** platform-service keeps the business's fee in step with the fee rule it saved. */
     @PutMapping("/businesses/{businessId}/fee")
     public ApiResponse<BusinessResponse> fee(@PathVariable String businessId, @Valid @RequestBody FeeRequest request) {
-        return ApiResponse.ok("Fee updated", asSystem(() -> service.setFee(businessId, request.feeModel(), request.feeValue())));
+        return ApiResponse.ok("Fee updated", asSystem(() -> service.setFee(businessId, request.feeModel(), request.feeValue(), request.feeAddendumRef())));
     }
 
     /** platform-service sets who referred the business (its marketer profile id; null clears it). */

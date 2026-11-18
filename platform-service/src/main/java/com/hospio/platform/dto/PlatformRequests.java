@@ -24,7 +24,9 @@ public final class PlatformRequests {
 
     // ---- fees ----------------------------------------------------------------------------------------
 
-    public record FeeRuleRequest(@NotBlank String businessId, @NotBlank String model, @NotNull BigDecimal value, @NotNull LocalDate startsOn, LocalDate endsOn) {
+    /** {@code feeAddendumRef}: required when the value is not the platform default (fee lock); also read as {@code addendumRef}. */
+    public record FeeRuleRequest(@NotBlank String businessId, @NotBlank String model, @NotNull BigDecimal value, @NotNull LocalDate startsOn, LocalDate endsOn,
+                                 @com.fasterxml.jackson.annotation.JsonAlias("addendumRef") @Size(max = 120) String feeAddendumRef) {
     }
 
     /** Manual statement for one business (kept for the Money tab's "add statement"); generate is the usual path. */

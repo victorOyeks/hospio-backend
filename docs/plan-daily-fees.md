@@ -23,6 +23,19 @@ The fee is worked out each day and debited from the hotel's own Moniepoint or OP
 
 Every collection of the platform part of a daily fee (never the device share) accrues the referring marketer's commission (`CommissionService.onCollected`, called from `FeeDebitRunner.apply`); a refund of a collected day (`POST /platform/admin/fees/daily/{id}/refund`, `daily_fees.refunded`) claws it back. On staging only, `QA_FEE_SIMULATION=true` lets a Super admin switch a test hotel to a simulated debit and answer its debits by hand. See `docs/plan-marketers.md`.
 
+## Fee lock (18 Nov 2026)
+
+Owner decision: the platform fee is **1.5 % of daily sales for everyone** (model `PERCENT_OF_SALES`; the rate is the platform default `fees.revenuePct` in platform settings, `FeeSettings.DEFAULTS` 1.5). Anywhere a business's % can be set it is fixed at that default; a different rate needs the reference of a **signed addendum** (free text, at most 120 characters, e.g. "ADD-2026-014 signed 18 Nov"). The rule is `common/.../billing/FeeLock.java`, used by both services.
+
+| Where | Rule |
+|---|---|
+| tenant `POST /tenant/businesses`, `PUT /tenant/businesses/{id}` (also the back-office onboarding "Fee & contract" step, which saves through the PUT) | `feeAddendumRef` required when `feeValue` is not the default (or the model is another). Otherwise **400** "The platform fee is 1.5% for everyone. A different rate needs a signed addendum: enter its reference" (the number is the current default). At the default the reference is dropped. A PUT that resends the business's current model and value with no new reference leaves the fee alone (older rates are not re-checked until they change), so other edits are never blocked |
+| platform `POST /platform/admin/fees/rules` | the same rule on `value` with `feeAddendumRef` (also read as `addendumRef`); the rule stores `addendumRef` and passes it to tenant (`PUT /internal/businesses/{id}/fee` now takes `feeAddendumRef`, stored as sent: platform already checked and recorded it) |
+| tenant's default | `GET /platform/internal/fees/default` → `{model, revenuePct}` (`PlatformClient.feeDefaultPct`); **1.5** when platform-service can't be reached |
+| stored | `tenant.businesses.fee_addendum_ref` (tenant 004-fee-addendum), `platform.fee_rules.addendum_ref` (platform 016-fee-addendum); `feeAddendumRef` in `BusinessResponse`, `BusinessSummary` and the onboarding fee step data; `addendumRef` on a fee rule |
+| audit | `platform.platform_changes`, area **Fee**: "Fee set to 2% of daily sales (addendum ADD-…)", reason = the reference, before/after JSON; or "Fee back to the platform default 1.5% of daily sales" when a business on another rate returns to the default. Nothing is recorded for a fee set at the default from the default. Platform-side changes go through `ChangeService.recordFee` with the signed-in admin; tenant-side changes call `POST /platform/internal/changes/fee` (`{businessId, feeValue, feeAddendumRef, previousValue, defaultPct, actorId, actorName}`) inside the save, and if that call fails the save is rolled back (502 "Could not record the fee change in the audit trail right now…"), so a rate off the default is never saved without its record. Like any change by Hospio360 it reaches the owner's activity log (`CHANGE_BY_PLATFORM`) |
+| admin portal | create business, onboarding fee step, Edit business, Fee rate modal: the fee shows locked "1.5% of daily sales · platform default" with a "Different rate (signed addendum)" toggle that opens the rate and a required Addendum reference; Overview shows the addendum (hospio-frontend `docs/qa/56-fee-lock.md`) |
+
 ## Phases
 
 | Phase | What | Status |

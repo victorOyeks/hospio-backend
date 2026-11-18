@@ -95,6 +95,10 @@ public class Business extends BaseEntity {
     @Column(name = "fee_value")
     private BigDecimal feeValue;
 
+    /** Fee lock: the signed addendum that allows a rate other than the platform default; null at the default. */
+    @Column(name = "fee_addendum_ref", length = 120)
+    private String feeAddendumRef;
+
     @Column(nullable = false, length = 3)
     @lombok.Builder.Default
     private String currency = "NGN";

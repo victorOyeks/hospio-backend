@@ -34,7 +34,7 @@ under the field.
 | Email (owner, business, hotel, second contact) | `name@domain.tld`; owner email required, the rest optional. |
 | Phone (owner, business, hotel, second contact) | Optional; 10–15 digits, optional `+`, spaces, brackets, dashes; the last ten digits not all one digit. `+234 803…` and `0803…` are the same number. |
 | CAC / registration number | Optional; `RC`, `BN` or `IT` and 1–8 digits (`RC 1873402`, `rc-1873402`; plain digits mean RC), not all zeros. Stored as `RC 1873402`. |
-| Fee | Model and value required on create. Percentage models: **0 to 100 inclusive**, at most two decimals (0 is a free period, as platform's fee rules allow; platform's `POST /platform/admin/fees/rules` now refuses a percentage over 100 too). Per room night: ₦0 to ₦1,000,000. |
+| Fee | Model and value required on create. Percentage models: **0 to 100 inclusive**, at most two decimals (0 is a free period, as platform's fee rules allow; platform's `POST /platform/admin/fees/rules` now refuses a percentage over 100 too). Per room night: ₦0 to ₦1,000,000. **Fee lock (18 Nov 2026):** the rate is the platform default (`fees.revenuePct`, 1.5 %) for everyone; any other rate (or model) needs `feeAddendumRef` (the signed addendum's reference, max 120 characters) on create, edit (the wizard's fee step) and fee rules, else 400 "The platform fee is 1.5% for everyone. A different rate needs a signed addendum: enter its reference". The reference is stored (`feeAddendumRef` on the business, `addendumRef` on the rule) and each rate off the default, or back to it, is recorded in `platform_changes` (area Fee). See docs/plan-daily-fees.md "Fee lock". |
 | Check-in / check-out | `HH:MM`, 00:00–23:59; required on the admin form (the API defaults a missing one to 14:00 / 12:00). |
 
 **One of each across businesses** (checked as the system so row-level security does not hide other businesses, under an
@@ -101,12 +101,12 @@ Gains `source` (`SELF_SERVE | BACK_OFFICE`), `city`, `address`, `email`, `phone`
 
 | Method | Path | Who | Body → response |
 |---|---|---|---|
-| GET | `/businesses/mine` | owner, manager | `BusinessResponse` (now with `source, city, address, email, phone, logoUrl, brandColour, stage, feeModel, feeValue, onboarding: {status, step, completedSteps[]}`), hotels included. |
+| GET | `/businesses/mine` | owner, manager | `BusinessResponse` (now with `source, city, address, email, phone, logoUrl, brandColour, stage, feeModel, feeValue, feeAddendumRef, onboarding: {status, step, completedSteps[]}`), hotels included. |
 | PUT | `/businesses/mine` | owner | `{name, legalName, registrationNumber, businessType, email, phone, address, city, logoUrl, brandColour, timezone}` → `BusinessResponse`. Owner profile edits; currency is not here (taxes live in hotel setup). |
-| GET | `/businesses?stage=&q=&page=&size=` | platform | paged `BusinessSummary` (`id, name, stage, source, city, hotels, rooms, ownerName, ownerEmail, accountManagerId, accountManagerName?, marketerId, feeModel, feeValue, createdAt, lastActiveAt?`). |
+| GET | `/businesses?stage=&q=&page=&size=` | platform | paged `BusinessSummary` (`id, name, stage, source, city, hotels, rooms, ownerName, ownerEmail, accountManagerId, accountManagerName?, marketerId, feeModel, feeValue, feeAddendumRef, createdAt, lastActiveAt?`). |
 | GET | `/businesses/{id}` | platform | `BusinessResponse` with hotels and onboarding. |
 | POST | `/businesses` | platform | unchanged request plus `city`, `source` defaults `BACK_OFFICE`; creates the onboarding draft at step 1. |
-| PUT | `/businesses/{id}` | platform | every business field incl. owner contacts, fee model and value, contract fields → `BusinessResponse`. |
+| PUT | `/businesses/{id}` | platform | every business field incl. owner contacts, fee model and value (`feeAddendumRef` for a rate off the platform default), contract fields → `BusinessResponse`. |
 | PUT | `/businesses/{id}/stage` | platform | unchanged; publishes `BusinessStageChanged` (as does every other stage change now). |
 | GET | `/businesses/{id}/hotels` | platform | `HotelResponse[]` |
 | POST | `/internal/businesses` | internal | `{id, name, city, ownerName, ownerEmail, ownerPhone, source}` → `BusinessResponse` (sign-up). |

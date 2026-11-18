@@ -85,16 +85,41 @@ public class ChangeService {
     @Transactional
     public PlatformChange record(PlatformRequests.PlatformChangeRequest request) {
         HospioUserDetails user = CurrentUser.require();
-        String actor = "Hospio360 · " + user.getFullName();
+        return recordAs(request, user.getUserId(), user.getFullName());
+    }
+
+    /**
+     * The same record for a change another service made on a platform admin's behalf (tenant-service's fee lock, through
+     * {@code POST /internal/changes/fee}): the call comes as the system, so who made it is passed in.
+     */
+    @Transactional
+    public PlatformChange recordAs(PlatformRequests.PlatformChangeRequest request, String actorId, String actorFullName) {
+        String actor = "Hospio360 · " + (StringUtils.hasText(actorFullName) ? actorFullName : "Hospio360");
         PlatformChange c = changes.save(PlatformChange.builder().businessId(request.businessId()).hotelId(request.hotelId()).area(request.area())
                 .description(request.description()).reason(request.reason()).beforeJson(request.beforeJson()).afterJson(request.afterJson())
-                .madeBy(user.getUserId()).madeByName(actor).businessName(businessNames.name(request.businessId()))
+                .madeBy(actorId).madeByName(actor).businessName(businessNames.name(request.businessId()))
                 .undoUntil(Instant.now().plus(7, ChronoUnit.DAYS)).build());
-        TenantContext.runWith(Tenant.systemFor(request.businessId(), request.hotelId(), user.getUserId(), actor), () ->
+        TenantContext.runWith(Tenant.systemFor(request.businessId(), request.hotelId(), actorId, actor), () ->
                 events.publish(KafkaTopics.CHANGE_BY_PLATFORM, ChangeByPlatformEvent.builder().businessId(request.businessId()).hotelId(request.hotelId())
-                        .actorId(user.getUserId()).actorName(actor).changeId(c.getId()).area(c.getArea())
+                        .actorId(actorId).actorName(actor).changeId(c.getId()).area(c.getArea())
                         .description(c.getDescription()).undoUntil(c.getUndoUntil()).build()));
         return c;
+    }
+
+    /**
+     * Fee lock: one line in the change log for a fee set at a rate other than the platform default (reason = the addendum
+     * reference) or put back to the default. Area "Fee".
+     */
+    @Transactional
+    public PlatformChange recordFee(String businessId, java.math.BigDecimal value, String addendumRef, java.math.BigDecimal defaultPct,
+                                    java.math.BigDecimal previousValue, String actorId, String actorFullName) {
+        boolean back = !StringUtils.hasText(addendumRef);
+        String reason = back ? "Platform default fee: no addendum needed" : addendumRef.trim();
+        String before = "{\"feeValue\":" + (previousValue == null ? "null" : previousValue.toPlainString()) + "}";
+        String after = "{\"feeValue\":" + (value == null ? "null" : value.toPlainString()) + ",\"feeAddendumRef\":"
+                + (back ? "null" : "\"" + addendumRef.trim().replace("\\", "\\\\").replace("\"", "\\\"") + "\"") + "}";
+        return recordAs(new PlatformRequests.PlatformChangeRequest(businessId, null, "Fee",
+                com.hospio.common.billing.FeeLock.describe(value, addendumRef, defaultPct), reason, before, after), actorId, actorFullName);
     }
 
     /**

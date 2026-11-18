@@ -24,6 +24,7 @@ public class InternalPlatformController {
     private final PlatformSettingsService settings;
     private final IntegrationSettingsService integrations;
     private final com.hospio.platform.service.MarketerService marketers;
+    private final com.hospio.platform.service.ChangeService changes;
 
     /** tenant-service sign-up with a referral code: the marketer it belongs to and whether they can refer; 404 when nobody has it. */
     @GetMapping("/marketers/referral-codes/{code}")
@@ -49,6 +50,32 @@ public class InternalPlatformController {
     @GetMapping("/integrations/{provider}")
     public ApiResponse<IntegrationSettings> integration(@PathVariable String provider) {
         return ApiResponse.ok(integrations.saved(provider));
+    }
+
+    /** Fee lock: the platform default fee every business pays (model and share of daily sales); tenant-service checks fees against it. */
+    @GetMapping("/fees/default")
+    public ApiResponse<FeeDefault> feeDefault() {
+        FeeSettings fees = settings.fees();
+        return ApiResponse.ok(new FeeDefault(com.hospio.common.billing.FeeLock.DEFAULT_MODEL, fees.revenuePct()));
+    }
+
+    public record FeeDefault(String model, java.math.BigDecimal revenuePct) {
+    }
+
+    /**
+     * Fee lock: tenant-service records a business's fee set at another rate (with its addendum reference) or put back to the default,
+     * made by the platform admin named here, in the change log (area "Fee").
+     */
+    @org.springframework.web.bind.annotation.PostMapping("/changes/fee")
+    public ApiResponse<String> feeChange(@jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody FeeChange request) {
+        java.math.BigDecimal defaultPct = request.defaultPct() != null ? request.defaultPct() : settings.fees().revenuePct();
+        return ApiResponse.ok(changes.recordFee(request.businessId(), request.feeValue(), request.feeAddendumRef(), defaultPct,
+                request.previousValue(), request.actorId(), request.actorName()).getId());
+    }
+
+    public record FeeChange(@jakarta.validation.constraints.NotBlank String businessId, java.math.BigDecimal feeValue,
+                            @jakarta.validation.constraints.Size(max = 120) String feeAddendumRef, java.math.BigDecimal previousValue,
+                            java.math.BigDecimal defaultPct, String actorId, String actorName) {
     }
 
     /** payment-service settlements: provider fee % and Hospio360 share %, with the rest of the fees group. */

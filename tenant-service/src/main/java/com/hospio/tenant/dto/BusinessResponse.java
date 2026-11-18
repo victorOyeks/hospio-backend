@@ -13,7 +13,7 @@ public record BusinessResponse(String id, String name, String legalName, String 
                                Business.Stage stage, String accountManagerId, String marketerId, String referralId, Business.FeeModel feeModel,
                                BigDecimal feeValue, String currency, String country, String timezone, LocalDate contractStartsOn,
                                String contractNotes, int hotelCount, Instant suspendedAt, String suspensionReason, Instant createdAt,
-                               List<HotelResponse> hotels, Onboarding onboarding) {
+                               List<HotelResponse> hotels, Onboarding onboarding, String feeAddendumRef) {
 
     /** Where the business is in its wizard; null when it never had one. */
     public record Onboarding(OnboardingDraft.Status status, int step, List<Integer> completedSteps) {
