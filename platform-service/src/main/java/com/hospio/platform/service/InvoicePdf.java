@@ -78,8 +78,8 @@ public class InvoicePdf {
             section(doc, "Carried in", v, "CARRIED", false);
             section(doc, "Credits & adjustments", v, "ADJUSTMENT", false);
 
-            PdfPTable totals = table(new float[] {3f, 1.2f});
-            totals.setWidthPercentage(55);
+            PdfPTable totals = table(new float[] {2.2f, 1.8f});
+            totals.setWidthPercentage(60);
             totals.setHorizontalAlignment(Element.ALIGN_RIGHT);
             totalRow(totals, "Platform fee", v.sections().platform(), BODY);
             totalRow(totals, "Guest messages", v.sections().messages(), BODY);
@@ -163,8 +163,10 @@ public class InvoicePdf {
             row(t, BODY, "Paid by", MonthlyInvoiceService.label(p.getVia()));
             row(t, BODY, "Reference", p.getReference());
             row(t, BODY, "Date", DAY.format(p.getPaidOn()));
+            BigDecimal paidUpTo = v.payments().stream().filter(x -> x.createdAt() != null && p.getCreatedAt() != null && !x.createdAt().isAfter(p.getCreatedAt()))
+                    .map(MonthlyInvoiceService.PaymentView::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
             row(t, BODY, "Invoice total", "NGN " + MonthlyInvoiceService.naira(v.total()));
-            row(t, BOLD, "Balance on the invoice", "NGN " + MonthlyInvoiceService.naira(v.outstanding()));
+            row(t, BOLD, "Balance after this payment", "NGN " + MonthlyInvoiceService.naira(v.total().subtract(paidUpTo).max(BigDecimal.ZERO)));
             if (p.getRecordedByName() != null && !"Paystack".equals(p.getRecordedByName())) {
                 row(t, BODY, "Recorded by", p.getRecordedByName());
             }
