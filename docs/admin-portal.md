@@ -74,6 +74,8 @@ Entities (new, in payment-service): `Settlement` (businessId, businessName, hote
 
 ## Marketers (platform) and the marketer portal
 
+> **Since 18 Nov 2026 commission is on collected daily fees, paid by monthly statement: see `docs/plan-marketers.md`** (20 % of the platform fee collected, 12 months from the first collected fee, 5 % WHT, clawback, statements on the 5th, ₦5,000 minimum, agreement RPA-2026-11, checked bank details, Referred by changes through platform). The rows below are the original phase-3 contract; where they differ, plan-marketers.md wins.
+
 Today `Marketer` is one row per referred business. Rename it conceptually to an agreement and add the person:
 
 - `MarketerProfile` (new): userId (identity, role MARKETER), fullName, email, phone, status PENDING|ACTIVE|ENDED, sharePct (default from settings), months, bankName, bankAccount, bankAccountName, joinedAt, endedAt, referralCode.
@@ -109,7 +111,7 @@ Security: a MARKETER token has scope `marketer` (see onboarding contract); `@acc
 
 ## Settings and integrations (platform, SUPER_ADMIN)
 
-`PlatformSetting` (new): group (`general`, `fees`, `security`), key, value JSON. Defaults: general `{company, supportEmail, supportWhatsApp, website, timezone}`; fees `{model, perRoom 1500, revenuePct 2, trialDays 30, dueDay 5, graceDays 10, marketerSharePct 20, marketerMonths 24, whtPct 5, providerFeePct 0.5, hmsSharePct 1.5}`; security `{require2Step false, sessionHours 12, adminIpAllowlist false, auditRetentionDays 365}`.
+`PlatformSetting` (new): group (`general`, `fees`, `security`), key, value JSON. Defaults: general `{company, supportEmail, supportWhatsApp, website, timezone}`; fees `{model, perRoom 1500, revenuePct 2, trialDays 30, dueDay 5, graceDays 10, marketerSharePct 20, marketerMonths 12 (was 24 until 18 Nov 2026), whtPct 5, marketerMinPayout 5000, providerFeePct 0.5, hmsSharePct 1.5}`; security `{require2Step false, sessionHours 12, adminIpAllowlist false, auditRetentionDays 365}`.
 
 | Method | Path | Who | Response |
 |---|---|---|---|

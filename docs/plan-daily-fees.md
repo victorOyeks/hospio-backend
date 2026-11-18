@@ -19,6 +19,10 @@ The fee is worked out each day and debited from the hotel's own Moniepoint or OP
 | Rollout | Shadow mode first: statements every day, nothing debited, until the switch is on |
 | Care | No regressions: every phase ends with tests and a staging check |
 
+## Marketer commission (18 Nov 2026)
+
+Every collection of the platform part of a daily fee (never the device share) accrues the referring marketer's commission (`CommissionService.onCollected`, called from `FeeDebitRunner.apply`); a refund of a collected day (`POST /platform/admin/fees/daily/{id}/refund`, `daily_fees.refunded`) claws it back. On staging only, `QA_FEE_SIMULATION=true` lets a Super admin switch a test hotel to a simulated debit and answer its debits by hand. See `docs/plan-marketers.md`.
+
 ## Phases
 
 | Phase | What | Status |
