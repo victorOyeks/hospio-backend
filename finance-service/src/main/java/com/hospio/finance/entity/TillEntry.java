@@ -25,8 +25,11 @@ import lombok.experimental.SuperBuilder;
 @Table(name = "till_entries")
 public class TillEntry extends TenantEntity {
 
-    /** PAYMENT is cash taken against a folio; PAY_IN and PAY_OUT are manual movements; REFUND and EXPENSE take cash out. */
-    public enum Kind { PAYMENT, PAY_IN, PAY_OUT, REFUND, EXPENSE }
+    /**
+     * PAYMENT is cash taken against a folio; PAY_IN and PAY_OUT are manual movements; REFUND and EXPENSE take cash out. TIP is a cash
+     * tip handed over with a payment: it is in the drawer (so in the expected cash) but is not the business's money.
+     */
+    public enum Kind { PAYMENT, PAY_IN, PAY_OUT, REFUND, EXPENSE, TIP }
 
     @Column(name = "till_id", nullable = false, length = 36)
     private String tillId;

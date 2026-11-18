@@ -28,16 +28,16 @@ public enum SaleBucket {
             + " WHEN o.status = 'CANCELLED' THEN 'CANCELLED'"
             + " WHEN o.charged_to_room THEN 'ON_ROOM'"
             + " WHEN o.paid OR o.settled_by = 'COMPLIMENTARY' THEN 'PAID'"
-            + " WHEN o.paid_amount > 0 THEN 'PART_PAID'"
+            + " WHEN o.paid_amount > 0 OR o.room_amount > 0 THEN 'PART_PAID'"
             + " WHEN o.total <= 0 OR o.kind = 'TAB' OR (ou.kind <> 'BAR' AND o.status IN ('OPEN', 'SENT', 'READY')) THEN 'IN_PROGRESS'"
             + " ELSE 'TO_PAY' END";
 
     /** Money taken at the outlet, what went on a room and what is still due; the three add up to the total of a sale not cancelled. */
     public static final String PAID_PART_SQL = "CASE WHEN o.status = 'CANCELLED' THEN 0 WHEN o.paid THEN o.total ELSE LEAST(GREATEST(o.paid_amount, 0), o.total) END";
-    public static final String ROOM_PART_SQL = "CASE WHEN o.status <> 'CANCELLED' AND o.charged_to_room AND NOT o.paid"
-            + " THEN o.total - LEAST(GREATEST(o.paid_amount, 0), o.total) ELSE 0 END";
+    public static final String ROOM_PART_SQL = "CASE WHEN o.status = 'CANCELLED' THEN 0 WHEN o.charged_to_room AND NOT o.paid"
+            + " THEN o.total - LEAST(GREATEST(o.paid_amount, 0), o.total) ELSE LEAST(GREATEST(o.room_amount, 0), o.total) END";
     public static final String UNPAID_PART_SQL = "CASE WHEN o.status <> 'CANCELLED' AND NOT o.paid AND NOT o.charged_to_room"
-            + " AND COALESCE(o.settled_by, '') <> 'COMPLIMENTARY' THEN GREATEST(o.total - GREATEST(o.paid_amount, 0), 0) ELSE 0 END";
+            + " AND COALESCE(o.settled_by, '') <> 'COMPLIMENTARY' THEN GREATEST(o.total - GREATEST(o.paid_amount, 0) - GREATEST(o.room_amount, 0), 0) ELSE 0 END";
 
     /** Still owes money: what the sidebar counts and what stands out from earlier shifts. */
     public static final Set<SaleBucket> UNPAID = EnumSet.of(TO_PAY, PART_PAID);
@@ -52,7 +52,7 @@ public enum SaleBucket {
         if (o.isPaid() || "COMPLIMENTARY".equals(o.getSettledBy())) {
             return PAID;
         }
-        if (paidAmount(o).signum() > 0) {
+        if (paidAmount(o).signum() > 0 || roomAmount(o).signum() > 0) {
             return PART_PAID;
         }
         boolean working = o.getStatus() == Order.Status.OPEN || o.getStatus() == Order.Status.SENT || o.getStatus() == Order.Status.READY;
@@ -73,9 +73,10 @@ public enum SaleBucket {
         }
         BigDecimal taken = paidAmount(o).max(zero).min(o.getTotal());
         BigDecimal paid = o.isPaid() ? o.getTotal() : taken;
-        BigDecimal room = o.isChargedToRoom() && !o.isPaid() ? o.getTotal().subtract(taken) : zero;
+        // A part of a split bill on a room while the other parts are still to pay: that part is on the room already.
+        BigDecimal room = o.isChargedToRoom() && !o.isPaid() ? o.getTotal().subtract(taken) : roomAmount(o).max(zero).min(o.getTotal());
         BigDecimal unpaid = !o.isPaid() && !o.isChargedToRoom() && !"COMPLIMENTARY".equals(o.getSettledBy())
-                ? o.getTotal().subtract(paidAmount(o).max(zero)).max(zero) : zero;
+                ? o.getTotal().subtract(paidAmount(o).max(zero)).subtract(roomAmount(o).max(zero)).max(zero) : zero;
         return new Parts(paid, room, unpaid);
     }
 
@@ -101,6 +102,10 @@ public enum SaleBucket {
             }
         }
         return out.isEmpty() ? EnumSet.allOf(SaleBucket.class) : out;
+    }
+
+    private static BigDecimal roomAmount(Order o) {
+        return o.getRoomAmount() == null ? BigDecimal.ZERO : o.getRoomAmount();
     }
 
     private static BigDecimal paidAmount(Order o) {

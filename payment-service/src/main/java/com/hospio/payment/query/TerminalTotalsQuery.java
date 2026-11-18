@@ -31,7 +31,7 @@ public class TerminalTotalsQuery {
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("hotelId", hotelId)
                 .addValue("from", LocalDateTime.ofInstant(from, ZoneOffset.UTC)).addValue("to", LocalDateTime.ofInstant(to, ZoneOffset.UTC));
         String sql = "select pr.method, pr.terminal_id, max(t.name) as terminal, max(coalesce(t.provider, pr.provider)) as provider, count(*) as n,"
-                + " coalesce(sum(pr.amount), 0) as amount from payment_requests pr left join pos_terminals t on t.id = pr.terminal_id"
+                + " coalesce(sum(pr.amount - coalesce(pr.tip_amount, 0)), 0) as amount from payment_requests pr left join pos_terminals t on t.id = pr.terminal_id"
                 + " where pr.hotel_id = :hotelId and pr.order_id is not null and pr.status = 'APPROVED'"
                 + " and pr.created_at >= :from and pr.created_at < :to"
                 + " group by pr.method, pr.terminal_id order by amount desc, pr.method";

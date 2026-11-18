@@ -9,4 +9,6 @@ public interface OrderPaymentRepository extends JpaRepository<OrderPayment, Stri
     boolean existsByPaymentId(String paymentId);
 
     List<OrderPayment> findByOrderIdIn(Collection<String> orderIds);
+
+    List<OrderPayment> findByOrderId(String orderId);
 }

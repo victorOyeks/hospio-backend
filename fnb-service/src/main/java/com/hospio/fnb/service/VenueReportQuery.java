@@ -54,7 +54,7 @@ public class VenueReportQuery {
             return new Extras(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 0, BigDecimal.ZERO);
         }
         String sql = "SELECT COALESCE(SUM(o.discount), 0) AS d, COALESCE(SUM(o.service_charge), 0) AS sc, COALESCE(SUM(o.tax), 0) AS t,"
-                + " COUNT(*) FILTER (WHERE o.settled_by = 'COMPLIMENTARY') AS comp, COALESCE(SUM(o.total) FILTER (WHERE o.settled_by = 'COMPLIMENTARY'), 0) AS comp_amount"
+                + " COUNT(*) FILTER (WHERE o.settled_by = 'COMPLIMENTARY') AS comp, COALESCE(SUM(o.total + o.discount) FILTER (WHERE o.settled_by = 'COMPLIMENTARY'), 0) AS comp_amount"
                 + " FROM fnb.orders o WHERE " + ORDERS_IN + " AND o.status <> 'CANCELLED'";
         return jdbc.queryForObject(sql, params(s), (rs, i) -> new Extras(rs.getBigDecimal("d"), rs.getBigDecimal("sc"), rs.getBigDecimal("t"),
                 rs.getLong("comp"), rs.getBigDecimal("comp_amount")));
@@ -164,13 +164,25 @@ public class VenueReportQuery {
         if (s.outletIds().isEmpty()) {
             return List.of();
         }
+        // What was given by hand (line discounts, complimentary items, the bill's discount) with why, by whom and who approved it;
+        // the rest of o.discount is happy hour.
         String sql = "SELECT o.id, o.number, ou.name AS outlet_name, o.created_at, o.discount, o.total, (o.settled_by = 'COMPLIMENTARY') AS comp,"
-                + " o.opened_by_name FROM fnb.orders o JOIN fnb.outlets ou ON ou.id = o.outlet_id"
+                + " o.opened_by_name, COALESCE(d.manual, 0) AS manual, COALESCE(d.comp_items, 0) AS comp_items, COALESCE(d.comp_amount, 0) AS comp_amount,"
+                + " NULLIF(CONCAT_WS('; ', o.discount_reason, NULLIF(d.reasons, o.discount_reason)), '') AS reasons,"
+                + " NULLIF(CONCAT_WS(', ', o.discount_by_name, NULLIF(d.givers, o.discount_by_name)), '') AS givers,"
+                + " NULLIF(CONCAT_WS(', ', o.discount_approved_by_name, NULLIF(d.approvers, o.discount_approved_by_name)), '') AS approvers"
+                + " FROM fnb.orders o JOIN fnb.outlets ou ON ou.id = o.outlet_id"
+                + " LEFT JOIN (SELECT l.order_id, SUM(l.manual_discount + l.bill_discount) AS manual, COUNT(*) FILTER (WHERE l.complimentary) AS comp_items,"
+                + " SUM(l.manual_discount) FILTER (WHERE l.complimentary) AS comp_amount, STRING_AGG(DISTINCT l.discount_reason, '; ') AS reasons,"
+                + " STRING_AGG(DISTINCT l.discount_by_name, ', ') AS givers, STRING_AGG(DISTINCT l.discount_approved_by_name, ', ') AS approvers"
+                + " FROM fnb.order_lines l WHERE l.hotel_id = :hotelId AND l.status <> 'CANCELLED' AND (l.manual_discount > 0 OR l.bill_discount > 0)"
+                + " GROUP BY l.order_id) d ON d.order_id = o.id"
                 + " WHERE " + ORDERS_IN + " AND o.status <> 'CANCELLED' AND (o.discount > 0 OR o.settled_by = 'COMPLIMENTARY')"
                 + " ORDER BY o.created_at DESC, o.number DESC LIMIT :limit";
         return jdbc.query(sql, params(s).addValue("limit", limit), (rs, i) -> new VenueReport.DiscountRow(rs.getString("id"), rs.getString("number"),
                 rs.getString("outlet_name"), instant(rs, "created_at"), rs.getBigDecimal("discount"), rs.getBigDecimal("total"), rs.getBoolean("comp"),
-                rs.getString("opened_by_name")));
+                rs.getString("opened_by_name"), rs.getBigDecimal("manual"), rs.getLong("comp_items"), rs.getBigDecimal("comp_amount"),
+                rs.getString("reasons"), rs.getString("givers"), rs.getString("approvers")));
     }
 
     /**
@@ -185,7 +197,7 @@ public class VenueReportQuery {
                 + " AND o.kind = 'TAB' AND o.status NOT IN ('CLOSED', 'CANCELLED') AND NOT o.paid AND NOT o.charged_to_room";
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("hotelId", hotelId).addValue("outletIds", new ArrayList<>(outletIds))
                 .addValue("stale", utc(staleBefore)).addValue("limit", limit);
-        String balance = "GREATEST(o.total - GREATEST(o.paid_amount, 0), 0)";
+        String balance = "GREATEST(o.total - GREATEST(o.paid_amount, 0) - GREATEST(o.room_amount, 0), 0)";
         Object[] head = jdbc.queryForObject("SELECT COUNT(*) AS c, COALESCE(SUM(" + balance + "), 0) AS v, MIN(o.created_at) AS oldest,"
                 + " COUNT(*) FILTER (WHERE o.created_at < :stale) AS stale" + open, p, (rs, i) -> new Object[] {rs.getLong("c"), rs.getBigDecimal("v"),
                 instant(rs, "oldest"), rs.getLong("stale")});

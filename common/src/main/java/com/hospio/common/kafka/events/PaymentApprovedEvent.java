@@ -30,6 +30,13 @@ public class PaymentApprovedEvent extends HospioEvent {
      * uses this; {@code role} stays the payer's desk, whose till cash lands in. Null for anything that isn't an order.
      */
     private String desk;
+    /** The part of a split bill this payment is for (fnb order_split_parts), when the order was split. */
+    private String partId;
+    /**
+     * A tip inside {@code amount} (the guest paid the bill part plus this). It is not a sale: fnb and finance count
+     * {@code amount - tipAmount} as the sale's money and keep the tip apart. Null or 0 when there is none.
+     */
+    private java.math.BigDecimal tipAmount;
 
     @Override
     public String summary() {

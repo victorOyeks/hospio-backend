@@ -34,7 +34,7 @@ class SetupCatalogueTest {
         assertThat(merged.approvalLimits().managerExpenseLimit()).isEqualByComparingTo("200000");
         assertThat(SetupCatalogue.isOwnerOnly("APPROVAL_LIMITS")).isTrue();
         assertThat(SetupCatalogue.isOwnerOnly("BRAND")).isFalse();
-        assertThat(SetupCatalogue.keyCount()).isEqualTo(56);
+        assertThat(SetupCatalogue.keyCount()).isEqualTo(58);
     }
 
     @Test

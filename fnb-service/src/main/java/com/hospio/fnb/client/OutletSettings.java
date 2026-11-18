@@ -16,10 +16,27 @@ public class OutletSettings {
 
     /** {@code serviceChargePct}: Hospio's fee passed to guests ("Service charge (x%)"), 0 when the hotel absorbs it. */
     public record Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct, BigDecimal serviceChargePct,
-                           boolean tabNameRequired, boolean waitersTakePayment, int tabMaxHours) {
+                           boolean tabNameRequired, boolean waitersTakePayment, int tabMaxHours, java.util.Set<String> discountRoles,
+                           BigDecimal discountLimitPct, boolean recordTips) {
+        public Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct, BigDecimal serviceChargePct,
+                        boolean tabNameRequired, boolean waitersTakePayment, int tabMaxHours) {
+            this(roomCharge, tabs, tabLimit, pricesIncludeTax, vatPct, serviceChargePct, tabNameRequired, waitersTakePayment, tabMaxHours,
+                    roles(SetupSection.Outlets.DEFAULT_DISCOUNT_ROLES), BigDecimal.TEN, false);
+        }
+
         public Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct, BigDecimal serviceChargePct,
                         boolean tabNameRequired, boolean waitersTakePayment) {
             this(roomCharge, tabs, tabLimit, pricesIncludeTax, vatPct, serviceChargePct, tabNameRequired, waitersTakePayment, 4);
+        }
+
+        public Settings withDiscounts(java.util.Set<String> roles, BigDecimal limitPct) {
+            return new Settings(roomCharge, tabs, tabLimit, pricesIncludeTax, vatPct, serviceChargePct, tabNameRequired, waitersTakePayment, tabMaxHours,
+                    roles, limitPct, recordTips);
+        }
+
+        public Settings withTips(boolean on) {
+            return new Settings(roomCharge, tabs, tabLimit, pricesIncludeTax, vatPct, serviceChargePct, tabNameRequired, waitersTakePayment, tabMaxHours,
+                    discountRoles, discountLimitPct, on);
         }
 
         public Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct) {
@@ -33,6 +50,19 @@ public class OutletSettings {
         public static Settings defaults() {
             return new Settings(true, true, BigDecimal.valueOf(50000), true, new BigDecimal("7.5"));
         }
+    }
+
+    /** "CASHIER, bar" → {CASHIER, BAR}; an empty string is nobody (only managers give discounts without asking). */
+    public static java.util.Set<String> roles(String commaSeparated) {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        if (commaSeparated != null) {
+            for (String r : commaSeparated.split(",")) {
+                if (!r.isBlank()) {
+                    out.add(r.trim().toUpperCase(java.util.Locale.ROOT));
+                }
+            }
+        }
+        return out;
     }
 
     private final HotelSettingsReader reader;
@@ -54,6 +84,9 @@ public class OutletSettings {
                 com.hospio.common.billing.GuestServiceCharge.rate(reader.section(hotelId, SetupSection.Payments.class).orElse(null)),
                 outlets.map(SetupSection.Outlets::tabNameRequired).orElse(false),
                 outlets.map(SetupSection.Outlets::waitersTakePayment).orElse(false),
-                Math.max(1, Math.min(72, outlets.map(SetupSection.Outlets::tabMaxHours).orElse(4))));
+                Math.max(1, Math.min(72, outlets.map(SetupSection.Outlets::tabMaxHours).orElse(4))),
+                roles(outlets.map(SetupSection.Outlets::discountRoles).orElse(SetupSection.Outlets.DEFAULT_DISCOUNT_ROLES)),
+                reader.section(hotelId, SetupSection.ApprovalLimits.class).map(SetupSection.ApprovalLimits::discountPct).orElse(BigDecimal.TEN),
+                outlets.map(SetupSection.Outlets::recordTips).orElse(false));
     }
 }

@@ -65,8 +65,14 @@ public record VenueReport(LocalDate from, LocalDate to, String outletId, List<Sa
     }
 
     /** A sale with a discount, or closed as complimentary ({@code complimentary}: nothing was charged; {@code total} is what it was worth). */
+    /**
+     * {@code byHand}: the part of {@code discount} given by hand (the rest is happy hour); {@code complimentaryItems} and
+     * {@code complimentaryAmount}: items given free and what they were worth; {@code reasons}, {@code givenBy}, {@code approvedBy}: why,
+     * who gave it and the manager who approved it (when it had to be asked for).
+     */
     public record DiscountRow(String orderId, String number, String outletName, Instant at, BigDecimal discount, BigDecimal total,
-                              boolean complimentary, String openedBy) {
+                              boolean complimentary, String openedBy, BigDecimal byHand, long complimentaryItems, BigDecimal complimentaryAmount,
+                              String reasons, String givenBy, String approvedBy) {
     }
 
     /** What the recipes of the items sold call for from one stock item (the quantity in the stock item's unit). */

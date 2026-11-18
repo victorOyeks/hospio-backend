@@ -48,6 +48,11 @@ public class HotelConfigClient {
                 Boolean.TRUE.equals(o.waiterCash()))).orElse(new WaiterRules(false, false));
     }
 
+    /** "Record tips" (Hotel setup → Restaurant & bar): off unless the location switched it on. */
+    public boolean recordsTips(String hotelId) {
+        return settings.section(hotelId, SetupSection.Outlets.class).map(o -> Boolean.TRUE.equals(o.recordTips())).orElse(false);
+    }
+
     public record PaymentSettings(boolean allowCash, boolean allowCard, boolean allowTransfer, String receipts) {
         public static PaymentSettings defaults() {
             return new PaymentSettings(true, true, true, "ASK");

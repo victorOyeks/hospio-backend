@@ -68,6 +68,15 @@ public class ApprovalController {
     }
 
     /** A manager hands a MANAGER-level approval up to the owner, with a note on why. */
+    /**
+     * A manager decides on the requester's screen with their own PIN (the owner: their password): {@code approver} is the manager's
+     * user id, email or phone. Any signed-in person at the location may call it; identity checks the PIN.
+     */
+    @PostMapping("/{id}/decide-on-device")
+    public ApiResponse<Approval> decideOnDevice(@PathVariable String id, @Valid @RequestBody PlatformRequests.DeviceDecision request) {
+        return ApiResponse.ok("Decided", service.decideOnDevice(id, request));
+    }
+
     @PostMapping("/{id}/escalate")
     @PreAuthorize("@access.manager()")
     public ApiResponse<Approval> escalate(@PathVariable String id, @RequestBody(required = false) PlatformRequests.EscalateRequest request) {

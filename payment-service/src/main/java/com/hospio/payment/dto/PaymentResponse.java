@@ -10,7 +10,7 @@ import java.time.Instant;
 public record PaymentResponse(String id, String folioId, String bookingId, String guestName, Role role, PaymentMethod method,
                               BigDecimal amount, String currency, PaymentStatus status, String terminalId, String providerRef,
                               String description, String failureReason, String orderId, String requestedBy, String requestedByName, Instant createdAt,
-                              Instant resolvedAt, Instant verifiedAt, String hotelId, String terminalName) {
+                              Instant resolvedAt, Instant verifiedAt, String hotelId, String terminalName, String partId, BigDecimal tipAmount) {
     public static PaymentResponse of(PaymentRequest p) {
         return of(p, null);
     }
@@ -19,6 +19,6 @@ public record PaymentResponse(String id, String folioId, String bookingId, Strin
     public static PaymentResponse of(PaymentRequest p, String terminalName) {
         return new PaymentResponse(p.getId(), p.getFolioId(), p.getBookingId(), p.getGuestName(), p.getRole(), p.getMethod(), p.getAmount(),
                 p.getCurrency(), p.getStatus(), p.getTerminalId(), p.getProviderRef(), p.getDescription(), p.getFailureReason(), p.getOrderId(),
-                p.getRequestedBy(), p.getRequestedByName(), p.getCreatedAt(), p.getResolvedAt(), p.getVerifiedAt(), p.getHotelId(), terminalName);
+                p.getRequestedBy(), p.getRequestedByName(), p.getCreatedAt(), p.getResolvedAt(), p.getVerifiedAt(), p.getHotelId(), terminalName, p.getPartId(), p.getTipAmount());
     }
 }

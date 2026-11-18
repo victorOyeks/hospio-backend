@@ -258,6 +258,72 @@ public class AuthService {
                 + " after too many wrong tries. Sign in with email instead, or ask your manager";
     }
 
+    /** Who is being asked to approve on someone else's screen, and with what: their PIN (a manager) or password (the owner). */
+    public record ApproverCheck(String identifier, String secret, String businessId, String hotelId, boolean ownerOnly) {
+    }
+
+    public record Approver(String userId, String fullName, boolean owner) {
+    }
+
+    /**
+     * A manager (or the owner) approves something on a colleague's screen (docs/plan-venue-type.md, phase 4): they are named and
+     * type their own PIN; the owner, who has no PIN, their password. They must be active and hold MANAGER at the hotel (not paused,
+     * not ended) or OWNER of the business. Wrong tries count like wrong PINs at a shared device and lock the same way; nothing is
+     * signed in and no token is made: the caller (platform approvals, over the internal key) records the decision in their name.
+     */
+    @Transactional(noRollbackFor = UnauthorizedException.class)
+    public Approver verifyApprover(ApproverCheck request) {
+        return TenantContext.runWith(Tenant.system("approver-check"), () -> {
+            String id = request.identifier() == null ? "" : request.identifier().trim();
+            if (id.isEmpty() || request.secret() == null || request.secret().isBlank()) {
+                throw new BadRequestException("Choose who is approving and enter their PIN");
+            }
+            UserAccount user = users.findById(id).or(() -> users.findByPhone(id)).or(() -> users.findByEmailIgnoreCase(id))
+                    .filter(u -> request.businessId() != null && request.businessId().equals(u.getBusinessId()))
+                    .orElseThrow(() -> new UnauthorizedException("We don't know that person at this business"));
+            Instant now = Instant.now();
+            java.util.List<com.hospio.identity.entity.RoleGrant> active = grants.findByUserId(user.getId()).stream()
+                    .filter(g -> !g.isPaused() && (g.getExpiresAt() == null || g.getExpiresAt().isAfter(now))).toList();
+            boolean owner = active.stream().anyMatch(g -> g.getRole() == Role.OWNER);
+            boolean manager = active.stream().anyMatch(g -> g.getRole() == Role.MANAGER && g.getLevel() != com.hospio.common.enums.AccessLevel.VIEW
+                    && (g.getHotelId() == null || g.getHotelId().equals(request.hotelId())));
+            if (!owner && (!manager || request.ownerOnly())) {
+                throw new ForbiddenException(request.ownerOnly() ? "This one needs the owner" : user.getFullName() + " isn't a manager here");
+            }
+            assertActive(user);
+            if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(now)) {
+                throw new UnauthorizedException(pinLockedMessage(user.getLockedUntil(), now));
+            }
+            // The owner has no PIN (they sign in with email and password), so their password approves.
+            boolean byPin = pinAllowed(user);
+            if (byPin && user.getPinHash() == null) {
+                throw new BadRequestException(user.getFullName() + " has no PIN yet. They set one from their profile, or approve from their own dashboard");
+            }
+            String hash = byPin ? user.getPinHash() : user.getPasswordHash();
+            if (hash == null || !passwordEncoder.matches(request.secret(), hash)) {
+                String what = byPin ? "PIN" : "password";
+                int failures = user.getFailedPinAttempts() + 1;
+                if (failures >= pinMaxAttempts) {
+                    user.setFailedPinAttempts(0);
+                    user.setLockedUntil(now.plus(pinLockMinutes, ChronoUnit.MINUTES));
+                    users.save(user);
+                    throw new UnauthorizedException("Wrong " + what + ". Approving this way is now locked for " + pinLockMinutes
+                            + " minutes. Approve from your own dashboard instead");
+                }
+                user.setFailedPinAttempts(failures);
+                users.save(user);
+                int left = pinMaxAttempts - failures;
+                throw new UnauthorizedException("Wrong " + what + ". " + left + (left == 1 ? " try" : " tries") + " left");
+            }
+            if (user.getFailedPinAttempts() > 0 || user.getLockedUntil() != null) {
+                user.setFailedPinAttempts(0);
+                user.setLockedUntil(null);
+                users.save(user);
+            }
+            return new Approver(user.getId(), user.getFullName(), owner);
+        });
+    }
+
     /** No PINs for the owner or the platform: they sign in with email and password. */
     boolean pinAllowed(UserAccount user) {
         return !user.isPlatformAccount() && grants.findByUserId(user.getId()).stream().noneMatch(g -> g.getRole() == Role.OWNER);

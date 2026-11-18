@@ -87,9 +87,21 @@ public class MoneyService {
     @Transactional
     public void recordPayment(String paymentId, BigDecimal amount, String method, String role, String folioId, Instant at, String guestName,
                               String orderId, String desk) {
+        recordPayment(paymentId, amount, method, role, folioId, at, guestName, orderId, desk, null);
+    }
+
+    /**
+     * As above with a tip inside {@code amount} (docs/plan-venue-type.md, phase 4): income is the amount less the tip. A cash tip
+     * is in the drawer all the same, so it goes into the till as its own entry and is counted apart on the till ("cash tips held").
+     */
+    @Transactional
+    public void recordPayment(String paymentId, BigDecimal gross, String method, String role, String folioId, Instant at, String guestName,
+                              String orderId, String desk, BigDecimal tipAmount) {
         if (revenue.findByPaymentId(paymentId).isPresent()) {
             return;
         }
+        BigDecimal tip = tipAmount == null || tipAmount.signum() <= 0 ? BigDecimal.ZERO : Money.of(tipAmount.min(gross));
+        BigDecimal amount = gross.subtract(tip);
         LocalDate date = (at == null ? Instant.now() : at).atZone(LAGOS).toLocalDate();
         boolean cash = PaymentMethod.CASH.name().equals(method);
         Optional<Till> till = cash && role != null ? lockOpenTill(TenantContext.requireHotel(), tillRole(role)) : Optional.empty();
@@ -98,6 +110,10 @@ public class MoneyService {
         till.ifPresent(t -> {
             if (tillEntries.findByPaymentId(paymentId).isEmpty()) {
                 addEntry(t, TillEntry.Kind.PAYMENT, Money.of(amount), method, guestName == null || guestName.isBlank() ? "Cash payment" : "Cash payment · " + guestName, null, paymentId);
+            }
+            if (tip.signum() > 0 && tillEntries.findFirstByKindAndRef(TillEntry.Kind.TIP, paymentId).isEmpty()) {
+                t.setCashTips(Money.of(t.getCashTips().add(tip)));
+                addEntry(t, TillEntry.Kind.TIP, tip, method, "Cash tip (held for staff)", paymentId, null);
             }
         });
     }

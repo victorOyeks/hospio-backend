@@ -19,6 +19,7 @@ public class FnbEventListener {
 
     private final MenuService menuService;
     private final OrderService orderService;
+    private final com.hospio.fnb.service.SaleRequestService saleRequests;
     private final TenantBinder tenant;
 
     @Transactional
@@ -30,6 +31,8 @@ public class FnbEventListener {
         tenant.bind(e);
         try {
             menuService.applyApprovedPriceChange(e.getApprovalId(), e.getDecision());
+            // A void or discount asked from the floor (SaleRequestService): applied, or declined, and the requester told.
+            saleRequests.decided(e.getApprovalId(), e.getDecision(), e.getDecidedBy(), e.getDecidedByName(), e.getNote());
         } finally {
             TenantContext.clear();
         }
@@ -44,7 +47,7 @@ public class FnbEventListener {
         }
         tenant.bind(e);
         try {
-            orderService.applyPayment(e.getOrderId(), e.getPaymentId(), e.getMethod(), e.getAmount(), e.getProviderRef());
+            orderService.applyPayment(e.getOrderId(), e.getPaymentId(), e.getMethod(), e.getAmount(), e.getProviderRef(), e.getPartId(), e.getTipAmount());
         } finally {
             TenantContext.clear();
         }

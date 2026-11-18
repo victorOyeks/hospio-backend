@@ -84,6 +84,10 @@ public class OrderService {
     private final PropertyClient properties;
     private final OutletSettings settings;
     private final EventPublisher events;
+    private final com.hospio.fnb.repository.OrderSplitRepository splits;
+    private final com.hospio.fnb.repository.OrderSplitPartRepository splitParts;
+    private final com.hospio.fnb.repository.OrderTipRepository tips;
+    private final StaffOutlets staffOutlets;
 
     private Supplier<ZonedDateTime> now = () -> ZonedDateTime.now(Days.LAGOS);
 
@@ -124,10 +128,14 @@ public class OrderService {
             list = outletId == null ? orders.findByHotelIdAndStatusInOrderByCreatedAt(hotelId, wanted)
                     : orders.findByOutletIdAndStatusInOrderByCreatedAt(outletId, wanted);
         }
-        List<Order> visible = list.stream().filter(o -> byId.containsKey(o.getOutletId()) && canSee(user, byId.get(o.getOutletId()), o)).toList();
+        // Someone kept to a list of outlets sees only those (StaffOutlets); everyone else every outlet their role shows.
+        java.util.Set<String> kept = StaffOutlets.neverNarrowed(user) ? java.util.Set.of() : staffOutlets.listed(hotelId, user.getUserId());
+        List<Order> visible = list.stream().filter(o -> byId.containsKey(o.getOutletId()) && canSee(user, byId.get(o.getOutletId()), o)
+                && (kept.isEmpty() || kept.contains(o.getOutletId()) || (o.getKind() == Order.Kind.ROOM_SERVICE && user.has(com.hospio.common.enums.Role.FRONT_OFFICE)))).toList();
         List<OrderResponse> out = new ArrayList<>(withLines(visible));
         // An outlet that makes things for others (the kitchen) also sees those lines as tickets, on the live board only.
         if (outletId != null && byId.containsKey(outletId) && OutletAccess.sees(user, byId.get(outletId)) && !OutletAccess.ownOnly(user, byId.get(outletId))
+                && (kept.isEmpty() || kept.contains(outletId))
                 && !(s.equals("CLOSED") || s.equals("ALL") || s.equals("CANCELLED"))) {
             out.addAll(tickets(byId.get(outletId), byId, visible.stream().map(Order::getId).collect(Collectors.toSet())));
         }
@@ -191,6 +199,10 @@ public class OrderService {
         Order o = find(id);
         HospioUserDetails user = CurrentUser.require();
         Outlet outlet = outlet(o.getOutletId());
+        if (canSee(user, outlet, o) && !staffOutlets.allowed(user, outlet)
+                && !(o.getKind() == Order.Kind.ROOM_SERVICE && user.has(com.hospio.common.enums.Role.FRONT_OFFICE))) {
+            throw new ForbiddenException(StaffOutlets.refusal(outlet));
+        }
         if (!canSee(user, outlet, o)) {
             throw new ForbiddenException(OutletAccess.ownOnly(user, outlet) ? o.getNumber() + " was opened by "
                     + (o.getOpenedByName() == null ? "someone else" : o.getOpenedByName()) + ". A waiter sees the tabs they opened"
@@ -279,6 +291,7 @@ public class OrderService {
         if (o.isSettled()) {
             throw new BadRequestException("This order is already settled. Start a new one");
         }
+        requireNotSplit(o, "add to it");
         OrderLine fresh = newLine(outlet, line, s);
         List<OrderLine> existing = new ArrayList<>(lines.findByOrderIdOrderByCreatedAt(orderId));
         checkTabLimit(user, o, outlet, existing, List.of(fresh), s);
@@ -435,24 +448,33 @@ public class OrderService {
         OutletSettings.Settings s = settings.get(peek(orderId).getHotelId());
         Order o = lock(orderId);
         Outlet outlet = outlet(o.getOutletId());
+        List<OrderLine> all = lines.findByOrderIdOrderByCreatedAt(orderId);
+        OrderLine l = lineOf(all, lineId);
+        if (l.getStatus() == OrderLine.Status.NEW) {
+            requireTake(user, outlet, o);
+        } else if (!OutletAccess.full(user, outlet)) {
+            throw new ForbiddenException("Cancelling something already sent needs a manager or Full access. Send a void request and a manager approves it");
+        }
+        return voidLine(o, outlet, s, all, l, reason, user.getUserId(), user.getFullName());
+    }
+
+    /**
+     * The line comes off the order: by whoever may (above), or for a void request a manager approved ({@code SaleRequestService}),
+     * then in the manager's name. Every rule about the order itself (live, not settled, not split, money already taken) is here.
+     */
+    OrderResponse voidLine(Order o, Outlet outlet, OutletSettings.Settings s, List<OrderLine> all, OrderLine l, String reason, String byId, String byName) {
         requireLive(o);
         if (o.isSettled()) {
             throw new BadRequestException("This order is already settled. A manager can adjust it");
         }
-        List<OrderLine> all = lines.findByOrderIdOrderByCreatedAt(orderId);
-        OrderLine l = lineOf(all, lineId);
+        requireNotSplit(o, "take an item off");
         if (l.getStatus() == OrderLine.Status.CANCELLED) {
             throw new BadRequestException(l.getName() + " is already cancelled");
         }
-        if (l.getStatus() == OrderLine.Status.NEW) {
-            requireTake(user, outlet, o);
-        } else if (!OutletAccess.full(user, outlet)) {
-            throw new ForbiddenException("Cancelling something already sent needs a manager or Full access");
-        }
         l.setStatus(OrderLine.Status.CANCELLED);
         l.setCancelReason(reason.trim());
-        l.setCancelledBy(user.getUserId());
-        l.setCancelledByName(user.getFullName());
+        l.setCancelledBy(byId);
+        l.setCancelledByName(byName);
         lines.save(l);
         recalc(o, s);
         if (o.getPaidAmount().compareTo(o.getTotal()) > 0) {
@@ -461,7 +483,7 @@ public class OrderService {
         }
         if (o.getKind() != Order.Kind.TAB && all.stream().noneMatch(OrderLine::isLive)) {
             String why = "Every item was cancelled · " + reason.trim();
-            cancelled(o, user, why.length() > 300 ? why.substring(0, 300) : why);
+            cancelled(o, byId, byName, why.length() > 300 ? why.substring(0, 300) : why);
             orders.save(o);
             return view(o);
         }
@@ -472,13 +494,13 @@ public class OrderService {
         return view(o);
     }
 
-    private static void cancelled(Order o, HospioUserDetails user, String reason) {
+    private static void cancelled(Order o, String byId, String byName, String reason) {
         o.setStatus(Order.Status.CANCELLED);
         o.setSettledBy("CANCELLED");
         o.setCancelReason(reason);
         o.setClosedAt(Instant.now());
-        o.setClosedBy(user.getUserId());
-        o.setClosedByName(user.getFullName());
+        o.setClosedBy(byId);
+        o.setClosedByName(byName);
     }
 
     /** Cancel the order: staff while it is OPEN with nothing sent, a manager after. Refused once settled. */
@@ -487,21 +509,37 @@ public class OrderService {
         HospioUserDetails user = CurrentUser.require();
         Order o = lock(orderId);
         Outlet outlet = outlet(o.getOutletId());
+        if (untouched(o)) {
+            requireTake(user, outlet, o);
+        } else if (!OutletAccess.manager(user)) {
+            throw new ForbiddenException("Cancelling an order already sent needs a manager. Send a void request and a manager approves it");
+        }
+        return voidSale(o, reason, user.getUserId(), user.getFullName());
+    }
+
+    /** Nothing sent to the kitchen or bar yet: whoever took the order may still cancel it themselves. */
+    boolean untouched(Order o) {
+        return o.getStatus() == Order.Status.OPEN && lines.findByOrderIdOrderByCreatedAt(o.getId()).stream()
+                .noneMatch(l -> l.getStatus() != OrderLine.Status.NEW && l.getStatus() != OrderLine.Status.CANCELLED);
+    }
+
+    /** The whole sale is cancelled (see {@link #voidLine}): a split with nothing paid on it is undone with it. */
+    OrderResponse voidSale(Order o, String reason, String byId, String byName) {
         requireLive(o);
         if (o.isSettled()) {
             throw new BadRequestException("This order is already settled. It can't be cancelled");
         }
-        if (Money.isPositive(o.getPaidAmount())) {
-            throw new BadRequestException(naira(o.getPaidAmount()) + " is already paid on " + o.getNumber() + ". Collect the rest, or a manager refunds it first");
+        if (Money.isPositive(o.getPaidAmount()) || Money.isPositive(o.getRoomAmount())) {
+            throw new BadRequestException(naira(o.getPaidAmount().add(o.getRoomAmount())) + " is already paid on " + o.getNumber()
+                    + ". Collect the rest, or a manager refunds it first");
         }
-        boolean untouched = o.getStatus() == Order.Status.OPEN && lines.findByOrderIdOrderByCreatedAt(orderId).stream()
-                .noneMatch(l -> l.getStatus() != OrderLine.Status.NEW && l.getStatus() != OrderLine.Status.CANCELLED);
-        if (untouched) {
-            requireTake(user, outlet, o);
-        } else if (!OutletAccess.manager(user)) {
-            throw new ForbiddenException("Cancelling an order already sent needs a manager");
-        }
-        cancelled(o, user, reason.trim());
+        splits.findFirstByOrderIdAndStatus(o.getId(), com.hospio.fnb.entity.OrderSplit.ACTIVE).ifPresent(sp -> {
+            sp.setStatus(com.hospio.fnb.entity.OrderSplit.UNDONE);
+            sp.setEndedAt(Instant.now());
+            sp.setEndedByName(byName);
+            splits.save(sp);
+        });
+        cancelled(o, byId, byName, reason.trim());
         orders.save(o);
         return view(o);
     }
@@ -535,12 +573,18 @@ public class OrderService {
         if (!OutletAccess.cashier(user) && !OutletAccess.frontOffice(user)) {
             requireOwn(user, outlet, o);
         }
+        if (!OutletAccess.frontOffice(user)) {
+            staffOutlets.require(user, outlet);
+        }
         requireLive(o);
         if (o.isSettled()) {
             throw new BadRequestException("This order is already settled");
         }
-        if (!Money.isPositive(o.getTotal()) || !Money.isPositive(o.getTotal().subtract(o.getPaidAmount()))) {
+        if (!Money.isPositive(o.getTotal()) || !Money.isPositive(o.balance())) {
             throw new BadRequestException("There is nothing to charge");
+        }
+        if (splits.findFirstByOrderIdAndStatus(orderId, com.hospio.fnb.entity.OrderSplit.ACTIVE).isPresent()) {
+            throw new BadRequestException("This bill is split. Charge one of its parts to the room, or undo the split first");
         }
         if (roomId == null && !room.equals(o.getRoomId())) {
             throw new ConflictException("The order's room changed just now; reload and try again");
@@ -583,6 +627,16 @@ public class OrderService {
     /** As above, keeping the terminal's or bank's {@code reference}; the taker is the event's actor (the tenant bound for it). */
     @Transactional
     public void applyPayment(String orderId, String paymentId, String method, BigDecimal amount, String reference) {
+        applyPayment(orderId, paymentId, method, amount, reference, null, null);
+    }
+
+    /**
+     * As above for a split bill and tips: {@code partId} is the part this pays (it is marked paid when its amount is reached) and
+     * {@code tip} a tip inside {@code amount}. The tip is not a sale: only {@code amount - tip} counts on the order, the tip is kept
+     * against whoever served (opened the sale).
+     */
+    @Transactional
+    public void applyPayment(String orderId, String paymentId, String method, BigDecimal amount, String reference, String partId, BigDecimal tip) {
         // Locked first: a payment and a charge to the room (or the same payment delivered twice) settle the order one after the other.
         Order o = orders.lockById(orderId).orElse(null);
         if (o == null) {
@@ -594,10 +648,30 @@ public class OrderService {
         }
         Tenant actor = TenantContext.current().orElse(null);
         boolean person = actor != null && actor.actorId() != null && !"system".equals(actor.actorId());
-        orderPayments.save(OrderPayment.builder().orderId(orderId).paymentId(paymentId).method(method == null ? "CASH" : method.toUpperCase(Locale.ROOT))
-                .amount(Money.of(amount)).reference(reference == null || reference.isBlank() ? null : reference.trim())
-                .takenBy(person ? actor.actorId() : null).takenByName(person ? actor.actorName() : null).build());
-        o.setPaidAmount(Money.of(o.getPaidAmount().add(amount)));
+        String kind = method == null ? "CASH" : method.toUpperCase(Locale.ROOT);
+        BigDecimal tipped = tip == null || tip.signum() <= 0 ? BigDecimal.ZERO : Money.of(tip.min(amount));
+        BigDecimal sale = Money.of(amount.subtract(tipped));
+        com.hospio.fnb.entity.OrderSplitPart part = partId == null || partId.isBlank() ? null
+                : splitParts.findById(partId).filter(x -> orderId.equals(x.getOrderId())).orElse(null);
+        orderPayments.save(OrderPayment.builder().orderId(orderId).paymentId(paymentId).method(kind)
+                .amount(sale).reference(reference == null || reference.isBlank() ? null : reference.trim())
+                .takenBy(person ? actor.actorId() : null).takenByName(person ? actor.actorName() : null).partId(part == null ? null : part.getId()).build());
+        if (tipped.signum() > 0 && !tips.existsByPaymentId(paymentId)) {
+            tips.save(com.hospio.fnb.entity.OrderTip.builder().orderId(orderId).outletId(o.getOutletId()).paymentId(paymentId)
+                    .partId(part == null ? null : part.getId()).amount(tipped).method(kind).staffId(o.getOpenedBy()).staffName(o.getOpenedByName())
+                    .takenByName(person ? actor.actorName() : null).build());
+        }
+        if (part != null) {
+            part.setPaidAmount(Money.of(part.getPaidAmount().add(sale)));
+            part.setMethod(kind);
+            if (part.getPaidAmount().compareTo(part.getAmount()) >= 0) {
+                part.setStatus(com.hospio.fnb.entity.OrderSplitPart.PAID);
+                part.setPaidAt(Instant.now());
+                part.setPaidByName(person ? actor.actorName() : null);
+            }
+            splitParts.save(part);
+        }
+        o.setPaidAmount(Money.of(o.getPaidAmount().add(sale)));
         o.setPaymentId(paymentId);
         if (o.getStatus() == Order.Status.CANCELLED || o.isSettled()) {
             log.warn("Payment {} of {} arrived for order {} which is {}; recorded, not settled again", paymentId, amount, o.getNumber(),
@@ -605,39 +679,93 @@ public class OrderService {
             orders.save(o);
             return;
         }
-        if (o.getPaidAmount().compareTo(o.getTotal()) >= 0) {
-            o.setPaid(true);
-            List<OrderLine> all = lines.findByOrderIdOrderByCreatedAt(orderId);
-            settle(o, outlet(o.getOutletId()), "PAYMENT", all);
-            // Paid, but kept open while another outlet (the kitchen) is still making part of it; serving the rest closes it.
-            if (!waitingElsewhere(all, o.getOutletId())) {
-                close(o);
-            }
-        }
+        settleWhenCovered(o, "PAYMENT");
         orders.save(o);
+    }
+
+    /**
+     * Money taken plus what parts of a split bill put on rooms covers the total: the order is settled ({@code by}: PAYMENT or ROOM,
+     * whichever finished it), its split is done, and it closes unless another outlet is still making part of it.
+     */
+    void settleWhenCovered(Order o, String by) {
+        if (o.getPaidAmount().add(o.getRoomAmount()).compareTo(o.getTotal()) < 0) {
+            return;
+        }
+        if (Money.isPositive(o.getRoomAmount())) {
+            // Part of it is on a room: "charged to a room" with the money taken at the outlet as its paid part (SaleBucket).
+            o.setChargedToRoom(true);
+        } else {
+            o.setPaid(true);
+        }
+        List<OrderLine> all = lines.findByOrderIdOrderByCreatedAt(o.getId());
+        settle(o, outlet(o.getOutletId()), by, all);
+        splits.findFirstByOrderIdAndStatus(o.getId(), com.hospio.fnb.entity.OrderSplit.ACTIVE).ifPresent(sp -> {
+            sp.setStatus(com.hospio.fnb.entity.OrderSplit.DONE);
+            sp.setEndedAt(Instant.now());
+            splits.save(sp);
+        });
+        // Settled, but kept open while another outlet (the kitchen) is still making part of it; serving the rest closes it.
+        if (!waitingElsewhere(all, o.getOutletId())) {
+            close(o);
+        }
     }
 
     /** For payment-service before it takes money for an order: the order's hotel, state and what is still due. */
     @Transactional(readOnly = true)
     public OrderDue due(String id) {
-        Order o = find(id);
-        // The desk whose income this order is (BAR for a bar, KITCHEN for a kitchen or restaurant), whoever takes the money.
-        String desk = outlets.findById(o.getOutletId()).map(outlet -> OutletAccess.roleFor(outlet).name()).orElse(null);
-        return new OrderDue(o.getId(), o.getHotelId(), o.getNumber(), o.getStatus().name(), o.isSettled(), o.getTotal(), o.getPaidAmount(),
-                Money.of(o.getTotal().subtract(o.getPaidAmount()).max(BigDecimal.ZERO)), desk, o.getOpenedBy());
+        return due(id, null, null);
     }
 
-    /** What payment-service reads before taking money for an order; {@code desk} is left out when the outlet is gone. */
+    /**
+     * As above for one part of a split bill ({@code partId}: what that part still owes) and for the person paying ({@code payerId}:
+     * refused at an outlet they aren't assigned to). {@code refusal}, when set, is the sentence payment-service answers with.
+     */
+    @Transactional(readOnly = true)
+    public OrderDue due(String id, String partId, String payerId) {
+        Order o = find(id);
+        // The desk whose income this order is (BAR for a bar, KITCHEN for a kitchen or restaurant), whoever takes the money.
+        Outlet outlet = outlets.findById(o.getOutletId()).orElse(null);
+        String desk = outlet == null ? null : OutletAccess.roleFor(outlet).name();
+        BigDecimal due = Money.of(o.balance());
+        String refusal = null;
+        String partLabel = null;
+        com.hospio.fnb.entity.OrderSplit split = splits.findFirstByOrderIdAndStatus(id, com.hospio.fnb.entity.OrderSplit.ACTIVE).orElse(null);
+        if (split != null && !o.isSettled()) {
+            List<com.hospio.fnb.entity.OrderSplitPart> ps = splitParts.findBySplitIdOrderByPosition(split.getId());
+            com.hospio.fnb.entity.OrderSplitPart part = partId == null ? null : ps.stream().filter(x -> x.getId().equals(partId)).findFirst().orElse(null);
+            if (part == null) {
+                refusal = o.getNumber() + " is split into " + ps.size() + " parts. Take the payment for one of its parts";
+            } else if (com.hospio.fnb.entity.OrderSplitPart.PAID.equals(part.getStatus())) {
+                refusal = part.getLabel() + " of " + o.getNumber() + " is already paid";
+            } else {
+                due = Money.of(part.due().min(o.balance()));
+                partLabel = part.getLabel() + " of " + ps.size();
+            }
+        } else if (partId != null && !partId.isBlank() && !o.isSettled()) {
+            refusal = "The split on " + o.getNumber() + " was undone. Reload the bill and take the payment again";
+        }
+        if (refusal == null && payerId != null && outlet != null && !staffOutlets.allowed(payerId, outlet)) {
+            refusal = "You aren't assigned to " + outlet.getName() + ". A manager can add it to your outlets (Staff → Edit)";
+        }
+        return new OrderDue(o.getId(), o.getHotelId(), o.getNumber(), o.getStatus().name(), o.isSettled(), o.getTotal(), o.getPaidAmount(),
+                due, desk, o.getOpenedBy(), refusal, partLabel, o.getOpenedByName());
+    }
+
+    /**
+     * What payment-service reads before taking money for an order; {@code desk} is left out when the outlet is gone. {@code refusal}:
+     * why no payment can be taken as asked (a split bill paid without naming a part, a part already paid, an outlet the payer isn't
+     * assigned to). {@code partLabel}: "Part 2 of 3", for the receipt.
+     */
     @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
     public record OrderDue(String id, String hotelId, String number, String status, boolean settled, BigDecimal total, BigDecimal paidAmount,
-                           BigDecimal due, String desk, String openedBy) {
+                           BigDecimal due, String desk, String openedBy, String refusal, String partLabel, String openedByName) {
     }
 
     /** The internal "paid" route: the whole balance was paid by {@code method} (CASH when not said). */
     @Transactional
     public OrderResponse markPaid(String orderId, String paymentId, String method) {
         Order o = lock(orderId);
-        BigDecimal due = o.getTotal().subtract(o.getPaidAmount());
+        BigDecimal due = o.balance();
         applyPayment(orderId, paymentId, method, due.signum() > 0 ? due : BigDecimal.ZERO);
         return getInternal(orderId);
     }
@@ -720,8 +848,10 @@ public class OrderService {
         }
     }
 
-    private void recalc(Order o, OutletSettings.Settings s) {
-        OrderPricing.Totals t = OrderPricing.price(inputs(lines.findByOrderIdOrderByCreatedAt(o.getId())), s.pricesIncludeTax());
+    void recalc(Order o, OutletSettings.Settings s) {
+        List<OrderLine> all = lines.findByOrderIdOrderByCreatedAt(o.getId());
+        shareBillDiscount(o, all);
+        OrderPricing.Totals t = OrderPricing.price(inputs(all), s.pricesIncludeTax());
         o.setSubtotal(t.subtotal());
         o.setTax(t.tax());
         o.setDiscount(t.discount());
@@ -732,16 +862,47 @@ public class OrderService {
         orders.save(o);
     }
 
+    /**
+     * A discount on the whole bill is kept on its lines: each live line's share goes into its {@code billDiscount} and its
+     * {@code discount} (happy hour + by hand + this share), worked out again whenever the lines change.
+     */
+    private void shareBillDiscount(Order o, List<OrderLine> all) {
+        List<OrderLine> live = all.stream().filter(OrderLine::isLive).toList();
+        Map<String, BigDecimal> shares = com.hospio.fnb.rules.Discounts.billShares(live.stream().map(OrderService::discountLine).toList(),
+                o.getBillDiscountPct(), o.getBillDiscountAmount());
+        for (OrderLine l : live) {
+            BigDecimal share = Money.of(shares.getOrDefault(l.getId(), BigDecimal.ZERO));
+            if (share.compareTo(l.getBillDiscount()) != 0) {
+                BigDecimal happy = l.happyHourDiscount();
+                l.setBillDiscount(share);
+                l.setDiscount(Money.of(happy.add(l.getManualDiscount()).add(share)));
+                lines.save(l);
+            }
+        }
+    }
+
+    static com.hospio.fnb.rules.Discounts.Line discountLine(OrderLine l) {
+        return new com.hospio.fnb.rules.Discounts.Line(l.getId(), Money.of(l.lineTotal()), l.happyHourDiscount(), l.getManualDiscount());
+    }
+
+    /** While a bill is split nothing on it changes: the parts were worked out from it. */
+    void requireNotSplit(Order o, String toDoWhat) {
+        if (o.getId() != null && splits.findFirstByOrderIdAndStatus(o.getId(), com.hospio.fnb.entity.OrderSplit.ACTIVE).isPresent()) {
+            throw new BadRequestException(o.getNumber() + " is split. Undo the split to " + toDoWhat
+                    + " (a split can be undone until one of its parts is paid)");
+        }
+    }
+
     private static List<OrderPricing.Input> inputs(List<OrderLine> all) {
         return all.stream().filter(OrderLine::isLive).map(l -> new OrderPricing.Input(l.getUnitPrice(), l.getQuantity(), l.getDiscount(), l.getTaxRate())).toList();
     }
 
-    private static List<OrderLine.Status> statuses(List<OrderLine> all) {
+    static List<OrderLine.Status> statuses(List<OrderLine> all) {
         return all.stream().map(OrderLine::getStatus).toList();
     }
 
     /** Marks the order settled and tells inventory what it used. */
-    private void settle(Order o, Outlet outlet, String by, List<OrderLine> all) {
+    void settle(Order o, Outlet outlet, String by, List<OrderLine> all) {
         o.setSettledBy(by);
         o.setSettledAt(Instant.now());
         Tenant t = TenantContext.current().orElse(null);
@@ -781,7 +942,7 @@ public class OrderService {
         if (!Money.isPositive(o.getPaidAmount())) {
             return new RoomCharge(Money.of(net), Money.of(o.getTax()), false);
         }
-        BigDecimal balance = Money.of(o.getTotal().subtract(o.getPaidAmount()).max(BigDecimal.ZERO));
+        BigDecimal balance = Money.of(o.balance());
         BigDecimal tax = o.getTotal().signum() == 0 ? BigDecimal.ZERO
                 : o.getTax().multiply(balance).divide(o.getTotal(), 2, java.math.RoundingMode.HALF_UP);
         BigDecimal sc = o.getTotal().signum() == 0 || o.getServiceCharge() == null ? BigDecimal.ZERO
@@ -789,7 +950,7 @@ public class OrderService {
         return new RoomCharge(Money.of(balance.subtract(tax).subtract(sc)), Money.of(tax), true);
     }
 
-    private void close(Order o) {
+    void close(Order o) {
         o.setStatus(Order.Status.CLOSED);
         o.setClosedAt(Instant.now());
         Tenant t = TenantContext.current().orElse(null);
@@ -826,12 +987,16 @@ public class OrderService {
         return n == null ? roomId : n;
     }
 
-    private static String naira(BigDecimal amount) {
+    static String naira(BigDecimal amount) {
         return "₦" + NumberFormat.getIntegerInstance(Locale.UK).format(amount.setScale(0, java.math.RoundingMode.HALF_UP));
     }
 
     private void requireTake(HospioUserDetails user, Outlet outlet, Order.Kind kind) {
-        if (OutletAccess.takes(user, outlet) || (kind == Order.Kind.ROOM_SERVICE && OutletAccess.frontOffice(user))) {
+        if (kind == Order.Kind.ROOM_SERVICE && OutletAccess.frontOffice(user)) {
+            return;
+        }
+        if (OutletAccess.takes(user, outlet)) {
+            staffOutlets.require(user, outlet);
             return;
         }
         throw new ForbiddenException(OutletAccess.cashier(user) ? "A cashier takes payments. Orders are taken by a waiter or the " + outlet.getName()
@@ -839,31 +1004,33 @@ public class OrderService {
     }
 
     /** As {@link #requireTake(HospioUserDetails, Outlet, Order.Kind)} on an order that exists: a waiter works the orders they opened. */
-    private void requireTake(HospioUserDetails user, Outlet outlet, Order o) {
+    void requireTake(HospioUserDetails user, Outlet outlet, Order o) {
         requireTake(user, outlet, o.getKind());
         requireOwn(user, outlet, o);
     }
 
     /** Serving and moving a table: whoever works the outlet, or the waiter whose order it is. */
-    private static void requireServes(HospioUserDetails user, Outlet outlet, Order o) {
+    private void requireServes(HospioUserDetails user, Outlet outlet, Order o) {
         if (!OutletAccess.takes(user, outlet)) {
             throw new ForbiddenException("This order belongs to the " + outlet.getName());
         }
+        staffOutlets.require(user, outlet);
         requireOwn(user, outlet, o);
     }
 
     /** A waiter (below Full access, with no other way into the outlet) only touches what they opened. */
-    private static void requireOwn(HospioUserDetails user, Outlet outlet, Order o) {
+    static void requireOwn(HospioUserDetails user, Outlet outlet, Order o) {
         if (OutletAccess.ownOnly(user, outlet) && !OutletAccess.own(user, o.getOpenedBy())) {
             String who = o.getOpenedByName() == null ? "someone else" : o.getOpenedByName();
             throw new ForbiddenException(o.getNumber() + " was opened by " + who + ". Only they, a head waiter or a manager can work on it");
         }
     }
 
-    private static void requireWorks(HospioUserDetails user, Outlet outlet) {
+    private void requireWorks(HospioUserDetails user, Outlet outlet) {
         if (!OutletAccess.works(user, outlet)) {
             throw new ForbiddenException("This order belongs to the " + outlet.getName());
         }
+        staffOutlets.require(user, outlet);
     }
 
     private static boolean canSee(HospioUserDetails user, Outlet outlet, Order o) {
@@ -885,13 +1052,13 @@ public class OrderService {
                 .map(l -> outlets.findById(l.getPreparedAt()).map(Outlet::getName).orElse("other outlet")).orElse("other outlet");
     }
 
-    private static void requireLive(Order o) {
+    static void requireLive(Order o) {
         if (o.getStatus() == Order.Status.CLOSED || o.getStatus() == Order.Status.CANCELLED) {
             throw new BadRequestException("This order is " + o.getStatus().name().toLowerCase());
         }
     }
 
-    private static OrderLine lineOf(List<OrderLine> all, String lineId) {
+    static OrderLine lineOf(List<OrderLine> all, String lineId) {
         return all.stream().filter(l -> l.getId().equals(lineId)).findFirst().orElseThrow(() -> new ResourceNotFoundException("Line not found"));
     }
 
@@ -903,16 +1070,16 @@ public class OrderService {
         return t;
     }
 
-    private Outlet outlet(String id) {
+    Outlet outlet(String id) {
         return outlets.findById(id).orElseThrow(() -> new ResourceNotFoundException("Outlet not found"));
     }
 
     /** The order with its row locked for the rest of the transaction: taken before any status, settled or limit check. */
-    private Order lock(String id) {
+    Order lock(String id) {
         return orders.lockById(id).orElseThrow(() -> new ResourceNotFoundException("Order not found"));
     }
 
-    private OrderRepository.Peek peek(String id) {
+    OrderRepository.Peek peek(String id) {
         return orders.peek(id).orElseThrow(() -> new ResourceNotFoundException("Order not found"));
     }
 
@@ -920,7 +1087,7 @@ public class OrderService {
         return orders.findById(id).orElseThrow(() -> new ResourceNotFoundException("Order not found"));
     }
 
-    private OrderResponse view(Order o) {
+    OrderResponse view(Order o) {
         return OrderResponse.of(o, lines.findByOrderIdOrderByCreatedAt(o.getId()));
     }
 

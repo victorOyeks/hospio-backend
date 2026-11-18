@@ -59,7 +59,7 @@ class PaymentServiceTest {
     void setUp() {
         when(finance.tillOpen(anyString(), anyString())).thenReturn(Optional.of(true));
         when(reservations.booking(anyString())).thenReturn(Optional.of(new ReservationClient.BookingState("BOOKED", "h1")));
-        when(fnb.order(anyString())).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "B-0007", "SERVED", false, new BigDecimal("3000"), "BAR")));
+        when(fnb.order(anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "B-0007", "SERVED", false, new BigDecimal("3000"), "BAR")));
         when(payments.save(any())).thenAnswer(inv -> {
             var p = (com.hospio.payment.entity.PaymentRequest) inv.getArgument(0);
             if (p.getId() == null) {
@@ -249,6 +249,44 @@ class PaymentServiceTest {
     }
 
     @Test
+    void aPartOfASplitBillIsPaidWithATipThatIsNotPartOfTheSale() {
+        when(fnb.order(eq("order-7"), eq("part-2"), org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue(
+                "h1", "B-0007", "SERVED", false, new BigDecimal("3333.33"), "BAR", null, null, "Part 2 of 3")));
+        // Tips are off: refused with the way to switch them on.
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("3333.33"), null, null, null, null, null, "B-0007", null,
+                "order-7", Role.BAR, null, "part-2", new BigDecimal("500")))).isInstanceOf(BadRequestException.class).hasMessageContaining("Tips aren't recorded here");
+        when(hotelConfig.recordsTips("h1")).thenReturn(true);
+        // More than the part owes is refused, to the kobo.
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("3400"), null, null, null, null, null, "B-0007", null,
+                "order-7", Role.BAR, null, "part-2", null))).isInstanceOf(BadRequestException.class).hasMessageContaining("Only ₦3,333.33 is due on part 2 of 3 of B-0007");
+
+        PaymentResponse p = service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("3333.33"), null, null, null, null, null, "B-0007", null,
+                "order-7", Role.BAR, null, "part-2", new BigDecimal("500")));
+        // The guest pays the part plus the tip; the receipt says which part and that a tip is inside.
+        assertThat(p.amount()).isEqualByComparingTo("3833.33");
+        assertThat(p.tipAmount()).isEqualByComparingTo("500.00");
+        assertThat(p.partId()).isEqualTo("part-2");
+        assertThat(p.description()).isEqualTo("B-0007 · Part 2 of 3 · includes a ₦500 tip");
+        var captor = org.mockito.ArgumentCaptor.forClass(com.hospio.common.kafka.events.PaymentApprovedEvent.class);
+        verify(events).publish(eq(KafkaTopics.PAYMENT_APPROVED), captor.capture());
+        assertThat(captor.getValue().getAmount()).isEqualByComparingTo("3833.33");
+        assertThat(captor.getValue().getTipAmount()).isEqualByComparingTo("500.00");
+        assertThat(captor.getValue().getPartId()).isEqualTo("part-2");
+    }
+
+    @Test
+    void fnbsRefusalIsTheAnswerAndATipNeedsASale() {
+        when(hotelConfig.recordsTips("h1")).thenReturn(true);
+        when(fnb.order(eq("order-7"), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of(
+                new com.hospio.payment.client.FnbClient.OrderDue("h1", "B-0007", "SERVED", false, new BigDecimal("10000"), "BAR", null,
+                        "B-0007 is split into 3 parts. Take the payment for one of its parts", null)));
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("3000"), null, null, null, null, null, "B-0007", null,
+                "order-7", Role.BAR))).isInstanceOf(BadRequestException.class).hasMessageContaining("split into 3 parts");
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("3000"), "folio-1", null, null, null, null, "Room", null,
+                null, null, null, null, new BigDecimal("200")))).isInstanceOf(BadRequestException.class).hasMessageContaining("A tip is taken with a restaurant or bar sale");
+    }
+
+    @Test
     void aPaymentForAnOrderCarriesTheOrderIdOnTheRequestAndTheEvent() {
         PaymentResponse p = service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("3000"), null, null, null, null, null, "Bar order B-0007", null,
                 "order-7", Role.BAR));
@@ -271,9 +309,9 @@ class PaymentServiceTest {
 
     @Test
     void noPaymentForACancelledSettledOrUnknownOrderOrMoreThanIsDue() {
-        when(fnb.order("cancelled")).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "K-0002", "CANCELLED", false, new BigDecimal("3000"), "BAR")));
-        when(fnb.order("settled")).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "K-0003", "SERVED", true, BigDecimal.ZERO, "KITCHEN")));
-        when(fnb.order("missing")).thenReturn(Optional.empty());
+        when(fnb.order(org.mockito.ArgumentMatchers.eq("cancelled"), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "K-0002", "CANCELLED", false, new BigDecimal("3000"), "BAR")));
+        when(fnb.order(org.mockito.ArgumentMatchers.eq("settled"), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "K-0003", "SERVED", true, BigDecimal.ZERO, "KITCHEN")));
+        when(fnb.order(org.mockito.ArgumentMatchers.eq("missing"), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(Optional.empty());
         for (String id : List.of("cancelled", "settled", "missing")) {
             assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), null, null, null, null, null, null, null, id, Role.BAR)))
                     .as(id).isInstanceOf(BadRequestException.class);
@@ -476,7 +514,7 @@ class PaymentServiceTest {
     @Test
     void aWaiterTakesPaymentOnlyWhereTheVenueAllowsItForTheirOwnSalesAndCashOnlyIntoTheCashiersTill() {
         signInAs("w1", Role.WAITER, AccessLevel.EDIT);
-        when(fnb.order(anyString())).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "B-0007", "SERVED", false,
+        when(fnb.order(anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "B-0007", "SERVED", false,
                 new BigDecimal("3000"), "BAR", "w1")));
         when(hotelConfig.waiterRules("h1")).thenReturn(new HotelConfigClient.WaiterRules(false, false));
         assertThatThrownBy(() -> service.request(forOrder(PaymentMethod.CASH, Role.WAITER))).isInstanceOf(com.hospio.common.exception.ForbiddenException.class)
@@ -495,7 +533,7 @@ class PaymentServiceTest {
         assertThat(service.request(forOrder(PaymentMethod.CASH, Role.WAITER)).role()).isEqualTo(Role.WAITER);
 
         // Another waiter's sale: refused, unless a head waiter (Full access).
-        when(fnb.order(anyString())).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "B-0007", "SERVED", false,
+        when(fnb.order(anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "B-0007", "SERVED", false,
                 new BigDecimal("3000"), "BAR", "w2")));
         assertThatThrownBy(() -> service.request(forOrder(PaymentMethod.CASH, Role.WAITER))).isInstanceOf(com.hospio.common.exception.ForbiddenException.class);
         signInAs("w1", Role.WAITER, AccessLevel.FULL);

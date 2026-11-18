@@ -19,6 +19,10 @@ public final class PlatformRequests {
     public record EscalateRequest(String note) {
     }
 
+    /** A decision made on a colleague's screen: who approves (user id, email or phone), their PIN (owner: password), APPROVED or DECLINED. */
+    public record DeviceDecision(@NotBlank String approver, @NotBlank String secret, @NotBlank String decision, String note) {
+    }
+
     public record ReportRequest(@NotBlank String kind, LocalDate periodFrom, LocalDate periodTo, String schedule, String recipients) {
     }
 

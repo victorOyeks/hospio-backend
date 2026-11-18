@@ -15,6 +15,7 @@ import com.hospio.common.kafka.events.ApprovalRequestedEvent;
 import com.hospio.common.security.CurrentUser;
 import com.hospio.common.security.HospioUserDetails;
 import com.hospio.common.tenancy.TenantContext;
+import com.hospio.platform.client.IdentityClient;
 import com.hospio.platform.client.TenantClient;
 import com.hospio.platform.dto.PlatformRequests;
 import com.hospio.platform.entity.Approval;
@@ -41,6 +42,7 @@ public class ApprovalService {
     private final NameResolver names;
     private final BusinessNames businesses;
     private final DeliveryService deliveries;
+    private final com.hospio.platform.client.IdentityClient identity;
 
     @Transactional
     public void onRequested(ApprovalRequestedEvent e) {
@@ -94,20 +96,54 @@ public class ApprovalService {
         if (!canDecide(a)) {
             throw new ForbiddenException("This one is for the " + a.getApproverLevel().toLowerCase());
         }
-        ApprovalStatus status = switch (request.decision().toUpperCase()) {
+        return decided(a, request.decision(), request.note(), user.getUserId(), user.getFullName());
+    }
+
+    /**
+     * Decided on the requester's own screen by a manager standing there (docs/plan-venue-type.md, phase 4): the manager is named
+     * and types their own PIN (the owner their password), identity checks it, and the decision is recorded in the manager's name
+     * exactly as if they had decided it from their dashboard. Any signed-in person at the location may hand their screen over; only
+     * approve or decline (a question needs the manager's own screen).
+     */
+    @Transactional
+    public Approval decideOnDevice(String id, PlatformRequests.DeviceDecision request) {
+        HospioUserDetails caller = CurrentUser.require();
+        if (caller.isPlatform() || caller.isReadOnly()) {
+            throw new ForbiddenException("Approvals are decided by the hotel's own managers");
+        }
+        Approval a = approvals.findById(id).orElseThrow(() -> new ResourceNotFoundException("Approval not found"));
+        if (a.getStatus() != ApprovalStatus.PENDING && a.getStatus() != ApprovalStatus.QUESTION) {
+            throw new BadRequestException("Already " + a.getStatus().name().toLowerCase());
+        }
+        String decision = request.decision() == null ? "" : request.decision().toUpperCase();
+        if (!decision.startsWith("APPROVE") && !decision.startsWith("DECLINE")) {
+            throw new BadRequestException("Approve or decline");
+        }
+        IdentityClient.Approver approver = identity.verifyApprover(request.approver(), request.secret(), a.getBusinessId(), a.getHotelId(),
+                "OWNER".equals(a.getApproverLevel()));
+        if (approver.userId().equals(a.getRequesterId())) {
+            throw new ForbiddenException("You can't approve your own request. Ask another manager or the owner");
+        }
+        String note = request.note() == null || request.note().isBlank() ? "Decided on " + caller.getFullName() + "'s screen"
+                : request.note().trim() + " (on " + caller.getFullName() + "'s screen)";
+        return decided(a, decision, note, approver.userId(), approver.fullName());
+    }
+
+    private Approval decided(Approval a, String decision, String note, String byId, String byName) {
+        ApprovalStatus status = switch (decision.toUpperCase()) {
             case "APPROVED", "APPROVE" -> ApprovalStatus.APPROVED;
             case "DECLINED", "DECLINE" -> ApprovalStatus.DECLINED;
             default -> ApprovalStatus.QUESTION;
         };
         a.setStatus(status);
-        a.setDecidedBy(user.getUserId());
-        a.setDecidedByName(user.getFullName());
-        a.setNote(request.note());
+        a.setDecidedBy(byId);
+        a.setDecidedByName(byName);
+        a.setNote(note);
         a.setDecidedAt(Instant.now());
         approvals.save(a);
         events.publish(KafkaTopics.APPROVAL_DECIDED, ApprovalDecidedEvent.builder().businessId(a.getBusinessId()).hotelId(a.getHotelId())
                 .approvalId(a.getId()).sourceModule(a.getSourceModule()).sourceRef(a.getSourceRef()).kind(a.getKind()).decision(status.name())
-                .decidedBy(user.getUserId()).decidedByName(user.getFullName()).note(request.note()).build());
+                .decidedBy(byId).decidedByName(byName).actorId(byId).actorName(byName).note(note).build());
         a.setDeliveries(tellRequester(a, status));
         return a;
     }

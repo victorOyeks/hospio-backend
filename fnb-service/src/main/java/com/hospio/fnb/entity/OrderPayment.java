@@ -44,4 +44,8 @@ public class OrderPayment extends TenantEntity {
 
     @Column(name = "taken_by_name", length = 150)
     private String takenByName;
+
+    /** The part of a split bill this paid, when the bill was split. */
+    @Column(name = "part_id", length = 36)
+    private String partId;
 }
