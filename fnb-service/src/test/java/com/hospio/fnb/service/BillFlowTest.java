@@ -494,6 +494,19 @@ class BillFlowTest {
     }
 
     @Test
+    void aManagerMakesTheWholeBillFreeAndItClosesAsComplimentary() {
+        asBar();
+        Order o = tab("lager", "wine");
+        asManager();
+        assertThat(saleRequests.discount(o.getId(), new Bill.DiscountRequest(null, null, null, true, "Complaint about service"))).isNull();
+        assertThat(o.getTotal()).isEqualByComparingTo("0.00");
+        assertThat(o.getDiscount()).isEqualByComparingTo("8500.00");
+        assertThat(o.getSettledBy()).isEqualTo("COMPLIMENTARY");
+        assertThat(o.getStatus()).isEqualTo(Order.Status.CLOSED);
+        assertThat(storedLines).allMatch(OrderLine::isComplimentary);
+    }
+
+    @Test
     void aVoidOfSomethingSentIsAskedForAndApprovedInTheRequestersName() {
         asWaiter();
         Order o = tab("lager", "wine");

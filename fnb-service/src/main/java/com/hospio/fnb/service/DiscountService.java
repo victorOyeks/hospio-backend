@@ -178,8 +178,8 @@ public class DiscountService {
             throw new BadRequestException(OrderService.naira(o.getPaidAmount().add(o.getRoomAmount())) + " is already paid on " + o.getNumber()
                     + ". The discount can't take the bill below that");
         }
-        if (plan.kind() == SaleRequest.Kind.COMP_BILL && o.getTotal().signum() == 0 && o.getKind() != Order.Kind.TAB) {
-            // Nothing left to pay: it is closed as complimentary, as closing a ₦0 order always did.
+        if (plan.kind() == SaleRequest.Kind.COMP_BILL && o.getTotal().signum() == 0) {
+            // Nothing left to pay: it is closed as complimentary (a tab too), as closing a ₦0 order always did.
             List<OrderLine> fresh = lines.findByOrderIdOrderByCreatedAt(o.getId());
             orderService.settle(o, orderService.outlet(o.getOutletId()), "COMPLIMENTARY", fresh);
             o.setSettledByUser(byId);
