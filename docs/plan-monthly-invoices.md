@@ -76,3 +76,22 @@ New versions TOS-2026-11B, FEES-2026-11B ("Fees and monthly invoice"), DEV-2026-
 | 4 | Staging end to end (QA businesses only), QA 63, screenshots | See the log below |
 
 ## Staging log
+
+18 Nov 2026, QA businesses only (`BILLING_QA_ONLY=true`, `LEGAL_MATERIAL_NOTICE_DAYS=0` on staging). Daily fee rows and one guest-message
+invoice were seeded by SQL (test only, ids `mi-…`); the device package was made, accepted and installed through the API. Screenshots:
+`~/Desktop/Hospio test screenshots/Monthly invoices (18 Nov 2026)/`.
+
+| Scenario | Business | Result |
+|---|---|---|
+| Issue with all three sections | QA Owner B Hotels fcekd (Ikoyi + Abuja), issued 8 Nov | HIN-202611-0004: platform 31,830.01 (Ikoyi 1,638,500.50 × 1.5 % = 24,577.51; Abuja 483,500 × 1.5 % = 7,252.50; matches `sum(fee)` of its daily fees), guest messages 350.00 (MSG-202611-0090 linked), devices 111,666.67 (instalment 1 of 3 = 245,000 / 3 = 81,666.67 + data plan 30,000; DEV-202611-0009/0010 linked), VAT 0, total **143,846.68**, due 15 Nov, grace to 18 Nov |
+| Reminders | same, steps run for 13–18 Nov | REMINDER 13, 14 · DUE_TODAY 15 · OVERDUE 16, 17 · FINAL_WARNING 18 (one each, EMAILED → messaging SKIPPED "test address"); bell notices to OWNER and MANAGER of both hotels; banner FINAL_WARNING on the real 18 Nov |
+| Restriction | same, step for 19 Nov | restricted; POS pause on both hotels (platform + payment-service); 423 on card at POS, card on a folio, new order (TAKEAWAY), new booking and walk-in; cash on the in-house guest's folio (₦60,000) and her check-out went through; red banner for owner (Pay now), manager ("ask the owner"), front desk (no amounts) |
+| Carried forward | QA Venue 5jf4 | October 630.00 → CARRIED_FORWARD (HIN-202610-0001); November 1,500 + 630 carried = 2,130.00 |
+| Void and reissue | QA Venue 5jf4 | HIN-202611-0002 voided with reissue → HIN-202611-0003 (2,130.00, due 25 Nov) |
+| Extension, part payments, commission | QA Referred Hotel uuxcq (marketer Ada), 14 Nov fee 12,000 | restricted on 12 Nov → finance admin extended to 25 Nov (lifted; a second extension refused) → transfer 6,000 (RCP-202611-0001, 6,000 still due) → Ada +1,200 gross / 60 WHT / **1,140 net** → transfer 6,000 (RCP-202611-0002) → PAID → +1,140 net → credit note −3,000 on the paid invoice → **clawback −600 / −30 / −570** (total 9,000; day collected 9,000) |
+| Staging guard | Royal Suites, THEWISEMAN | no invoices; QA issue refused "Staging only invoices QA businesses"; their SHADOW days became ACCRUED, nothing billed |
+| Terms | QA Debit Rate rrydw (addendum 1.2 %) | re-accept modal "I agree to pay Hospio360's monthly invoice — 1.2% of my business's daily sales — within 7 days of issue"; recorded RE_ACCEPTANCE TOS-2026-11B + FEES-2026-11B rate 1.200 |
+
+Fixed during the run: device schedule numbers collided across hotels (row security on the count), a credit-note line had no invoice id,
+the owner's day-by-day showed one location only (row security on the hotel header), Paystack refuses `.test` payer emails (QA payers use
+`payments@hospio360.com`), POS check order (the pause is said before "no POS assigned").
