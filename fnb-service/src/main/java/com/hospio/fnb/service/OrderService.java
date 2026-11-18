@@ -190,8 +190,11 @@ public class OrderService {
     public OrderResponse get(String id) {
         Order o = find(id);
         HospioUserDetails user = CurrentUser.require();
-        if (!canSee(user, outlet(o.getOutletId()), o)) {
-            throw new ForbiddenException("This order belongs to another outlet");
+        Outlet outlet = outlet(o.getOutletId());
+        if (!canSee(user, outlet, o)) {
+            throw new ForbiddenException(OutletAccess.ownOnly(user, outlet) ? o.getNumber() + " was opened by "
+                    + (o.getOpenedByName() == null ? "someone else" : o.getOpenedByName()) + ". A waiter sees the tabs they opened"
+                    : "This order belongs to another outlet");
         }
         return OrderResponse.of(o, lines.findByOrderIdOrderByCreatedAt(o.getId()));
     }
