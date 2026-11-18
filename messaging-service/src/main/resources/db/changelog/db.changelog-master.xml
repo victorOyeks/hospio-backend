@@ -19,5 +19,6 @@
     <include file="db/changelog/007-delivery-queue.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/008-retention-indexes.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/009-email-events.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/011-platform-notifications.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>
