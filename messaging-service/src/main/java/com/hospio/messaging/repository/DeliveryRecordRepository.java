@@ -32,6 +32,13 @@ public interface DeliveryRecordRepository extends JpaRepository<DeliveryRecord, 
     List<DeliveryRecord> latest(@Param("channel") String channel, @Param("statuses") java.util.Collection<DeliveryRecord.Status> statuses,
                                 @Param("since") Instant since, Pageable page);
 
+    /** When Brevo's delivery tracking started: the first email event its webhook reported (null when none ever came). */
+    @Query("select min(d.providerEventAt) from DeliveryRecord d where d.channel = 'EMAIL' and d.providerEventAt is not null")
+    Instant emailTrackingSince();
+
+    /** Whether a delivery of this kind was recorded after {@code after} (the admin test email's once-a-minute limit). */
+    boolean existsByKindAndCreatedAtAfter(String kind, Instant after);
+
     // ---- the send queue (docs/email.md, "Sending") ----
 
     /**

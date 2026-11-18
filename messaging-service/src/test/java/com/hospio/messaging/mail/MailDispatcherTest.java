@@ -88,7 +88,7 @@ class MailDispatcherTest {
     @Test
     void fromNameIsTheHotelsNameAndReplyToItsEmail() {
         when(smtp.send(any())).thenReturn(new SmtpGateway.Accepted("<m1@sender>", "250 2.0.0 OK: queued as <x1>"));
-        DeliveryRecord r = dispatcher.accept(email("b-royal", "h-royal", "ada@guest.test"));
+        DeliveryRecord r = dispatcher.accept(email("b-royal", "h-royal", "ada@guestmail.ng"));
         SmtpGateway.Email m = sent();
         assertThat(m.fromName()).isEqualTo("Royal Suites Ikeja");
         assertThat(m.fromAddress()).isEqualTo("no-reply@sender.example");
@@ -104,8 +104,8 @@ class MailDispatcherTest {
     void twoHotelsOfOneOwnerEachSendInTheirOwnName() {
         when(smtp.send(any())).thenReturn(new SmtpGateway.Accepted("<m>", "250 OK"));
         when(tenants.hotel("h-b2")).thenReturn(Optional.of(new TenantClient.Sender("QA Owner B Ikoyi", "ikoyi@hotels.example")));
-        dispatcher.accept(email("b-b", "h-b1", "x@a.test"));
-        dispatcher.accept(email("b-b", "h-b2", "y@a.test"));
+        dispatcher.accept(email("b-b", "h-b1", "x@a-hotel.ng"));
+        dispatcher.accept(email("b-b", "h-b2", "y@a-hotel.ng"));
         ArgumentCaptor<SmtpGateway.Email> c = ArgumentCaptor.forClass(SmtpGateway.Email.class);
         verify(smtp, times(2)).send(c.capture());
         assertThat(c.getAllValues()).extracting(SmtpGateway.Email::fromName).containsExactly("QA Owner B Lekki", "QA Owner B Ikoyi");
@@ -125,7 +125,7 @@ class MailDispatcherTest {
         assertThat(dispatcher.senderFor("b-bad", "h-half", null, null)).isEqualTo(new MailDispatcher.From("Wuse", null));
         assertThat(dispatcher.senderFor("b-b", "h-royal", null, "not an address")).isEqualTo(new MailDispatcher.From("Royal Suites Ikeja", "frontdesk@royal.example"));
 
-        DeliveryRecord r = dispatcher.accept(email("b-bad", "h-bad", "sak@gmail.example"));
+        DeliveryRecord r = dispatcher.accept(email("b-bad", "h-bad", "sak@gmail.com"));
         assertThat(sent().replyTo()).isNull();
         assertThat(rows.get(r.getId()).getStatus()).isEqualTo(DeliveryRecord.Status.SENT);
     }
@@ -151,18 +151,38 @@ class MailDispatcherTest {
     }
 
     @Test
-    void everyAddressIsSentWhateverTheDomain() {
+    void testAddressesAreRecordedSkippedAndNeverReachTheProvider() {
         when(smtp.send(any())).thenReturn(new SmtpGateway.Accepted("<m>", "250 OK"));
-        dispatcher.accept(email("b-royal", "h-royal", "tunde@royalsuites.ng"));
-        dispatcher.accept(email("b-royal", "h-royal", "qa@hospio-qa.test"));
-        dispatcher.accept(email("b-royal", "h-royal", "someone@example.com"));
-        verify(smtp, times(3)).send(any());
+        DeliveryRecord real = dispatcher.accept(email("b-royal", "h-royal", "tunde@royalsuites.ng"));
+        java.util.List<DeliveryRecord> skipped = java.util.stream.Stream.of("qa@hospio-qa.test", "someone@example.com", "x@mail.example.org",
+                "a@b.example", "a@host.invalid", "a@localhost", "a@printer.local", "A@Example.NET").map(to -> dispatcher.accept(email("b-royal", "h-royal", to))).toList();
+        verify(smtp, times(1)).send(any());
+        assertThat(real.getStatus()).isEqualTo(DeliveryRecord.Status.SENT);
+        assertThat(skipped).allSatisfy(r -> {
+            assertThat(r.getStatus()).isEqualTo(DeliveryRecord.Status.SKIPPED);
+            assertThat(r.getError()).isEqualTo("Not sent: test address");
+            assertThat(r.getBodyText()).isNull();
+            assertThat(r.isBillable()).isFalse();
+        });
+        // Even with email switched off, a test address says why it was not sent.
+        assertThat(dispatcher(false).accept(email("b-royal", "h-royal", "qa@hospio-qa.test")).getStatus()).isEqualTo(DeliveryRecord.Status.SKIPPED);
+    }
+
+    @Test
+    void aTestAddressQueuedBeforeTheRuleIsSkippedNotSent() {
+        DeliveryRecord queued = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guest.test").subject("Your receipt").kind("RECEIPT")
+                .status(DeliveryRecord.Status.QUEUED).bodyText("Thank you").nextAttemptAt(java.time.Instant.now().minusSeconds(1)).build();
+        records.save(queued);
+        dispatcher.drain();
+        verify(smtp, never()).send(any());
+        assertThat(rows.get(queued.getId()).getStatus()).isEqualTo(DeliveryRecord.Status.SKIPPED);
+        assertThat(rows.get(queued.getId()).getError()).isEqualTo("Not sent: test address");
     }
 
     @Test
     void aRefusalIsRecordedAsFailedAndNeverThrows() {
         when(smtp.send(any())).thenThrow(new SmtpGateway.SendFailure("550 5.1.1 Recipient address rejected", false, null));
-        DeliveryRecord r = dispatcher.accept(email("b-royal", "h-royal", "nobody@nowhere.test"));
+        DeliveryRecord r = dispatcher.accept(email("b-royal", "h-royal", "nobody@nowhere.ng"));
         assertThat(rows.get(r.getId()).getStatus()).isEqualTo(DeliveryRecord.Status.FAILED);
         assertThat(rows.get(r.getId()).getError()).contains("550");
         assertThat(rows.get(r.getId()).getAttempts()).isEqualTo(1);
@@ -173,7 +193,7 @@ class MailDispatcherTest {
     void aTransientFailureIsTriedOnceMore() {
         when(smtp.send(any())).thenThrow(new SmtpGateway.SendFailure("Couldn't connect to host, port: smtp.example, 2526", true, null))
                 .thenReturn(new SmtpGateway.Accepted("<m2>", "250 OK"));
-        DeliveryRecord r = dispatcher.accept(email("b-royal", "h-royal", "ada@gmail.example"));
+        DeliveryRecord r = dispatcher.accept(email("b-royal", "h-royal", "ada@gmail.com"));
         verify(smtp, times(2)).send(any());
         assertThat(rows.get(r.getId()).getStatus()).isEqualTo(DeliveryRecord.Status.SENT);
         assertThat(rows.get(r.getId()).getAttempts()).isEqualTo(2);
@@ -182,7 +202,7 @@ class MailDispatcherTest {
     @Test
     void twoTransientFailuresGiveUpAfterTheRetry() {
         when(smtp.send(any())).thenThrow(new SmtpGateway.SendFailure("Read timed out", true, null));
-        DeliveryRecord r = dispatcher.accept(email("b-royal", "h-royal", "ada@gmail.example"));
+        DeliveryRecord r = dispatcher.accept(email("b-royal", "h-royal", "ada@gmail.com"));
         verify(smtp, times(2)).send(any());
         assertThat(rows.get(r.getId()).getStatus()).isEqualTo(DeliveryRecord.Status.FAILED);
         assertThat(rows.get(r.getId()).getError()).isEqualTo("Read timed out");
@@ -191,7 +211,7 @@ class MailDispatcherTest {
     @Test
     void anUnexpectedErrorInTheSenderDoesNotEscape() {
         when(smtp.send(any())).thenThrow(new IllegalStateException("boom"));
-        DeliveryRecord r = dispatcher.accept(email("b-royal", "h-royal", "ada@gmail.example"));
+        DeliveryRecord r = dispatcher.accept(email("b-royal", "h-royal", "ada@gmail.com"));
         assertThat(rows.get(r.getId()).getStatus()).isEqualTo(DeliveryRecord.Status.FAILED);
     }
 
@@ -218,7 +238,7 @@ class MailDispatcherTest {
 
     @Test
     void switchedOffRecordsWithoutSending() {
-        DeliveryRecord r = dispatcher(false).accept(email("b-royal", "h-royal", "ada@gmail.example"));
+        DeliveryRecord r = dispatcher(false).accept(email("b-royal", "h-royal", "ada@gmail.com"));
         assertThat(r.getStatus()).isEqualTo(DeliveryRecord.Status.DISABLED);
         verify(smtp, never()).send(any());
     }
@@ -226,7 +246,7 @@ class MailDispatcherTest {
     @Test
     void aRedeliveredEventIsNotSentTwice() {
         when(smtp.send(any())).thenReturn(new SmtpGateway.Accepted("<m>", "250 OK"));
-        DeliveryRequestedEvent e = email("b-royal", "h-royal", "ada@gmail.example");
+        DeliveryRequestedEvent e = email("b-royal", "h-royal", "ada@gmail.com");
         dispatcher.accept(e);
         assertThat(dispatcher.accept(e)).isNull();
         verify(smtp, times(1)).send(any());
@@ -239,14 +259,14 @@ class MailDispatcherTest {
         when(messages.findById("msg-1")).thenReturn(Optional.of(m));
         when(smtp.send(any())).thenThrow(new SmtpGateway.SendFailure("550 rejected", false, null));
         dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-msg").businessId("b-royal").hotelId("h-royal").channel("EMAIL")
-                .to("guest@nowhere.test").subject("Hello").text("Hi").kind("MESSAGE").ref("msg-1").build());
+                .to("guest@nowhere.ng").subject("Hello").text("Hi").kind("MESSAGE").ref("msg-1").build());
         assertThat(m.getStatus()).isEqualTo("FAILED");
         assertThat(m.getError()).contains("550");
     }
 
     @Test
     void anOldEventIsNeverSent() {
-        DeliveryRequestedEvent e = email("b-royal", "h-royal", "ada@gmail.example");
+        DeliveryRequestedEvent e = email("b-royal", "h-royal", "ada@gmail.com");
         e.setOccurredAt(java.time.Instant.now().minus(java.time.Duration.ofHours(3)));
         assertThat(dispatcher.accept(e)).isNull();
         verify(smtp, never()).send(any());
@@ -256,7 +276,7 @@ class MailDispatcherTest {
     @Test
     void acceptOnlyRecordsTheQueuedEmailWithoutCallingAnyService() {
         dispatcher.runOn(r -> { }); // no worker
-        DeliveryRecord r = dispatcher.accept(email("b-royal", "h-royal", "ada@guest.test"));
+        DeliveryRecord r = dispatcher.accept(email("b-royal", "h-royal", "ada@guestmail.ng"));
         assertThat(r.getStatus()).isEqualTo(DeliveryRecord.Status.QUEUED);
         assertThat(r.getBodyText()).contains("Hello Ada");
         assertThat(r.getNextAttemptAt()).isNotNull();
@@ -273,11 +293,11 @@ class MailDispatcherTest {
 
     @Test
     void aRowLeftByAWorkerThatDiedIsSentWhenItsLeaseRunsOut() {
-        DeliveryRecord left = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guest.test").subject("Your receipt").kind("RECEIPT")
+        DeliveryRecord left = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guestmail.ng").subject("Your receipt").kind("RECEIPT")
                 .status(DeliveryRecord.Status.QUEUED).attempts(1).bodyText("Thank you").nextAttemptAt(java.time.Instant.now().minusSeconds(1)).build();
         left.setId("left");
         rows.put("left", left);
-        DeliveryRecord leased = DeliveryRecord.builder().channel("EMAIL").toAddress("bo@guest.test").kind("RECEIPT").status(DeliveryRecord.Status.QUEUED)
+        DeliveryRecord leased = DeliveryRecord.builder().channel("EMAIL").toAddress("bo@guestmail.ng").kind("RECEIPT").status(DeliveryRecord.Status.QUEUED)
                 .attempts(1).bodyText("Thank you").nextAttemptAt(java.time.Instant.now().plusSeconds(240)).build();
         leased.setId("leased");
         rows.put("leased", leased);
@@ -291,7 +311,7 @@ class MailDispatcherTest {
 
     @Test
     void aRowQueuedBeforeTheQueueKeptBodiesIsFailedNotSent() {
-        DeliveryRecord old = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guest.test").kind("RECEIPT").status(DeliveryRecord.Status.QUEUED)
+        DeliveryRecord old = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guestmail.ng").kind("RECEIPT").status(DeliveryRecord.Status.QUEUED)
                 .nextAttemptAt(java.time.Instant.now().minusSeconds(1)).build();
         old.setId("old");
         rows.put("old", old);
@@ -304,12 +324,12 @@ class MailDispatcherTest {
     @Test
     void aCodeStillQueuedAfterItsAgeIsNotSentButAReceiptIs() {
         java.time.Instant hourAgo = java.time.Instant.now().minus(java.time.Duration.ofHours(1));
-        DeliveryRecord code = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guest.test").kind("TEMP_PASSWORD").status(DeliveryRecord.Status.QUEUED)
+        DeliveryRecord code = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guestmail.ng").kind("TEMP_PASSWORD").status(DeliveryRecord.Status.QUEUED)
                 .bodyText("Temporary password: x").nextAttemptAt(hourAgo).build();
         code.setId("code");
         code.setCreatedAt(hourAgo);
         rows.put("code", code);
-        DeliveryRecord receipt = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guest.test").kind("RECEIPT").status(DeliveryRecord.Status.QUEUED)
+        DeliveryRecord receipt = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guestmail.ng").kind("RECEIPT").status(DeliveryRecord.Status.QUEUED)
                 .bodyText("Thank you").nextAttemptAt(hourAgo).build();
         receipt.setId("receipt");
         receipt.setCreatedAt(hourAgo);
@@ -326,18 +346,18 @@ class MailDispatcherTest {
     void anOldReceiptEventIsStillSentAfterConsumerLag() {
         when(smtp.send(any())).thenReturn(new SmtpGateway.Accepted("<m>", "250 OK"));
         DeliveryRequestedEvent e = DeliveryRequestedEvent.builder().eventId("e-late").businessId("b-royal").hotelId("h-royal").channel("EMAIL")
-                .to("ada@guest.test").subject("Your receipt").text("Thank you").kind("RECEIPT").occurredAt(java.time.Instant.now().minus(java.time.Duration.ofHours(3)))
+                .to("ada@guestmail.ng").subject("Your receipt").text("Thank you").kind("RECEIPT").occurredAt(java.time.Instant.now().minus(java.time.Duration.ofHours(3)))
                 .build();
         assertThat(dispatcher.accept(e)).isNotNull();
         verify(smtp).send(any());
-        DeliveryRequestedEvent replayed = DeliveryRequestedEvent.builder().eventId("e-replay").channel("EMAIL").to("ada@guest.test").text("Thank you")
+        DeliveryRequestedEvent replayed = DeliveryRequestedEvent.builder().eventId("e-replay").channel("EMAIL").to("ada@guestmail.ng").text("Thank you")
                 .kind("RECEIPT").occurredAt(java.time.Instant.now().minus(java.time.Duration.ofDays(5))).build();
         assertThat(dispatcher.accept(replayed)).isNull(); // a replayed topic, days old
     }
 
     @Test
     void aFinishedRowIsNotSentAgain() {
-        DeliveryRecord done = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guest.test").kind("RECEIPT").status(DeliveryRecord.Status.SENT)
+        DeliveryRecord done = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guestmail.ng").kind("RECEIPT").status(DeliveryRecord.Status.SENT)
                 .bodyText("x").build();
         done.setId("done");
         rows.put("done", done);

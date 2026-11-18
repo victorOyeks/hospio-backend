@@ -58,6 +58,14 @@ are also read by every service's `MailPolicy` for the `DELIVERIES_ECHO` text; th
   value keeps what is saved; `clear` removes saved values so the env applies again (a key can't be in both). URL needs http(s) and a
   host (a trailing `/` is dropped), NUMBER is 1–65535, BOOLEAN is `true`/`false`, payoutType one of its two values; anything else is a
   400 with a sentence. Clearing every field deletes the row.
+- `POST /platform/admin/integrations/brevo/send-test` body `{"to": "name@domain"}` → `{ok, message}` (the Brevo card's **Send a
+  test email**). The one action here that sends: messaging-service sends one short plain email, subject "Hospio360 test email —
+  delivery tracking check", from the platform (no hotel), recorded in `messaging.deliveries` like any other (kind `TEST_EMAIL`),
+  so Brevo's delivered/opened report shows in the connection checks. Refused with a sentence: blank, not an address, a test
+  address ("Not sent: that is a test address …"), email switched off, or another test email less than a minute ago (checked in
+  the delivery log, so across instances). The answer waits up to 10 s for Brevo: "Brevo accepted the test email…", "The test
+  email failed: <Brevo's error>", or "queued". The address is never put in the answer. Internal:
+  `POST /messaging/internal/integrations/brevo/send-test`.
 - `POST /platform/admin/integrations/{provider}/test` → `{ok, message}`. Runs in the service that uses the provider, with the settings
   in force there (read fresh): Brevo `GET /v3/account`; SMTP signs in and leaves; Infobip lists the WhatsApp sender's templates (or
   reads the balance without a sender); Termii and Paystack read the balance; Moniepoint/OPay only check the address answers. The fee
@@ -71,7 +79,24 @@ IntegrationView = { provider, label, group: "EMAIL"|"MESSAGING"|"PAYMENTS"|"POS"
 
 The connection-status list that used to be `GET /platform/admin/integrations` is now `GET /platform/admin/integrations/status`: live checks made by the service that owns each row (docs/admin-portal.md); the messaging and POS rows reuse the same read-only provider calls as the Test buttons here, with a ~3.5 s limit, and never send or charge anything.
 
-Since 18 Nov 2026 the WhatsApp, Email and SMS rows also read the delivery log (read-only, newest 200 of the last 7 days): "Last message: failed 2 h ago — Message sent not delivered - Account issue (EC_ACCOUNT_ISSUE). Last 7 days: 4 sent, 0 delivered, 4 failed." (email adds "n bounced (x% bounce rate)"). Our own refusals (the staging allow-list's "Held back", "Not sent: …", not a phone number) are not outcomes. A row is **ERROR** when its newest three outcomes all failed, even if the key works. Email says when bounces can't be reported (no Brevo webhook key), SMS when Termii's reports can't be believed (no secret key).
+Since 18 Nov 2026 the WhatsApp, Email and SMS rows also read the delivery log (read-only, newest 200 of the last 7 days): "Last message: failed 2 h ago — Message sent not delivered - Account issue (EC_ACCOUNT_ISSUE). Last 7 days: 4 sent, 0 delivered, 4 failed." . Our own refusals (the staging allow-list's "Held back", "Not sent: …", not a phone number) are not outcomes. A row is **ERROR** when its newest three outcomes all failed, even if the key works. Email says when bounces can't be reported (no Brevo webhook key), SMS when Termii's reports can't be believed (no secret key).
+
+**Email health** (honest since 18 Nov 2026, `ConnectionChecks.emailOutcomes`): emails to test addresses (docs/email.md, "Test
+addresses are never sent"; older rows from before that rule) are never counted and never the "last email"; the row says how
+many were left out ("6 emails to test addresses not counted."). Delivered and bounced are counted only for emails recorded since
+**delivery tracking started**, the first event Brevo's webhook reported (`min(provider_event_at)`, 18 Nov 12:30 WAT on staging),
+because older emails can only ever say "sent":
+
+- tracked real emails: "Last email: delivered 5 min ago. Tracking since 18 Nov 12:30; last 7 days (real addresses): 4 sent,
+  3 delivered, 0 bounced (0%)." (", n failed" for refusals at send time);
+- none since tracking started: "Tracking since 18 Nov 12:30. No real emails since delivery tracking started. Before then: last
+  email: sent 2 d ago." — **not an error**;
+- no report ever: "Last 7 days (real addresses): n sent, n failed." and why deliveries aren't counted.
+
+Email is **ERROR** only when real addresses are failing: the newest 3 real emails all failed, or the bounce rate (hard, soft,
+blocked, invalid) of tracked real emails in the 7 days is **10% or more over at least 10 emails** (Brevo and the mailbox
+providers treat a few percent as a warning and ~10% as a sending-reputation problem; fewer than 10 emails are too few to
+judge). A live Brevo key check that fails is still ERROR. Read-only, as before.
 
 Internal: `GET /platform/internal/integrations/{provider}` (internal API key only) → the decrypted typed record
 (`IntegrationSettings.*` in common), `null` when nothing is saved. messaging-service and payment-service read it through

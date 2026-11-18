@@ -57,6 +57,22 @@ public class IntegrationTestClient {
         }
     }
 
+    /** Integrations → Brevo → Send a test email: messaging-service sends one short email to {@code to} and records it. */
+    public IntegrationTestResult sendTestEmail(String to) {
+        try {
+            ApiResponse<IntegrationTestResult> body = messaging.post().uri("/internal/integrations/brevo/send-test")
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .body(java.util.Collections.singletonMap("to", to)).retrieve().body(RESULT);
+            if (body != null && body.data() != null) {
+                return body.data();
+            }
+            return IntegrationTestResult.failed("messaging-service gave no answer. Check Connection checks before trying again");
+        } catch (Exception e) {
+            log.warn("Test email through messaging-service failed: {}", e.getClass().getSimpleName());
+            return IntegrationTestResult.failed("messaging-service couldn't be reached, so no test email was sent. Try again in a minute");
+        }
+    }
+
     private static RestClient client(String baseUrl, JwtUtil jwtUtil, String internalApiKey) {
         return HttpTimeouts.builder(Duration.ofSeconds(5), Duration.ofSeconds(45)).baseUrl(baseUrl)
                 .requestInterceptor(new SystemAuthInterceptor(jwtUtil))

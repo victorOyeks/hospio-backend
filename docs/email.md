@@ -35,12 +35,20 @@ Values live in `/opt/hospio-staging/.env.staging` (systemd `EnvironmentFile`), n
   the business's, else none, so the email still goes (before 18 Nov 2026 every email from such a hotel failed "Missing final '@domain'").
 - A sender may override both with the event's `fromName` / `replyTo`.
 
-## Every address gets its email
+## Test addresses are never sent (18 Nov 2026)
 
-No address is excluded, whatever the domain (`*.test`, `example.*`, the seed hotel's `royalsuites.ng` included): every
-email goes to the saved address and whatever Brevo answers is recorded. An address that cannot be delivered (a `.test`
-domain) is either refused by Brevo at once (`FAILED` with Brevo's error) or accepted and bounced later (`SENT`; the bounce
-is in Brevo's log, not in Hospio). The business action succeeds either way.
+An email whose domain is a reserved test domain can never be received, so it is never handed to Brevo or SMTP, on every
+server (staging and production alike): top-level domains `.test`, `.example`, `.invalid`, `.localhost`, `.local`, and
+`example.com`, `example.org`, `example.net` with any subdomain (`TestAddresses`, upper or lower case). The delivery is still
+recorded, `SKIPPED` with the error **"Not sent: test address"**, not billable, and the action that asked for it succeeds as
+before. This is decided in the one place every email passes through (`MailDispatcher.accept`, so invites, temporary
+passwords, resets, receipts, folios, statements, handover notices, welcome emails, reports and guest messages alike); a row
+queued before the rule existed is skipped by the sender too. Screens that show "sent to …" keep working: `SKIPPED` is a
+normal state in the delivery log. Every other domain is sent and whatever Brevo answers is recorded (`royalsuites.ng`
+included).
+
+Why: before this, QA's `@hospio-qa.test` accounts were sent through Brevo and bounced ("Unable to find MX"), which counts
+against the sender's reputation and made the connection checks' email row look broken.
 
 ## The on-screen echo
 
@@ -54,7 +62,8 @@ With `DELIVERIES_ECHO=true` every delivery still comes back in the response unde
 ## The delivery record (`messaging.deliveries`)
 
 One row per delivery: `channel`, `to_address`, `subject`, `kind`, `ref`, `from_name`, `reply_to`, `status`
-(`QUEUED` → `SENT`, `FAILED`, `NOT_CONNECTED` for SMS and WhatsApp, `DISABLED` when `MAIL_ENABLED` is off), `attempts`, `provider_message_id`
+(`QUEUED` → `SENT`, `FAILED`, `NOT_CONNECTED` for SMS and WhatsApp, `DISABLED` when `MAIL_ENABLED` is off, `SKIPPED` for a
+test address or a message that may not go), `attempts`, `provider_message_id`
 (the SMTP Message-ID Brevo accepted), `error` (one line, never a credential), `sent_at`, `created_at`, `event_id` (unique:
 a redelivered event is not sent twice), `business_id`, `hotel_id`. Forced row-level security like its neighbours; platform
 mail (no business) is visible to Hospio360 only.
