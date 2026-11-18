@@ -42,9 +42,9 @@ public class AdminMarketerController {
 
     @Operation(summary = "Invite a marketer: creates the MARKETER login in identity and the profile; returns the login with its deliveries")
     @PostMapping("/marketers/invite")
-    @PreAuthorize("@access.platform()")
+    @PreAuthorize(PartnerApplicationController.DECIDE)
     public ApiResponse<MarketerInvited> invite(@Valid @RequestBody PlatformRequests.MarketerInviteRequest request) {
-        return ApiResponse.ok("Marketer invited", marketers.invite(request));
+        return ApiResponse.ok("Marketer invited", marketers.inviteByAdmin(request));
     }
 
     @Operation(summary = "One marketer: profile, agreements per business, referrals and commissions with totals")

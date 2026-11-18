@@ -118,6 +118,25 @@ public class MarketerService {
 
     /** Creates the MARKETER login through identity, then the profile; the login's deliveries are built here. */
     @Transactional
+    /**
+     * The admin "Invite a marketer" route: the same rules as approving a partner application. A super admin or support invites;
+     * a share or term other than the settings' is a money decision (super admin or finance).
+     */
+    public MarketerInvited inviteByAdmin(PlatformRequests.MarketerInviteRequest request) {
+        com.hospio.common.security.HospioUserDetails user = com.hospio.common.security.CurrentUser.require();
+        if (!PartnerApplicationService.canDecide(user)) {
+            throw new com.hospio.common.exception.ForbiddenException("Only a super admin or support can invite a marketer");
+        }
+        FeeSettings fees = settings.fees();
+        boolean standard = (request.sharePct() == null || request.sharePct().compareTo(fees.marketerSharePct()) == 0)
+                && (request.months() == null || request.months().intValue() == fees.marketerMonths());
+        if (!standard && !PartnerApplicationService.canChangeTerms(user)) {
+            throw new com.hospio.common.exception.ForbiddenException("Only a super admin or finance can change the share or the months. Invite with the standard "
+                    + fees.marketerSharePct().stripTrailingZeros().toPlainString() + "% for " + fees.marketerMonths() + " months, or ask them");
+        }
+        return invite(request);
+    }
+
     public MarketerInvited invite(PlatformRequests.MarketerInviteRequest request) {
         String email = request.email().trim().toLowerCase(Locale.ROOT);
         if (profiles.findByEmailIgnoreCase(email).isPresent()) {
