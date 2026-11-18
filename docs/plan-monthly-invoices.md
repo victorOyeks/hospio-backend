@@ -118,3 +118,16 @@ pause reaches the venue QA; QA logins made for this run: `qa.mi.mgr.fcekd@hospio
 Fixed during the run: device schedule numbers collided across hotels (row security on the count), a credit-note line had no invoice id,
 the owner's day-by-day showed one location only (row security on the hotel header), Paystack refuses `.test` payer emails (QA payers use
 `payments@hospio360.com`), POS check order (the pause is said before "no POS assigned").
+
+### Follow-ups (18 Nov 2026, evening)
+
+Owner follow-ups, QA businesses only. Screenshots: `~/Desktop/Hospio test screenshots/Monthly invoices follow-ups (18 Nov 2026)/`.
+
+| Scenario | Business | Result |
+|---|---|---|
+| No daily statement email | QA Ikeja yyzn4b (17 Nov row deleted by SQL, then `POST /admin/fees/daily/run?date=2026-11-17`) | `{worked: 7, skipped: 19}` (no `statements`); the day was made again with `statement_sent_at` empty; `messaging.deliveries` `FEE_STATEMENT` stayed at 78 (last one 17 Nov 23:05 UTC, the night before); no delivery and no bell notice of any kind followed the run. The other six days it worked out were QA hotels missing 17 Nov, all `NO_FEE` |
+| New laundry orders pause | QA Owner B Hotels fcekd, Ikoyi: guest checked in to room 101 and LDR-00001/00002 taken first; October invoice HIN-202610-0002 (3,000.00, seeded day `mif-…`) issued as on 1 Nov, step run for 12 Nov → RESTRICTED | `POST /laundry/orders` **423** "New laundry orders are paused: the Hospio360 invoice HIN-202610-0002 (October 2026) is unpaid. They resume within a minute of the owner paying it under Billing & invoices. Check-out and cash on existing bills and tabs still work." for the owner, the manager and a laundry login (with and without charge to room); in the app the laundry desk shows the red banner and "New guest order" answers with that sentence. Still worked while paused: LDR-00001 In progress → Ready → paid in **cash** (card refused 423 by payment-service) → Delivered; LDR-00002 charged to the room, pocket note, In progress |
+| Lifting | same | Admin recorded 3,000 by transfer (QA-MIF-LAUNDRY) → PAID, banner gone; after the 30 s cache a new laundry order was taken (LDR-00003, then cancelled). Clean-up: LDR-00002 delivered, folio settled in cash (33,000) and the guest checked out |
+| Owner's Paystack test | QA Debit Rate rrydw (1.2 %) | HIN-202610-0003, 3,000.00 (two seeded October days `mif-…`), issued 18 Nov, due 25 Nov, last day 28 Nov, **left unpaid for the owner to pay** (hospio-frontend QA 63, 5a). Owner sign-in shows no terms modal, the "invoice is ready" notice and Pay now · ₦3,000; `POST …/pay` returned a Paystack checkout address. If it is not paid the usual dates apply to this QA business (paused from 29 Nov 06:00); void it to cancel |
+
+QA login made for this run: `qa.mif.laundry.fcekd@hospio-qa.test` (Laundry, QA B Ikoyi fcekd). Laundry prices (Shirt 1,500, Trousers 2,000) were added to that hotel.
