@@ -24,6 +24,8 @@ public class TenantHotels {
 
     private final RestClient restClient;
 
+    /** The one Spring uses (the no-argument constructor below is for tests only). */
+    @org.springframework.beans.factory.annotation.Autowired
     public TenantHotels(@Value("${services.tenant.url}") String tenantUrl, JwtUtil jwtUtil, @Value("${services.internal.api-key}") String key) {
         this.restClient = ServiceClients.system(tenantUrl, jwtUtil, key);
     }
