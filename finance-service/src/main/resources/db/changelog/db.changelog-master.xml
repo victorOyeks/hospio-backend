@@ -16,5 +16,6 @@
     <include file="db/changelog/004-income-desk.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/005-one-open-till.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/006-attendance-notices.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/007-till-cash-tips.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

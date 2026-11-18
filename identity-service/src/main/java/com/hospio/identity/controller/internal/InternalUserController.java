@@ -36,6 +36,15 @@ public class InternalUserController {
         return ApiResponse.ok("Expired roles ended", userService.endExpiredGrants());
     }
 
+    private final com.hospio.identity.service.AuthService authService;
+
+    /** platform approvals: a manager's PIN (or the owner's password) typed on a colleague's screen. 401/403 with the sentence to show. */
+    @PostMapping("/verify-approver")
+    public ApiResponse<com.hospio.identity.service.AuthService.Approver> verifyApprover(
+            @org.springframework.web.bind.annotation.RequestBody com.hospio.identity.service.AuthService.ApproverCheck request) {
+        return ApiResponse.ok(authService.verifyApprover(request));
+    }
+
     @GetMapping("/{userId}/contact")
     public ApiResponse<UserContactResponse> contact(@PathVariable String userId) {
         return ApiResponse.ok(userService.contact(userId));

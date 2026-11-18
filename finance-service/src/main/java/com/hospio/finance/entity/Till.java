@@ -85,6 +85,11 @@ public class Till extends TenantEntity {
     @Column(name = "handed_over_to_name", length = 150)
     private String handedOverToName;
 
+    /** Cash tips in the drawer (inside {@code expectedCash}): held for the staff, not the business's takings. */
+    @Column(name = "cash_tips", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal cashTips = BigDecimal.ZERO;
+
     /** Not stored: how many entries the till has. */
     @jakarta.persistence.Transient
     private long entries;

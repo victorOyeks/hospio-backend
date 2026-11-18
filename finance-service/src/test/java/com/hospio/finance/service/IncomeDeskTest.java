@@ -133,6 +133,35 @@ class IncomeDeskTest {
     }
 
     @Test
+    void aCashTipIsInTheDrawerButNotInTheIncome() {
+        Till cashier = Till.builder().role("CASHIER").status(Till.Status.OPEN).openingFloat(BigDecimal.ZERO).expectedCash(BigDecimal.ZERO).build();
+        cashier.setId("t-c");
+        when(tills.lockOpen("h1", "CASHIER")).thenReturn(List.of(cashier));
+        when(tills.lockStatus("t-c")).thenReturn(Optional.of("OPEN"));
+        when(tillEntries.findByPaymentId("p3")).thenReturn(Optional.empty());
+        when(tillEntries.findFirstByKindAndRef(TillEntry.Kind.TIP, "p3")).thenReturn(Optional.empty());
+        java.util.List<TillEntry> entries = new java.util.ArrayList<>();
+        when(tillEntries.save(any())).thenAnswer(i -> {
+            entries.add(i.getArgument(0));
+            return i.getArgument(0);
+        });
+        when(tillEntries.findByTillIdOrderByCreatedAt(any())).thenAnswer(i -> new java.util.ArrayList<>(entries));
+
+        // The guest handed over 3,500 for a 3,000 sale: 500 is a tip.
+        money.recordPayment("p3", new BigDecimal("3500"), "CASH", "CASHIER", null, Instant.parse("2026-11-10T12:00:00Z"), "Guest", "o3", "BAR", new BigDecimal("500"));
+
+        ArgumentCaptor<RevenueEntry> saved = ArgumentCaptor.forClass(RevenueEntry.class);
+        verify(revenue).save(saved.capture());
+        assertThat(saved.getValue().getAmount()).isEqualByComparingTo("3000");
+        assertThat(entries).extracting(TillEntry::getKind).containsExactly(TillEntry.Kind.PAYMENT, TillEntry.Kind.TIP);
+        assertThat(entries.get(0).getAmount()).isEqualByComparingTo("3000");
+        assertThat(entries.get(1).getAmount()).isEqualByComparingTo("500");
+        assertThat(cashier.getCashTips()).isEqualByComparingTo("500");
+        // All of it is in the drawer to count.
+        assertThat(cashier.getExpectedCash()).isEqualByComparingTo("3500");
+    }
+
+    @Test
     void aManagerHasNoTillSoTheirCashIsUnattachedButStillBarIncome() {
         money.recordPayment("p2", new BigDecimal("2400"), "CASH", "MANAGER", null, Instant.parse("2026-11-10T12:00:00Z"), "Guest", "o2", "BAR");
 

@@ -138,6 +138,30 @@ public class Order extends TenantEntity {
     @lombok.Builder.Default
     private BigDecimal paidAmount = BigDecimal.ZERO;
 
+    /** What went on rooms through parts of a split bill; the order is settled when this and {@code paidAmount} reach the total. */
+    @Column(name = "room_amount", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal roomAmount = BigDecimal.ZERO;
+
+    /** A discount on the whole bill, given by hand: a percentage or an amount (one of the two), shared over the lines. */
+    @Column(name = "bill_discount_pct")
+    private BigDecimal billDiscountPct;
+
+    @Column(name = "bill_discount_amount")
+    private BigDecimal billDiscountAmount;
+
+    @Column(name = "discount_reason", length = 300)
+    private String discountReason;
+
+    @Column(name = "discount_by", length = 36)
+    private String discountBy;
+
+    @Column(name = "discount_by_name", length = 150)
+    private String discountByName;
+
+    @Column(name = "discount_approved_by_name", length = 150)
+    private String discountApprovedByName;
+
     /** Backstop for the row lock every writer takes: a save from a stale copy fails instead of overwriting a settle or a payment. */
     @jakarta.persistence.Version
     @Column(nullable = false)
@@ -146,5 +170,15 @@ public class Order extends TenantEntity {
 
     public boolean isSettled() {
         return paid || chargedToRoom;
+    }
+
+    /** What is still to pay: the total less the money taken and what parts of a split bill put on rooms. Never below zero. */
+    public BigDecimal balance() {
+        return total.subtract(paidAmount == null ? BigDecimal.ZERO : paidAmount).subtract(roomAmount == null ? BigDecimal.ZERO : roomAmount)
+                .max(BigDecimal.ZERO);
+    }
+
+    public boolean hasBillDiscount() {
+        return (billDiscountPct != null && billDiscountPct.signum() > 0) || (billDiscountAmount != null && billDiscountAmount.signum() > 0);
     }
 }

@@ -98,6 +98,41 @@ public class IdentityClient {
     }
 
     /** identity's own sentence from a 409 body ("This phone number is already in use on another account"), else the usual one. */
+    /** The manager (or owner) who typed their PIN (password) on a colleague's screen to approve something. */
+    public record Approver(String userId, String fullName, boolean owner) {
+    }
+
+    private static final ParameterizedTypeReference<ApiResponse<Approver>> APPROVER = new ParameterizedTypeReference<>() {
+    };
+
+    /**
+     * POST /internal/users/verify-approver. Identity's refusals (unknown person, not a manager here, wrong or locked PIN) come back
+     * as the same sentence for the screen: 401 as {@code UnauthorizedException} would log the caller out, so they are 400s here.
+     */
+    public Approver verifyApprover(String identifier, String secret, String businessId, String hotelId, boolean ownerOnly) {
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("identifier", identifier);
+        body.put("secret", secret);
+        body.put("businessId", businessId);
+        body.put("hotelId", hotelId);
+        body.put("ownerOnly", ownerOnly);
+        try {
+            Approver a = TenantClient.data(restClient.post().uri("/internal/users/verify-approver").body(body).retrieve().body(APPROVER));
+            if (a == null || a.userId() == null) {
+                throw new com.hospio.common.exception.BadRequestException("Could not check that PIN. Try again");
+            }
+            return a;
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            String m = "";
+            try {
+                m = new com.fasterxml.jackson.databind.ObjectMapper().readTree(e.getResponseBodyAsString()).path("message").asText("");
+            } catch (Exception ignored) {
+                // not JSON
+            }
+            throw new com.hospio.common.exception.BadRequestException(m.isBlank() ? "Could not check that PIN. Try again" : m);
+        }
+    }
+
     public static String conflictMessage(String body) {
         try {
             String m = new com.fasterxml.jackson.databind.ObjectMapper().readTree(body).path("message").asText("");

@@ -90,17 +90,28 @@ public sealed interface SetupSection {
      * {@code tabMaxHours}: a tab open longer is flagged to the manager (dashboards, "Needs your action"). {@code tabNameRequired}: a
      * tab needs the guest's name or a table. {@code waitersTakePayment}: waiters may take payment for their own orders (off: the
      * cashier does). {@code waiterCash}: a waiter may take cash, which goes into the cashier's open till (off: card and transfer only).
+     * {@code discountRoles}: the outlet roles (comma separated: CASHIER, BAR, KITCHEN, WAITER) that give a discount on a sale without
+     * asking, up to APPROVAL_LIMITS.discountPct; anything above, a complimentary item, or anyone else asks a manager.
+     * {@code recordTips}: a tip can be added when a sale is paid (off by default: nothing about tips shows anywhere).
      */
     record Outlets(Boolean roomCharge, Boolean tabs, BigDecimal tabLimit, Integer tabMaxHours, Boolean tabNameRequired,
-                   Boolean waitersTakePayment, Boolean waiterCash) implements SetupSection {
-        public static final Outlets DEFAULTS = new Outlets(true, true, BigDecimal.valueOf(50000), 4, false, false, false);
+                   Boolean waitersTakePayment, Boolean waiterCash, String discountRoles, Boolean recordTips) implements SetupSection {
+        /** Who gives a discount on an outlet sale without asking, up to APPROVAL_LIMITS.discountPct (managers and owners: any). */
+        public static final String DEFAULT_DISCOUNT_ROLES = "CASHIER,BAR";
+        public static final Outlets DEFAULTS = new Outlets(true, true, BigDecimal.valueOf(50000), 4, false, false, false, DEFAULT_DISCOUNT_ROLES, false);
 
         public Outlets(Boolean roomCharge, Boolean tabs, BigDecimal tabLimit) {
-            this(roomCharge, tabs, tabLimit, null, null, null, null);
+            this(roomCharge, tabs, tabLimit, null, null, null, null, null, null);
+        }
+
+        /** Before discounts and tips (venue type, phase 4): both left as stored or default. */
+        public Outlets(Boolean roomCharge, Boolean tabs, BigDecimal tabLimit, Integer tabMaxHours, Boolean tabNameRequired,
+                       Boolean waitersTakePayment, Boolean waiterCash) {
+            this(roomCharge, tabs, tabLimit, tabMaxHours, tabNameRequired, waitersTakePayment, waiterCash, null, null);
         }
 
         public Outlets withRoomCharge(Boolean value) {
-            return new Outlets(value, tabs, tabLimit, tabMaxHours, tabNameRequired, waitersTakePayment, waiterCash);
+            return new Outlets(value, tabs, tabLimit, tabMaxHours, tabNameRequired, waitersTakePayment, waiterCash, discountRoles, recordTips);
         }
     }
 

@@ -41,6 +41,14 @@ public class PaymentRequest extends TenantEntity {
     @Column(name = "desk", length = 30)
     private String desk;
 
+    /** The part of a split bill this pays (fnb order_split_parts), when the order was split. */
+    @Column(name = "part_id", length = 36)
+    private String partId;
+
+    /** A tip inside {@code amount}: not a sale. The sale's money is {@code amount - tipAmount}. Null when there is none. */
+    @Column(name = "tip_amount")
+    private BigDecimal tipAmount;
+
     @Column(name = "guest_name", length = 150)
     private String guestName;
 

@@ -74,6 +74,7 @@ public class SalesHistoryService {
     private final MenuItemRepository items;
     private final OutletSettings settings;
     private final SalesHistoryQuery query;
+    private final StaffOutlets staffOutlets;
 
     // ---- who sees what ----------------------------------------------------------------------------------------
 
@@ -111,6 +112,8 @@ public class SalesHistoryService {
         List<Outlet> visible = outlets.findByHotelIdOrderByName(hotelId).stream()
                 .filter(o -> OutletAccess.sees(user, o) && (mgmt || floor || user.has(OutletAccess.roleFor(o))))
                 .filter(o -> !byKind || (d.equals("BAR") == (o.getKind() == Outlet.Kind.BAR)))
+                // Someone kept to a list of outlets sees only those (docs/plan-venue-type.md, phase 4).
+                .filter(o -> staffOutlets.allowed(user, o))
                 .toList();
         // A cashier settles anyone's sale, a head waiter works anyone's: both start on the whole outlet, like Full access.
         boolean anyFull = visible.stream().anyMatch(o -> OutletAccess.full(user, o)) || user.has(Role.CASHIER)
@@ -365,7 +368,7 @@ public class SalesHistoryService {
         if (!live) {
             return new SaleDetail.Can(false, false, false, null);
         }
-        BigDecimal due = o.getTotal().subtract(o.getPaidAmount() == null ? BigDecimal.ZERO : o.getPaidAmount());
+        BigDecimal due = o.balance();
         boolean works = OutletAccess.works(u, outlet);
         if (!works && OutletAccess.cashier(u)) {
             // The cashier takes the money for anyone's sale (and puts it on a room); cancelling stays with whoever took it or a manager.
@@ -391,10 +394,10 @@ public class SalesHistoryService {
             String who = o.getOpenedByName() == null ? "someone else" : o.getOpenedByName();
             return new SaleDetail.Can(false, false, false, "Opened by " + who + ". Only they, someone with Full access or a manager can settle or cancel it");
         }
-        BigDecimal balance = o.getTotal().subtract(o.getPaidAmount() == null ? BigDecimal.ZERO : o.getPaidAmount());
+        BigDecimal balance = o.balance();
         boolean owes = balance.signum() > 0;
         boolean roomOn = settings.get(o.getHotelId()).roomCharge();
-        boolean nothingPaid = o.getPaidAmount() == null || o.getPaidAmount().signum() <= 0;
+        boolean nothingPaid = (o.getPaidAmount() == null || o.getPaidAmount().signum() <= 0) && o.getRoomAmount().signum() <= 0;
         boolean untouched = o.getStatus() == Order.Status.OPEN
                 && all.stream().allMatch(l -> l.getStatus() == OrderLine.Status.NEW || l.getStatus() == OrderLine.Status.CANCELLED);
         boolean cancel = nothingPaid && (untouched || OutletAccess.manager(u));

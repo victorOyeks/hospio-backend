@@ -159,10 +159,23 @@ public class PaymentService {
         if ((role == Role.CASHIER || role == Role.WAITER) && blankToNull(dto.orderId()) == null) {
             throw new BadRequestException("A " + role.name().toLowerCase() + " takes payment for restaurant and bar sales only");
         }
-        String desk = blankToNull(dto.orderId()) != null ? checkOrder(dto.orderId(), hotelId, dto.amount(), user, role, dto.method()) : null;
+        // A tip rides on a payment for a restaurant or bar sale, where the location records tips. It is not part of the sale.
+        BigDecimal tip = dto.tipAmount() == null || dto.tipAmount().signum() <= 0 ? null : Money.of(dto.tipAmount());
+        if (tip != null) {
+            if (blankToNull(dto.orderId()) == null) {
+                throw new BadRequestException("A tip is taken with a restaurant or bar sale");
+            }
+            if (!hotelConfig.recordsTips(hotelId)) {
+                throw new BadRequestException("Tips aren't recorded here. A manager can switch on Record tips in Hotel setup → Restaurant & bar");
+            }
+        }
+        String partId = blankToNull(dto.orderId()) == null ? null : blankToNull(dto.partId());
+        OrderCheck order = blankToNull(dto.orderId()) != null ? checkOrder(dto.orderId(), partId, hotelId, dto.amount(), user, role, dto.method()) : null;
+        String desk = order == null ? null : order.desk();
         PaymentRequest p = PaymentRequest.builder().folioId(dto.folioId()).bookingId(bookingId).orderId(blankToNull(dto.orderId())).desk(desk).guestName(dto.guestName())
                 .guestPhone(dto.guestPhone()).guestEmail(dto.guestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
-                .role(role).method(dto.method()).amount(Money.of(dto.amount())).description(dto.description())
+                .role(role).method(dto.method()).amount(Money.of(tip == null ? dto.amount() : dto.amount().add(tip))).partId(partId).tipAmount(tip)
+                .description(describe(dto.description(), order == null ? null : order.partLabel(), tip))
                 .receiptPreference(dto.receiptPreference() == null ? settings.receipts() : dto.receiptPreference()).build();
         if (dto.method() == PaymentMethod.CASH) {
             requireOpenTill(hotelId, role);
@@ -247,13 +260,15 @@ public class PaymentService {
      * A payment for a kitchen or bar order: the order must be this hotel's, still open and not settled, and the amount no more than is due.
      * Returns the desk whose income the order is (BAR or KITCHEN), or null when fnb-service couldn't say.
      */
-    private String checkOrder(String orderId, String hotelId, BigDecimal amount, HospioUserDetails user, Role role, PaymentMethod method) {
-        com.hospio.payment.client.FnbClient.OrderDue o = fnb.order(orderId).orElseThrow(() -> new BadRequestException("Order not found"));
+    private OrderCheck checkOrder(String orderId, String partId, String hotelId, BigDecimal amount, HospioUserDetails user, Role role, PaymentMethod method) {
+        // Managers and owners are never kept to a list of outlets; everyone else is checked by fnb (their assigned outlets).
+        String payer = user.isPlatform() || user.isManagerOrOwner() ? null : user.getUserId();
+        com.hospio.payment.client.FnbClient.OrderDue o = fnb.order(orderId, partId, payer).orElseThrow(() -> new BadRequestException("Order not found"));
         if (role == Role.WAITER) {
             requireWaiterMayPay(hotelId, user, o.openedBy(), method);
         }
         if (o.status() == null) {
-            return null; // fnb-service unreachable: take the money, the order is matched when it answers
+            return new OrderCheck(null, null); // fnb-service unreachable: take the money, the order is matched when it answers
         }
         if (o.hotelId() != null && !o.hotelId().equals(hotelId)) {
             throw new BadRequestException("Order not found");
@@ -265,10 +280,40 @@ public class PaymentService {
         if (o.settled() || "CLOSED".equals(o.status())) {
             throw new BadRequestException(n + " is already settled");
         }
-        if (o.due() != null && amount != null && amount.compareTo(o.due()) > 0) {
-            throw new BadRequestException("Only " + naira(o.due()) + " is due on " + n.replace("Order ", ""));
+        if (o.refusal() != null && !o.refusal().isBlank()) {
+            throw new BadRequestException(o.refusal());
         }
-        return o.desk();
+        if (o.due() != null && amount != null && amount.compareTo(o.due()) > 0) {
+            throw new BadRequestException("Only " + naira2(o.due()) + " is due on " + (o.partLabel() == null ? "" : o.partLabel().toLowerCase(java.util.Locale.ROOT) + " of ")
+                    + n.replace("Order ", ""));
+        }
+        return new OrderCheck(o.desk(), o.partLabel());
+    }
+
+    /** What the order check gives the payment: the income desk and, for a split bill, the part's label ("Part 2 of 3"). */
+    record OrderCheck(String desk, String partLabel) {
+    }
+
+    /** The receipt's line: what was asked, the part of a split bill it paid, and the tip inside it. */
+    static String describe(String description, String partLabel, BigDecimal tip) {
+        StringBuilder b = new StringBuilder(description == null ? "" : description.trim());
+        if (partLabel != null && !partLabel.isBlank()) {
+            b.append(b.length() == 0 ? "" : " · ").append(partLabel);
+        }
+        if (tip != null && tip.signum() > 0) {
+            b.append(b.length() == 0 ? "" : " · ").append("includes a ").append(naira2(tip)).append(" tip");
+        }
+        String out = b.toString();
+        return out.isEmpty() ? null : out.length() > 250 ? out.substring(0, 250) : out;
+    }
+
+    /** With kobo when there are any: a part of a split bill is often ₦3,333.33. */
+    private static String naira2(BigDecimal amount) {
+        BigDecimal a = amount.setScale(2, java.math.RoundingMode.HALF_UP);
+        java.text.NumberFormat f = java.text.NumberFormat.getNumberInstance(java.util.Locale.UK);
+        f.setMinimumFractionDigits(a.stripTrailingZeros().scale() > 0 ? 2 : 0);
+        f.setMaximumFractionDigits(2);
+        return "₦" + f.format(a);
     }
 
     /**
@@ -322,6 +367,7 @@ public class PaymentService {
         PaymentRequest p = PaymentRequest.builder().folioId(old.getFolioId()).bookingId(old.getBookingId()).orderId(old.getOrderId()).desk(old.getDesk()).guestName(old.getGuestName())
                 .guestPhone(old.getGuestPhone()).guestEmail(old.getGuestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
                 .role(old.getRole()).method(old.getMethod()).amount(old.getAmount()).description(old.getDescription())
+                .partId(old.getPartId()).tipAmount(old.getTipAmount())
                 .receiptPreference(old.getReceiptPreference()).build();
         // The retry goes to the same POS as the first attempt.
         return sendToPos(p, old.getRole(), hotelId, old.getTerminalId());
@@ -508,7 +554,8 @@ public class PaymentService {
         events.publish(KafkaTopics.PAYMENT_APPROVED, PaymentApprovedEvent.builder().paymentId(p.getId()).folioId(p.getFolioId())
                 .bookingId(p.getBookingId()).guestName(p.getGuestName()).guestPhone(p.getGuestPhone()).guestEmail(p.getGuestEmail())
                 .amount(p.getAmount()).method(p.getMethod().name()).role(p.getRole().name()).providerRef(p.getProviderRef())
-                .receiptPreference(p.getReceiptPreference()).orderId(p.getOrderId()).desk(p.getDesk()).build());
+                .receiptPreference(p.getReceiptPreference()).orderId(p.getOrderId()).desk(p.getDesk()).partId(p.getPartId())
+                .tipAmount(p.getTipAmount()).build());
         log.info("Payment {} approved via {} · receipt {}", p.getId(), provider, receipt.getNumber());
     }
 

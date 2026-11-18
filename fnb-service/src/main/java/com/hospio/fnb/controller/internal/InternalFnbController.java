@@ -42,8 +42,9 @@ public class InternalFnbController {
 
     /** payment-service's check before it takes money for an order: hotel, status, settled and what is still due. */
     @GetMapping("/orders/{id}/due")
-    public ApiResponse<com.hospio.fnb.service.OrderService.OrderDue> due(@PathVariable String id) {
-        return ApiResponse.ok(orders.due(id));
+    public ApiResponse<com.hospio.fnb.service.OrderService.OrderDue> due(@PathVariable String id, @RequestParam(required = false) String partId,
+                                                                           @RequestParam(required = false) String payerId) {
+        return ApiResponse.ok(orders.due(id, partId, payerId));
     }
 
     /** The whole balance of the order was paid (by {@code method}, CASH when not said). Normally the PAYMENT_APPROVED listener does this. */

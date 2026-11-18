@@ -49,7 +49,8 @@ class SalesHistoryServiceTest {
     private final MenuItemRepository items = mock(MenuItemRepository.class);
     private final OutletSettings settings = mock(OutletSettings.class);
     private final SalesHistoryQuery query = mock(SalesHistoryQuery.class);
-    private final SalesHistoryService service = new SalesHistoryService(outlets, orders, lines, payments, items, settings, query);
+    private final SalesHistoryService service = new SalesHistoryService(outlets, orders, lines, payments, items, settings, query,
+            new StaffOutlets(mock(com.hospio.fnb.repository.StaffOutletRepository.class), outlets));
     private final Outlet bar = Outlet.builder().name("Bar").kind(Outlet.Kind.BAR).build();
     private final Outlet kitchen = Outlet.builder().name("Restaurant").kind(Outlet.Kind.KITCHEN).build();
 

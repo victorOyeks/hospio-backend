@@ -72,7 +72,9 @@ class OrderServiceTest {
     private final OutletSettings settings = mock(OutletSettings.class);
     private final EventPublisher events = mock(EventPublisher.class);
     private final OrderService service = new OrderService(orders, lines, orderPayments, mock(DiningTableRepository.class), items, outlets, happyHours,
-            reservations, folios, properties, settings, events);
+            reservations, folios, properties, settings, events, mock(com.hospio.fnb.repository.OrderSplitRepository.class),
+            mock(com.hospio.fnb.repository.OrderSplitPartRepository.class), mock(com.hospio.fnb.repository.OrderTipRepository.class),
+            new StaffOutlets(mock(com.hospio.fnb.repository.StaffOutletRepository.class), outlets));
 
     private final List<OrderLine> storedLines = new ArrayList<>();
     private final List<OrderPayment> storedPayments = new ArrayList<>();
