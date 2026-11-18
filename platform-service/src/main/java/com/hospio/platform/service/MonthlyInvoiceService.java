@@ -1140,7 +1140,9 @@ public class MonthlyInvoiceService {
     /** The day-by-day platform fee (and device share) of an invoice and the invoices carried into it; a manager's own locations only. */
     public List<DailyFeeService.DailyFeeView> days(String id, DailyFeeService dailyFees) {
         MonthlyInvoice i = mine(id);
-        return daysOf(i, dailyFees);
+        // Read as the platform once the invoice is known to be the caller's: row security would otherwise show only the location in the
+        // request's hotel header. A manager is narrowed to their own locations by visibleHotels (from the token, not the header).
+        return asSystem(() -> daysOf(i, dailyFees));
     }
 
     public List<DailyFeeService.DailyFeeView> daysAdmin(String id, DailyFeeService dailyFees) {
