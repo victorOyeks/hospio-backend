@@ -4,6 +4,15 @@ Tracker and contract for how marketers earn and are paid. Built 18 Nov 2026 (bac
 QA script `hotel-internal-system-admin-FE/docs/qa/55-marketer-commission.md`). The Referral Partner Agreement template is
 "10 - Referral Partner (Marketer) Agreement and Schedule (fillable).docx" (version **RPA-2026-11**); product and agreement say the same.
 
+## Monthly invoice (18 Nov 2026)
+
+Debits are gone (`docs/plan-monthly-invoices.md`). Commission now accrues on the **platform-fee part of invoice payments received**: when a
+monthly invoice is paid (Paystack or recorded by finance, part payments pro rata) each of its days' `collected` becomes fee × the share of
+the invoice received (after credit notes), and `CommissionService.syncReceived` adds a `DAILY_FEE` line for what more was received (same
+agreement, 12-month window anchored on the first paid fee day, 20 %, 5 % WHT) or a `CLAWBACK` line when a credit note on a paid invoice
+lowers it. Device shares, guest messages, data plans and VAT never earn. `FeeDebitRunner` / `onCollected` and the QA simulated debit
+below are history; QA uses `POST /admin/qa/billing/issue` and a Paystack test payment (or a recorded transfer) instead.
+
 ## Decisions (owner, 18 Nov 2026)
 
 | Topic | Decision |

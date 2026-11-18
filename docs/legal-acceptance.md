@@ -60,6 +60,16 @@ reference of a signed device schedule (`signedScheduleRef`, the exception path).
   the CSV). Records from before 18 Nov have no rate: their box said 1.5%, and the title says so.
 - A later rate change (a new addendum) does not by itself ask the owner to accept again; the addendum is the signed authority for it.
 
+## Monthly invoice versions (18 Nov 2026)
+
+Debits are gone (`docs/plan-monthly-invoices.md`). New versions, effective 18 Nov 2026 on staging: **TOS-2026-11B**, **FEES-2026-11B**
+(title "Fees and monthly invoice", same `DEBIT` key and `/legal/fees` page), **DEV-2026-11B**, **SUP-2026-11B**, **RPA-2026-11B**. Box 2 is
+now "I agree to pay Hospio360's monthly invoice — 1.5% of my business's daily sales — within 7 days of issue." (the rate rules above are
+unchanged: the business's own rate). A record of FEES-2026-11B or later is titled "Monthly invoice agreement (x%)"; FEES-2026-11 records
+keep "Daily debit authority". Existing owners and marketers accept the new versions in the modal at their next page load. They were
+published as material on staging with `LEGAL_MATERIAL_NOTICE_DAYS=0` (platform property `hospio.legal.material-notice-days`); production
+keeps 30 days' notice. Word templates: 03 Direct Debit Mandate is replaced by "03 - Billing & invoice terms (summary)".
+
 ## New versions and notice
 
 A Super admin publishes a version (admin → Platform → Legal documents, or `POST /platform/admin/legal/documents`). The newest version

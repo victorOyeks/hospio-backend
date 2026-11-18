@@ -272,7 +272,7 @@ class MonthlyInvoiceServiceTest {
         i.setId("inv1");
         MonthlyInvoiceService.Notice n = service.noticeText(i, MonthlyInvoiceEvent.FINAL_WARNING, business("QA Lagos", "ada@hospio-qa.test"));
         assertThat(n.text()).contains("from 12 December 2026 at 06:00, card/transfer POS payments, new sales and new bookings pause until it is paid")
-                .contains("Pay now: https://web-staging.hospio360.com/hotel-owner/billing?invoice=inv1").contains("Oyeks Global Ltd · RC 10001123 · Lagos, Nigeria")
+                .contains("Pay now: https://web-staging.hospio360.com/dashboard/billing?invoice=inv1").contains("Oyeks Global Ltd · RC 10001123 · Lagos, Nigeria")
                 .doesNotContainIgnoringCase("debit");
         assertThat(n.emailKind()).isEqualTo(com.hospio.common.delivery.Delivery.Kind.INVOICE_FINAL);
     }

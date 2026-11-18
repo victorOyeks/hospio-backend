@@ -1,5 +1,7 @@
 # POS providers: OPay and Moniepoint push-to-terminal
 
+> **18 Nov 2026:** Hospio360 no longer debits hotels (`docs/plan-monthly-invoices.md`). The hotel's keys are for taking guest payments only; the "Debit for the daily fee" section below is history.
+
 The protocols below are ported from StationMagBackend (`service/PaymentService.java`, `service/opay/OpayCryptoService.java`,
 `service/TransactionService.java`). That project works against the live terminals. In Hospio, **each hotel has its own keys**
 (StationMag has one set per server), stored encrypted in payment-service and shown masked.

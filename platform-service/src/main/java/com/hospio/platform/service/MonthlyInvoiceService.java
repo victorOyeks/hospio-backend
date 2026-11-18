@@ -699,7 +699,7 @@ public class MonthlyInvoiceService {
     }
 
     String payLink(MonthlyInvoice i) {
-        return hotelAppUrl + "/hotel-owner/billing?invoice=" + i.getId();
+        return hotelAppUrl + "/dashboard/billing?invoice=" + i.getId();
     }
 
     /** QA: the email a notice would send, without sending it (rendered by the QA preview). */
