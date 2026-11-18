@@ -5,7 +5,7 @@ to SMTP themselves: they hand a `Delivery` to common's `DeliveryService`, which 
 `hospio-delivery-requested` after the transaction commits. messaging-service records it, decides whether it may go out,
 lays it out in the shared HTML template and sends it through Brevo SMTP. A delivery never fails the business action.
 
-SMS and WhatsApp are **not connected yet** (the user's call): they are recorded and echoed, never sent.
+SMS (sign-in codes only, Termii) and WhatsApp (approved templates only, Infobip) go the same way: docs/sms-whatsapp.md.
 
 ## Settings (by name only)
 
@@ -64,6 +64,9 @@ mail (no business) is visible to Hospio360 only.
 
 ## Sending
 
+- A WhatsApp of a kind with no approved template (stay summary, folio, a typed guest message, a staff message) is never
+  queued: it is recorded `SKIPPED` "Not sent: WhatsApp has no approved template for this message; it goes by email"
+  (docs/sms-whatsapp.md, "Which messages can go on WhatsApp").
 - Asynchronous, and the `deliveries` table is the queue: the event is published after the producer's commit;
   messaging-service's listener only records the row (`QUEUED`, with the text to send) and commits, so the Kafka offset moves
   on without waiting for SMTP or another service, and nothing waits in memory (a restart loses nothing).
@@ -140,10 +143,12 @@ cancellation, each by email when the guest has one and as a WhatsApp copy (not s
 ## Receipts
 
 - On an approved payment (`PaymentApproved`), messaging-service sends the receipt by email when the payment carries a guest
-  email (sent for real), else a WhatsApp copy that is recorded, not sent. `receiptPreference` NONE (the screen's "Don't
+  email, else on WhatsApp as `hospio_payment_receipt_v2` when it carries a phone. `receiptPreference` NONE (the screen's "Don't
   send" / Print) or NEVER sends nothing.
-- "Email receipt again" (`POST /payment/payments/{id}/receipt/resend`) is email only: a guest with only a phone is refused
-  400 "This guest has no email · print the receipt or email it from the receipt page (WhatsApp receipts are coming soon)".
+- "Send receipt again" (`POST /payment/payments/{id}/receipt/resend`) goes the way the automatic one does: email when the
+  payment has one, else WhatsApp as `hospio_payment_receipt_v2` when it has a phone (18 Nov 2026); neither is 400 "This
+  payment has no guest email or phone · …". The take-payment screen's **WhatsApp** receipt choice (a guest with a phone and no
+  email, while `RECEIPT` is in `whatsappKinds`) uses it.
 - `POST /payment/receipts/email` sends a payment's, a sale's or a folio's receipts to the address given (the take-payment
   screen uses it after the payment is approved).
 
@@ -161,8 +166,8 @@ sent. Full contract: docs/profile.md, "Notification preferences".
   minute, 8 of them to gmail addresses. The consumer group's offset is now committed and any event older than
   `MAIL_MAX_EVENT_AGE_MINUTES` is skipped, so it cannot happen again.
 
-- No attachments, no open or bounce tracking, no inbound email (guest replies by email do not come back into the
-  conversation; staff log a reply by hand).
+- No attachments, no inbound email (guest replies by email do not come back into the conversation; staff log a reply by
+  hand). Bounces and opens are tracked once Brevo's webhook is set (below).
 - Brevo's daily quota applies (coryd's account for now). The From address is `no-reply@coryd.ng` until Hospio360 has its
   own sender domain.
 - SMS and WhatsApp are recorded and echoed only. The phone code (OTP) stays on screen on staging.
@@ -177,6 +182,33 @@ transactional API (`POST /v3/smtp/email`, `BrevoApiGateway`) instead of SMTP; th
 address (`MAIL_FROM_ADDRESS`) must be a verified sender in that Brevo account or on a domain authenticated there
 (Brevo → Senders, domains & dedicated IPs). hospio360.com is added to the account and needs its DNS records (two DKIM
 CNAMEs and the brevo-code TXT) in Cloudflare before no-reply@hospio360.com can send.
+
+## Delivery tracking (Brevo's webhook, 18 Nov 2026)
+
+Brevo posts each transactional email event to **`POST https://api-staging.hospio360.com/messaging/webhooks/brevo`**
+(`BrevoWebhookController`, no sign-in; on production the production API host). It is believed only with the **webhook key**
+(Settings · Integrations · Brevo → Webhook key, else `BREVO_WEBHOOK_KEY`), sent as `Authorization: Bearer <key>` or as Basic
+authentication whose password is the key (`https://hospio:<key>@api-…/messaging/webhooks/brevo`). Without a key every post is 401.
+The key is never read from the URL's query (nginx logs query strings) and never logged; the JWT filter skips `/webhooks/`.
+
+| Brevo event | The delivery record |
+|---|---|
+| `delivered` | `DELIVERED`, `delivered_at` (ignored after a hard bounce) |
+| `hard_bounce`, `blocked`, `invalid_email`, `error` | `FAILED`, `error` "Bounced (hard): 550 …", "Blocked by Brevo: …", "Not a valid address" |
+| `soft_bounce` | `FAILED`, "Bounced (soft): Unable to find MX of domain hospio-qa.test" (ignored once delivered; a later `delivered` wins) |
+| `spam` | status unchanged, `error` "Marked as spam by the recipient" |
+| `opened`, `unique_opened` | `opened_at`; a `SENT` email becomes `DELIVERED` |
+
+Each also sets `provider_event` and `provider_event_at` (messaging-009). The email is found by Brevo's `message-id`, which is
+the start of `provider_message_id` ("<…@smtp-relay.mailin.fr> · Brevo API 201"). Unknown events and ids, and an email still
+`QUEUED`, are ignored with 200. One event or a batch (an array) per post. A guest message follows its delivery as before.
+
+**Setting it up in Brevo** (once per Brevo account): Brevo → Transactional → Settings → Webhook → *Add a new webhook* →
+URL above; events Delivered, Soft bounce, Hard bounce, Blocked, Invalid email, Spam (Opened optional); authentication
+*Token* (Bearer) with the webhook key, or put the key in the URL as `https://hospio:<key>@…`. Or by API:
+`POST https://api.brevo.com/v3/webhooks` `{"type":"transactional","url":"…/messaging/webhooks/brevo","events":["delivered",
+"softBounce","hardBounce","blocked","invalid","spam","opened"],"auth":{"type":"bearer","token":"<key>"}}`; remove with
+`DELETE /v3/webhooks/{id}`.
 
 ## Design
 
