@@ -16,7 +16,12 @@ public class OutletSettings {
 
     /** {@code serviceChargePct}: Hospio's fee passed to guests ("Service charge (x%)"), 0 when the hotel absorbs it. */
     public record Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct, BigDecimal serviceChargePct,
-                           boolean tabNameRequired, boolean waitersTakePayment) {
+                           boolean tabNameRequired, boolean waitersTakePayment, int tabMaxHours) {
+        public Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct, BigDecimal serviceChargePct,
+                        boolean tabNameRequired, boolean waitersTakePayment) {
+            this(roomCharge, tabs, tabLimit, pricesIncludeTax, vatPct, serviceChargePct, tabNameRequired, waitersTakePayment, 4);
+        }
+
         public Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct) {
             this(roomCharge, tabs, tabLimit, pricesIncludeTax, vatPct, BigDecimal.ZERO);
         }
@@ -48,6 +53,7 @@ public class OutletSettings {
                 taxes.map(SetupSection.TaxesCurrency::vatPct).orElse(d.vatPct()),
                 com.hospio.common.billing.GuestServiceCharge.rate(reader.section(hotelId, SetupSection.Payments.class).orElse(null)),
                 outlets.map(SetupSection.Outlets::tabNameRequired).orElse(false),
-                outlets.map(SetupSection.Outlets::waitersTakePayment).orElse(false));
+                outlets.map(SetupSection.Outlets::waitersTakePayment).orElse(false),
+                Math.max(1, Math.min(72, outlets.map(SetupSection.Outlets::tabMaxHours).orElse(4))));
     }
 }

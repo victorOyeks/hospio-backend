@@ -28,6 +28,7 @@ public class SalesController {
     /** The venue dashboards and reports: managers, owners (and a support look) and finance; every outlet of the location. */
     static final String MANAGEMENT = "@access.managerView() or @access.has('FINANCE')";
 
+    private final com.hospio.fnb.client.OutletSettings outletSettings;
     private final SalesService service;
     private final SalesHistoryService history;
     private final VenueReportService venue;
@@ -90,10 +91,14 @@ public class SalesController {
         return ApiResponse.ok(venue.report(from, to, outletId));
     }
 
-    /** Today at the outlets for the venue dashboards; tabs open longer than {@code staleHours} (default 4) need attention. */
+    /**
+     * Today at the outlets for the venue dashboards; tabs open longer than {@code staleHours} need attention (left out: Hotel setup's
+     * "Flag a tab open longer than", OUTLETS.tabMaxHours, 4 by default).
+     */
     @GetMapping("/sales/today")
     @PreAuthorize(MANAGEMENT)
     public ApiResponse<VenueToday> today(@RequestParam(required = false) Integer staleHours) {
-        return ApiResponse.ok(venue.today(staleHours));
+        return ApiResponse.ok(venue.today(staleHours != null ? staleHours
+                : outletSettings.get(com.hospio.common.tenancy.TenantContext.requireHotel()).tabMaxHours()));
     }
 }
