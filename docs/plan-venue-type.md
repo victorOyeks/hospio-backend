@@ -61,4 +61,11 @@ not get past "Rooms & prices", and room features (bookings, folios, charge-to-ro
 
 ## Log
 
-- 18 Nov 2026: plan agreed; phase 1 built and tested on staging (see the QA script for the steps).
+- 18 Nov 2026: plan agreed; phase 1 built and shipped (backend `f4aec5f`, web `b1c76fd` + `Owner wizard: Continue runs once`). QA Lounge qhye
+  and its location set to LOUNGE (the only QA lounge; every other location stays HOTEL: 105). Staging e2e: admin onboarded "QA Venue 5jf4"
+  as a Lounge (no rooms step, go-live 7/7 green, handover pack "Lounge", owner ticked the boxes and accepted); owner/manager/bar/kitchen
+  of it and of QA Lounge qhye see no room modules, Bookings/Rooms by address say "Not used at a lounge", night audit tills + tabs only,
+  charge to room refused (400); self-serve "QA Venue Resto 66bs" as a Restaurant through Outlets (no SMS: made-up number held back);
+  mixed "QA Venue Mixed cvt5" (hotel + lounge) follows the branch; Simpas Ikeja unchanged (front office, bookings, folios, bar charge to
+  room, night audit stay checks). Found and fixed on the way: the owner wizard ran each step's save twice (duplicate outlets, a false
+  "already has a hotel called" after a good save).
