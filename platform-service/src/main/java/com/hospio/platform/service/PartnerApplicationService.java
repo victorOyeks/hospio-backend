@@ -321,7 +321,8 @@ public class PartnerApplicationService {
         if (!EMAIL.matcher(email).matches()) {
             throw new BadRequestException("Enter a real email address");
         }
-        String phone = StringUtils.hasText(r.phone()) ? Phones.clean(r.phone(), "Phone") : a.getPhone();
+        // Not sent: the applicant's own number. Sent empty: invite without a phone (it is already on another account).
+        String phone = r.phone() == null ? a.getPhone() : Phones.clean(r.phone(), "Phone");
         MarketerInvited invited = marketers.invite(new PlatformRequests.MarketerInviteRequest(fullName, email, phone, share, months));
         a.setStatus(PartnerApplication.APPROVED);
         a.setDecidedAt(Instant.now());

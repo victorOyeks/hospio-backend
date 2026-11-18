@@ -97,6 +97,19 @@ public class IdentityClient {
         }
     }
 
+    /** identity's own sentence from a 409 body ("This phone number is already in use on another account"), else the usual one. */
+    public static String conflictMessage(String body) {
+        try {
+            String m = new com.fasterxml.jackson.databind.ObjectMapper().readTree(body).path("message").asText("");
+            if (!m.isBlank() && m.length() <= 200) {
+                return m;
+            }
+        } catch (Exception ignored) {
+            // not JSON: the usual sentence
+        }
+        return "A login with that email already exists";
+    }
+
     /** GET /internal/users/platform?role=: active holders of a platform role (SUPER_ADMIN, SUPPORT, FINANCE_ADMIN). Empty on failure. */
     public List<Contact> platformStaff(String role) {
         try {
@@ -138,7 +151,8 @@ public class IdentityClient {
         } catch (ExternalServiceException e) {
             throw e;
         } catch (org.springframework.web.client.HttpClientErrorException.Conflict e) {
-            throw new com.hospio.common.exception.ConflictException("A login with that email already exists");
+            // identity says which it is: the email, or the phone number on another account.
+            throw new com.hospio.common.exception.ConflictException(conflictMessage(e.getResponseBodyAsString()));
         } catch (Exception e) {
             log.error("Could not create the marketer login in identity-service", e);
             throw new ExternalServiceException("Could not create the login right now", e);
