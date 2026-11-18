@@ -1,6 +1,5 @@
 package com.hospio.platform.controller;
 
-import com.hospio.common.instrumentation.RequestLoggingSupport;
 import com.hospio.common.response.ApiResponse;
 import com.hospio.common.response.PageWithCounts;
 import com.hospio.platform.dto.PartnerApplicationDtos.ApplicationView;
@@ -12,6 +11,7 @@ import com.hospio.platform.dto.PartnerApplicationDtos.Received;
 import com.hospio.platform.dto.PartnerApplicationDtos.ReviewDefaults;
 import com.hospio.platform.dto.PartnerApplicationDtos.Submission;
 import com.hospio.platform.service.PartnerApplicationService;
+import com.hospio.platform.service.SiteCallers;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -33,12 +33,13 @@ public class PartnerApplicationController {
     static final String DECIDE = "hasAnyRole('SUPER_ADMIN','SUPPORT')";
 
     private final PartnerApplicationService applications;
+    private final SiteCallers site;
 
     @Operation(summary = "Public: apply to be a referral partner (landing site). 200 with the same message for a new application, a repeat "
             + "and a filled hidden field; 400 with a message per field; 429 when one address or email sent too many in an hour")
     @PostMapping("/public/partner-applications")
     public ResponseEntity<ApiResponse<Object>> apply(@RequestBody(required = false) ApplyRequest request, HttpServletRequest http) {
-        Submission s = applications.submit(request, RequestLoggingSupport.getClientIp(http), http.getHeader("User-Agent"));
+        Submission s = applications.submit(request, site.visitorAddress(http), http.getHeader("User-Agent"));
         if (Submission.INVALID.equals(s.outcome())) {
             String first = s.errors().values().stream().findFirst().orElse("Check the form");
             return ResponseEntity.badRequest().body(ApiResponse.error(first, s.errors()));
