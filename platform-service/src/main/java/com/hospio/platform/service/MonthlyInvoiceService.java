@@ -1018,8 +1018,11 @@ public class MonthlyInvoiceService {
             if (i.getTotal().add(amount).signum() < 0) {
                 throw new BadRequestException("A credit can't be more than the invoice total (NGN " + naira(i.getTotal()) + ")");
             }
-            lines.save(line(i.getBusinessId(), null, MonthlyInvoiceLine.ADJUSTMENT, null, amount.signum() < 0 ? "Credit note" : "Adjustment",
-                    r.reason().trim(), null, null, amount, null, null, 900 + lines.findByInvoiceIdOrderBySortOrderAscCreatedAtAsc(i.getId()).size()));
+            MonthlyInvoiceLine adj = line(i.getBusinessId(), null, MonthlyInvoiceLine.ADJUSTMENT, null, amount.signum() < 0 ? "Credit note" : "Adjustment",
+                    r.reason().trim(), null, null, amount, null, null, 900 + lines.findByInvoiceIdOrderBySortOrderAscCreatedAtAsc(i.getId()).size());
+            adj.setInvoiceId(i.getId());
+            adj.setCreatedByName(user.getFullName());
+            lines.save(adj);
             i.setAdjustmentsTotal(Money.of(i.getAdjustmentsTotal().add(amount)));
             i.setTotal(Money.of(i.getTotal().add(amount)));
             if (i.open() && i.getPaidAmount().compareTo(i.getTotal()) >= 0) {

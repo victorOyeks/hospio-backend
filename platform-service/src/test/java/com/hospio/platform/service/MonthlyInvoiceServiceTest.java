@@ -276,4 +276,30 @@ class MonthlyInvoiceServiceTest {
                 .doesNotContainIgnoringCase("debit");
         assertThat(n.emailKind()).isEqualTo(com.hospio.common.delivery.Delivery.Kind.INVOICE_FINAL);
     }
+
+    @Test
+    void aCreditNoteIsALineOnTheInvoiceAndLowersTheTotal() {
+        MonthlyInvoice i = invoice(ISSUED);
+        i.setId("inv1");
+        i.setTotal(new BigDecimal("12000.00"));
+        when(invoices.lockById("inv1")).thenReturn(Optional.of(i));
+        when(invoices.findById("inv1")).thenReturn(Optional.of(i));
+        com.hospio.common.security.HospioUserDetails admin = new com.hospio.common.security.HospioUserDetails("a2", "tobi@hospio360.com", "Tobi Lawal", null,
+                List.of(), java.util.Map.of(com.hospio.common.enums.Role.FINANCE_ADMIN, com.hospio.common.enums.AccessLevel.FULL), com.hospio.common.security.JwtUtil.SCOPE_PLATFORM);
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(admin, null, admin.getAuthorities()));
+        try {
+            service.adjust("inv1", new MonthlyInvoiceService.AdjustRequest(new BigDecimal("-3000"), "Sales over-recorded"));
+        } catch (RuntimeException ignored) {
+            // the view after it needs more mocks; the line and totals are what is checked here
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+        assertThat(savedLines).hasSize(1);
+        assertThat(savedLines.get(0).getInvoiceId()).isEqualTo("inv1");
+        assertThat(savedLines.get(0).getCreatedByName()).isEqualTo("Tobi Lawal");
+        assertThat(savedLines.get(0).getSection()).isEqualTo(MonthlyInvoiceLine.ADJUSTMENT);
+        assertThat(i.getTotal()).isEqualByComparingTo("9000");
+        assertThat(i.getAdjustmentsTotal()).isEqualByComparingTo("-3000");
+    }
 }
