@@ -42,7 +42,7 @@ Decisions taken while building (tell the owner):
 | Method | Path | Who | Notes |
 |---|---|---|---|
 | GET | `/platform/public/referral-codes/{code}` | anyone | `{code, valid, referrerFirstName, message}` |
-| POST | `/platform/marketer/agreement` | MARKETER | `{version: "RPA-2026-11"}`; stores version, when, who |
+| POST | `/platform/marketer/agreement` | MARKETER | `{version}` (the RPA version in force); recorded by the one acceptance system (`docs/legal-acceptance.md`, method PORTAL, with IP and browser), which also keeps the version on the profile |
 | PUT | `/platform/marketer/me/bank` | MARKETER | `{bankName, bankAccount (10 digits), bankAccountName, note}`; note required for a change; clears the check |
 | GET | `/platform/marketer/me` | MARKETER | `{profile, totals{earnedTotal, due, paid, businesses, referrals, nextStatement, carried, byStage}, currentAgreementVersion, agreementAccepted, minimumPayout, whtPct}` |
 | GET | `/platform/marketer/statements`, `/statements/{id}` | MARKETER | own statements + next-statement lines; detail with lines per business |

@@ -64,6 +64,7 @@ public class DevicePackageService {
     private final TenantClient tenant;
     private final TransactionTemplate tx;
     private final DeviceInvoiceRepository invoices;
+    private final LegalService legal;
 
     // ---- views ---------------------------------------------------------------------------------------
 
@@ -88,7 +89,8 @@ public class DevicePackageService {
                               BigDecimal last30Days, Integer daysLeft, LocalDate expectedFinish, Instant updatedAt,
                               boolean dataPlanRunning, LocalDate dataPlanFrom, LocalDate dataPlanStoppedOn, LocalDate nextDataPlanDue,
                               String dataPlanChangedByName, Instant dataPlanChangedAt, LocalDate dataPlanRenewedThrough, String dataPlanRenewedByName,
-                              Instant dataPlanRenewedAt) {
+                              Instant dataPlanRenewedAt, Instant termsAcceptedAt, String termsAcceptedName, String termsVersion,
+                              String signedScheduleRef) {
     }
 
     // ---- catalogue ------------------------------------------------------------------------------------
@@ -233,6 +235,11 @@ public class DevicePackageService {
             p.setAgreedBy(user.getUserId());
             p.setAgreedByName(user.getFullName());
             p.setAgreedAt(Instant.now());
+            // The owner accepts the device terms for what is in the package: a change asks them again.
+            p.setTermsAcceptedAt(null);
+            p.setTermsAcceptedBy(null);
+            p.setTermsAcceptedName(null);
+            p.setTermsVersion(null);
             DevicePackage kept = packages.save(p);
             items.deleteByPackageId(kept.getId());
             items.flush();
@@ -246,10 +253,47 @@ public class DevicePackageService {
     }
 
     /**
+     * The owner accepts the device terms for a package not yet installed (Hospio fees → Devices): the acceptance is recorded with the
+     * legal records (docs/legal-acceptance.md) and on the package. Accepting again after a change records it again.
+     */
+    public PackageView acceptTerms(String packageId, String version) {
+        HospioUserDetails user = CurrentUser.require();
+        DevicePackage p = tx.execute(st -> {
+            DevicePackage x = lock(packageId);
+            if (user.getBusinessId() == null || !user.getBusinessId().equals(x.getBusinessId())) {
+                throw new ResourceNotFoundException("Device package not found");
+            }
+            if (!DevicePackage.DRAFT.equals(x.getStatus())) {
+                throw new BadRequestException("This package is already " + label(x.getStatus()));
+            }
+            if (x.getTermsAcceptedAt() != null) {
+                return x;
+            }
+            String accepted = legal.acceptDevices(x.getId(), x.getHotelId(), x.getHotelName(), version);
+            x.setTermsAcceptedAt(Instant.now());
+            x.setTermsAcceptedBy(user.getUserId());
+            x.setTermsAcceptedName(user.getFullName());
+            x.setTermsVersion(accepted);
+            return packages.save(x);
+        });
+        return view(p);
+    }
+
+    /**
      * The devices are installed: collection starts that day (TRANSACTION: the device line in each daily fee from {@code on};
      * MONTHLY: the first instalment; ONE_TIME: the payment is recorded alongside). Own devices with no data plan have nothing to install.
      */
     public PackageView install(String packageId, LocalDate on) {
+        return install(packageId, on, null);
+    }
+
+    /**
+     * As {@link #install(String, LocalDate)}; the owner must have accepted the device terms for this package in the app first, unless the
+     * admin gives the reference of a signed device schedule ({@code signedScheduleRef}, the exception path).
+     */
+    public PackageView install(String packageId, LocalDate on, String signedScheduleRef) {
+        String schedule = signedScheduleRef == null || signedScheduleRef.isBlank() ? null
+                : signedScheduleRef.trim().length() > 120 ? signedScheduleRef.trim().substring(0, 120) : signedScheduleRef.trim();
         LocalDate day = on == null ? LocalDate.now(LAGOS) : on;
         if (day.isAfter(LocalDate.now(LAGOS))) {
             throw new BadRequestException("The installation date can't be in the future");
@@ -261,6 +305,13 @@ public class DevicePackageService {
             }
             if (DevicePackage.OWN_DEVICES.equals(x.getPaymentOption()) && x.getDataPlanMonthly().signum() <= 0) {
                 throw new BadRequestException("Own devices with no data plan: there is nothing to install");
+            }
+            if (x.getTermsAcceptedAt() == null && schedule == null) {
+                throw new BadRequestException("The owner hasn't accepted the device terms for this package yet (Hospio fees → Devices in the app), "
+                        + "or enter the reference of the signed device schedule");
+            }
+            if (schedule != null && x.getTermsAcceptedAt() == null) {
+                x.setSignedScheduleRef(schedule);
             }
             x.setStatus(x.getTotal().signum() > 0 ? DevicePackage.INSTALLED : DevicePackage.PAID_OFF);
             x.setInstalledAt(day);
@@ -553,7 +604,7 @@ public class DevicePackageService {
                 p.getAgreedAt(), p.getInstalledAt(), p.getPaidOffAt(), lines, paid, last30, daysLeft, finish, p.getUpdatedAt(),
                 p.dataPlanRunning(), p.getDataPlanFrom(), p.getDataPlanStoppedOn(), nextDataPlanDue(p),
                 p.getDataPlanChangedByName(), p.getDataPlanChangedAt(), p.getDataPlanRenewedThrough(), p.getDataPlanRenewedByName(),
-                p.getDataPlanRenewedAt());
+                p.getDataPlanRenewedAt(), p.getTermsAcceptedAt(), p.getTermsAcceptedName(), p.getTermsVersion(), p.getSignedScheduleRef());
     }
 
     static CatalogueView catalogueView(DeviceCatalogueItem i) {

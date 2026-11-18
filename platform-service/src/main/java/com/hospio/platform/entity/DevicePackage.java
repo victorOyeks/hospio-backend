@@ -161,4 +161,21 @@ public class DevicePackage extends TenantEntity {
     public boolean collecting() {
         return INSTALLED.equals(status) && remaining().signum() > 0;
     }
+
+    /** The owner accepted the device terms for this package in the app (docs/legal-acceptance.md); needed before installing. */
+    @Column(name = "terms_accepted_at")
+    private java.time.Instant termsAcceptedAt;
+
+    @Column(name = "terms_accepted_by", length = 36)
+    private String termsAcceptedBy;
+
+    @Column(name = "terms_accepted_name", length = 150)
+    private String termsAcceptedName;
+
+    @Column(name = "terms_version", length = 40)
+    private String termsVersion;
+
+    /** Instead of the owner's tick: the reference of a signed device schedule, entered by the admin at installation. */
+    @Column(name = "signed_schedule_ref", length = 120)
+    private String signedScheduleRef;
 }
