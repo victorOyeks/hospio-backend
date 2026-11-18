@@ -61,7 +61,7 @@ class FeeLockRuleTest {
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(admin, null, admin.getAuthorities()));
         when(settings.fees()).thenReturn(FeeSettings.DEFAULTS);
         when(rules.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(rules.findByBusinessIdOrderByStartsOnDesc("b1")).thenReturn(List.of());
+        when(rules.findByBusinessIdOrderByStartsOnDescCreatedAtDesc("b1")).thenReturn(List.of());
         when(tenant.business("b1")).thenReturn(Optional.empty());
         when(tenant.setFee(anyString(), anyString(), any(), any())).thenReturn(true);
     }
@@ -123,7 +123,7 @@ class FeeLockRuleTest {
 
     @Test
     void goingBackToTheDefaultIsRecorded() {
-        when(rules.findByBusinessIdOrderByStartsOnDesc("b1")).thenReturn(List.of(FeeRule.builder().businessId("b1").model("PERCENT_OF_SALES")
+        when(rules.findByBusinessIdOrderByStartsOnDescCreatedAtDesc("b1")).thenReturn(List.of(FeeRule.builder().businessId("b1").model("PERCENT_OF_SALES")
                 .value(new BigDecimal("2")).addendumRef("ADD-1").startsOn(LocalDate.of(2026, 1, 1)).build()));
         service.saveRule(rule("1.5", null));
         verify(changes).recordFee(eq("b1"), any(), isNull(), any(), eq(new BigDecimal("2")), eq("a1"), eq("Amoria"));
