@@ -45,7 +45,7 @@ class BusinessRulesTest {
     private final OnboardingDraftRepository drafts = mock(OnboardingDraftRepository.class);
     private final IdentityClient identity = mock(IdentityClient.class);
     private final BusinessService service = new BusinessService(businesses, hotels, drafts, new DraftData(new ObjectMapper()),
-            mock(EventPublisher.class), identity);
+            mock(EventPublisher.class), identity, mock(com.hospio.tenant.client.PlatformClient.class));
 
     @BeforeEach
     void signIn() {

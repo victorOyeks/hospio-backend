@@ -205,7 +205,7 @@ class DevicePackageServiceTest {
         FeeCollectionRepository collections = mock(FeeCollectionRepository.class);
         FeeDebitClient debits = mock(FeeDebitClient.class);
         DevicePackageService devices = mock(DevicePackageService.class);
-        FeeDebitRunner runner = new FeeDebitRunner(dailyFees, collections, debits, tx, devices);
+        FeeDebitRunner runner = new FeeDebitRunner(dailyFees, collections, debits, tx, devices, mock(CommissionService.class));
         when(collections.findByHotelId("a0000000-0000-4000-8000-000000000001")).thenReturn(Optional.of(FeeCollection.builder().hotelId("a0000000-0000-4000-8000-000000000001").provider("OPAY").debitEnabled(true).build()));
         DailyFee f = DailyFee.builder().businessId("b1").hotelId("a0000000-0000-4000-8000-000000000001").feeDate(TODAY.minusDays(1)).fee(new BigDecimal("2000")).carriedIn(BigDecimal.ZERO)
                 .deviceFee(new BigDecimal("3000")).deviceCarriedIn(BigDecimal.ZERO).due(new BigDecimal("5000")).devicePackageId("pk1")
@@ -225,7 +225,7 @@ class DevicePackageServiceTest {
         FeeCollectionRepository collections = mock(FeeCollectionRepository.class);
         FeeDebitClient debits = mock(FeeDebitClient.class);
         DevicePackageService devices = mock(DevicePackageService.class);
-        FeeDebitRunner runner = new FeeDebitRunner(dailyFees, collections, debits, tx, devices);
+        FeeDebitRunner runner = new FeeDebitRunner(dailyFees, collections, debits, tx, devices, mock(CommissionService.class));
         when(collections.findByHotelId("a0000000-0000-4000-8000-000000000001")).thenReturn(Optional.of(FeeCollection.builder().hotelId("a0000000-0000-4000-8000-000000000001").provider("OPAY").debitEnabled(true).build()));
         DailyFee f = DailyFee.builder().businessId("b1").hotelId("a0000000-0000-4000-8000-000000000001").feeDate(TODAY.minusDays(1)).fee(new BigDecimal("2000")).carriedIn(BigDecimal.ZERO)
                 .deviceFee(new BigDecimal("3000")).deviceCarriedIn(BigDecimal.ZERO).due(new BigDecimal("5000")).devicePackageId("pk1")

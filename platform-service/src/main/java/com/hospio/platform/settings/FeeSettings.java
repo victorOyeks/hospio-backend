@@ -11,10 +11,10 @@ import java.math.BigDecimal;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record FeeSettings(String model, BigDecimal perRoom, BigDecimal revenuePct, Integer trialDays, Integer dueDay, Integer graceDays,
                           BigDecimal marketerSharePct, Integer marketerMonths, BigDecimal whtPct, BigDecimal providerFeePct,
-                          BigDecimal hmsSharePct) {
+                          BigDecimal hmsSharePct, BigDecimal marketerMinPayout) {
 
     public static final FeeSettings DEFAULTS = new FeeSettings("PERCENT_OF_SALES", new BigDecimal("1500"), new BigDecimal("1.5"), 30, 5, 10,
-            new BigDecimal("20"), 24, new BigDecimal("5"), new BigDecimal("0.5"), new BigDecimal("1.5"));
+            new BigDecimal("20"), 12, new BigDecimal("5"), new BigDecimal("0.5"), new BigDecimal("1.5"), new BigDecimal("5000"));
 
     public static FeeSettings defaults() {
         return DEFAULTS;

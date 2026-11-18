@@ -237,14 +237,14 @@ public class DailyFeeService {
                                List<DailySales.Line> lines, BigDecimal rate, BigDecimal fee, BigDecimal carriedIn, BigDecimal due,
                                BigDecimal collected, String status, String provider, String debitRef, int attempts, String lastError,
                                Instant statementSentAt, Instant debitedAt, String devicePackageId, BigDecimal deviceRate, BigDecimal deviceFee,
-                               BigDecimal deviceCarriedIn, BigDecimal platformPaid, BigDecimal devicePaid) {
+                               BigDecimal deviceCarriedIn, BigDecimal platformPaid, BigDecimal devicePaid, BigDecimal refunded, String refundNote) {
     }
 
     public DailyFeeView view(DailyFee f) {
         return new DailyFeeView(f.getId(), f.getBusinessId(), f.getHotelId(), f.getHotelName(), f.getFeeDate(), f.getSalesTotal(),
                 read(f.getSalesLines()), f.getRate(), f.getFee(), f.getCarriedIn(), f.getDue(), f.getCollected(), f.getStatus(), f.getProvider(),
                 f.getDebitRef(), f.getAttempts(), f.getLastError(), f.getStatementSentAt(), f.getDebitedAt(), f.getDevicePackageId(), f.getDeviceRate(),
-                f.getDeviceFee(), f.getDeviceCarriedIn(), f.platformPaid(), f.devicePaid());
+                f.getDeviceFee(), f.getDeviceCarriedIn(), f.platformPaid(), f.devicePaid(), f.getRefunded(), f.getRefundNote());
     }
 
     /** The owner's own business, newest first (row security keeps it to their business). */
@@ -279,6 +279,20 @@ public class DailyFeeService {
             throw new BadRequestException("Ask for a year at most");
         }
         return new LocalDate[] {start, end};
+    }
+
+    /** One hotel's day only (QA on staging, QaFeeController): the same work-out as the 00:05 run, without touching other hotels. */
+    public DailyFeeView workOutOne(String businessId, String hotelId, LocalDate date) {
+        return TenantContext.runWith(Tenant.system("daily-fees-qa"), () -> {
+            TenantClient.Business b = tenant.business(businessId).orElseThrow(() -> new ResourceNotFoundException("Business not found"));
+            TenantClient.Hotel h = b.hotels().stream().filter(x -> x.id().equals(hotelId)).findFirst()
+                    .orElseThrow(() -> new ResourceNotFoundException("Hotel not found"));
+            DailyFee f = workOut(b, h, date, feeRules.valueFor(b));
+            if (f == null) {
+                throw new BadRequestException("That day is already worked out for this hotel");
+            }
+            return view(f);
+        });
     }
 
     /** Works a shadow or no-fee day out again (e.g. after a correction); a day with a debit on it is never redone. */

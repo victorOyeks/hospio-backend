@@ -27,7 +27,7 @@ class InternalIntegrationsKeyTest {
         IntegrationSettingsService integrations = mock(IntegrationSettingsService.class);
         when(integrations.saved("PAYSTACK")).thenReturn(new IntegrationSettings.Paystack("sk_live_secret"));
         InternalPlatformController controller = new InternalPlatformController(mock(ApprovalRepository.class), mock(PlatformSettingsService.class),
-                integrations);
+                integrations, mock(com.hospio.platform.service.MarketerService.class));
         mvc = MockMvcBuilders.standaloneSetup(controller).addFilters(SecurityChains.internalFilter("the-internal-key")).build();
     }
 

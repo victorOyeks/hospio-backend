@@ -50,7 +50,7 @@ public class TenantClient {
     }
 
     public record NewBusiness(String id, String name, String city, String ownerUserId, String ownerName, String ownerEmail,
-                              String ownerPhone, String source) {
+                              String ownerPhone, String source, String referralCode) {
     }
 
     /** Sign-up: the business with a preset id. Fails loudly; without a business the owner cannot exist. */
@@ -65,7 +65,13 @@ public class TenantClient {
             body.put("ownerEmail", business.ownerEmail());
             body.put("ownerPhone", business.ownerPhone() == null ? "" : business.ownerPhone());
             body.put("source", business.source());
+            if (business.referralCode() != null && !business.referralCode().isBlank()) {
+                body.put("referralCode", business.referralCode().trim());
+            }
             restClient.post().uri("/internal/businesses").body(body).retrieve().toBodilessEntity();
+        } catch (org.springframework.web.client.HttpClientErrorException.BadRequest e) {
+            // tenant's own words (an unknown referral code, say) are for the owner; nothing was created
+            throw new com.hospio.common.exception.BadRequestException(message(e.getResponseBodyAsString(), "The business couldn't be created"));
         } catch (Exception e) {
             log.error("Could not create business {} in tenant-service", business.name(), e);
             throw new ExternalServiceException("Could not create the business right now", e);
@@ -108,6 +114,17 @@ public class TenantClient {
         } catch (Exception e) {
             log.warn("Could not read business {}: {}", businessId, e.getMessage());
             return Optional.empty();
+        }
+    }
+
+    /** The {@code message} of an ApiResponse body, else {@code fallback}. */
+    static String message(String body, String fallback) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode n = new com.fasterxml.jackson.databind.ObjectMapper().readTree(body);
+            String m = n == null ? null : n.path("message").asText(null);
+            return m == null || m.isBlank() ? fallback : m;
+        } catch (Exception e) {
+            return fallback;
         }
     }
 }

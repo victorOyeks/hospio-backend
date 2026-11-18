@@ -81,6 +81,12 @@ public class InternalTenantController {
         return ApiResponse.ok("Fee updated", asSystem(() -> service.setFee(businessId, request.feeModel(), request.feeValue())));
     }
 
+    /** platform-service sets who referred the business (its marketer profile id; null clears it). */
+    @PutMapping("/businesses/{businessId}/marketer")
+    public ApiResponse<BusinessResponse> marketer(@PathVariable String businessId, @RequestBody java.util.Map<String, String> body) {
+        return ApiResponse.ok("Marketer set", asSystem(() -> service.setMarketer(businessId, body == null ? null : body.get("marketerId"))));
+    }
+
     /** platform-service alerts: every onboarding draft, or those in one status, to spot stalled ones. */
     @GetMapping("/onboarding")
     public ApiResponse<List<OnboardingResponse>> onboarding(@RequestParam(required = false) OnboardingDraft.Status status) {
