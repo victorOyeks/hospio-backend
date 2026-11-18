@@ -192,7 +192,7 @@ public class MailDispatcher {
     private static final java.util.regex.Pattern ADDRESS = java.util.regex.Pattern.compile("^[^@\\s<>,;\"]+@[^@\\s<>,;\"]+\\.[^@\\s<>,;\".]{2,}$");
 
     /** A plain address a mail provider accepts in a header: one @, a dotted domain, no spaces or brackets. */
-    static boolean address(String s) {
+    public static boolean address(String s) {
         return s != null && ADDRESS.matcher(s.trim()).matches();
     }
 
@@ -224,10 +224,13 @@ public class MailDispatcher {
             // A message the hotel pays for goes only while its guest-message service is on and not suspended.
             com.hospio.messaging.billing.CommBilling.Gate gate = billing == null ? com.hospio.messaging.billing.CommBilling.Gate.FREE
                     : billing.gate(e.getHotelId(), e.getKind());
-            DeliveryRecord.Status status = noTemplate || (gate.billable() && !gate.allowed()) ? DeliveryRecord.Status.SKIPPED : wanted;
+            // A reserved test domain (.test, .example, example.com…) can never receive mail: recorded SKIPPED, never sent, on
+            // every server (docs/email.md, "Test addresses are never sent"). Screens that say "sent to …" treat SKIPPED as normal.
+            boolean testAddress = email && TestAddresses.reserved(e.getTo());
+            DeliveryRecord.Status status = testAddress || noTemplate || (gate.billable() && !gate.allowed()) ? DeliveryRecord.Status.SKIPPED : wanted;
             if (status == DeliveryRecord.Status.SKIPPED) {
-                log.info("{} {} to {} not sent: {}", channel, e.getKind(), e.getTo(),
-                        noTemplate ? com.hospio.common.delivery.WhatsAppTemplates.NO_TEMPLATE : gate.reason());
+                log.info("{} {} to {} not sent: {}", channel, e.getKind(), e.getTo(), testAddress ? TestAddresses.REASON
+                        : noTemplate ? com.hospio.common.delivery.WhatsAppTemplates.NO_TEMPLATE : gate.reason());
             }
             boolean queued = status == DeliveryRecord.Status.QUEUED;
             String params = queued && text && e.getParams() != null ? json(e.getParams()) : null;
@@ -242,8 +245,8 @@ public class MailDispatcher {
                 return records.save(DeliveryRecord.builder().eventId(e.getEventId()).businessId(e.getBusinessId()).hotelId(e.getHotelId())
                         .channel(channel).toAddress(cut(e.getTo() == null ? "" : e.getTo().trim(), 255)).subject(cut(e.getSubject(), 300))
                         .kind(cut(e.getKind(), 40)).ref(cut(e.getRef(), 80)).fromName(cut(trimmed(e.getFromName()), 200))
-                        .replyTo(cut(trimmed(e.getReplyTo()), 255)).status(status).billable(!noTemplate && gate.billable() && gate.allowed())
-                        .error(noTemplate ? com.hospio.common.delivery.WhatsAppTemplates.NO_TEMPLATE
+                        .replyTo(cut(trimmed(e.getReplyTo()), 255)).status(status).billable(!testAddress && !noTemplate && gate.billable() && gate.allowed())
+                        .error(testAddress ? TestAddresses.REASON : noTemplate ? com.hospio.common.delivery.WhatsAppTemplates.NO_TEMPLATE
                                 : !gate.allowed() ? cut(gate.reason(), 500)
                                 : smsRefused ? "Not sent: SMS is only used for sign-in codes. Send by WhatsApp or email." : null)
                         .nextAttemptAt(queued ? Instant.now() : null).bodyText(queued ? nz(e.getText()) : null)
@@ -346,6 +349,9 @@ public class MailDispatcher {
         } else if (r.getAttempts() > maxAttempts) {
             result = new Result(false, false, null, null, cut(nz(r.getError()) + (notBlank(r.getError()) ? "; " : "") + "gave up after "
                     + (r.getAttempts() - 1) + " attempt(s)", 500), null);
+        } else if ("EMAIL".equals(r.getChannel()) && TestAddresses.reserved(r.getToAddress())) {
+            // Queued before the rule existed: still never sent (finish records it SKIPPED).
+            result = new Result(false, false, null, null, TestAddresses.REASON, null);
         } else if ("EMAIL".equals(r.getChannel())) {
             result = sendEmail(r);
         } else {
@@ -458,7 +464,7 @@ public class MailDispatcher {
                     r.setProviderMessageId(cut(res.providerRef(), 255));
                     r.setError(cut(res.error(), 500));
                 } else {
-                    r.setStatus(DeliveryRecord.Status.FAILED);
+                    r.setStatus(TestAddresses.REASON.equals(res.error()) ? DeliveryRecord.Status.SKIPPED : DeliveryRecord.Status.FAILED);
                     r.setError(cut(res.error(), 500));
                 }
                 // Finished: what was sent is not kept (temporary passwords travel in it).

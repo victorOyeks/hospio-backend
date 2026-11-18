@@ -211,6 +211,7 @@ class ConnectionChecksTest {
                 row("EMAIL", sent, null, null, now.minusSeconds(900)),
                 row("EMAIL", delivered, null, "delivered", now.minusSeconds(1200))));
         when(log.latest(org.mockito.ArgumentMatchers.eq("SMS"), any(), any(), any())).thenReturn(List.of());
+        when(log.emailTrackingSince()).thenReturn(now.minusSeconds(3600));
 
         Map<String, ConnectionCheck> r = byKey(checks.run());
 
@@ -218,9 +219,117 @@ class ConnectionChecksTest {
         assertThat(r.get("whatsapp").detail()).contains("Last message: failed 2 h ago — " + account,
                 "Last 7 days: 3 sent, 0 delivered, 3 failed", "The last 3 all failed").doesNotContain("Held back");
         assertThat(r.get("email").status()).isEqualTo("CONNECTED");
-        assertThat(r.get("email").detail()).contains("Last email: delivered 5 min ago", "4 sent, 2 delivered, 1 failed, 1 bounced (25% bounce rate)",
-                "the Brevo webhook key isn't set");
+        assertThat(r.get("email").detail()).contains("Last email: delivered 5 min ago. Tracking since ",
+                "; last 7 days (real addresses): 4 sent, 2 delivered, 1 bounced (25%).", "the Brevo webhook key isn't set");
         assertThat(r.get("sms").detail()).contains("No SMS code sent in the last 7 days", "until its secret key is set");
     }
-}
 
+    // ---- email health, honestly (docs/integrations.md, "Email health") ----
+
+    private static com.hospio.messaging.entity.DeliveryRecord mail(String to, com.hospio.messaging.entity.DeliveryRecord.Status status,
+                                                                   String error, String event, java.time.Instant at) {
+        com.hospio.messaging.entity.DeliveryRecord r = row("EMAIL", status, error, event, at);
+        r.setToAddress(to);
+        r.setProviderEventAt(event == null ? null : at.plusSeconds(5));
+        return r;
+    }
+
+    private ConnectionChecks emailChecks(List<com.hospio.messaging.entity.DeliveryRecord> rows, java.time.Instant trackingSince) {
+        InfobipClient infobip = new InfobipClient(server.url(), INFOBIP_KEY, "", "+2348148849797", "", "", "");
+        TermiiClient termii = new TermiiClient(true, server.url(), TERMII_KEY, "OE Alert", "dnd");
+        ConnectionChecks checks = new ConnectionChecks(infobip, termii, new TextSender(infobip, termii, true, true, "en", ""), mail(BREVO_KEY),
+                mailer, false, 3000);
+        com.hospio.messaging.repository.DeliveryRecordRepository log = mock(com.hospio.messaging.repository.DeliveryRecordRepository.class);
+        when(log.latest(any(), any(), any(), any())).thenReturn(List.of());
+        when(log.latest(org.mockito.ArgumentMatchers.eq("EMAIL"), any(), any(), any())).thenReturn(rows);
+        when(log.emailTrackingSince()).thenReturn(trackingSince);
+        checks.setDeliveries(log);
+        return checks;
+    }
+
+    private static final com.hospio.messaging.entity.DeliveryRecord.Status SENT = com.hospio.messaging.entity.DeliveryRecord.Status.SENT;
+    private static final com.hospio.messaging.entity.DeliveryRecord.Status DELIVERED = com.hospio.messaging.entity.DeliveryRecord.Status.DELIVERED;
+    private static final com.hospio.messaging.entity.DeliveryRecord.Status FAILED = com.hospio.messaging.entity.DeliveryRecord.Status.FAILED;
+    private static final String NO_MX = "Bounced (soft): Unable to find MX of domain hospio-qa.test";
+
+    @Test
+    void onlyTestAddressesSinceTrackingStartedIsANeutralNoteNotAnError() {
+        java.time.Instant now = java.time.Instant.now();
+        java.time.Instant since = now.minusSeconds(4 * 3600);
+        List<com.hospio.messaging.entity.DeliveryRecord> rows = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            rows.add(mail("qa" + i + "@hospio-qa.test", FAILED, NO_MX, "soft_bounce", now.minusSeconds(600L * (i + 1))));
+        }
+        // Real addresses before the webhook: they can only ever say "sent".
+        rows.add(mail("tunde@royalsuites.ng", SENT, null, null, now.minusSeconds(2 * 86400)));
+        rows.add(mail("ops@hospio360.com", SENT, null, null, now.minusSeconds(3 * 86400)));
+
+        ConnectionCheck email = byKey(emailChecks(rows, since).run()).get("email");
+
+        assertThat(email.status()).isEqualTo("CONNECTED");
+        assertThat(email.detail()).contains("Tracking since ", "No real emails since delivery tracking started.",
+                        "Before then: last email: sent 2 d ago.", "6 emails to test addresses not counted.")
+                .doesNotContain("bounced", "all failed", "hospio-qa.test");
+    }
+
+    @Test
+    void theLastEmailIsTheNewestToARealAddressAndTestOnesAreNotCounted() {
+        java.time.Instant now = java.time.Instant.now();
+        List<com.hospio.messaging.entity.DeliveryRecord> rows = List.of(
+                mail("qa@hospio-qa.test", FAILED, NO_MX, "soft_bounce", now.minusSeconds(60)),
+                mail("owner@gmail.com", DELIVERED, null, "delivered", now.minusSeconds(600)),
+                mail("x@example.com", FAILED, NO_MX, "hard_bounce", now.minusSeconds(700)));
+
+        ConnectionCheck email = byKey(emailChecks(rows, now.minusSeconds(3600)).run()).get("email");
+
+        assertThat(email.status()).isEqualTo("CONNECTED");
+        assertThat(email.detail()).contains("Last email: delivered 9 min ago.", "last 7 days (real addresses): 1 sent, 1 delivered, 0 bounced (0%).",
+                "2 emails to test addresses not counted.");
+    }
+
+    @Test
+    void theLastThreeRealEmailsFailingIsAnError() {
+        java.time.Instant now = java.time.Instant.now();
+        List<com.hospio.messaging.entity.DeliveryRecord> rows = List.of(
+                mail("a@gmail.com", FAILED, "Bounced (hard): 550 no such user", "hard_bounce", now.minusSeconds(60)),
+                mail("b@gmail.com", FAILED, "Bounced (hard): 550 no such user", "hard_bounce", now.minusSeconds(120)),
+                mail("c@yahoo.com", FAILED, "Brevo refused it: 401 unauthorised", null, now.minusSeconds(180)),
+                mail("d@gmail.com", DELIVERED, null, "delivered", now.minusSeconds(240)));
+
+        ConnectionCheck email = byKey(emailChecks(rows, now.minusSeconds(3600)).run()).get("email");
+
+        assertThat(email.status()).isEqualTo("ERROR");
+        assertThat(email.detail()).contains("Last email: failed", "Bounced (hard): 550 no such user", "4 sent, 1 delivered, 2 bounced (50%), 1 failed.",
+                "The last 3 real emails all failed.");
+    }
+
+    @Test
+    void aBounceRateOfTenPercentOverAtLeastTenRealEmailsIsAnError() {
+        java.time.Instant now = java.time.Instant.now();
+        List<com.hospio.messaging.entity.DeliveryRecord> rows = new java.util.ArrayList<>();
+        rows.add(mail("gone@gmail.com", FAILED, "Bounced (hard): 550", "hard_bounce", now.minusSeconds(5000)));
+        for (int i = 0; i < 9; i++) {
+            rows.add(0, mail("guest" + i + "@gmail.com", DELIVERED, null, "delivered", now.minusSeconds(60L * (i + 1))));
+        }
+        assertThat(byKey(emailChecks(rows, now.minusSeconds(86400)).run()).get("email").status()).isEqualTo("ERROR");
+        assertThat(byKey(emailChecks(rows, now.minusSeconds(86400)).run()).get("email").detail()).contains("10 sent, 9 delivered, 1 bounced (10%)",
+                "The bounce rate is 10% or more.");
+
+        // The same bounce among nine emails (too few to judge) is not an error.
+        assertThat(byKey(emailChecks(rows.subList(1, 10).stream().toList(), now.minusSeconds(86400)).run()).get("email").status()).isEqualTo("CONNECTED");
+    }
+
+    @Test
+    void beforeTrackingOnlySentAndFailedAreCounted() {
+        java.time.Instant now = java.time.Instant.now();
+        List<com.hospio.messaging.entity.DeliveryRecord> rows = List.of(
+                mail("a@gmail.com", SENT, null, null, now.minusSeconds(600)),
+                mail("qa@hospio-qa.test", FAILED, "Brevo refused it", null, now.minusSeconds(700)));
+
+        ConnectionCheck email = byKey(emailChecks(rows, null).run()).get("email");
+
+        assertThat(email.status()).isEqualTo("CONNECTED");
+        assertThat(email.detail()).contains("Last email: sent 10 min ago. Last 7 days (real addresses): 1 sent, 0 failed.",
+                "1 email to test addresses not counted.").doesNotContain("delivered,");
+    }
+}

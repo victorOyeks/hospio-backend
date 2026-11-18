@@ -35,6 +35,15 @@ public class InternalIntegrationsController {
     private final TermiiClient termii;
     private final PaystackClient paystack;
     private final ConnectionChecks checks;
+    private final com.hospio.messaging.service.TestEmailService testEmail;
+
+    /** Integrations → Brevo → Send a test email (platform-service asks, SUPER_ADMIN): one short email to {@code to}, recorded. */
+    @PostMapping("/brevo/send-test")
+    public ApiResponse<IntegrationTestResult> sendTest(@org.springframework.web.bind.annotation.RequestBody(required = false)
+                                                       java.util.Map<String, String> body) {
+        integrations.fresh(IntegrationProvider.BREVO.type());
+        return ApiResponse.ok(testEmail.send(body == null ? null : body.get("to")));
+    }
 
     /** The admin portal's connection checks for WhatsApp, email and SMS (platform-service asks): read-only, nothing is sent. */
     @GetMapping("/status")

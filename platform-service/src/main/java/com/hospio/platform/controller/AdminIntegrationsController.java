@@ -45,6 +45,18 @@ public class AdminIntegrationsController {
         return ApiResponse.ok("Saved. Services use it within a minute", integrations.update(provider, body));
     }
 
+    /** The address to send Integrations → Brevo's test email to. */
+    public record SendTestEmail(String to) {
+    }
+
+    @Operation(summary = "SUPER_ADMIN: send one short test email (recorded like any delivery) to check Brevo's delivery tracking; "
+            + "test addresses refused, at most one a minute")
+    @PostMapping("/brevo/send-test")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ApiResponse<IntegrationTestResult> sendTestEmail(@RequestBody(required = false) SendTestEmail body) {
+        return ApiResponse.ok(tests.sendTestEmail(body == null ? null : body.to()));
+    }
+
     @Operation(summary = "SUPER_ADMIN: a safe live check of the provider with the settings in force (never moves money)")
     @PostMapping("/{provider}/test")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
