@@ -64,4 +64,13 @@ class VenueReportServiceTest {
         assertThat(e.use().get(1).quantity()).isEqualByComparingTo("0.2");
         assertThat(e.use().get(2).quantity()).isEqualByComparingTo("0.6");
     }
+
+    @Test
+    void topItemsCountTheSameNameOnceAcrossOutlets() {
+        List<VenueReport.ItemRow> top = VenueReportService.topByName(List.of(item("a", "Star Lager", "Beer", 15, "22500"),
+                item("b", "Coke", "Soft drinks", 8, "6400"), item("c", "Chapman", "Cocktails", 4, "10000"), item("d", "coke ", "Soft drinks", 3, "2400")), 2);
+        assertThat(top).extracting(VenueReport.ItemRow::name).containsExactly("Star Lager", "Coke");
+        assertThat(top.get(1).quantity()).isEqualTo(11);
+        assertThat(top.get(1).revenue()).isEqualByComparingTo("8800");
+    }
 }

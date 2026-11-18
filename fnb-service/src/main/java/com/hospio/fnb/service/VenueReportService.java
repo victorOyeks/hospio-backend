@@ -13,6 +13,7 @@ import com.hospio.fnb.repository.PriceChangeRequestRepository;
 import com.hospio.fnb.rules.Days;
 import com.hospio.fnb.rules.Recipes;
 import com.hospio.fnb.rules.SaleBucket;
+import com.hospio.fnb.rules.StockSource;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
@@ -105,7 +106,7 @@ public class VenueReportService {
         if (m.onRooms().signum() > 0) {
             methods.add(new VenueReport.MethodRow("ROOM", 0, m.onRooms()));
         }
-        Expected expected = expected(items);
+        Expected expected = expected(items, byIdOutlets(s));
         List<SalesHistory.OutletRef> refs = s.outlets().stream().map(o -> new SalesHistory.OutletRef(o.getId(), o.getName(), o.getKind().name())).toList();
         return new VenueReport(f, t, outlet, refs, totals, byOutlet, items, categories(items), byStaff, hours(query.hours(q)), methods,
                 cap(voidRows), voidRows.size() > LIST_LIMIT, cap(discounts), discounts.size() > LIST_LIMIT, expected.use(), expected.withRecipe(),
@@ -146,7 +147,7 @@ public class VenueReportService {
         List<VenueReportQuery.VoidTotal> vt = query.voidTotals(q);
         VenueToday.Voids voids = new VenueToday.Voids(vt.stream().mapToLong(VenueReportQuery.VoidTotal::count).sum(),
                 Money.of(vt.stream().map(VenueReportQuery.VoidTotal::amount).reduce(BigDecimal.ZERO, BigDecimal::add)), query.voids(q, 10));
-        return new VenueToday(day, now, today, lastWeek, query.taken(q), byOutlet, query.items(q, true, 5),
+        return new VenueToday(day, now, today, lastWeek, query.taken(q), byOutlet, topByName(query.items(q, true, 0), 5),
                 query.openTabs(s.hotelId(), ids, now.minus(Duration.ofHours(stale)), stale, 10), new VenueToday.Unpaid(unpaid.sales(), unpaid.unpaid()),
                 voids, priceChanges.countByHotelIdAndStatus(s.hotelId(), "PENDING"));
     }
@@ -215,16 +216,34 @@ public class VenueReportService {
     record Expected(List<VenueReport.StockUse> use, int withRecipe, int withoutRecipe) {
     }
 
-    /** What the items' recipes call for from stock, for the units sold (items without a recipe are only counted). */
-    Expected expected(List<VenueReport.ItemRow> items) {
+    private static Map<String, Outlet> byIdOutlets(SalesHistoryService.Scope s) {
+        return s.outlets().stream().collect(Collectors.toMap(Outlet::getId, Function.identity()));
+    }
+
+    /**
+     * What the items' recipes call for from stock, for the units sold (items without a recipe are only counted). The recipe is the one the
+     * sale draws ({@link StockSource}): a dish made at another outlet without its own recipe uses the preparing outlet's twin.
+     */
+    Expected expected(List<VenueReport.ItemRow> items, Map<String, Outlet> outletsById) {
         if (items.isEmpty()) {
             return new Expected(List.of(), 0, 0);
         }
         Map<String, MenuItem> byId = menu.findAllById(items.stream().map(VenueReport.ItemRow::menuItemId).distinct().toList()).stream()
                 .collect(Collectors.toMap(MenuItem::getId, Function.identity()));
+        Map<String, List<MenuItem>> menus = new java.util.HashMap<>();
+        Map<String, String> sellingOf = items.stream().filter(i -> i.outletId() != null)
+                .collect(Collectors.toMap(VenueReport.ItemRow::menuItemId, VenueReport.ItemRow::outletId, (a, b) -> a));
         return expected(items, id -> {
             MenuItem m = byId.get(id);
-            return m == null ? List.of() : Recipes.read(m.getRecipeJson());
+            Outlet selling = outletsById.get(sellingOf.get(id));
+            if (m == null) {
+                return List.of();
+            }
+            if (selling == null) {
+                return Recipes.read(m.getRecipeJson());
+            }
+            return StockSource.of(m, null, selling, oid -> java.util.Optional.ofNullable(outletsById.get(oid)),
+                    oid -> menus.computeIfAbsent(oid, menu::findByOutletIdOrderByCategoryAscSortOrderAscNameAsc)).recipe();
         });
     }
 
@@ -247,6 +266,20 @@ public class VenueReportService {
         }
         return new Expected(use.entrySet().stream().map(e -> new VenueReport.StockUse(e.getKey(), e.getValue().stripTrailingZeros())).toList(), with,
                 without);
+    }
+
+    /** The most sold items across outlets, the same name counted once (Coke at the bar and at the lounge), most first. */
+    static List<VenueReport.ItemRow> topByName(List<VenueReport.ItemRow> items, int n) {
+        Map<String, VenueReport.ItemRow> by = new LinkedHashMap<>();
+        for (VenueReport.ItemRow i : items) {
+            String k = i.name() == null ? "" : i.name().trim().toLowerCase(java.util.Locale.ROOT);
+            VenueReport.ItemRow p = by.get(k);
+            by.put(k, p == null ? i : new VenueReport.ItemRow(p.menuItemId(), p.name(), p.category(), p.outletId(),
+                    java.util.Objects.equals(p.outletName(), i.outletName()) ? p.outletName() : null, p.quantity() + i.quantity(),
+                    p.revenue().add(i.revenue())));
+        }
+        return by.values().stream().sorted(Comparator.comparingLong(VenueReport.ItemRow::quantity).reversed()
+                .thenComparing(VenueReport.ItemRow::revenue, Comparator.reverseOrder()).thenComparing(VenueReport.ItemRow::name)).limit(n).toList();
     }
 
     private static <T> List<T> cap(List<T> rows) {
