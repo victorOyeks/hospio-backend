@@ -61,3 +61,15 @@ A waiter takes orders and serves, on the orders they opened (Full access = head 
 open tab or sale and keeps the CASHIER till. Neither marks a dish ready, cancels what was sent or changes the menu. Whether waiters
 take payment (and cash) is Hotel setup → Restaurant & bar (`OUTLETS.waitersTakePayment`, `waiterCash`). The full table is in
 `docs/plan-venue-type.md` (Phase 3) and `packages/api/src/roles.ts` (`ROLE_PERMISSIONS.WAITER`, `.CASHIER`).
+
+## Discounts, voids and outlets (venue type, phase 4)
+
+- Who gives a discount on a restaurant or bar sale without asking is a location setting, not a level: `OUTLETS.discountRoles`
+  (cashier and bar by default) up to `APPROVAL_LIMITS.discountPct`; managers and owners any. Everyone else, a bigger discount and
+  every complimentary item is a request a manager or the owner decides.
+- Voiding something already sent, or a whole sale that was sent, stays with Full access / a manager; anyone else working the bill
+  asks for it from their screen.
+- A manager decides a request from their dashboard, or on the requester's screen with their own PIN (the owner: password);
+  identity counts wrong tries and locks as it does for PIN sign-in. Nobody approves their own request.
+- A waiter, cashier, bar or kitchen person can be kept to some outlets of the location (fnb `staff_outlets`); the role and level
+  are unchanged.

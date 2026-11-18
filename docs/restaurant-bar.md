@@ -139,3 +139,53 @@ Two floor roles next to KITCHEN and BAR, at every outlet of the location (docs/p
 - Income stays the outlet's desk (BAR/KITCHEN); `payment_requests.role` is CASHIER or WAITER (the till). Sales by staff counts the
   sale under whoever opened it.
 - Hospio360 may `POST/PUT /fnb/outlets` for a location during onboarding (the platform caller is bound to the location's business).
+
+## The bill: splitting, discounts, requests, tips, outlets per person (venue type, phase 4)
+
+Every open order has a bill (`GET /fnb/orders/{id}/bill`: the order, `balance`, the split and its parts, payments, requests, tips and
+`can`). What is still to pay is `total - paidAmount - roomAmount` (`Order.balance()`); `roomAmount` is what parts of a split bill put
+on rooms. docs/plan-venue-type.md (Phase 4) has the rules in words.
+
+| Method | Path | Who | What |
+|---|---|---|---|
+| GET | `/orders/{id}/bill` | anyone who may open the order | `Bill` |
+| POST | `/orders/{id}/split` | whoever takes its payment (outlet staff, cashier, manager; a waiter where waiters take payment) | `{mode: EQUAL, people}` · `{mode: AMOUNT, amounts[]}` (the rest of the bill is the last part) · `{mode: ITEM, parts[{label, lines[{lineId, shares}]}]}` (every live line on at least one part; a line on several parts is shared by `shares`). Divides `balance`; ITEM only while nothing is paid. One split at a time |
+| DELETE | `/orders/{id}/split` | same | undo; 400 once a part has money on it |
+| POST | `/orders/{id}/parts/{partId}/charge-to-room?roomId=` | same, front office, the order's waiter | the part goes on the room's folio (`ORDER-PART-{partId}`, without VAT and service charge as always); needs `OUTLETS.roomCharge`, a guest checked in and an open folio |
+| POST | `/orders/{id}/discount` | anyone working the bill | `{lineId?, pct? | amount?, complimentary?, reason}` → `{bill, request}`: applied now, or `request` when it went to a manager |
+| DELETE | `/orders/{id}/discount?lineId=` | whoever gave it, a role that gives discounts, a manager | removes a line's discount or the bill's |
+| POST | `/orders/{id}/void-request` | anyone working the bill who may not void it alone | `{lineId?, reason}` → `{bill, request}` |
+| GET | `/sale-requests?status=ALL&mine=` · `/sale-requests/{id}` | manager, owner: everyone's; others: their own | requests (`PENDING`, `APPROVED`, `DECLINED`, `NOT_APPLIED`) |
+| GET · PUT | `/staff-outlets/mine` · `/staff-outlets` · `/staff-outlets/{userId}` | anyone · manager view · manager, owner, Hospio360 | the outlets a person works; `{outletIds: []}` = every outlet |
+| GET | `/tips/report?from&to&staffId` | manager, owner, finance: all; others: their own | totals, by staff, by Lagos day, the tips |
+
+- **Splitting to the kobo** (`rules/BillSplit`): every part but the last is rounded down, the last takes the remainder; the tax and
+  service charge inside the amount are shared the same way (`order_split_parts.tax`, `service_charge`). While a split stands
+  (`orders.split_parts > 0`) lines and discounts don't change ("… is split. Undo the split to …") and the whole order can't be
+  charged to a room. Cancelling a split sale with nothing paid undoes the split.
+- **Paying a part**: payment-service `POST /payment/payments` takes `partId` (and `tipAmount`). It asks fnb
+  `GET /internal/orders/{id}/due?partId=&payerId=`; `refusal` there is the 400 it answers ("B-0004 is split into 3 parts. Take the
+  payment for one of its parts", a part already paid, an outlet the payer isn't assigned to); `due` is the part's. The receipt's
+  line carries "Part 2 of 3". `PaymentApprovedEvent` carries `partId` and `tipAmount`; fnb marks the part, and settles and closes the
+  order when `paidAmount + roomAmount` reaches the total (a bill with a part on a room ends `chargedToRoom`, its paid part the money
+  taken at the outlet).
+- **Discounts** (`rules/Discounts`, `DiscountService`): `order_lines.discount` stays everything taken off a line (happy hour +
+  `manual_discount` + `bill_discount`, its share of a discount on the whole bill), so every report keeps reading one column. Who
+  gives without asking: managers and owners any; the roles in `OUTLETS.discountRoles` (default `CASHIER,BAR`) up to
+  `APPROVAL_LIMITS.discountPct`, judged on the line given the most by hand; a complimentary item, more than the limit, or anyone
+  else becomes a request. A bill made wholly complimentary closes as COMPLIMENTARY. Reason, giver and approver are kept on the line
+  or the order; `GET /sales/report` discount rows add `byHand`, `complimentaryItems`, `complimentaryAmount`, `reasons`, `givenBy`,
+  `approvedBy`.
+- **Requests** (`SaleRequestService`): each is a platform approval (module FNB, kind `VOID`, `DISCOUNT` or `COMPLIMENTARY`, manager
+  level; the owner gets a notice too). The decision returns on `APPROVAL_DECIDED` and is applied in the requester's name with the
+  approver in the reason or on the discount; when the sale has moved on it is kept as `NOT_APPLIED` with why. The requester gets a
+  notice either way. platform-service `POST /platform/approvals/{id}/decide-on-device {approver, secret, decision, note}` lets a
+  manager decide on the requester's screen: identity `POST /internal/users/verify-approver` checks their PIN (the owner's password;
+  wrong tries count and lock like PIN sign-in) and the decision is recorded in the manager's name.
+- **Tips**: only where `OUTLETS.recordTips` is on (400 otherwise). `payment_requests.amount` is bill + tip (what the POS and the
+  receipt show), `tip_amount` the tip. fnb keeps `order_payments.amount` without the tip and the tip in `order_tips` against whoever
+  opened the sale; finance records income without it and a cash tip as a `TIP` till entry (`tills.cash_tips`, inside expected
+  cash). So sales, income, payments by method and the daily fee base never include a tip.
+- **Outlets per person** (`StaffOutlets`, `fnb.staff_outlets`): no rows = every outlet. With rows, orders, the board, sales history
+  and payments at another outlet are refused ("You aren't assigned to Main Bar. A manager can add it to your outlets (Staff →
+  Edit)"). Managers, owners, finance and Hospio360 are never narrowed; front office keeps room service.

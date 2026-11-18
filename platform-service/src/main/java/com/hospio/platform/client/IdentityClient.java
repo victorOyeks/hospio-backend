@@ -99,7 +99,8 @@ public class IdentityClient {
 
     /** identity's own sentence from a 409 body ("This phone number is already in use on another account"), else the usual one. */
     /** The manager (or owner) who typed their PIN (password) on a colleague's screen to approve something. */
-    public record Approver(String userId, String fullName, boolean owner) {
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    public record Approver(String userId, String fullName, boolean owner, String refusal) {
     }
 
     private static final ParameterizedTypeReference<ApiResponse<Approver>> APPROVER = new ParameterizedTypeReference<>() {
@@ -118,6 +119,9 @@ public class IdentityClient {
         body.put("ownerOnly", ownerOnly);
         try {
             Approver a = TenantClient.data(restClient.post().uri("/internal/users/verify-approver").body(body).retrieve().body(APPROVER));
+            if (a != null && a.refusal() != null && !a.refusal().isBlank()) {
+                throw new com.hospio.common.exception.BadRequestException(a.refusal());
+            }
             if (a == null || a.userId() == null) {
                 throw new com.hospio.common.exception.BadRequestException("Could not check that PIN. Try again");
             }

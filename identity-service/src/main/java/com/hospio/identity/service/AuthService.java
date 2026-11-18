@@ -262,7 +262,11 @@ public class AuthService {
     public record ApproverCheck(String identifier, String secret, String businessId, String hotelId, boolean ownerOnly) {
     }
 
-    public record Approver(String userId, String fullName, boolean owner) {
+    /** {@code refusal}: why this person can't approve (unknown, not a manager here, wrong or locked PIN); the other fields are then empty. */
+    public record Approver(String userId, String fullName, boolean owner, String refusal) {
+        public Approver(String userId, String fullName, boolean owner) {
+            this(userId, fullName, owner, null);
+        }
     }
 
     /**

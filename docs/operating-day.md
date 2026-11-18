@@ -93,3 +93,9 @@ reservation-service: check-in into a room whose housekeeping status is DIRTY is 
 ## Web (hospio-frontend)
 
 Live domains add `finance`, `housekeeping`. New action files `packages/api/src/actions/{workforce,finance,housekeeping,approvals}.ts`; mappers `data/mappers/{finance,workforce,housekeeping,approvals}.ts`; seam branches for `finance.{today,tills,expenses,transactions,nightAudits,series}`, `staff.{shifts,leave,shiftRequests}`, `approvals.{list,get}`, `housekeeping.{tasks,lostFound}`. Screens switched from `useDemoAction` to `useAction`: manager staff (rota, leave, requests), manager approvals, manager financials, manager night audit, manager dashboard money, owner dashboard (seam, not fixture imports) and approval panel, owner financials (KPIs, series, expenses, approvals; payroll/bills/branch sections show "Not connected yet"), finance role (today, tills, expenses, night audit), front-office till (open, movements, close, handover) and room board (mark ready, send to housekeeping, rush), housekeeping my rooms and inspect, shared My shifts (clock in/out, requests, leave). Hard-coded limits and the owner's name come from settings and the business.
+
+## Tips on a till (venue type, phase 4)
+
+Where a location records tips, a cash tip handed over with a payment is in the drawer: it is its own till entry (`TIP`, "Cash tip
+(held for staff)"), part of `expectedCash`, and summed on the till as `cashTips` so the count at close says how much of the cash is
+tips. Income (`revenue_entries`) is the payment less the tip. Card and transfer tips are not in any till.

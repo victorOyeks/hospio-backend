@@ -38,11 +38,19 @@ public class InternalUserController {
 
     private final com.hospio.identity.service.AuthService authService;
 
-    /** platform approvals: a manager's PIN (or the owner's password) typed on a colleague's screen. 401/403 with the sentence to show. */
+    /**
+     * platform approvals: a manager's PIN (or the owner's password) typed on a colleague's screen. A refusal is answered 200 with
+     * {@code refusal} (the sentence to show): the body of a 401 does not reliably reach a service client.
+     */
     @PostMapping("/verify-approver")
     public ApiResponse<com.hospio.identity.service.AuthService.Approver> verifyApprover(
             @org.springframework.web.bind.annotation.RequestBody com.hospio.identity.service.AuthService.ApproverCheck request) {
-        return ApiResponse.ok(authService.verifyApprover(request));
+        try {
+            return ApiResponse.ok(authService.verifyApprover(request));
+        } catch (com.hospio.common.exception.UnauthorizedException | com.hospio.common.exception.ForbiddenException
+                 | com.hospio.common.exception.BadRequestException e) {
+            return ApiResponse.ok(new com.hospio.identity.service.AuthService.Approver(null, null, false, e.getMessage()));
+        }
     }
 
     @GetMapping("/{userId}/contact")
