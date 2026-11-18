@@ -189,7 +189,7 @@ public class UserService {
      */
     static AccessLevel defaultLevel(Role role) {
         return switch (role) {
-            case FRONT_OFFICE, HOUSEKEEPING, LAUNDRY, MAINTENANCE, KITCHEN, BAR, INVENTORY, FINANCE -> AccessLevel.EDIT;
+            case FRONT_OFFICE, HOUSEKEEPING, LAUNDRY, MAINTENANCE, KITCHEN, BAR, INVENTORY, FINANCE, WAITER, CASHIER -> AccessLevel.EDIT;
             default -> AccessLevel.FULL;
         };
     }

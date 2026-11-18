@@ -84,6 +84,55 @@ public final class SetupCatalogue {
                 "MINIBAR_CHECKED", "Minibar checked", "FLOOR_CLEANED", "Floor cleaned", "AMENITIES_RESTOCKED", "Amenities restocked"));
         l.put("PAYMENT_METHODS", items("CASH", "Cash", "CARD", "Card", "TRANSFER", "Transfer"));
         LISTS = Collections.unmodifiableMap(l);
+
+        // A lounge, bar or restaurant (docs/plan-venue-type.md, phase 3): reasons that fit a sale, no booking or housekeeping lists.
+        Map<String, List<ListDefault>> v = new LinkedHashMap<>();
+        v.put("CANCEL_REASONS", items("GUEST_CHANGED_MIND", "Guest changed mind", "GUEST_LEFT", "Guest left before it was served",
+                "RANG_UP_TWICE", "Rang up twice", "WRONG_TABLE", "Wrong table or tab"));
+        v.put("DISCOUNT_REASONS", items("REGULAR_GUEST", "Regular guest", "SERVICE_RECOVERY", "Service recovery", "STAFF_MEAL", "Staff meal",
+                "ON_THE_HOUSE", "On the house (complimentary)", "MANAGER_DISCRETION", "Manager's discretion"));
+        v.put("VOID_REASONS", items("ENTERED_IN_ERROR", "Entered in error", "RANG_UP_TWICE", "Rang up twice", "GUEST_CHANGED_MIND", "Guest changed mind",
+                "OUT_OF_STOCK", "Out of stock", "SENT_BACK", "Sent back or spilled", "GUEST_DISPUTED", "Guest disputed"));
+        v.put("WRITE_OFF_REASONS", l.get("WRITE_OFF_REASONS"));
+        v.put("SHIFTS", items("DAY", "Day (10:00-18:00)", "EVENING", "Evening (18:00-02:00)"));
+        v.put("DEPARTMENTS", items("SERVICE", "Service (waiters)", "CASHIER", "Cashier", "KITCHEN", "Kitchen", "BAR", "Bar", "INVENTORY", "Inventory",
+                "FINANCE", "Finance"));
+        v.put("PAYMENT_METHODS", l.get("PAYMENT_METHODS"));
+        VENUE_LISTS = Collections.unmodifiableMap(v);
+    }
+
+    /** List name → default entries for a location without accommodation, in display order. */
+    public static final Map<String, List<ListDefault>> VENUE_LISTS;
+
+    /** The name of the built-in template a lounge, bar or restaurant starts with. */
+    public static final String VENUE_TEMPLATE_NAME = "Lounge / bar / restaurant";
+
+    /**
+     * What a lounge, bar or restaurant starts with. Sections and keys that only mean something with rooms (stay rules, housekeeping,
+     * check-in and check-out times, charge to a room, the night audit's arrivals check) are left out, so nothing is stored for them:
+     * a location that later gains rooms reads the hotel defaults for those and keeps everything set here.
+     */
+    public static final HotelSetup VENUE_DEFAULTS = new HotelSetup(
+            new SetupSection.Basics(null, null, "Africa/Lagos", "Thank you for coming. See you again soon.", "10:00", "02:00"),
+            SetupSection.Brand.DEFAULTS,
+            null,
+            new SetupSection.Payments(true, true, true, "PRINT", BigDecimal.ZERO, BigDecimal.valueOf(10000), "", ""),
+            SetupSection.TaxesCurrency.DEFAULTS,
+            SetupSection.ApprovalLimits.DEFAULTS,
+            null,
+            new SetupSection.Outlets(null, true, BigDecimal.valueOf(100000), 4, true, false, false),
+            new SetupSection.Messaging("", false, false, true),
+            SetupSection.Staff.DEFAULTS,
+            new SetupSection.NightAudit("04:00", true, null),
+            SetupSection.Pos.DEFAULTS);
+
+    /** The defaults a new location starts with: the venue ones without accommodation, the hotel ones with. */
+    public static HotelSetup defaultsFor(boolean accommodation) {
+        return accommodation ? HotelSetup.DEFAULTS : VENUE_DEFAULTS;
+    }
+
+    public static Map<String, List<ListDefault>> listsFor(boolean accommodation) {
+        return accommodation ? LISTS : VENUE_LISTS;
     }
 
     public static boolean isOwnerOnly(String section) {
@@ -204,15 +253,24 @@ public final class SetupCatalogue {
 
     /** The whole catalogue as a template: every section's defaults and every list's default entries, numbered from 1. */
     public static SetupTemplateSettings template() {
+        return template(HotelSetup.DEFAULTS, LISTS);
+    }
+
+    /** The "Lounge / bar / restaurant" template: {@link #VENUE_DEFAULTS} and {@link #VENUE_LISTS}. */
+    public static SetupTemplateSettings venueTemplate() {
+        return template(VENUE_DEFAULTS, VENUE_LISTS);
+    }
+
+    private static SetupTemplateSettings template(HotelSetup sections, Map<String, List<ListDefault>> source) {
         Map<String, List<SetupListEntry>> lists = new LinkedHashMap<>();
-        LISTS.forEach((name, items) -> {
+        source.forEach((name, items) -> {
             List<SetupListEntry> entries = new ArrayList<>();
             for (int i = 0; i < items.size(); i++) {
                 entries.add(new SetupListEntry(items.get(i).code(), items.get(i).label(), i + 1));
             }
             lists.put(name, List.copyOf(entries));
         });
-        return SetupTemplateSettings.of(HotelSetup.DEFAULTS, Collections.unmodifiableMap(lists));
+        return SetupTemplateSettings.of(sections, Collections.unmodifiableMap(lists));
     }
 
     private static Object read(RecordComponent c, Object record) {

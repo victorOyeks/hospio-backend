@@ -102,6 +102,8 @@ public class HandoverPack {
             case "BAR" -> "Bar";
             case "INVENTORY" -> "Inventory";
             case "FINANCE" -> "Finance";
+            case "WAITER" -> "Waiters";
+            case "CASHIER" -> "Cashiers";
             default -> Function.<String>identity().apply(role.charAt(0) + role.substring(1).toLowerCase().replace('_', ' '));
         };
     }

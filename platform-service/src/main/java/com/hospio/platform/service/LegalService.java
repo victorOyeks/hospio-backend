@@ -66,7 +66,7 @@ public class LegalService {
 
     private static final ZoneId LAGOS = ZoneId.of("Africa/Lagos");
     private static final Set<Role> STAFF_ROLES = Set.of(Role.MANAGER, Role.FRONT_OFFICE, Role.HOUSEKEEPING, Role.LAUNDRY, Role.MAINTENANCE,
-            Role.KITCHEN, Role.BAR, Role.INVENTORY, Role.FINANCE);
+            Role.KITCHEN, Role.BAR, Role.INVENTORY, Role.FINANCE, Role.WAITER, Role.CASHIER);
 
     private final LegalDocumentRepository documents;
     private final LegalAcceptanceRepository acceptances;

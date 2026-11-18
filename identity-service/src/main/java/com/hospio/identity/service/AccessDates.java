@@ -46,6 +46,8 @@ public final class AccessDates {
             case BAR -> "Bar";
             case INVENTORY -> "Inventory";
             case FINANCE -> "Finance";
+            case WAITER -> "Waiter";
+            case CASHIER -> "Cashier";
             default -> role.name();
         };
     }

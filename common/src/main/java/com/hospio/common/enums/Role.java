@@ -8,6 +8,8 @@ package com.hospio.common.enums;
 public enum Role {
     OWNER, MANAGER,
     FRONT_OFFICE, HOUSEKEEPING, LAUNDRY, MAINTENANCE, KITCHEN, BAR, INVENTORY, FINANCE,
+    /** Outlet floor roles (docs/plan-venue-type.md, phase 3): a waiter takes orders and serves, a cashier takes the money and keeps the till. */
+    WAITER, CASHIER,
     SUPER_ADMIN, SUPPORT, FINANCE_ADMIN, MARKETER, SYSTEM;
 
     public boolean isPlatform() {

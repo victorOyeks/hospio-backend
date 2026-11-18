@@ -777,4 +777,74 @@ class OrderServiceTest {
 
         assertThat(l.getCancelledByName()).isEqualTo("Segun");
     }
+
+    // ---- waiters and cashiers (docs/plan-venue-type.md, phase 3) ------------------------------------------------
+
+    private void signInAs(String id, String name, Map<Role, AccessLevel> roles) {
+        HospioUserDetails user = new HospioUserDetails(id, id + "@x.ng", name, "b1", List.of("h1"), roles, JwtUtil.SCOPE_HOTEL);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities()));
+        TenantContext.set(Tenant.fromUser(user, "h1"));
+    }
+
+    @Test
+    void aWaiterOpensATabAddsToItSendsItAndServesItButDoesNotMakeItReady() {
+        signInAs("w1", "Wale", Map.of(Role.WAITER, AccessLevel.EDIT));
+        OrderResponse created = service.create(tab("lager"));
+        assertThat(created.total()).isEqualByComparingTo("1500.00");
+
+        Order o = savedOrder(Order.Kind.TAB, "1500.00");
+        o.setOpenedBy("w1");
+        service.addLine("order-1", new OrderRequest.LineRequest("lager", 1, null, null));
+        service.send("order-1");
+        OrderLine sent = storedLines.get(storedLines.size() - 1);
+        assertThat(sent.getStatus()).isEqualTo(OrderLine.Status.SENT);
+        assertThatThrownBy(() -> service.setLineStatus("order-1", sent.getId(), OrderLine.Status.READY)).isInstanceOf(ForbiddenException.class);
+        sent.setStatus(OrderLine.Status.READY);
+        service.setLineStatus("order-1", sent.getId(), OrderLine.Status.SERVED);
+        assertThat(sent.getStatus()).isEqualTo(OrderLine.Status.SERVED);
+    }
+
+    @Test
+    void aWaiterCannotVoidWhatWasSentNorTouchAnotherWaitersTabAndAHeadWaiterCan() {
+        signInAs("w1", "Wale", Map.of(Role.WAITER, AccessLevel.EDIT));
+        Order o = savedOrder(Order.Kind.TAB, "3000.00");
+        o.setOpenedBy("w1");
+        OrderLine sent = line(OrderLine.Status.SENT);
+        assertThatThrownBy(() -> service.cancelLine("order-1", sent.getId(), "wrong drink")).isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("needs a manager or Full access");
+        assertThatThrownBy(() -> service.cancel("order-1", "guest left")).isInstanceOf(ForbiddenException.class);
+
+        o.setOpenedBy("w2");
+        o.setOpenedByName("Kemi");
+        assertThatThrownBy(() -> service.addLine("order-1", new OrderRequest.LineRequest("lager", 1, null, null))).isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("was opened by Kemi");
+        assertThatThrownBy(() -> service.get("order-1")).isInstanceOf(ForbiddenException.class);
+
+        signInAs("w1", "Wale", Map.of(Role.WAITER, AccessLevel.FULL));
+        service.addLine("order-1", new OrderRequest.LineRequest("lager", 1, null, null));
+        assertThat(service.get("order-1").id()).isEqualTo("order-1");
+        // Even a head waiter doesn't void what was sent: that is the outlet's Full access or a manager.
+        assertThatThrownBy(() -> service.cancelLine("order-1", sent.getId(), "wrong drink")).isInstanceOf(ForbiddenException.class);
+    }
+
+    @Test
+    void aCashierSeesEveryOrderButRingsNothingUp() {
+        signInAs("c1", "Chika", Map.of(Role.CASHIER, AccessLevel.EDIT));
+        Order o = savedOrder(Order.Kind.TAB, "1500.00");
+        o.setOpenedBy("w1");
+        assertThat(service.get("order-1").id()).isEqualTo("order-1");
+        assertThatThrownBy(() -> service.create(tab("lager"))).isInstanceOf(ForbiddenException.class).hasMessageContaining("A cashier takes payments");
+        assertThatThrownBy(() -> service.addLine("order-1", new OrderRequest.LineRequest("lager", 1, null, null))).isInstanceOf(ForbiddenException.class);
+        OrderLine l = line(OrderLine.Status.NEW);
+        assertThatThrownBy(() -> service.cancelLine("order-1", l.getId(), "wrong")).isInstanceOf(ForbiddenException.class);
+    }
+
+    @Test
+    void aTabNeedsANameOrATableWhenTheVenueAsksForOne() {
+        config = new OutletSettings.Settings(true, true, new BigDecimal("5000"), true, new BigDecimal("7.5"), BigDecimal.ZERO, true, false);
+        signIn(Map.of(Role.BAR, AccessLevel.EDIT));
+        assertThatThrownBy(() -> service.create(new OrderRequest("bar", Order.Kind.TAB, null, null, " ", null, List.of())))
+                .isInstanceOf(BadRequestException.class).hasMessage("Put the guest's name on the tab, or pick a table");
+        assertThat(service.create(tab("lager")).guestName()).isEqualTo("Mr Ade");
+    }
 }

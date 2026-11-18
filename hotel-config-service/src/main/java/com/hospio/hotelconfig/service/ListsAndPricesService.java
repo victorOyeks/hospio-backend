@@ -83,6 +83,25 @@ public class ListsAndPricesService {
         return added;
     }
 
+    /** Hides the active entries of a list with one of these codes (a template swapping one set of defaults for another). */
+    @Transactional
+    public int hide(String hotelId, String listName, List<String> codes) {
+        if (codes == null || codes.isEmpty()) {
+            return 0;
+        }
+        Set<String> gone = new HashSet<>();
+        codes.forEach(c -> gone.add(c.toUpperCase(Locale.ROOT)));
+        int hidden = 0;
+        for (ListItem item : listItems.findByHotelIdAndListNameAndActiveTrueOrderBySortOrderAscLabelAsc(hotelId, listName.toUpperCase())) {
+            if (item.getCode() != null && gone.contains(item.getCode().toUpperCase(Locale.ROOT))) {
+                item.setActive(false);
+                listItems.save(item);
+                hidden++;
+            }
+        }
+        return hidden;
+    }
+
     private static String keyOf(String code, String label) {
         return code != null && !code.isBlank() ? "code:" + code.toUpperCase(Locale.ROOT) : "label:" + label.trim().toLowerCase(Locale.ROOT);
     }

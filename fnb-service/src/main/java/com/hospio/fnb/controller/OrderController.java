@@ -32,9 +32,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class OrderController {
 
-    static final String READ = "@access.has('KITCHEN') or @access.has('BAR') or @access.has('FRONT_OFFICE') or @access.managerView() or @access.has('FINANCE')";
-    static final String TAKE = "@access.atLeast('KITCHEN','EDIT') or @access.atLeast('BAR','EDIT') or @access.atLeast('FRONT_OFFICE','EDIT')";
+    static final String READ = "@access.has('KITCHEN') or @access.has('BAR') or @access.has('FRONT_OFFICE') or @access.managerView() or @access.has('FINANCE')"
+            + " or @access.has('WAITER') or @access.has('CASHIER')";
+    static final String TAKE = "@access.atLeast('KITCHEN','EDIT') or @access.atLeast('BAR','EDIT') or @access.atLeast('FRONT_OFFICE','EDIT')"
+            + " or @access.atLeast('WAITER','EDIT')";
     static final String WORK = "@access.atLeast('KITCHEN','EDIT') or @access.atLeast('BAR','EDIT')";
+    /** Serving and moving a table: the outlet's own people and waiters (the service checks which order and which step). */
+    static final String SERVE = WORK + " or @access.atLeast('WAITER','EDIT')";
+    static final String CHARGE = TAKE + " or @access.atLeast('CASHIER','EDIT')";
 
     private final OrderService service;
 
@@ -71,14 +76,14 @@ public class OrderController {
     }
 
     @PutMapping("/{id}/status")
-    @PreAuthorize(WORK)
+    @PreAuthorize(SERVE)
     public ApiResponse<OrderResponse> status(@PathVariable String id, @RequestParam Order.Status status) {
         return ApiResponse.ok("Updated", service.setStatus(id, status));
     }
 
     /** One dish or drink ready or served: {@code status=READY|SERVED}. */
     @PutMapping("/{id}/lines/{lineId}/status")
-    @PreAuthorize(WORK)
+    @PreAuthorize(SERVE)
     public ApiResponse<OrderResponse> lineStatus(@PathVariable String id, @PathVariable String lineId, @RequestParam OrderLine.Status status) {
         return ApiResponse.ok("Updated", service.setLineStatus(id, lineId, status));
     }
@@ -103,13 +108,13 @@ public class OrderController {
     }
 
     @PostMapping("/{id}/charge-to-room")
-    @PreAuthorize(TAKE)
+    @PreAuthorize(CHARGE)
     public ApiResponse<OrderResponse> chargeToRoom(@PathVariable String id, @RequestParam(required = false) String roomId) {
         return ApiResponse.ok("Charged to the room", service.chargeToRoom(id, roomId));
     }
 
     @PostMapping("/{id}/move-table")
-    @PreAuthorize(WORK)
+    @PreAuthorize(SERVE)
     public ApiResponse<OrderResponse> moveTable(@PathVariable String id, @RequestParam String tableId) {
         return ApiResponse.ok("Tab moved", service.moveTable(id, tableId));
     }

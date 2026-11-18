@@ -436,4 +436,69 @@ class PaymentServiceTest {
         }
         verify(finance, org.mockito.Mockito.never()).tillOpen(anyString(), anyString());
     }
+
+    // ---- waiters and cashiers (docs/plan-venue-type.md, phase 3) ------------------------------------------------
+
+    private void signInAs(String id, Role role, AccessLevel level) {
+        HospioUserDetails user = new HospioUserDetails(id, id + "@x.ng", "Wale", "b1", List.of("h1"), Map.of(role, level), JwtUtil.SCOPE_HOTEL);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities()));
+        TenantContext.set(Tenant.fromUser(user, "h1"));
+    }
+
+    private PaymentRequestDto forOrder(PaymentMethod method, Role role) {
+        return new PaymentRequestDto(method, new BigDecimal("3000"), null, null, null, null, null, "Tab B-0007", null, "order-7", role);
+    }
+
+    @Test
+    void aCashiersCashNeedsTheCashierTillAndAnOrder() {
+        signInAs("c1", Role.CASHIER, AccessLevel.EDIT);
+        when(finance.tillOpen("h1", "CASHIER")).thenReturn(Optional.of(false));
+        assertThatThrownBy(() -> service.request(forOrder(PaymentMethod.CASH, Role.CASHIER))).isInstanceOf(BadRequestException.class)
+                .hasMessageStartingWith("Open your till first: cash taken at the cashier goes into the cashier till");
+        when(finance.tillOpen("h1", "CASHIER")).thenReturn(Optional.of(true));
+        PaymentResponse p = service.request(forOrder(PaymentMethod.CASH, Role.CASHIER));
+        assertThat(p.status()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(p.role()).isEqualTo(Role.CASHIER);
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), "folio-1", null, "Guest", null, null, "Room", null)))
+                .isInstanceOf(BadRequestException.class).hasMessage("A cashier takes payment for restaurant and bar sales only");
+    }
+
+    @Test
+    void aCashierWithNoPosOfTheirOwnUsesTheOutletDesks() {
+        signInAs("c1", Role.CASHIER, AccessLevel.EDIT);
+        PosTerminal pos = PosTerminal.builder().name("Bar POS").provider("logging").terminalRef("T-1").build();
+        pos.setId("t1");
+        when(terminals.forRole("h1", Role.CASHIER)).thenReturn(Optional.empty());
+        when(terminals.forRole("h1", Role.BAR)).thenReturn(Optional.of(pos));
+        assertThat(service.request(forOrder(PaymentMethod.CARD, Role.CASHIER)).status()).isEqualTo(PaymentStatus.PROCESSING);
+    }
+
+    @Test
+    void aWaiterTakesPaymentOnlyWhereTheVenueAllowsItForTheirOwnSalesAndCashOnlyIntoTheCashiersTill() {
+        signInAs("w1", Role.WAITER, AccessLevel.EDIT);
+        when(fnb.order(anyString())).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "B-0007", "SERVED", false,
+                new BigDecimal("3000"), "BAR", "w1")));
+        when(hotelConfig.waiterRules("h1")).thenReturn(new HotelConfigClient.WaiterRules(false, false));
+        assertThatThrownBy(() -> service.request(forOrder(PaymentMethod.CASH, Role.WAITER))).isInstanceOf(com.hospio.common.exception.ForbiddenException.class)
+                .hasMessageStartingWith("Waiters don't take payment here");
+
+        when(hotelConfig.waiterRules("h1")).thenReturn(new HotelConfigClient.WaiterRules(true, false));
+        assertThatThrownBy(() -> service.request(forOrder(PaymentMethod.CASH, Role.WAITER))).isInstanceOf(BadRequestException.class)
+                .hasMessageStartingWith("Waiters don't take cash here");
+        assertThat(service.cashTill(Role.WAITER).open()).isFalse();
+
+        when(hotelConfig.waiterRules("h1")).thenReturn(new HotelConfigClient.WaiterRules(true, true));
+        when(finance.tillOpen("h1", "CASHIER")).thenReturn(Optional.of(false));
+        assertThatThrownBy(() -> service.request(forOrder(PaymentMethod.CASH, Role.WAITER))).isInstanceOf(BadRequestException.class)
+                .hasMessageStartingWith("The cashier's till isn't open");
+        when(finance.tillOpen("h1", "CASHIER")).thenReturn(Optional.of(true));
+        assertThat(service.request(forOrder(PaymentMethod.CASH, Role.WAITER)).role()).isEqualTo(Role.WAITER);
+
+        // Another waiter's sale: refused, unless a head waiter (Full access).
+        when(fnb.order(anyString())).thenReturn(Optional.of(new com.hospio.payment.client.FnbClient.OrderDue("h1", "B-0007", "SERVED", false,
+                new BigDecimal("3000"), "BAR", "w2")));
+        assertThatThrownBy(() -> service.request(forOrder(PaymentMethod.CASH, Role.WAITER))).isInstanceOf(com.hospio.common.exception.ForbiddenException.class);
+        signInAs("w1", Role.WAITER, AccessLevel.FULL);
+        assertThat(service.request(forOrder(PaymentMethod.CASH, Role.WAITER)).status()).isEqualTo(PaymentStatus.APPROVED);
+    }
 }

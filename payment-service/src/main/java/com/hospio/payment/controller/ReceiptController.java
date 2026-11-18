@@ -23,9 +23,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class ReceiptController {
 
-    static final String TAKERS = "@access.managerView() or @access.has('FRONT_OFFICE') or @access.has('BAR') or @access.has('KITCHEN')"
+    static final String TAKERS = "@access.managerView() or @access.has('FRONT_OFFICE') or @access.has('BAR') or @access.has('KITCHEN') or @access.has('CASHIER') or @access.has('WAITER')"
             + " or @access.has('LAUNDRY') or @access.has('FINANCE')";
-    static final String SENDERS = "@access.manager() or @access.atLeast('FRONT_OFFICE','EDIT') or @access.atLeast('BAR','EDIT')"
+    static final String SENDERS = "@access.manager() or @access.atLeast('FRONT_OFFICE','EDIT') or @access.atLeast('BAR','EDIT') or @access.atLeast('CASHIER','EDIT')"
             + " or @access.atLeast('KITCHEN','EDIT') or @access.atLeast('LAUNDRY','EDIT') or @access.atLeast('FINANCE','EDIT')";
 
     private final ReceiptService receipts;

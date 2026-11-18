@@ -50,7 +50,7 @@ public class SharedDeviceService {
 
     /** Roles a device can be for: every hotel role but the owner. */
     static final Set<Role> DEVICE_ROLES = EnumSet.of(Role.MANAGER, Role.FRONT_OFFICE, Role.HOUSEKEEPING, Role.LAUNDRY, Role.MAINTENANCE,
-            Role.KITCHEN, Role.BAR, Role.INVENTORY, Role.FINANCE);
+            Role.KITCHEN, Role.BAR, Role.INVENTORY, Role.FINANCE, Role.WAITER, Role.CASHIER);
 
     private final SharedDeviceRepository devices;
     private final UserAccountRepository users;
