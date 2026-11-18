@@ -120,3 +120,22 @@ Every bar and kitchen sale over a range of days, with filters, the money and one
 - [x] fnb-service: `SaleBucket`, `SalesHistoryQuery` (filters and money in SQL), `SalesHistoryService`, routes above, migration `008-sales-history`; tests: buckets, service guards, and the query against Postgres (Testcontainers, skipped without Docker).
 - [x] Order flow: settled-by name, line canceller, payment reference and taker, balance-only room charge, no cancel with money on it.
 - [x] Web: Sales screen for bar and kitchen with the unpaid count in the sidebar, sale panel from Sales and Recent sales, all-outlets view for manager, owner and finance (QA script `docs/qa/05-sales-history.md` in the web repo).
+
+## Waiters and cashiers (venue type, phase 3)
+
+Two floor roles next to KITCHEN and BAR, at every outlet of the location (docs/plan-venue-type.md, Phase 3 has the table):
+
+- **WAITER** (Can edit): `POST /orders`, `/lines`, `/send`, line or order `status=SERVED`, `/move-table`, cancel a line not yet sent, cancel an
+  untouched order, `/charge-to-room`, all on orders they opened; 403 "{number} was opened by {name}. Only they, a head waiter or a
+  manager can work on it" otherwise. `GET /orders` and `/sales/history` answer a waiter with their own orders only (`mine` can't be
+  switched off). Never `status=READY`, never a sent line or order cancelled. Full access (head waiter) works anyone's order.
+- **CASHIER** (Can edit): reads every order and sale; `/charge-to-room`; nothing else on an order (403 "A cashier takes payments. Orders
+  are taken by a waiter or the {outlet}"). The sale detail's `can.pay` is true for any sale that owes money.
+- A tab needs a name or a table when `OUTLETS.tabNameRequired` is on: 400 "Put the guest's name on the tab, or pick a table".
+- payment-service: `role: CASHIER` or `WAITER` only with an `orderId`. A waiter: 403 "Waiters don't take payment here…" unless
+  `OUTLETS.waitersTakePayment`; 403 for another waiter's sale; cash 400 "Waiters don't take cash here…" unless `waiterCash`, then it
+  needs the CASHIER till open and lands in it. A cashier's cash needs the CASHIER till. Card and transfer go to the POS picked, else
+  the cashier's/waiter's own, else the outlet desk's (BAR or KITCHEN).
+- Income stays the outlet's desk (BAR/KITCHEN); `payment_requests.role` is CASHIER or WAITER (the till). Sales by staff counts the
+  sale under whoever opened it.
+- Hospio360 may `POST/PUT /fnb/outlets` for a location during onboarding (the platform caller is bound to the location's business).

@@ -166,10 +166,10 @@ Lists (`/setup/lists/{listName}`): `CANCEL_REASONS`, `DISCOUNT_REASONS`, `VOID_R
 |---|---|---|---|
 | GET | `/setup` | authenticated (+`X-Hotel-Id`) | every section merged over the defaults, so a brand-new hotel already answers fully |
 | PUT | `/setup/{section}` | manager/owner; owner-only sections owner; platform allowed | `@PreAuthorize` added; body `Map<String, JsonNode>` |
-| POST | `/setup/apply-template` | manager, owner, platform (+`X-Hotel-Id`) | `{templateId}` or `{settings}`; applies sections and lists |
+| POST | `/setup/apply-template` | manager, owner, platform (+`X-Hotel-Id`) | `{templateId}` or `{settings}`; applies sections and lists. `{builtIn: "VENUE"}` applies the built-in lounge / bar / restaurant setup at a location without rooms (docs/plan-venue-type.md, phase 3) |
 | GET/POST/PUT | `/setup/lists/...` | unchanged, plus `DELETE /setup/lists/{listName}/{id}` (manager; deactivates) |
 
-`HotelCreated` listener: creates the default sections and lists for the new hotel (idempotent), running as `Tenant.systemFor(businessId, hotelId, …)`. `/internal/apply-template` binds the tenant the same way.
+`HotelCreated` listener: creates the default sections and lists for the new hotel (idempotent; the venue defaults for a location without accommodation, nothing stored for the stay keys), running as `Tenant.systemFor(businessId, hotelId, …)`. `/internal/apply-template` binds the tenant the same way.
 
 ## property-service (`/property`)
 
