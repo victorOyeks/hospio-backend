@@ -115,6 +115,34 @@ class MailDispatcherTest {
     }
 
     @Test
+    void aHotelEmailThatIsNotAnAddressIsNeverTheReplyTo() {
+        // Staging 10 Nov: hotel "thewiseman" saved its email as "0000000" and every invite from it failed "Missing final '@domain'".
+        when(smtp.send(any())).thenReturn(new SmtpGateway.Accepted("<m>", "250 OK"));
+        when(tenants.hotel("h-bad")).thenReturn(Optional.of(new TenantClient.Sender("thewiseman", "0000000")));
+        when(tenants.hotel("h-half")).thenReturn(Optional.of(new TenantClient.Sender("Wuse", "wuse@")));
+        when(tenants.business("b-bad")).thenReturn(Optional.of(new TenantClient.Sender("0000", "0000")));
+        assertThat(dispatcher.senderFor("b-b", "h-bad", null, null)).isEqualTo(new MailDispatcher.From("thewiseman", "owner-b@hotels.example"));
+        assertThat(dispatcher.senderFor("b-bad", "h-half", null, null)).isEqualTo(new MailDispatcher.From("Wuse", null));
+        assertThat(dispatcher.senderFor("b-b", "h-royal", null, "not an address")).isEqualTo(new MailDispatcher.From("Royal Suites Ikeja", "frontdesk@royal.example"));
+
+        DeliveryRecord r = dispatcher.accept(email("b-bad", "h-bad", "sak@gmail.example"));
+        assertThat(sent().replyTo()).isNull();
+        assertThat(rows.get(r.getId()).getStatus()).isEqualTo(DeliveryRecord.Status.SENT);
+    }
+
+    @Test
+    void addressesTheProviderTakes() {
+        assertThat(MailDispatcher.address("frontdesk@royal.example")).isTrue();
+        assertThat(MailDispatcher.address(" a.b+c@sub.hotel.ng ")).isTrue();
+        assertThat(MailDispatcher.address("0000000")).isFalse();
+        assertThat(MailDispatcher.address("wuse@")).isFalse();
+        assertThat(MailDispatcher.address("x@localhost")).isFalse();
+        assertThat(MailDispatcher.address("a b@c.com")).isFalse();
+        assertThat(MailDispatcher.address("a@b.c")).isFalse();
+        assertThat(MailDispatcher.address(null)).isFalse();
+    }
+
+    @Test
     void noHotelUsesTheBusinessThenThePlatform() {
         when(smtp.send(any())).thenReturn(new SmtpGateway.Accepted("<m>", "250 OK"));
         assertThat(dispatcher.senderFor("b-only", null, null, null)).isEqualTo(new MailDispatcher.From("Only Business Ltd", null));

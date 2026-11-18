@@ -31,6 +31,8 @@ Values live in `/opt/hospio-staging/.env.staging` (systemd `EnvironmentFile`), n
   no hotel → the business's name; neither (Hospio360 staff, marketers) → `MAIL_FROM_NAME_DEFAULT`. Names come from
   tenant-service and are cached for 10 minutes.
 - **Reply-To**: the hotel's email (Hotel setup / tenant hotel `email`) when it has one, else the business's email, else none.
+  Only a well-formed address is used (`MailDispatcher.address`): a hotel email saved as `0000000` or `wuse@` is skipped for
+  the business's, else none, so the email still goes (before 18 Nov 2026 every email from such a hotel failed "Missing final '@domain'").
 - A sender may override both with the event's `fromName` / `replyTo`.
 
 ## Every address gets its email

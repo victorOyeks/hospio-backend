@@ -171,18 +171,29 @@ public class MailDispatcher {
     public record From(String name, String replyTo) {
     }
 
-    /** The From name and Reply-To: the hotel's, else the business's, else the platform's (overrides win). */
+    /**
+     * The From name and Reply-To: the hotel's, else the business's, else the platform's (overrides win). Only a well-formed
+     * address becomes the Reply-To: a hotel whose email was saved as "0000000" or "wuse@" replies to its business instead
+     * (or has none), rather than every email it sends being refused for a bad header.
+     */
     public From senderFor(String businessId, String hotelId, String fromName, String replyTo) {
         Optional<TenantClient.Sender> hotel = tenants.hotel(hotelId);
         Optional<TenantClient.Sender> business = hotel.isPresent() ? Optional.empty() : tenants.business(businessId);
         String name = notBlank(fromName) ? fromName.trim()
                 : hotel.map(TenantClient.Sender::name).or(() -> business.map(TenantClient.Sender::name)).filter(MailDispatcher::notBlank).orElse(sender().fromName());
-        String reply = notBlank(replyTo) ? replyTo.trim()
-                : hotel.map(TenantClient.Sender::email).or(() -> business.map(TenantClient.Sender::email)).orElse(null);
+        String reply = address(replyTo) ? replyTo.trim()
+                : hotel.map(TenantClient.Sender::email).or(() -> business.map(TenantClient.Sender::email)).filter(MailDispatcher::address).orElse(null);
         if (!notBlank(reply) && hotel.isPresent()) {
-            reply = tenants.business(businessId).map(TenantClient.Sender::email).orElse(null);
+            reply = tenants.business(businessId).map(TenantClient.Sender::email).filter(MailDispatcher::address).orElse(null);
         }
-        return new From(name, notBlank(reply) ? reply : null);
+        return new From(name, notBlank(reply) ? reply.trim() : null);
+    }
+
+    private static final java.util.regex.Pattern ADDRESS = java.util.regex.Pattern.compile("^[^@\\s<>,;\"]+@[^@\\s<>,;\"]+\\.[^@\\s<>,;\".]{2,}$");
+
+    /** A plain address a mail provider accepts in a header: one @, a dotted domain, no spaces or brackets. */
+    static boolean address(String s) {
+        return s != null && ADDRESS.matcher(s.trim()).matches();
     }
 
     /**
