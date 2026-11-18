@@ -88,6 +88,10 @@ public class ProfileService {
                     throw new ConflictException("This phone number is already in use on another account");
                 }
                 user.setPhoneVerified(false);
+                // A code sent to the old number must not confirm the new one; the send cooldown still holds.
+                user.setPhoneCodeHash(null);
+                user.setPhoneCodeExpiresAt(null);
+                user.setPhoneCodeAttempts(0);
             }
             user.setPhone(phone);
         }

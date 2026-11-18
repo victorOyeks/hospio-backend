@@ -15,7 +15,7 @@ The hotel's stores end to end on inventory-service: a main store and outlet stor
 ## Rules
 
 - **Roles.** `STORE` = INVENTORY (Edit or Full) or a manager/owner: everything in the store. INVENTORY Full or a manager: correct a level by hand. Manager/owner only: approve a stock count. FINANCE (any level): read stock value, usage, movements, orders, deliveries and suppliers; no writes. Outlet teams (KITCHEN, BAR, HOUSEKEEPING, LAUNDRY, MAINTENANCE at Edit): read stores, items and levels, raise requests for their own team, see their own team's requests, use or waste stock in their own store, count their own store. Read-only (support) sessions never write. Every route has a `@PreAuthorize`; the service re-checks per store/team. Refusals are 403 with a sentence ("Approving a count is for a manager"), bad input 400 with a sentence.
-- **Stores.** A hotel has one or more stores; `kind` is MAIN, KITCHEN, BAR, HOUSEKEEPING, LAUNDRY, MAINTENANCE or OTHER. A store whose kind is a team's role belongs to that team. Names are unique per hotel. A store holding stock can't be deactivated. **Default stores:** a new hotel (onboarding's Hotels step or an owner adding one, both `POST /tenant/hotels` → `HOTEL_CREATED`) gets *Main store* (MAIN), *Kitchen store* (KITCHEN), *Bar store* (BAR) and *Housekeeping store* (HOUSEKEEPING) from inventory-service's listener, only when the hotel has no store at all (active or not), so a redelivered event or a hotel set up by hand is left alone. Existing hotels were not backfilled. Hotel setup → Restaurants & tables preselects the store of a new outlet's kind (kitchen/restaurant → Kitchen store, bar → Bar store, else Main store).
+- **Stores.** A hotel has one or more stores; `kind` is MAIN, KITCHEN, BAR, HOUSEKEEPING, LAUNDRY, MAINTENANCE or OTHER. A store whose kind is a team's role belongs to that team. Names are unique per hotel. A store holding stock can't be deactivated. **Default stores:** a new hotel (onboarding's Hotels step or an owner adding one, both `POST /tenant/hotels` → `HOTEL_CREATED`) gets *Main store* (MAIN), *Kitchen store* (KITCHEN), *Bar store* (BAR) and *Housekeeping store* (HOUSEKEEPING) from inventory-service's listener, only when the hotel has no store at all (active or not), so a redelivered event or a hotel set up by hand is left alone. Hotels that existed before this get them from the one-time backfill below (same code path, same rule). Hotel setup → Restaurants & tables preselects the store of a new outlet's kind (kitchen/restaurant → Kitchen store, bar → Bar store, else Main store).
 - **Items.** Name (unique per hotel), category, unit, `minLevel` (reorder level: at or below it the item is low and `STOCK_LOW` is raised once when it crosses), `parLevel` (reorder up to; 0 = twice the minimum), `unitCost` and usual supplier. An item is held in any number of stores (one level row per store).
 - **Cost** is the **weighted average** across the hotel: a delivery of `q` at cost `c` makes `unitCost = (onHand × unitCost + q × c) / (onHand + q)` where `onHand` is the item's quantity across all stores before the delivery. Every movement records the unit cost at that moment, so values in reports don't change when the cost moves later.
 - **Movements** (never edited): RECEIVED (delivery, opening), ISSUED (to a team without its own store), TRANSFER_OUT / TRANSFER_IN (between stores, from a request or a direct transfer), USED (sold or used in service), WASTE, ADJUSTED (hand correction), COUNTED (approved count). Stock never goes below zero.
@@ -23,6 +23,18 @@ The hotel's stores end to end on inventory-service: a main store and outlet stor
 - **Deliveries** (anything that would be emailed or texted) are echoed in the response on staging (`deliveries`), as elsewhere: the order sent to the supplier (email when the supplier has one, else SMS to their phone).
 - Money is in naira with 2 decimals; quantities 2 decimals.
 - Errors: a 403 from a route guard reads "You don't have access to do that"; a bean-validation 400 carries the first field's message (common `GlobalExceptionHandler`).
+
+### Default stores backfill (existing hotels)
+
+`POST /inventory/admin/stores/backfill-defaults` (SUPER_ADMIN, no body) reads every hotel from tenant-service (`GET /tenant/internal/hotels`, internal key) and, for each hotel with **no store at all** (active or not), creates *Main store*, *Kitchen store*, *Bar store* and *Housekeeping store* through `InventoryService.createDefaultStores`, the method the `HOTEL_CREATED` listener uses. Each hotel runs in its own transaction as `Tenant.systemFor(businessId, hotelId)` so the row-level policies apply. A hotel with any store is left alone, so running it again changes nothing. Response `data`: `{hotelsChecked, hotelsChanged, storesCreated, failed: [hotelId…]}`; message "N hotels got the default stores"; each hotel changed is logged ("Default stores backfill: hotel … got 4 stores"). An error response when tenant-service can't be reached (nothing is created then).
+
+Run it once per environment after deploying inventory-service and tenant-service, signed in as a super admin:
+
+```bash
+TOKEN=...   # a SUPER_ADMIN access token (`POST /identity/auth/sign-in` as a platform super admin)
+curl -s -X POST https://api-staging.hospio360.com/inventory/admin/stores/backfill-defaults -H "Authorization: Bearer $TOKEN"
+# again: hotelsChanged 0, storesCreated 0
+```
 
 ## inventory-service (`/inventory`)
 

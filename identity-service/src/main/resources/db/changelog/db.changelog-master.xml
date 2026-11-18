@@ -19,5 +19,6 @@
     <include file="db/changelog/007-six-digit-pins.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/008-scale-indexes.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/009-refresh-token-cleanup.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/010-phone-code-sent-at.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>
