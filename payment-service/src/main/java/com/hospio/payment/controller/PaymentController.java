@@ -36,6 +36,9 @@ public class PaymentController {
     private final RefundService refunds;
     private final ReceiptService receipts;
     private final PaymentListService lists;
+    private final com.hospio.payment.query.TerminalTotalsQuery terminalTotals;
+
+    private static final java.time.ZoneId LAGOS = java.time.ZoneId.of("Africa/Lagos");
 
     /**
      * Payments the caller may see, newest first. With {@code page} or {@code size}: one page (docs/pagination.md) with tab counts and the
@@ -55,6 +58,27 @@ public class PaymentController {
             return ApiResponse.ok(payments.mine(from));
         }
         return ApiResponse.ok(lists.payments(new PaymentListService.Params(page, size, sort, q, status, method, role, from, to, mine, hotelId, today)));
+    }
+
+    /**
+     * Approved payments for outlet sales at the active location over the Lagos days {@code from}..{@code to} (today when omitted, up to 93
+     * days), per method and POS terminal: the venue report "Payments by method and POS" (docs/plan-venue-type.md phase 2).
+     */
+    @GetMapping("/by-terminal")
+    @PreAuthorize("@access.managerView() or @access.atLeast('FINANCE','VIEW')")
+    public ApiResponse<java.util.List<com.hospio.payment.query.TerminalTotalsQuery.Row>> byTerminal(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        LocalDate f = from == null ? (to == null ? LocalDate.now(LAGOS) : to) : from;
+        LocalDate t = to == null ? f : to;
+        if (t.isBefore(f)) {
+            throw new com.hospio.common.exception.BadRequestException("The end date is before the start date");
+        }
+        if (java.time.temporal.ChronoUnit.DAYS.between(f, t) + 1 > 93) {
+            throw new com.hospio.common.exception.BadRequestException("Choose up to 93 days at a time");
+        }
+        return ApiResponse.ok(terminalTotals.outletPayments(com.hospio.common.tenancy.TenantContext.requireHotel(), f.atStartOfDay(LAGOS).toInstant(),
+                t.plusDays(1).atStartOfDay(LAGOS).toInstant()));
     }
 
     /**

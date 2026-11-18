@@ -314,4 +314,12 @@ public class InventoryController {
                                                         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         return ApiResponse.ok(service.usage(from, to));
     }
+
+    /** Per stock item: drawn by sales (recipes), used by hand, wasted, count differences (the venue "stock used vs sold" report). */
+    @GetMapping("/usage/items")
+    @PreAuthorize(MONEY)
+    public ApiResponse<InventoryViews.ItemUsageReport> usageByItem(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                                                  @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ApiResponse.ok(service.usageByItem(from, to));
+    }
 }

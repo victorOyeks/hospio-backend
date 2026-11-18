@@ -11,4 +11,7 @@ public interface PriceChangeRequestRepository extends JpaRepository<PriceChangeR
 
     /** The requests in {@code status} for these items, newest first. */
     List<PriceChangeRequest> findByMenuItemIdInAndStatusOrderByCreatedAtDesc(Collection<String> menuItemIds, String status);
+
+    /** How many requests of the location are in {@code status} (the venue dashboard's price changes waiting). */
+    long countByHotelIdAndStatus(String hotelId, String status);
 }

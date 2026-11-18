@@ -17,5 +17,6 @@
     <include file="db/changelog/005-order-version.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/006-service-charge.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/007-outlet-stations.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/008-venue-report-indexes.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>
