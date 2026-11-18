@@ -88,7 +88,7 @@ public class FeeService {
 
     @Transactional(readOnly = true)
     public List<FeeRule> rules(String businessId) {
-        return feeRules.findByBusinessIdOrderByStartsOnDesc(businessId);
+        return feeRules.findByBusinessIdOrderByStartsOnDescCreatedAtDesc(businessId);
     }
 
     /** Saves the rule and writes the same model and value onto the business in tenant-service, so the two stay in step. */
@@ -108,7 +108,7 @@ public class FeeService {
         // Fee lock: the platform default for everyone; another rate needs a signed addendum, recorded in the change log.
         BigDecimal defaultPct = settings.fees().revenuePct();
         String addendumRef = com.hospio.common.billing.FeeLock.addendumFor(model, request.value(), request.feeAddendumRef(), defaultPct);
-        BigDecimal previous = feeRules.findByBusinessIdOrderByStartsOnDesc(request.businessId()).stream().findFirst().map(FeeRule::getValue)
+        BigDecimal previous = feeRules.findByBusinessIdOrderByStartsOnDescCreatedAtDesc(request.businessId()).stream().findFirst().map(FeeRule::getValue)
                 .orElseGet(() -> addendumRef != null ? null : tenant.business(request.businessId()).map(TenantClient.Business::feeValue).orElse(null));
         FeeRule rule = feeRules.save(FeeRule.builder().businessId(request.businessId()).model(model).value(request.value())
                 .startsOn(request.startsOn()).endsOn(request.endsOn()).addendumRef(addendumRef).build());
@@ -465,7 +465,7 @@ public class FeeService {
         if (!StringUtils.hasText(businessId)) {
             return defaultSalesPct();
         }
-        FeeRule rule = feeRules.findByBusinessIdOrderByStartsOnDesc(businessId).stream().findFirst().orElse(null);
+        FeeRule rule = feeRules.findByBusinessIdOrderByStartsOnDescCreatedAtDesc(businessId).stream().findFirst().orElse(null);
         TenantClient.Business b = rule != null ? null : tenant.business(businessId).orElse(null);
         if (rule == null && b == null) {
             return null;
@@ -479,7 +479,7 @@ public class FeeService {
     }
 
     private String resolveModel(String businessId, TenantClient.Business b) {
-        FeeRule rule = feeRules.findByBusinessIdOrderByStartsOnDesc(businessId).stream().findFirst().orElse(null);
+        FeeRule rule = feeRules.findByBusinessIdOrderByStartsOnDescCreatedAtDesc(businessId).stream().findFirst().orElse(null);
         if (rule != null) {
             return rule.getModel();
         }
@@ -490,7 +490,7 @@ public class FeeService {
     }
 
     private BigDecimal resolveValue(String businessId, TenantClient.Business b) {
-        FeeRule rule = feeRules.findByBusinessIdOrderByStartsOnDesc(businessId).stream().findFirst().orElse(null);
+        FeeRule rule = feeRules.findByBusinessIdOrderByStartsOnDescCreatedAtDesc(businessId).stream().findFirst().orElse(null);
         if (rule != null) {
             return rule.getValue();
         }

@@ -6,5 +6,5 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface FeeRuleRepository extends JpaRepository<FeeRule, String> {
-    List<FeeRule> findByBusinessIdOrderByStartsOnDesc(String businessId);
+    List<FeeRule> findByBusinessIdOrderByStartsOnDescCreatedAtDesc(String businessId);
 }
