@@ -211,6 +211,14 @@ class PartnerApplicationServiceTest {
     }
 
     @Test
+    void anInviteRefusedByIdentitySaysWhy() {
+        assertThat(IdentityClient.conflictMessage("{\"status\":false,\"message\":\"This phone number is already in use on another account\"}"))
+                .isEqualTo("This phone number is already in use on another account");
+        assertThat(IdentityClient.conflictMessage("<html>")).isEqualTo("A login with that email already exists");
+        assertThat(IdentityClient.conflictMessage(null)).isEqualTo("A login with that email already exists");
+    }
+
+    @Test
     void aVisitorsAddressIsBelievedOnlyFromOurOwnSite() {
         SiteCallers site = new SiteCallers("10.9.8.7");
         // The landing site's server (this machine, or one listed) passes the visitor on.
@@ -274,11 +282,13 @@ class PartnerApplicationServiceTest {
         profile.setId("mk-2");
         when(marketers.invite(any())).thenReturn(new MarketerInvited(profile, null, List.of()));
 
-        service.approve("app-1", new ApproveRequest("Ada O. Obi", "Ada.Obi@hospio-qa.test", null, new BigDecimal("15"), 6));
+        service.approve("app-1", new ApproveRequest("Ada O. Obi", "Ada.Obi@hospio-qa.test", "", new BigDecimal("15"), 6));
 
         ArgumentCaptor<PlatformRequests.MarketerInviteRequest> invite = ArgumentCaptor.forClass(PlatformRequests.MarketerInviteRequest.class);
         verify(marketers).invite(invite.capture());
         assertThat(invite.getValue().email()).isEqualTo("ada.obi@hospio-qa.test");
+        // The admin emptied the phone box (the number is on another account): invited without one.
+        assertThat(invite.getValue().phone()).isNull();
         assertThat(invite.getValue().sharePct()).isEqualByComparingTo("15");
         assertThat(invite.getValue().months()).isEqualTo(6);
     }
