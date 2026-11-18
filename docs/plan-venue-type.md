@@ -37,11 +37,37 @@ not get past "Rooms & prices", and room features (bookings, folios, charge-to-ro
 | Phase | What | Status |
 |---|---|---|
 | 1 | Foundation: venue type per location + business kind; capability helper; admin wizard (kind, Locations step with type, times only for hotels, Rooms "Not needed", go-live without rooms, handover text); owner self-serve (kind, location step without times, Outlets step); hide hotel-only modules for the active location (nav, routes, quick actions, front office role); charge-to-room off; dashboards without room cards; night audit tabs-only; QA lounges set to LOUNGE | Done (18 Nov 2026) |
-| 2 | Venue dashboards and reports: sales by outlet, item and staff; open tabs; tills and cash-ups; best sellers; hour-of-day; owner comparison across locations by kind (only real comparisons) | To do |
+| 2 | Venue dashboards and reports: sales by outlet, item and staff; open tabs; tills and cash-ups; best sellers; hour-of-day; owner comparison across locations by kind (only real comparisons) | Done (18 Nov 2026) |
 | 3 | "Lounge / bar / restaurant" setup template (no stay rules or housekeeping, tabs on with a limit, service charge, happy hours) applied by kind in both wizards; Waiter and Cashier roles with default access levels; role pickers offer them for venues | To do |
 | 4 | Bill splitting on tabs and sales (by item, by share, equal), each part paid its own way; receipts per part | To do |
 | 5 | Wording: landing page, sign-up and sign-in ("hotel, lounge or restaurant"), handover pack and owner acceptance, admin portal ("Hotels" directory → Locations with kind), owner "Hotels" page → Locations, server messages that still say "hotel", Hotel setup → Location setup | To do |
 | 6 | Regression across hotel customers and docs: every role on a hotel, a lounge and a mixed business; contracts (onboarding.md, roles-permissions.md, restaurant-bar.md) updated | To do |
+
+## Phase 2: venue dashboards and reports
+
+APIs (managers, owners and a support look, finance; every outlet of the active location; one grouped SQL statement per figure,
+`fnb-service VenueReportQuery`, indexes `fnb-008`):
+
+- `GET /fnb/sales/today?staleHours=4` (`VenueToday`): today's sales (opened today, not cancelled; tabs included), `lastWeek` = the
+  same weekday a week ago **by the same time** and for the whole day, **null when that day had no sales** (no made-up comparison);
+  money taken today by method (`fnb.order_payments`, by when it was taken); sales by outlet; top 5 items (the same name counted once
+  across outlets); open tabs (count, still to pay, oldest, those over `staleHours`); sales still to pay (any day); today's voids with
+  who and why; price changes waiting.
+- `GET /fnb/sales/report?from&to[&outletId]` (`VenueReport`, up to 93 days): totals (sold, paid, to pay, on rooms, cancelled,
+  discounts, service charge, tax, items, voids, complimentary), by outlet, item (category from the menu, revenue = price × qty less
+  discount), category, staff (sales they opened + voids they made), Lagos hour, method, voids (a cancelled sale = what was on it;
+  a voided item = its price × qty), discounts and complimentary sales (latest 500 each), and the stock the recipes of the items
+  sold call for (`StockSource`: a dish made at another outlet uses its twin's recipe).
+- `GET /payment/payments/by-terminal?from&to`: approved outlet payments (with an order) per method and POS terminal.
+- `GET /inventory/usage/items?from&to`: per stock item drawn by sales (USED, reference ORDER-…), used by hand, wasted, count difference.
+
+Screens: owner dashboard "… today" per venue location and **All venues** (sums; the comparison only when every venue has one),
+the top "Sales today" card at a venue reads the same figure; manager dashboard at a venue: the same section, "Needs your action" adds
+tabs over 4 h, unpaid sales, price changes, counts to approve, low stock; Reports (owner and manager) area "Outlets": Sales by outlet,
+item, category, staff, hour, Payments by method & POS, Voids & discounts, Stock used vs sold, CSV and Save as PDF (print), not
+scheduled or emailed (platform-service's catalogue doesn't have them); hotels get them too for their restaurant and bar. **Tips are not
+recorded** anywhere in Hospio360, so there is no tips report (a later phase if wanted). Hotel dashboards are unchanged.
+QA script: `hotel-internal-system-admin-FE/docs/qa/62-venue-dashboards-reports.md`.
 
 ## Phase 1: what a lounge, bar or restaurant sees
 
@@ -69,3 +95,15 @@ not get past "Rooms & prices", and room features (bookings, folios, charge-to-ro
   mixed "QA Venue Mixed cvt5" (hotel + lounge) follows the branch; Simpas Ikeja unchanged (front office, bookings, folios, bar charge to
   room, night audit stay checks). Found and fixed on the way: the owner wizard ran each step's save twice (duplicate outlets, a false
   "already has a hotel called" after a good save).
+- 18 Nov 2026 (evening): phase 2 built and shipped (backend `ebe234e` + `StockSource / top 5 by name` fix, web `4eaf456` + owner
+  top card fix and QA 62). Staging e2e at QA Lounge qhye (cash and the Bar test terminal only): bar, kitchen and manager clocked in,
+  a till opened, 8 sales over Main Bar, VIP Lounge and Kitchen by three people (cash, card on the test terminal, transfer), one tab
+  left open, one item voided, one sale cancelled, the till closed (balanced) and reopened. Every card and report checked against SQL:
+  sold ₦68,800 / 16 sales / 2 cancelled; taken cash ₦37,400 (10), card ₦13,400 (3, Bar test terminal), transfer ₦7,500; outlets Main
+  Bar ₦52,400 (13), VIP ₦8,900 (2), Kitchen ₦7,500 (1); top Star Lager 16, Coke 11; open tabs 1 / ₦3,000; unpaid 2 / ₦7,500; voids 3
+  / ₦4,800 with who and why; tills 1 open (expected ₦5,000) and 4 closed; 3 clocked in; staff Bisi 14 / ₦55,300 (3 voids), Tunde 1 /
+  ₦6,000, Chidi 1 / ₦7,500; hours 10:00 6 / ₦31,900, 12:00 3 / ₦6,900, 18:00 7 / ₦30,000; chicken 4 called for, 3 drawn (one sale
+  unsettled). No comparison at the lounge (nothing sold last Wednesday); the comparison checked on Simpas Ikeja via the API
+  (last Wednesday 1 sale ₦2,400 = SQL). Mixed cvt5: hotel KPIs with the hotel chosen plus the lounge's section ("No sales yet
+  today"); lounge chosen → its section. Simpas front office and bar unchanged (charge to a room still offered). 820/1024 no
+  sideways scroll. Bar/kitchen get 403 on the venue APIs; 94 days → 400.
