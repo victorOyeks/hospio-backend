@@ -92,6 +92,7 @@ public class DailyFee extends TenantEntity {
     @Column(name = "last_error", length = 500)
     private String lastError;
 
+    /** When the day's statement email went (days before 18 Nov 2026 only: the daily email stopped then). */
     @Column(name = "statement_sent_at")
     private Instant statementSentAt;
 

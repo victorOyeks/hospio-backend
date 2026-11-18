@@ -12,7 +12,7 @@ The fee is worked out each day and debited from the hotel's own Moniepoint or OP
 |---|---|
 | Rate | 1.5 %, no cap, set per business in the admin portal |
 | Basis | What was sold, excluding VAT: folio charges less discounts and voids; restaurant, bar and kitchen amounts paid at the counter; laundry paid directly; deposits kept on a cancellation or no-show. Anything charged to a room counts once, on the folio |
-| Day | Lagos calendar day, 00:00 to 24:00. Worked out at 00:05, statement sent then |
+| Day | Lagos calendar day, 00:00 to 24:00. Worked out at 00:05 (the statement email sent then stopped on 18 Nov 2026: `docs/plan-monthly-invoices.md`) |
 | Room nights | Counted one night per day stayed, not all at check-in |
 | Debit | 06:00 Lagos, from the hotel's provider account (the business/settlement account, not a terminal's static account) |
 | Provider | Hotel chooses Moniepoint or OPay; both are built. Hospio admins enter the hotel's keys; the hotel sees them masked, read-only |

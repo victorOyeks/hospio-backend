@@ -15,7 +15,7 @@ standalone guest-message invoice (`docs/guest-message-billing.md`). Frontend: ho
 | VAT | Not added. `fees.invoiceVatPct` (default 0) adds VAT on platform + messages + devices when set. **For the accountant to confirm** |
 | Due / grace | Due 7 days after issue (the 8th); grace 3 days (to the 11th) |
 | Notices | Email to the owner (Hospio360 as sender) + bell to owners and managers of every location + banner in the hotel app. Issue; reminders on the 6th and 7th; "due today" on the 8th; overdue on the 9th and 10th; **final warning** on the 11th ("from 12 December 2026 at 06:00, card/transfer POS payments, new sales and new bookings pause until it is paid"); a "paused" notice on the 12th. No SMS/WhatsApp. Logged once per invoice, kind and day (`monthly_invoice_events`); nothing once paid |
-| Restriction | From **06:00 on the 12th** if unpaid (soft). Paused: card/transfer through the POS (payment-service), new F&B orders and adding lines to a tab (fnb), new bookings / walk-ins (reservation `POST /bookings`) — each refuses with **423** and the reason. Still allowed: sign-in, viewing, check-in of existing bookings, check-out, **cash** on existing folios and tabs, charge to room, reports and exports, paying the invoice. Laundry orders are not paused (not in the decided list) |
+| Restriction | From **06:00 on the 12th** if unpaid (soft). Paused: card/transfer through the POS (payment-service), new F&B orders and adding lines to a tab (fnb), new bookings / walk-ins (reservation `POST /bookings`), **new guest-laundry orders** (housekeeping `POST /laundry/orders`, "New laundry orders are paused: …"; owner follow-up, 18 Nov) — each refuses with **423** and the reason. Still allowed: sign-in, viewing, check-in of existing bookings, check-out, **cash** on existing folios and tabs, charge to room, laundry orders already taken (moving them on, handing back, charge to room, cash, cancel), reports and exports, paying the invoice |
 | Lifting | At once on a Paystack payment (return or webhook), an admin's offline payment that pays it in full, an extension, or a void. Services cache the answer 30 s (`BillingHold`), so within a minute |
 | Paying | Owner only, full outstanding amount, Paystack (card, transfer, USSD). Admins (SUPER_ADMIN, FINANCE_ADMIN) record offline payments (part payments allowed; the balance stays due and the restriction stays), grant **one** extension (new last day + reason), add a credit note (negative) or adjustment, void (no payments on it) with optional reissue. All audit-logged |
 | Managers | Read-only Billing & invoices: the invoice status and totals, lines and days of their own locations only; banner "ask the owner". Staff only see the red "paused" banner |
@@ -27,7 +27,7 @@ Decisions taken while building (tell the owner):
 - **Device items** keep each package's schedule (install day each month); an item is billed on the invoice of the month it falls in, i.e. a month in arrears. The items stay as rows (`device_invoices`, `DEV-…`) for history; their own debit, email, Paystack link and 3/7/14-day overdue steps are gone.
 - **A credit on a paid invoice** becomes a "Credit from …" line on the next invoice.
 - **Void** only for an invoice with no payment on it (otherwise use a credit note); a reissue is issued the same day with a new number.
-- **Daily statement email** at 00:05 still goes, now saying the amount "is added to your Hospio360 invoice for <month>". The legal text no longer mentions it; the owner can ask to stop it.
+- **Daily statement email: stopped** (owner follow-up, 18 Nov). The 00:05 job only works the day out; nothing is emailed and no bell notice is made. Owners and managers see each day under Hospio fees ("this month so far"). `daily_fees.statement_sent_at` stays for the days emailed before; `RunResult` no longer has `statements`.
 - Older trial rows (`SHADOW`, `SCHEDULED`) are billed like `ACCRUED`; rows the trial "debited" (`PAID`, `PART_PAID`, `UNPAID`, `CARRIED`, QA only) are not billed again.
 
 ## How it works
@@ -64,7 +64,25 @@ Removed: `FeeDebitRunner` and the 06:00/09:00/13:00/18:00 debit runs, `POST /adm
 
 ## Legal (`docs/legal-acceptance.md`)
 
-New versions TOS-2026-11B, FEES-2026-11B ("Fees and monthly invoice"), DEV-2026-11B, SUP-2026-11B, RPA-2026-11B, effective 18 Nov 2026 on staging (published with `LEGAL_MATERIAL_NOTICE_DAYS=0` there; production keeps 30 days' notice). Box 2: "I agree to pay Hospio360's monthly invoice — 1.5% of my business's daily sales — within 7 days of issue." Record title "Monthly invoice agreement (1.5%)". Word templates rebuilt; 03 Direct Debit Mandate replaced by "03 - Billing & invoice terms (summary)". **Needs owner confirmation**: Terms 7.3 / Fees 5.5 "unpaid 30 days after its due date → full suspension after 7 days' notice".
+New versions TOS-2026-11B, FEES-2026-11B ("Fees and monthly invoice"), DEV-2026-11B, SUP-2026-11B, RPA-2026-11B, effective 18 Nov 2026 on staging (published with `LEGAL_MATERIAL_NOTICE_DAYS=0` there; production keeps 30 days' notice). Box 2: "I agree to pay Hospio360's monthly invoice — 1.5% of my business's daily sales — within 7 days of issue." Record title "Monthly invoice agreement (1.5%)". Word templates rebuilt; 03 Direct Debit Mandate replaced by "03 - Billing & invoice terms (summary)". Terms 7.3 / Fees 5.5 "unpaid 30 days after its due date → full suspension after 7 days' notice": **confirmed by the owner (18 Nov), kept**; done by hand, see "Full suspension" below. Terms 5.7 and Fees 5.2/5.3 name what pauses one by one, so "new guest laundry orders" (paused) and "laundry already taken" (still allowed) were added to the web text of TOS-2026-11B / FEES-2026-11B the day they were published, **without a new version** (nobody is asked again). The Word templates (01 Terms, 03 Billing & invoice terms summary) need the same two lines at their next rebuild; **owner to say** if a new version (re-acceptance) is wanted instead.
+
+## Full suspension (Terms 7.3 / Fees 5.5): what admins do at 30 days overdue
+
+Nothing does this automatically, and none is to be built: the 06:00 step only starts the soft restriction above. An invoice due on the
+8th reaches 30 days overdue around the 8th of the next month; by then the business has been paused since the 12th.
+
+1. **Find them** (Finance admin, weekly): Fees & billing → Invoices → status Overdue; any invoice whose due date is 30 or more days ago.
+2. **Check** the invoice panel: no part payment or extension pending, the reminder log shows the notices went, no open ticket disputing it.
+3. **Give 7 days' notice in writing**: email the owner from hello@oyeksglobal.com (invoice number, amount, the date the Services will be
+   suspended in full = today + 7 days, how to pay: Billing & invoices → Pay now, or a bank transfer we record). Record it on a support ticket
+   for the business (the email, the date sent, the suspension date), so the date is on record.
+4. **After 7 days, still unpaid**: Super admin opens the business → **Change stage → Suspended**, reason "Invoice HIN-… unpaid 30+ days,
+   notice sent <date>" (tenant `PUT /businesses/{id}/stage`; the reason and time are kept on the business). A suspended
+   business gets no new daily fees or invoices (billing covers LIVE and AT_RISK only); the unpaid invoice and its restriction stay.
+5. **When it is paid**: record the payment (or the owner pays by Paystack), then Change stage → Live. The restriction lifts on payment.
+
+Known limit (not built, by decision): the Suspended stage is a record. It does not sign anyone out or block the app by itself, so
+"suspended in full" today means the soft restriction plus the stage; if a hard lock is wanted it is a separate piece of work.
 
 ## Phases
 
@@ -74,6 +92,7 @@ New versions TOS-2026-11B, FEES-2026-11B ("Fees and monthly invoice"), DEV-2026-
 | 2 | Frontend: Billing & invoices (owner, manager), banner, admin Invoices tab and business billing, wording, settings | Done (18 Nov) |
 | 3 | Legal: web text, box text, new versions, Word templates | Done (18 Nov) |
 | 4 | Staging end to end (QA businesses only), QA 63, screenshots | See the log below |
+| 5 | Owner follow-ups (18 Nov): no daily statement email; new laundry orders pause too; full suspension kept as a manual admin step; a QA invoice left unpaid for the owner's own Paystack test | See "Follow-ups" in the log |
 
 ## Staging log
 
