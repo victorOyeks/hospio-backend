@@ -4,6 +4,7 @@ import com.hospio.common.entity.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -89,4 +90,8 @@ public class LegalAcceptance extends BaseEntity {
 
     @Column(name = "recorded_by_name", length = 150)
     private String recordedByName;
+
+    /** DEBIT: the share of daily sales the box stated when it was ticked (the business's rate). Null on older records (they said 1.5%). */
+    @Column(name = "rate_pct", precision = 6, scale = 3)
+    private BigDecimal ratePct;
 }

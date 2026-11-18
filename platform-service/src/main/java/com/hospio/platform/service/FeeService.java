@@ -451,6 +451,33 @@ public class FeeService {
         return resolveValue(b.id(), b);
     }
 
+    /** The platform default share of daily sales (platform settings {@code fees.revenuePct}, 1.5 unless changed). */
+    public BigDecimal defaultSalesPct() {
+        return settings.fees().revenuePct();
+    }
+
+    /**
+     * The share of daily sales this business is debited (docs/legal-acceptance.md, the owner's debit box): the same rate the daily fee
+     * uses (its newest rule, else tenant-service's value), or the platform default when it has no business or is on an old model.
+     * Null when it can't be told: no rule here and tenant-service didn't answer.
+     */
+    public BigDecimal dailySalesPct(String businessId) {
+        if (!StringUtils.hasText(businessId)) {
+            return defaultSalesPct();
+        }
+        FeeRule rule = feeRules.findByBusinessIdOrderByStartsOnDesc(businessId).stream().findFirst().orElse(null);
+        TenantClient.Business b = rule != null ? null : tenant.business(businessId).orElse(null);
+        if (rule == null && b == null) {
+            return null;
+        }
+        String model = rule != null ? rule.getModel() : b != null && StringUtils.hasText(b.feeModel()) ? b.feeModel() : settings.fees().model();
+        if (!PERCENT_OF_SALES.equals(model)) {
+            return defaultSalesPct();
+        }
+        BigDecimal value = rule != null ? rule.getValue() : b != null ? b.feeValue() : null;
+        return value != null ? value : defaultSalesPct();
+    }
+
     private String resolveModel(String businessId, TenantClient.Business b) {
         FeeRule rule = feeRules.findByBusinessIdOrderByStartsOnDesc(businessId).stream().findFirst().orElse(null);
         if (rule != null) {
