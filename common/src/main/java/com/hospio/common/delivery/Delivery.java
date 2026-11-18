@@ -23,7 +23,9 @@ public record Delivery(Channel channel, String to, String subject, String text, 
     public enum Kind {
         TEMP_PASSWORD, INVITE, PHONE_CODE, HANDOVER_PACK, PASSWORD_RESET, FEE_STATEMENT, TICKET_UPDATE, DAILY_REPORT, DECISION,
         TILL_VARIANCE, RECEIPT, FOLIO, STATEMENT, PAYMENT_REMINDER, PURCHASE_ORDER, MESSAGE, BOOKING_CONFIRMATION, REPORT, NOTICE,
-        BOOKING_CHANGED, BOOKING_CANCELLED, ARRIVAL_REMINDER, WELCOME
+        BOOKING_CHANGED, BOOKING_CANCELLED, ARRIVAL_REMINDER, WELCOME,
+        /** Hospio360's monthly invoice to a business (docs/plan-monthly-invoices.md): issued, reminders, final warning, receipt. */
+        INVOICE, INVOICE_REMINDER, INVOICE_FINAL, INVOICE_RECEIPT
     }
 
     /**

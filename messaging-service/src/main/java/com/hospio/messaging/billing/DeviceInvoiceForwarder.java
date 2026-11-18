@@ -9,7 +9,8 @@ import org.springframework.web.client.RestClient;
 
 /**
  * Paystack sends every webhook to messaging-service (/webhooks/paystack). A device invoice payment (reference "DEV-…",
- * docs/plan-device-packages.md) belongs to platform-service: it is passed on there to be checked with Paystack and settled.
+ * docs/plan-device-packages.md) or a Hospio360 monthly invoice payment ("HIN-…", docs/plan-monthly-invoices.md) belongs to
+ * platform-service: it is passed on there to be checked with Paystack and settled.
  */
 @Slf4j
 @Component
@@ -23,11 +24,12 @@ public class DeviceInvoiceForwarder {
     }
 
     public void forward(String reference) {
+        String path = reference != null && reference.startsWith("HIN-") ? "/internal/billing/paystack-confirm" : "/internal/devices/paystack-confirm";
         try {
-            platform.post().uri(u -> u.path("/internal/devices/paystack-confirm").queryParam("reference", reference).build()).retrieve().toBodilessEntity();
+            platform.post().uri(u -> u.path(path).queryParam("reference", reference).build()).retrieve().toBodilessEntity();
         } catch (RuntimeException e) {
             // The owner's return to the app confirms it too; a missed webhook only delays the update.
-            log.warn("Device invoice payment {} not passed to platform-service: {}", reference, e.getMessage());
+            log.warn("Invoice payment {} not passed to platform-service: {}", reference, e.getMessage());
         }
     }
 }

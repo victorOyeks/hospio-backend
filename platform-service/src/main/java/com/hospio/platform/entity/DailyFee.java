@@ -17,6 +17,9 @@ import lombok.experimental.SuperBuilder;
  * Hospio's fee for one hotel and one Lagos day (docs/plan-daily-fees.md). {@code due} is the day's fee plus what earlier days left
  * unpaid ({@code carriedIn}); {@code collected} is what the debit took.
  *
+ * <p>Since 18 Nov 2026 nothing is debited: a day with a fee is ACCRUED, then INVOICED on its month's invoice, then PAID with it
+ * ({@code collected} = what the invoice payments covered of it). The older statuses below are from the daily-debit trial.
+ *
  * <p>Status: SHADOW (debit off: statement only, nothing owed), NO_FEE (nothing sold), SCHEDULED (debit at 06:00), PAID, PART_PAID
  * (the rest carried to the next day), UNPAID (nothing taken; carried), PENDING (the provider hasn't answered yet), CARRIED (its
  * remainder moved to a later day).
@@ -38,6 +41,10 @@ public class DailyFee extends TenantEntity {
     public static final String PART_PAID = "PART_PAID";
     public static final String UNPAID = "UNPAID";
     public static final String CARRIED = "CARRIED";
+    /** The fee is worked out and waits for the month's invoice (docs/plan-monthly-invoices.md). */
+    public static final String ACCRUED = "ACCRUED";
+    /** On a monthly invoice that is not paid yet. */
+    public static final String INVOICED = "INVOICED";
 
     @Column(name = "hotel_name", length = 150)
     private String hotelName;
@@ -117,6 +124,10 @@ public class DailyFee extends TenantEntity {
 
     @Column(name = "refund_note", length = 300)
     private String refundNote;
+
+    /** The monthly invoice the day was billed on (docs/plan-monthly-invoices.md); null until the invoice for its month is issued. */
+    @Column(name = "monthly_invoice_id", length = 36)
+    private String monthlyInvoiceId;
 
     public BigDecimal remaining() {
         return due.subtract(collected).max(BigDecimal.ZERO);

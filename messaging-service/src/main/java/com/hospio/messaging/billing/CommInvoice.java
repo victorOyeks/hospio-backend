@@ -79,4 +79,11 @@ public class CommInvoice extends TenantEntity {
 
     @Column(length = 300)
     private String note;
+
+    /** The Hospio360 monthly invoice (HIN-…) this is billed on (docs/plan-monthly-invoices.md); null while it stands alone. */
+    @Column(name = "monthly_invoice_id", length = 36)
+    private String monthlyInvoiceId;
+
+    @Column(name = "monthly_invoice_number", length = 30)
+    private String monthlyInvoiceNumber;
 }

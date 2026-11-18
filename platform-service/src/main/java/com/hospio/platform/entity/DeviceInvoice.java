@@ -99,6 +99,13 @@ public class DeviceInvoice extends TenantEntity {
     @Column(name = "paused_at")
     private Instant pausedAt;
 
+    /** The monthly invoice that bills this instalment or data-plan month (docs/plan-monthly-invoices.md); null until then. */
+    @Column(name = "monthly_invoice_id", length = 36)
+    private String monthlyInvoiceId;
+
+    @Column(name = "monthly_invoice_number", length = 30)
+    private String monthlyInvoiceNumber;
+
     public boolean open() {
         return DUE.equals(status) || OVERDUE.equals(status);
     }

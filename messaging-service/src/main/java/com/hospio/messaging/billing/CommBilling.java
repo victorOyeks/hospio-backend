@@ -102,6 +102,14 @@ public class CommBilling {
     private final String hotelAppUrl;
     private com.hospio.messaging.client.IdentityClient identity;
 
+    /**
+     * On (the default since 18 Nov 2026): the month's MSG- invoices are billed on Hospio360's monthly invoice (platform-service,
+     * docs/plan-monthly-invoices.md). They are made silently on the 1st (no email or notice of their own), never go overdue or suspend
+     * guest messages by themselves, and are paid with the monthly invoice, not on their own.
+     */
+    @Value("${hospio.billing.monthly-invoice:true}")
+    private boolean monthlyInvoice = true;
+
     /** The hotel's owners and managers also get the invoice by email (a hotel often has no email of its own). */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setIdentity(com.hospio.messaging.client.IdentityClient identity) {
@@ -258,6 +266,11 @@ public class CommBilling {
         if (inv.getTotalAmount().signum() <= 0) {
             throw new BadRequestException("Nothing to pay on this invoice");
         }
+        if (inv.getMonthlyInvoiceId() != null || monthlyInvoice) {
+            throw new BadRequestException("Guest messages are billed on your Hospio360 monthly invoice"
+                    + (inv.getMonthlyInvoiceNumber() == null ? "" : " " + inv.getMonthlyInvoiceNumber())
+                    + ". The owner pays it under Billing & invoices");
+        }
         String reference = inv.getNumber() + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
         String back = StringUtils.hasText(returnUrl) && returnUrl.startsWith(hotelAppUrl) ? returnUrl
                 : hotelAppUrl + "/dashboard/hotel-setup/guest-messages?invoice=" + inv.getId();
@@ -398,6 +411,9 @@ public class CommBilling {
         if (made != null) {
             log.info("Guest-message invoice {} for hotel {}: {}", made.getNumber(), hotelId, made.getTotalAmount());
             try {
+                if (monthlyInvoice) {
+                    return Optional.of(made); // told on the monthly invoice instead
+                }
                 tellIssued(made); // after the commit; a failure here never undoes the invoice
             } catch (RuntimeException e) {
                 log.warn("Invoice {} issued but the hotel could not be told: {}", made.getNumber(), e.getMessage());
@@ -419,7 +435,11 @@ public class CommBilling {
      */
     @Scheduled(cron = "${hospio.billing.overdue-cron:0 0 9 * * *}", zone = "Africa/Lagos")
     public int suspendOverdue() {
-        List<CommInvoice> late = asSystem(() -> invoices.findByStatusAndDueOnBefore(CommInvoice.Status.DUE, LocalDate.now(LAGOS)));
+        if (monthlyInvoice) {
+            return 0; // an unpaid monthly invoice restricts the business instead (platform-service)
+        }
+        List<CommInvoice> late = asSystem(() -> invoices.findByStatusAndDueOnBefore(CommInvoice.Status.DUE, LocalDate.now(LAGOS))).stream()
+                .filter(i -> i.getMonthlyInvoiceId() == null).toList();
         int done = 0;
         for (CommInvoice inv : late) {
             try {
@@ -498,6 +518,65 @@ public class CommBilling {
         } catch (RuntimeException e) {
             log.warn("Could not notify hotel {} about invoice {}: {}", inv.getHotelId(), inv.getNumber(), e.getMessage());
         }
+    }
+
+    // ---- the monthly invoice (platform-service, docs/plan-monthly-invoices.md) ------------------------------------------
+
+    /** A business's open message invoices for months up to {@code month} not on a monthly invoice yet. */
+    public List<com.hospio.common.billing.MessageBillingDtos.ToBill> toBill(String businessId, String month) {
+        return asSystem(() -> invoices.toBill(businessId, OPEN, month)).stream()
+                .map(i -> new com.hospio.common.billing.MessageBillingDtos.ToBill(i.getId(), i.getNumber(), i.getMonth(), i.getHotelId(), i.getHotelName(),
+                        i.getEmailCount(), i.getSmsCount(), i.getWhatsappCount(), i.getTotalAmount()))
+                .toList();
+    }
+
+    /** Puts the message invoices on the monthly invoice (only those still open and unlinked, or already on it). Returns how many. */
+    public int link(com.hospio.common.billing.MessageBillingDtos.Link l) {
+        return asSystem(() -> tx.execute(s -> {
+            int n = 0;
+            for (CommInvoice i : invoices.findAllById(l.invoiceIds())) {
+                if (OPEN.contains(i.getStatus()) && (i.getMonthlyInvoiceId() == null || i.getMonthlyInvoiceId().equals(l.monthlyInvoiceId()))) {
+                    i.setMonthlyInvoiceId(l.monthlyInvoiceId());
+                    i.setMonthlyInvoiceNumber(l.monthlyInvoiceNumber());
+                    invoices.save(i);
+                    n++;
+                }
+            }
+            return n;
+        }));
+    }
+
+    /** The monthly invoice was paid: its message invoices are paid (lifting any suspension). Returns how many were settled now. */
+    public int settleMonthly(com.hospio.common.billing.MessageBillingDtos.Link l) {
+        int n = 0;
+        List<CommInvoice> on = new ArrayList<>(asSystem(() -> invoices.findByMonthlyInvoiceId(l.monthlyInvoiceId())));
+        if (l.invoiceIds() != null) {
+            asSystem(() -> invoices.findAllById(l.invoiceIds())).stream().filter(i -> on.stream().noneMatch(o -> o.getId().equals(i.getId())))
+                    .forEach(on::add);
+        }
+        for (CommInvoice i : on) {
+            if (i.getStatus() != CommInvoice.Status.PAID && i.getStatus() != CommInvoice.Status.VOID) {
+                settle(i.getId(), "HOSPIO_INVOICE", l.monthlyInvoiceNumber(), "Hospio360 monthly invoice", "Paid with " + l.monthlyInvoiceNumber());
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** The monthly invoice was voided: its message invoices stand free again for the reissue. */
+    public int release(com.hospio.common.billing.MessageBillingDtos.Link l) {
+        return asSystem(() -> tx.execute(s -> {
+            int n = 0;
+            for (CommInvoice i : invoices.findByMonthlyInvoiceId(l.monthlyInvoiceId())) {
+                if (i.getStatus() != CommInvoice.Status.PAID) {
+                    i.setMonthlyInvoiceId(null);
+                    i.setMonthlyInvoiceNumber(null);
+                    invoices.save(i);
+                    n++;
+                }
+            }
+            return n;
+        }));
     }
 
     // ---- Hospio360's side --------------------------------------------------------------------------------------------

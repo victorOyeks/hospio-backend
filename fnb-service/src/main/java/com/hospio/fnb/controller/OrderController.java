@@ -36,6 +36,16 @@ public class OrderController {
             + " or @access.has('WAITER') or @access.has('CASHIER')";
     static final String TAKE = "@access.atLeast('KITCHEN','EDIT') or @access.atLeast('BAR','EDIT') or @access.atLeast('FRONT_OFFICE','EDIT')"
             + " or @access.atLeast('WAITER','EDIT')";
+    /** The Hospio360 invoice restriction (docs/plan-monthly-invoices.md): new sales and bookings pause while it is on. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.hospio.common.billing.BillingHold billingHold;
+
+    private void notHeld(String what) {
+        if (billingHold != null) {
+            billingHold.require(what);
+        }
+    }
+
     static final String WORK = "@access.atLeast('KITCHEN','EDIT') or @access.atLeast('BAR','EDIT')";
     /** Serving and moving a table: the outlet's own people and waiters (the service checks which order and which step). */
     static final String SERVE = WORK + " or @access.atLeast('WAITER','EDIT')";
@@ -60,12 +70,14 @@ public class OrderController {
     @PostMapping
     @PreAuthorize(TAKE)
     public ApiResponse<OrderResponse> create(@Valid @RequestBody OrderRequest request) {
+        notHeld("New sales and tabs");
         return ApiResponse.ok("Order started", service.create(request));
     }
 
     @PostMapping("/{id}/lines")
     @PreAuthorize(TAKE)
     public ApiResponse<OrderResponse> addLine(@PathVariable String id, @Valid @RequestBody OrderRequest.LineRequest line) {
+        notHeld("New sales and tabs");
         return ApiResponse.ok("Added", service.addLine(id, line));
     }
 

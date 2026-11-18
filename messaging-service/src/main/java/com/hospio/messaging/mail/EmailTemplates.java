@@ -130,6 +130,9 @@ public class EmailTemplates {
             Map.entry("TILL_VARIANCE", new Look("Till", Tone.WARNING, null, null)),
             Map.entry("NOTICE", new Look("Notice", Tone.BRAND, null, null)),
             Map.entry("INVOICE", new Look("Invoice", Tone.INFO, null, "Pay or view the invoice")),
+            Map.entry("INVOICE_REMINDER", new Look("Payment due", Tone.WARNING, null, "Pay now")),
+            Map.entry("INVOICE_FINAL", new Look("Final notice", Tone.DANGER, null, "Pay now")),
+            Map.entry("INVOICE_RECEIPT", new Look("Payment received", Tone.SUCCESS, null, "View the invoice")),
             Map.entry("MESSAGE", new Look("Message", Tone.BRAND, null, null)));
 
     private static final Pattern LINK = Pattern.compile("https?://[^\\s<>\"]+");

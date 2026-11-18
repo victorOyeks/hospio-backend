@@ -447,13 +447,23 @@ public class LegalService {
     }
 
     private RecordView record(LegalAcceptance a) {
-        return new RecordView(a.getId(), a.getEvent(), a.getMethod(), a.getDocKey(), title(a.getDocKey(), a.getRatePct()), a.getVersion(), a.getUserId(),
+        return new RecordView(a.getId(), a.getEvent(), a.getMethod(), a.getDocKey(), title(a.getDocKey(), a.getRatePct(), a.getVersion()), a.getVersion(), a.getUserId(),
                 a.getUserName(), a.getUserEmail(), a.getRole(), a.getBusinessId(), a.getBusinessName(), a.getHotelId(), a.getReference(), a.getChannel(),
                 a.getSharedOn(), a.getNote(), a.getIp(), a.getUserAgent(), a.getRecordedByName(), a.getCreatedAt(), a.getRatePct());
     }
 
-    /** A DEBIT record names the rate its box stated; records from before the rate was stored said 1.5% (the box's fixed text then). */
+    /**
+     * A DEBIT record names the rate its box stated; records from before the rate was stored said 1.5% (the box's fixed text then). From
+     * FEES-2026-11B (18 Nov 2026) the box is the monthly invoice agreement (docs/plan-monthly-invoices.md); FEES-2026-11 was the daily debit.
+     */
     static String title(String key, BigDecimal ratePct) {
+        return title(key, ratePct, null);
+    }
+
+    static String title(String key, BigDecimal ratePct, String version) {
+        if (DEBIT.equals(key) && version != null && !"FEES-2026-11".equals(version)) {
+            return "Monthly invoice agreement (" + (ratePct == null ? "1.5" : pct(ratePct)) + "%)";
+        }
         return switch (key) {
             case TERMS -> "Terms of Service";
             case PRIVACY -> "Privacy Policy";

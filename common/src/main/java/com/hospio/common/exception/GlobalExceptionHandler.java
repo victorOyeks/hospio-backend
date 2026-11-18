@@ -102,6 +102,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(ApiResponse.error("Request body could not be read"));
     }
 
+    /** The business's Hospio360 invoice is unpaid past its grace period: 423 with the reason (docs/plan-monthly-invoices.md). */
+    @ExceptionHandler(BillingHoldException.class)
+    public ResponseEntity<ApiResponse<Void>> billingHold(BillingHoldException e, HttpServletRequest request) {
+        warn(e, request);
+        return ResponseEntity.status(HttpStatus.LOCKED).body(ApiResponse.error(e.getMessage()));
+    }
+
     @ExceptionHandler(HospioException.class)
     public ResponseEntity<ApiResponse<Void>> hospio(HospioException e, HttpServletRequest request) {
         warn(e, request);

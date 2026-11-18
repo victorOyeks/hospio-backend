@@ -210,6 +210,28 @@ public class CommBillingController {
         return ApiResponse.ok(Map.of("suspended", billing.suspendOverdue()));
     }
 
+    // ---- platform-service: guest messages on the monthly invoice (docs/plan-monthly-invoices.md) ------------------------
+
+    @GetMapping("/internal/billing/messages/to-bill")
+    public ApiResponse<List<com.hospio.common.billing.MessageBillingDtos.ToBill>> toBill(@RequestParam String businessId, @RequestParam String month) {
+        return ApiResponse.ok(billing.toBill(businessId, month));
+    }
+
+    @PostMapping("/internal/billing/messages/link")
+    public ApiResponse<Integer> link(@RequestBody com.hospio.common.billing.MessageBillingDtos.Link l) {
+        return ApiResponse.ok(billing.link(l));
+    }
+
+    @PostMapping("/internal/billing/messages/settle")
+    public ApiResponse<Integer> settleMonthly(@RequestBody com.hospio.common.billing.MessageBillingDtos.Link l) {
+        return ApiResponse.ok(billing.settleMonthly(l));
+    }
+
+    @PostMapping("/internal/billing/messages/release")
+    public ApiResponse<Integer> release(@RequestBody com.hospio.common.billing.MessageBillingDtos.Link l) {
+        return ApiResponse.ok(billing.release(l));
+    }
+
     // ---- Paystack's webhook ----------------------------------------------------------------------------------------
 
     @PostMapping("/webhooks/paystack")
@@ -225,7 +247,7 @@ public class CommBillingController {
                 String reference = e.data() == null ? null : e.data().reference();
                 if (reference != null && reference.startsWith("MSG-")) {
                     billing.confirm(reference, "Paystack");
-                } else if (reference != null && reference.startsWith("DEV-")) {
+                } else if (reference != null && (reference.startsWith("DEV-") || reference.startsWith("HIN-"))) {
                     deviceInvoices.forward(reference);
                 }
             }

@@ -35,6 +35,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class BookingController {
 
+    /** The Hospio360 invoice restriction (docs/plan-monthly-invoices.md): new sales and bookings pause while it is on. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.hospio.common.billing.BillingHold billingHold;
+
+    private void notHeld(String what) {
+        if (billingHold != null) {
+            billingHold.require(what);
+        }
+    }
+
+
     private final BookingService service;
     private final ReservationListService lists;
     private final com.hospio.reservation.service.GuestNotices notices;
@@ -83,6 +94,7 @@ public class BookingController {
     @PostMapping
     @PreAuthorize("@access.atLeast('FRONT_OFFICE','EDIT')")
     public ApiResponse<BookingResponse> create(@Valid @RequestBody CreateBookingRequest request) {
+        notHeld("New bookings and walk-ins");
         BookingResponse created = service.create(request);
         return ApiResponse.ok("Booking created", created.withDeliveries(notices.confirmed(created)));
     }
