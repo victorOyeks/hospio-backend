@@ -139,3 +139,7 @@ CALL app.protect('fnb', 'order_split_parts');
 CALL app.protect('fnb', 'order_tips');
 CALL app.protect('fnb', 'sale_requests');
 CALL app.protect('fnb', 'staff_outlets');
+
+--changeset hospio:fnb-009-order-split-parts
+-- How many parts the order's bill is split into while a split stands (0: not split), so a board or list knows without a join.
+ALTER TABLE fnb.orders ADD COLUMN IF NOT EXISTS split_parts INT NOT NULL DEFAULT 0;

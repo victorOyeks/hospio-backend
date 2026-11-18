@@ -143,6 +143,11 @@ public class Order extends TenantEntity {
     @lombok.Builder.Default
     private BigDecimal roomAmount = BigDecimal.ZERO;
 
+    /** The number of parts the bill is split into while a split stands (or was paid in); 0 when it isn't split. */
+    @Column(name = "split_parts", nullable = false)
+    @lombok.Builder.Default
+    private int splitParts = 0;
+
     /** A discount on the whole bill, given by hand: a percentage or an amount (one of the two), shared over the lines. */
     @Column(name = "bill_discount_pct")
     private BigDecimal billDiscountPct;

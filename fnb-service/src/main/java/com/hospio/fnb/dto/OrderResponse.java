@@ -13,7 +13,7 @@ public record OrderResponse(String id, String number, String outletId, Order.Kin
                             Instant settledAt, String cancelReason, BigDecimal paidAmount, String notes, Instant createdAt, List<OrderLine> lines,
                             String settledByUser, String settledByName, BigDecimal serviceCharge, String ticketFrom,
                             BigDecimal roomAmount, BigDecimal balance, BigDecimal billDiscountPct, BigDecimal billDiscountAmount,
-                            String discountReason, String discountByName) {
+                            String discountReason, String discountByName, int splitParts) {
     public static OrderResponse of(Order o, List<OrderLine> lines) {
         return new OrderResponse(o.getId(), o.getNumber(), o.getOutletId(), o.getKind(), o.getTableId(), o.getTableNo(), o.getRoomId(),
                 o.getRoomNumber(), o.getBookingId(), o.getGuestName(), o.getStatus(), o.getSubtotal(), o.getTax(), o.getDiscount(), o.getTotal(),
@@ -21,7 +21,7 @@ public record OrderResponse(String id, String number, String outletId, Order.Kin
                 o.getClosedBy(), o.getClosedByName(), o.getSettledBy(), o.getSettledAt(), o.getCancelReason(), o.getPaidAmount(), o.getNotes(),
                 o.getCreatedAt(), lines, o.getSettledByUser(), o.getSettledByName(), o.getServiceCharge(), null,
                 o.getRoomAmount(), o.isSettled() || o.getStatus() == Order.Status.CANCELLED ? BigDecimal.ZERO : o.balance(), o.getBillDiscountPct(),
-                o.getBillDiscountAmount(), o.getDiscountReason(), o.getDiscountByName());
+                o.getBillDiscountAmount(), o.getDiscountReason(), o.getDiscountByName(), o.getSplitParts());
     }
 
     /**
@@ -34,6 +34,6 @@ public record OrderResponse(String id, String number, String outletId, Order.Kin
                 r.guestName(), r.status(), r.subtotal(), r.tax(), r.discount(), r.total(), r.chargedToRoom(), r.paid(), r.paymentId(), r.openedBy(),
                 r.openedByName(), r.sentAt(), r.closedAt(), r.closedBy(), r.closedByName(), r.settledBy(), r.settledAt(), r.cancelReason(), r.paidAmount(),
                 r.notes(), r.createdAt(), stationLines, r.settledByUser(), r.settledByName(), r.serviceCharge(), soldAt,
-                r.roomAmount(), r.balance(), r.billDiscountPct(), r.billDiscountAmount(), r.discountReason(), r.discountByName());
+                r.roomAmount(), r.balance(), r.billDiscountPct(), r.billDiscountAmount(), r.discountReason(), r.discountByName(), r.splitParts());
     }
 }
