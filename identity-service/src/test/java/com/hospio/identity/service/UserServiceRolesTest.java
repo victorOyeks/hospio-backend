@@ -262,4 +262,14 @@ class UserServiceRolesTest {
         verify(events, never()).publish(any(), any());
         verify(users, never()).findById(anyString());
     }
+
+    @Test
+    void aNewDepartmentRoleStartsAtCanEditAndAManagerAtFull() {
+        assertThat(UserService.defaultLevel(Role.BAR)).isEqualTo(AccessLevel.EDIT);
+        assertThat(UserService.defaultLevel(Role.KITCHEN)).isEqualTo(AccessLevel.EDIT);
+        assertThat(UserService.defaultLevel(Role.FINANCE)).isEqualTo(AccessLevel.EDIT);
+        assertThat(UserService.defaultLevel(Role.MANAGER)).isEqualTo(AccessLevel.FULL);
+        assertThat(UserService.defaultLevel(Role.OWNER)).isEqualTo(AccessLevel.FULL);
+        assertThat(UserService.defaultLevel(Role.SUPPORT)).isEqualTo(AccessLevel.FULL);
+    }
 }

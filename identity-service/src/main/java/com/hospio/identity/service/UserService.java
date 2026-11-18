@@ -183,6 +183,17 @@ public class UserService {
         return toResponse(find(userId));
     }
 
+    /**
+     * The level a new role starts at when the request names none: the owner, a manager and Hospio360 roles at Full,
+     * a department role at Can edit, so a bartender's price change waits for the manager. Existing grants are never touched.
+     */
+    static AccessLevel defaultLevel(Role role) {
+        return switch (role) {
+            case FRONT_OFFICE, HOUSEKEEPING, LAUNDRY, MAINTENANCE, KITCHEN, BAR, INVENTORY, FINANCE -> AccessLevel.EDIT;
+            default -> AccessLevel.FULL;
+        };
+    }
+
     @Transactional
     public UserCreatedResponse create(CreateUserRequest request) {
         HospioUserDetails caller = CurrentUser.require();
@@ -211,7 +222,7 @@ public class UserService {
                 .temporaryPasswordExpiresAt(expires)
                 .language(request.language())
                 .build());
-        grant(user, role, request.level() == null ? AccessLevel.FULL : request.level(), hotelId, null, caller.getUserId());
+        grant(user, role, request.level() == null ? defaultLevel(role) : request.level(), hotelId, null, caller.getUserId());
         InviteService.Issued invite = invites.issue(user, caller.getUserId());
         events.publish(KafkaTopics.USER_CREATED, UserCreatedEvent.builder()
                 .businessId(user.getBusinessId()).hotelId(hotelId).userId(user.getId()).fullName(user.getFullName()).email(user.getEmail()).build());
@@ -273,7 +284,7 @@ public class UserService {
         if (expiresAt != null && !expiresAt.isAfter(Instant.now())) {
             throw new BadRequestException("The last day must be today or later");
         }
-        AccessLevel level = request.level() == null ? AccessLevel.FULL : request.level();
+        AccessLevel level = request.level() == null ? defaultLevel(request.role()) : request.level();
         RoleGrant existing = businessWide ? null : grants.findByUserIdAndHotelIdAndRole(userId, hotelId, request.role()).orElse(null);
         if (existing != null && (existing.getExpiresAt() == null || existing.getExpiresAt().isAfter(Instant.now()))) {
             String label = AccessDates.roleLabel(request.role());
