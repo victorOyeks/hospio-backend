@@ -36,7 +36,8 @@ public class LoggingChannels {
 
             @Override
             public String send(String to, String subject, String body) {
-                log.info("[{}] to={} subject={} body={}", kind, to, subject, body);
+                // Never the body: it can carry a code, a temporary password or an invite link.
+                log.info("[{}] to={} subject={} ({} characters, not logged)", kind, to, subject, body == null ? 0 : body.length());
                 return kind.name().toLowerCase() + "-" + System.nanoTime();
             }
         };
