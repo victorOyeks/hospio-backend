@@ -26,6 +26,7 @@ public class TerminalService {
     private final PosTerminalRepository terminals;
     private final PosRoleAssignmentRepository assignments;
     private final EventPublisher events;
+    private final com.hospio.payment.client.TenantClient tenantClient;
 
     @Transactional(readOnly = true)
     public List<PosTerminal> list() {
@@ -37,9 +38,20 @@ public class TerminalService {
         return assignments.findByHotelId(TenantContext.requireHotel());
     }
 
+    /**
+     * Adds a terminal to the hotel in context, or renames / re-points one of its terminals. The row's hotel and business are set
+     * here, not left to the tenant default: a platform admin (onboarding step 8) has no business in context, so the business is
+     * the hotel's own from tenant-service, and a hotel tenant-service doesn't know is refused.
+     */
     @Transactional
     public PosTerminal save(String id, TerminalRequest request) {
-        PosTerminal t = id == null ? new PosTerminal() : find(id);
+        PosTerminal t;
+        if (id == null) {
+            String hotelId = TenantContext.requireHotel();
+            t = PosTerminal.builder().hotelId(hotelId).businessId(businessOf(hotelId)).build();
+        } else {
+            t = findHere(id);
+        }
         t.setName(request.name());
         t.setProvider(request.provider());
         t.setTerminalRef(request.terminalRef());
@@ -48,15 +60,17 @@ public class TerminalService {
 
     @Transactional
     public PosRoleAssignment assign(String terminalId, Role role) {
-        PosTerminal t = find(terminalId);
-        PosRoleAssignment a = assignments.findByHotelIdAndRole(t.getHotelId(), role).orElseGet(() -> PosRoleAssignment.builder().role(role).build());
+        PosTerminal t = findHere(terminalId);
+        // The desk's assignment row belongs to the terminal's hotel and business (a platform admin has no business of its own).
+        PosRoleAssignment a = assignments.findByHotelIdAndRole(t.getHotelId(), role).orElseGet(() -> PosRoleAssignment.builder().role(role)
+                .hotelId(t.getHotelId()).businessId(t.getBusinessId()).build());
         a.setTerminalId(t.getId());
         return assignments.save(a);
     }
 
     @Transactional
     public void retire(String terminalId) {
-        PosTerminal t = find(terminalId);
+        PosTerminal t = findHere(terminalId);
         assignments.findByTerminalId(terminalId).forEach(assignments::delete);
         t.setStatus(PosTerminal.Status.RETIRED);
         terminals.save(t);
@@ -87,7 +101,7 @@ public class TerminalService {
 
     @Transactional
     public PosTerminal setStatus(String terminalId, PosTerminal.Status status) {
-        PosTerminal t = find(terminalId);
+        PosTerminal t = findHere(terminalId);
         if (status == PosTerminal.Status.OFFLINE) {
             markOffline(t, null);
         } else {
@@ -113,6 +127,28 @@ public class TerminalService {
     /** The terminal the desk picked, when it is one of this hotel's. */
     public Optional<PosTerminal> picked(String hotelId, String terminalId) {
         return terminals.findById(terminalId).filter(t -> hotelId.equals(t.getHotelId()));
+    }
+
+    /**
+     * The business of the hotel in context: the caller's own when they are a business or hotel user (the token already limits them
+     * to their hotels), else the hotel's business from tenant-service; 404 when there is no such hotel.
+     */
+    private String businessOf(String hotelId) {
+        String own = TenantContext.current().map(com.hospio.common.tenancy.Tenant::businessId).orElse(null);
+        if (own != null) {
+            return own;
+        }
+        return tenantClient.businessOf(hotelId).orElseThrow(() -> new ResourceNotFoundException("Hotel not found"));
+    }
+
+    /** A terminal of the hotel in context, when one is chosen; a terminal of another hotel is not found. */
+    PosTerminal findHere(String id) {
+        PosTerminal t = find(id);
+        String hotel = TenantContext.current().map(com.hospio.common.tenancy.Tenant::hotelId).orElse(null);
+        if (hotel != null && !hotel.equals(t.getHotelId())) {
+            throw new ResourceNotFoundException("Terminal not found");
+        }
+        return t;
     }
 
     PosTerminal find(String id) {
