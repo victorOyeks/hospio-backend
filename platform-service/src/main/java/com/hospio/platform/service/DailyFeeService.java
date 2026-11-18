@@ -3,8 +3,6 @@ package com.hospio.platform.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospio.common.billing.DailySales;
-import com.hospio.common.delivery.Delivery;
-import com.hospio.common.delivery.DeliveryService;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.security.CurrentUser;
@@ -21,11 +19,9 @@ import com.hospio.platform.repository.DailyFeeRepository;
 import com.hospio.platform.repository.FeeCollectionRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.text.NumberFormat;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -59,32 +55,31 @@ public class DailyFeeService {
     private final FeeDebitClient debits;
     private final TenantClient tenant;
     private final FeeService feeRules;
-    private final DeliveryService deliveries;
     private final TransactionTemplate tx;
     private final ObjectMapper mapper;
     private final DevicePackageService devices;
 
-    public record RunResult(LocalDate date, int worked, int skipped, int statements, List<String> notes) {
+    public record RunResult(LocalDate date, int worked, int skipped, List<String> notes) {
     }
 
     // ---- working out a day ----------------------------------------------------------------------------
 
-    /** Works out {@code date} for every hotel of every business billed daily, then sends each owner one statement. */
+    /**
+     * Works out {@code date} for every hotel of every business billed daily. Nothing is sent: the owner sees each day under Hospio fees
+     * ("this month so far") and is billed on the month's invoice (the daily statement email stopped on 18 Nov 2026).
+     */
     public RunResult runDay(LocalDate date) {
         return TenantContext.runWith(Tenant.system("daily-fees"), () -> {
             List<String> notes = new ArrayList<>();
             int worked = 0;
             int skipped = 0;
-            int statements = 0;
             for (TenantClient.Business summary : billedDaily()) {
                 TenantClient.Business b = summary.hotels().isEmpty() ? tenant.business(summary.id()).orElse(summary) : summary;
                 BigDecimal rate = feeRules.valueFor(b);
-                List<DailyFee> made = new ArrayList<>();
                 for (TenantClient.Hotel h : b.hotels()) {
                     try {
                         DailyFee f = workOut(b, h, date, rate);
                         if (f != null) {
-                            made.add(f);
                             worked++;
                         } else {
                             skipped++;
@@ -95,11 +90,8 @@ public class DailyFeeService {
                         log.warn("Daily fee for {} ({}) on {} not worked out: {}", h.name(), h.id(), date, e.getMessage());
                     }
                 }
-                if (!made.isEmpty() && sendStatement(b, date, made)) {
-                    statements++;
-                }
             }
-            return new RunResult(date, worked, skipped, statements, notes);
+            return new RunResult(date, worked, skipped, notes);
         });
     }
 
@@ -144,58 +136,6 @@ public class DailyFeeService {
             return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
         return sales.multiply(rate).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-    }
-
-    // ---- the morning statement ------------------------------------------------------------------------
-
-    boolean sendStatement(TenantClient.Business b, LocalDate date, List<DailyFee> made) {
-        String to = b.ownerEmail();
-        if (!StringUtils.hasText(to)) {
-            log.warn("Daily fee statement for {} on {} has no owner email", b.name(), date);
-            return false;
-        }
-        deliveries.send(Delivery.email(to, "Hospio360 · " + DAY.format(date) + ": your sales and Hospio fee", statementText(b, date, made),
-                Delivery.Kind.FEE_STATEMENT, b.id() + ":" + date));
-        tx.executeWithoutResult(st -> made.forEach(f -> {
-            f.setStatementSentAt(Instant.now());
-            fees.save(f);
-        }));
-        return true;
-    }
-
-    static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.UK);
-
-    String statementText(TenantClient.Business b, LocalDate date, List<DailyFee> made) {
-        NumberFormat n = NumberFormat.getNumberInstance(Locale.UK);
-        n.setMinimumFractionDigits(2);
-        n.setMaximumFractionDigits(2);
-        StringBuilder t = new StringBuilder();
-        t.append("Hello ").append(StringUtils.hasText(b.ownerName()) ? b.ownerName() : "there").append(",\n\n");
-        t.append("Here is what ").append(b.name()).append(" sold on ").append(DAY.format(date)).append(" (VAT excluded) and Hospio360's fee.\n\n");
-        BigDecimal billed = BigDecimal.ZERO;
-        for (DailyFee f : made) {
-            t.append(f.getHotelName()).append('\n');
-            for (DailySales.Line l : read(f.getSalesLines())) {
-                if (l.amount().signum() != 0) {
-                    t.append("  ").append(l.label()).append(": NGN ").append(n.format(l.amount())).append('\n');
-                }
-            }
-            t.append("  Sales: NGN ").append(n.format(f.getSalesTotal())).append("\n");
-            t.append("  Fee at ").append(f.getRate().stripTrailingZeros().toPlainString()).append(" %: NGN ").append(n.format(f.getFee())).append('\n');
-            if (f.getDeviceFee().signum() > 0) {
-                t.append("  Devices at ").append(f.getDeviceRate().stripTrailingZeros().toPlainString()).append(" %: NGN ").append(n.format(f.getDeviceFee()))
-                        .append('\n');
-            }
-            billed = billed.add(f.getDue());
-            t.append('\n');
-        }
-        if (billed.signum() > 0) {
-            t.append("NGN ").append(n.format(billed)).append(" is added to your Hospio360 invoice for ")
-                    .append(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.UK).format(date))
-                    .append(", issued on the 1st of next month. Nothing is debited from your account.\n");
-        }
-        t.append("\nSee every day and every line in Hospio360 under Hospio fees (this month so far) and Billing & invoices. Reply to this email if something looks wrong.\n\nHospio360\n");
-        return t.toString();
     }
 
     // ---- reading -------------------------------------------------------------------------------------

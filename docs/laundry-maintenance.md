@@ -92,7 +92,7 @@ Maintenance work orders end to end on maintenance-service (raised by the desk, h
 | GET | `/prices` | hotel staff | active and inactive rows |
 | POST / PUT | `/prices`, `/prices/{id}` | manager, owner | `{name, category, price, expressPrice?, active}` |
 | GET | `/orders?status=open\|all` | LAUNDRY, FRONT_OFFICE, manager | view rows with `number, lines:[{priceId,name,quantity,unitPrice,amount}], express, total, status, settlement (ROOM/PAID/null), chargedAt, paidAt, paymentId, promisedAt, cancelReason, receivedByName` |
-| POST | `/orders` | LAUNDRY/FRONT_OFFICE Edit, manager | `{roomId, lines, express, promisedAt?, note?, chargeToRoom?}` |
+| POST | `/orders` | LAUNDRY/FRONT_OFFICE Edit, manager | `{roomId, lines, express, promisedAt?, note?, chargeToRoom?}`. **423** "New laundry orders are paused: …" while the business is paused for an unpaid Hospio360 invoice (`BillingHold`, docs/plan-monthly-invoices.md); the other order steps below are never paused |
 | POST | `/orders/{id}/status` | same | `{status}` forward only |
 | POST | `/orders/{id}/charge-to-room` · `/paid` · `/cancel` · `/pocket-note` | same | paid `{paymentId}`; cancel `{reason}` |
 | GET | `/linen-batches?status=open\|all` | HOUSEKEEPING, LAUNDRY, manager | lines `[{itemId, name, unit, sent, received, returned, condemned, lost}]`, `missing`, `condemnedValue` |

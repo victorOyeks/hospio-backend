@@ -37,6 +37,13 @@ public class LaundryController {
     private final LaundryService service;
     private final com.hospio.housekeeping.service.HousekeepingLists lists;
 
+    /**
+     * The Hospio360 invoice restriction (docs/plan-monthly-invoices.md): new guest-laundry orders pause while it is on. Orders already
+     * taken still move, are collected, charged to the room, paid in cash or cancelled, so no guest's clothes are stranded.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.hospio.common.billing.BillingHold billingHold;
+
     @GetMapping("/prices")
     @PreAuthorize(STAFF)
     public ApiResponse<List<LaundryDtos.PriceView>> prices() {
@@ -77,6 +84,9 @@ public class LaundryController {
     @PostMapping("/orders")
     @PreAuthorize(ORDERS_WRITE)
     public ApiResponse<LaundryDtos.OrderView> create(@RequestBody LaundryDtos.OrderRequest request) {
+        if (billingHold != null) {
+            billingHold.require("New laundry orders");
+        }
         return ApiResponse.ok("Order taken", service.create(request));
     }
 
