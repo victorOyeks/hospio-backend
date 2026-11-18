@@ -4,8 +4,11 @@ import com.hospio.common.response.ApiResponse;
 import com.hospio.fnb.dto.SaleDetail;
 import com.hospio.fnb.dto.SalesHistory;
 import com.hospio.fnb.dto.SalesSummary;
+import com.hospio.fnb.dto.VenueReport;
+import com.hospio.fnb.dto.VenueToday;
 import com.hospio.fnb.service.SalesHistoryService;
 import com.hospio.fnb.service.SalesService;
+import com.hospio.fnb.service.VenueReportService;
 import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -21,9 +24,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class SalesController {
 
     static final String SEE = "@access.has('KITCHEN') or @access.has('BAR') or @access.managerView() or @access.has('FINANCE')";
+    /** The venue dashboards and reports: managers, owners (and a support look) and finance; every outlet of the location. */
+    static final String MANAGEMENT = "@access.managerView() or @access.has('FINANCE')";
 
     private final SalesService service;
     private final SalesHistoryService history;
+    private final VenueReportService venue;
 
     @GetMapping("/sales")
     @PreAuthorize(SEE)
@@ -69,5 +75,24 @@ public class SalesController {
     @PreAuthorize(SEE)
     public ApiResponse<SaleDetail> sale(@PathVariable String id) {
         return ApiResponse.ok(history.detail(id));
+    }
+
+    /**
+     * The venue reports over the sales opened in the Lagos days {@code from}..{@code to} (today when omitted, up to 93 days), at every outlet
+     * or one (docs/plan-venue-type.md phase 2).
+     */
+    @GetMapping("/sales/report")
+    @PreAuthorize(MANAGEMENT)
+    public ApiResponse<VenueReport> report(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                           @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                           @RequestParam(required = false) String outletId) {
+        return ApiResponse.ok(venue.report(from, to, outletId));
+    }
+
+    /** Today at the outlets for the venue dashboards; tabs open longer than {@code staleHours} (default 4) need attention. */
+    @GetMapping("/sales/today")
+    @PreAuthorize(MANAGEMENT)
+    public ApiResponse<VenueToday> today(@RequestParam(required = false) Integer staleHours) {
+        return ApiResponse.ok(venue.today(staleHours));
     }
 }

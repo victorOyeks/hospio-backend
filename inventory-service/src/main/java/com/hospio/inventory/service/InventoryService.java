@@ -1483,6 +1483,52 @@ public class InventoryService {
                 Money.of(tot[4]), Money.of(tot[5])));
     }
 
+    /**
+     * Per stock item over the Lagos days {@code from}..{@code to} (the last 30 days by default, up to 93): drawn by sales through the
+     * recipes, used by hand, wasted, and what counts changed (docs/plan-venue-type.md phase 2). One grouped query; only items that moved.
+     */
+    @Transactional(readOnly = true)
+    public InventoryViews.ItemUsageReport usageByItem(LocalDate from, LocalDate to) {
+        String hotel = TenantContext.requireHotel();
+        LocalDate t = to == null ? LocalDate.now(LAGOS) : to;
+        LocalDate f = from == null ? t.minusDays(29) : from;
+        if (f.isAfter(t)) {
+            throw new BadRequestException("The start date is after the end date");
+        }
+        if (java.time.temporal.ChronoUnit.DAYS.between(f, t) + 1 > 93) {
+            throw new BadRequestException("Choose up to 93 days at a time");
+        }
+        Map<String, BigDecimal[]> by = new LinkedHashMap<>();
+        for (Object[] r : movements.usageByItem(hotel, java.time.LocalDateTime.ofInstant(start(f), java.time.ZoneOffset.UTC),
+                java.time.LocalDateTime.ofInstant(end(t), java.time.ZoneOffset.UTC))) {
+            String itemId = (String) r[0];
+            String kind = (String) r[1];
+            boolean sale = Boolean.TRUE.equals(r[2]);
+            BigDecimal qty = r[3] == null ? BigDecimal.ZERO : new BigDecimal(r[3].toString());
+            BigDecimal[] row = by.computeIfAbsent(itemId, k -> zeros(4));
+            switch (kind) {
+                case "USED" -> {
+                    if (sale) {
+                        row[0] = row[0].add(qty.negate());
+                    } else {
+                        row[1] = row[1].add(qty.negate());
+                    }
+                }
+                case "WASTE" -> row[2] = row[2].add(qty.negate());
+                default -> row[3] = row[3].add(qty);
+            }
+        }
+        Map<String, StockItem> im = itemMap();
+        List<InventoryViews.ItemUsage> rows = by.entrySet().stream().map(e -> {
+            StockItem i = im.get(e.getKey());
+            BigDecimal[] v = e.getValue();
+            return new InventoryViews.ItemUsage(e.getKey(), i == null ? "Removed item" : i.getName(), i == null ? null : i.getUnit(),
+                    i == null ? null : i.getCategory(), v[0].stripTrailingZeros(), v[1].stripTrailingZeros(), v[2].stripTrailingZeros(),
+                    v[3].stripTrailingZeros());
+        }).sorted(java.util.Comparator.comparing(InventoryViews.ItemUsage::name)).toList();
+        return new InventoryViews.ItemUsageReport(f, t, rows);
+    }
+
     // ---- helpers ------------------------------------------------------------------------------------
 
     private StockLevel move(StockLevel level, StockMovement.Kind kind, BigDecimal delta, String reference, String note, String team, BigDecimal unitCost) {

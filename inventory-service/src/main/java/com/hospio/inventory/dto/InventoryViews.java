@@ -95,4 +95,16 @@ public final class InventoryViews {
 
     public record UsageReport(LocalDate from, LocalDate to, List<StoreUsage> stores, List<TeamUsage> teams, UsageTotals totals) {
     }
+
+    /**
+     * Stock movements per item over a period (the venue "stock used vs sold" report, docs/plan-venue-type.md phase 2), as positive amounts
+     * taken out: {@code soldUse} drawn by sales through the recipes, {@code otherUse} used by hand, {@code waste}; {@code countDifference} is
+     * what counts and corrections changed (negative: found short). Only items that moved.
+     */
+    public record ItemUsage(String itemId, String name, String unit, String category, BigDecimal soldUse, BigDecimal otherUse, BigDecimal waste,
+                            BigDecimal countDifference) {
+    }
+
+    public record ItemUsageReport(LocalDate from, LocalDate to, List<ItemUsage> items) {
+    }
 }
