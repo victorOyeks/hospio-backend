@@ -538,6 +538,7 @@ public class OrderService {
             sp.setEndedAt(Instant.now());
             sp.setEndedByName(byName);
             splits.save(sp);
+            o.setSplitParts(0);
         });
         cancelled(o, byId, byName, reason.trim());
         orders.save(o);

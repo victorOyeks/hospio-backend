@@ -166,6 +166,8 @@ public class SplitService {
             parts.save(OrderSplitPart.builder().splitId(split.getId()).orderId(orderId).position(i + 1).label(labels.get(i)).amount(sh.amount())
                     .tax(sh.tax()).serviceCharge(sh.serviceCharge()).items(items.isEmpty() ? null : write(items.get(i))).build());
         }
+        o.setSplitParts(shares.size());
+        orders.save(o);
     }
 
     /** A split by item: every live line on at least one part, a line on several parts shared between them by {@code shares}. */
@@ -256,6 +258,8 @@ public class SplitService {
         split.setEndedAt(Instant.now());
         split.setEndedByName(user.getFullName());
         splits.save(split);
+        o.setSplitParts(0);
+        orders.save(o);
     }
 
     /**
