@@ -8,5 +8,5 @@ import java.time.Instant;
 public record BusinessSummary(String id, String name, Business.Stage stage, Business.Source source, String city, int hotels, int rooms,
                               String ownerName, String ownerEmail, String accountManagerId, String accountManagerName, String marketerId,
                               Business.FeeModel feeModel, BigDecimal feeValue, Instant createdAt, Instant lastActiveAt,
-                              String feeAddendumRef) {
+                              String feeAddendumRef, Business.Kind venueKind, java.util.List<String> venueTypes) {
 }

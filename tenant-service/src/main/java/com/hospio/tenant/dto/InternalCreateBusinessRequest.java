@@ -11,5 +11,5 @@ import jakarta.validation.constraints.NotBlank;
 public record InternalCreateBusinessRequest(@NotBlank String id, @NotBlank String name, String city, String ownerUserId,
                                             @NotBlank String ownerName, @NotBlank @Email String ownerEmail, String ownerPhone,
                                             Business.Source source, String marketerId, String referralId,
-                                            String referralCode) {
+                                            String referralCode, Business.Kind venueKind) {
 }

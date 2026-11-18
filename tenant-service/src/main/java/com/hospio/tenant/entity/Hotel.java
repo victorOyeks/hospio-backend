@@ -62,4 +62,15 @@ public class Hotel extends BaseEntity {
 
     @Column(name = "manager_user_id", length = 36)
     private String managerUserId;
+
+    /** What kind of place this location is (docs/plan-venue-type.md); features follow {@link #hasAccommodation()}, not the label. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "venue_type", nullable = false, length = 20)
+    @lombok.Builder.Default
+    private com.hospio.common.venue.VenueType venueType = com.hospio.common.venue.VenueType.HOTEL;
+
+    /** Rooms, bookings, folios and charge-to-room: a hotel, or any location with rooms. */
+    public boolean hasAccommodation() {
+        return com.hospio.common.venue.VenueType.hasAccommodation(venueType, roomCount);
+    }
 }

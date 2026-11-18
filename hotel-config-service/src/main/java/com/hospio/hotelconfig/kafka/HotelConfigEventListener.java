@@ -29,7 +29,7 @@ public class HotelConfigEventListener {
         }
         tenant.bind(e);
         try {
-            setup.createDefaults(e.getHotelId());
+            setup.createDefaults(e.getHotelId(), e.getVenueType());
             log.info("Default Hotel setup created for hotel {} ({})", e.getHotelId(), e.getName());
         } finally {
             TenantContext.clear();

@@ -373,9 +373,9 @@ public class SalesHistoryService {
             note = "Part paid: collect the balance. Cancelling needs the payment refunded first";
         } else if (!cancel) {
             note = "Something on it was already sent. Only a manager can cancel it";
-        } else if (!roomOn && owes) {
-            note = "Charging to a room is switched off for this hotel";
         }
+        // No note when charging to a room is off: at a lounge, bar or restaurant it never applies (docs/plan-venue-type.md), and the
+        // screens leave the button out.
         return new SaleDetail.Can(owes, owes && roomOn, cancel, note);
     }
 

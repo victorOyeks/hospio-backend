@@ -207,7 +207,9 @@ public class OnboardingService {
             String to = org.springframework.util.StringUtils.hasText(business.getOwnerEmail()) ? business.getOwnerEmail() : owner.getEmail();
             if (org.springframework.util.StringUtils.hasText(to)) {
                 Delivery welcome = Delivery.email(to.trim(), "Welcome to Hospio360 · " + business.getName() + " is live",
-                        welcomeText(business.getOwnerName(), business.getName(), handoverPack.signInUrl()), Delivery.Kind.WELCOME, businessId);
+                        welcomeText(business.getOwnerName(), business.getName(), handoverPack.signInUrl(),
+                                businessService.hotelsOf(businessId).stream().anyMatch(com.hospio.tenant.dto.HotelResponse::hasAccommodation)),
+                        Delivery.Kind.WELCOME, businessId);
                 // From Hospio360 itself (no business in the context: the From name is Hospio360's, not the hotel's).
                 com.hospio.common.tenancy.TenantContext.runWith(com.hospio.common.tenancy.Tenant.system("handover-accepted"),
                         () -> deliveryService.send(welcome));
@@ -218,12 +220,18 @@ public class OnboardingService {
 
     /** The owner's welcome after accepting the handover: what's next, in a few lines. */
     static String welcomeText(String ownerName, String businessName, String signInUrl) {
+        return welcomeText(ownerName, businessName, signInUrl, true);
+    }
+
+    /** {@code rooms}: whether any location has accommodation; a lounge or restaurant owner is asked to check outlets and menus instead. */
+    static String welcomeText(String ownerName, String businessName, String signInUrl, boolean rooms) {
         return "Hello " + (org.springframework.util.StringUtils.hasText(ownerName) ? ownerName.trim().split("\\s+")[0] : "there") + ",\n\n"
                 + "Thank you for accepting the handover. " + businessName + " is now live on Hospio360.\n\n"
                 + "What to do next:\n"
-                + "- Sign in and check each hotel's rooms, prices and staff.\n"
+                + (rooms ? "- Sign in and check each hotel's rooms, prices and staff.\n" : "- Sign in and check each location's outlets, menus and staff.\n")
                 + "- Ask your managers to sign in and change their temporary passwords.\n"
-                + "- Take your first booking or sale; your account manager will check in with you this week.\n\n"
+                + (rooms ? "- Take your first booking or sale; your account manager will check in with you this week.\n\n"
+                        : "- Take your first sale; your account manager will check in with you this week.\n\n")
                 + "Sign in: " + signInUrl + "\n\n"
                 + "Questions? Reply to this email or open Help in the app.";
     }

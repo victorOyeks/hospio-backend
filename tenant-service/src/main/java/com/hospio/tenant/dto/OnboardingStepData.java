@@ -15,7 +15,7 @@ import java.util.Map;
  *   <li>owner (back office 2): ownerName, ownerEmail, ownerPhone, contactName, contactEmail, contactPhone (the second contact)</li>
  *   <li>hotel (self-serve 2): hotelId, name, city</li>
  *   <li>fee (back office 3): feeModel, feeValue, currency, contractStartsOn, contractNotes, marketerId, feeAddendumRef</li>
- *   <li>rooms (self-serve 3): roomTypes, created; (back office 5): byHotel</li>
+ *   <li>rooms (self-serve 3): roomTypes, created; (back office 5): byHotel; outlets (self-serve 3 at a lounge, bar or restaurant)</li>
  *   <li>manager (self-serve 4): userId, fullName, email, temporaryPassword, inviteToken</li>
  *   <li>hotels (back office 4): hotelIds</li>
  *   <li>template (back office 6): templateId, appliedTo, picked, appliedAt</li>
@@ -41,12 +41,19 @@ public record OnboardingStepData(
         List<OnboardingLogin> logins,
         List<Terminal> terminals, String whatsappNumber, Map<String, String> whatsappByHotel,
         List<GoLiveCheck> checks, String notes, String readyAt,
-        String sentAt, String ownerUserId) {
+        String sentAt, String ownerUserId,
+        List<OutletSummary> outlets) {
 
     /** A step saved with no form ({@code {}}). */
     public static final OnboardingStepData EMPTY = new OnboardingStepData(null, null, null, null, null, null, null, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-            null, null, null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null, null);
+
+    /** An outlet made in the self-serve wizard at a location without rooms (docs/plan-venue-type.md). */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record OutletSummary(String outletId, String name, String kind) {
+    }
 
     /** A room type made during onboarding: its id, name, nightly price and how many rooms of it. */
     @JsonInclude(JsonInclude.Include.NON_NULL)

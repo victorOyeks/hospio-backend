@@ -14,5 +14,16 @@ public record UpdateBusinessRequest(String name, String legalName, String regist
                                     String ownerName, String ownerEmail, String ownerPhone,
                                     Business.FeeModel feeModel, BigDecimal feeValue, String currency, String country, String timezone,
                                     LocalDate contractStartsOn, String contractNotes, String marketerId, String accountManagerId,
-                                    Business.Source source, String feeAddendumRef) {
+                                    Business.Source source, String feeAddendumRef, Business.Kind venueKind) {
+
+    public UpdateBusinessRequest(String name, String legalName, String registrationNumber, String businessType,
+                                 String email, String phone, String address, String city, String logoUrl, String brandColour,
+                                 String ownerName, String ownerEmail, String ownerPhone,
+                                 Business.FeeModel feeModel, BigDecimal feeValue, String currency, String country, String timezone,
+                                 LocalDate contractStartsOn, String contractNotes, String marketerId, String accountManagerId,
+                                 Business.Source source, String feeAddendumRef) {
+        this(name, legalName, registrationNumber, businessType, email, phone, address, city, logoUrl, brandColour, ownerName, ownerEmail,
+                ownerPhone, feeModel, feeValue, currency, country, timezone, contractStartsOn, contractNotes, marketerId, accountManagerId,
+                source, feeAddendumRef, null);
+    }
 }

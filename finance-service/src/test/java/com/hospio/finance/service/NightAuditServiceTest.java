@@ -230,4 +230,34 @@ class NightAuditServiceTest {
         assertThat(service.read("not json").guestsOrEmpty().arrivals()).isZero();
         assertThat(service.read(null).occupancyOrEmpty().rooms()).isZero();
     }
+    @Test
+    void aLoungeIsCheckedOnTillsAndOpenTabsOnly() {
+        signIn(Role.MANAGER, AccessLevel.FULL);
+        when(peers.roomCount("h1")).thenReturn(0);
+        when(peers.hasAccommodation("h1")).thenReturn(false);
+        when(peers.day("h1", DAY)).thenReturn(new PeerServices.Day(0, 0, 0, 0, 0, 0, 0, List.of(), List.of(), List.of()));
+        when(tills.findByHotelIdAndStatusOrderByOpenedAt("h1", Till.Status.OPEN)).thenReturn(List.of());
+        when(peers.openOrders("h1", DAY)).thenReturn(Optional.of(new PeerServices.OpenOrders(1, 0, List.of(new PeerServices.OutletOpen("bar", "Wuse Bar", 1, 0)))));
+        when(audits.findByHotelIdAndBusinessDate(any(), any())).thenReturn(Optional.empty());
+
+        var view = service.view(DAY);
+
+        assertThat(view.accommodation()).isFalse();
+        assertThat(view.checklist()).extracting(NightAuditChecklist.Item::key).containsExactly("tills", "orders");
+        assertThat(view.checklist().get(1).detail()).contains("1 open tab at the Wuse Bar");
+    }
+
+    @Test
+    void aHotelKeepsItsStayChecks() {
+        signIn(Role.MANAGER, AccessLevel.FULL);
+        day(0);
+        when(tills.findByHotelIdAndStatusOrderByOpenedAt("h1", Till.Status.OPEN)).thenReturn(List.of());
+        when(peers.openOrders("h1", DAY)).thenReturn(Optional.of(new PeerServices.OpenOrders(0, 0, List.of())));
+        when(audits.findByHotelIdAndBusinessDate(any(), any())).thenReturn(Optional.empty());
+
+        var view = service.view(DAY);
+
+        assertThat(view.accommodation()).isTrue();
+        assertThat(view.checklist()).extracting(NightAuditChecklist.Item::key).containsExactly("arrivals", "departures", "tills", "balances", "orders");
+    }
 }

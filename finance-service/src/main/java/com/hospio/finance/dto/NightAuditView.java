@@ -16,5 +16,17 @@ import java.util.List;
 public record NightAuditView(String id, LocalDate businessDate, String status, BigDecimal revenue, BigDecimal cashCounted, BigDecimal variance,
                              String closedBy, Instant closedAt, String note, @JsonRawValue String report, String savedChecklist,
                              List<NightAuditChecklist.Item> checklist, int arrivals, int departures, int inHouse, int noShows,
-                             int roomsOccupied, int rooms, List<Delivery> deliveries) {
+                             int roomsOccupied, int rooms, List<Delivery> deliveries, boolean accommodation) {
+
+    /**
+     * {@code accommodation}: false at a lounge, bar or restaurant (docs/plan-venue-type.md); the checklist then has only the tills and
+     * the outlets' open tabs, and the screens leave out arrivals, departures and occupancy.
+     */
+    public NightAuditView(String id, LocalDate businessDate, String status, BigDecimal revenue, BigDecimal cashCounted, BigDecimal variance,
+                          String closedBy, Instant closedAt, String note, String report, String savedChecklist,
+                          List<NightAuditChecklist.Item> checklist, int arrivals, int departures, int inHouse, int noShows,
+                          int roomsOccupied, int rooms, List<Delivery> deliveries) {
+        this(id, businessDate, status, revenue, cashCounted, variance, closedBy, closedAt, note, report, savedChecklist, checklist, arrivals,
+                departures, inHouse, noShows, roomsOccupied, rooms, deliveries, true);
+    }
 }

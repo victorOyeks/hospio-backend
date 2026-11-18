@@ -39,7 +39,9 @@ public class HandoverPack {
         sb.append("Hello ").append(ownerName == null ? "there" : ownerName).append(",\n\n");
         sb.append("Hospio360 has finished setting up ").append(businessName).append(" on Hospio360. Here is what is ready for you.\n\n");
 
-        sb.append("HOTELS\n");
+        // A lounge, bar or restaurant has no rooms: it is listed by its kind, never as "0 rooms" (docs/plan-venue-type.md).
+        boolean allHotels = hotels == null || hotels.stream().allMatch(HotelResponse::hasAccommodation);
+        sb.append(allHotels ? "HOTELS\n" : "LOCATIONS\n");
         if (hotels == null || hotels.isEmpty()) {
             sb.append("- none yet\n");
         } else {
@@ -48,7 +50,7 @@ public class HandoverPack {
                 if (h.city() != null && !h.city().isBlank()) {
                     sb.append(", ").append(h.city());
                 }
-                sb.append(" \u00b7 ").append(h.roomCount()).append(h.roomCount() == 1 ? " room" : " rooms").append('\n');
+                sb.append(" \u00b7 ").append(where(h)).append('\n');
             }
         }
 
@@ -76,6 +78,16 @@ public class HandoverPack {
         sb.append("\nSIGN IN\n").append(hotelUrl).append('\n');
         sb.append("\nOn first sign-in you will choose a password, review this handover and accept it; the business then goes live.\n");
         return sb.toString();
+    }
+
+    /** "24 rooms" for a place with accommodation; "Lounge" (or "Lounge · 3 rooms" once it has some) otherwise. */
+    static String where(HotelResponse h) {
+        String rooms = h.roomCount() + (h.roomCount() == 1 ? " room" : " rooms");
+        com.hospio.common.venue.VenueType type = h.venueType() == null ? com.hospio.common.venue.VenueType.HOTEL : h.venueType();
+        if (type == com.hospio.common.venue.VenueType.HOTEL) {
+            return rooms;
+        }
+        return h.roomCount() > 0 ? type.label() + " \u00b7 " + rooms : type.label();
     }
 
     static String label(String role) {
