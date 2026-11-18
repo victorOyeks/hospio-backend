@@ -91,6 +91,9 @@ Today `Marketer` is one row per referred business. Rename it conceptually to an 
 | PUT | `/platform/admin/marketers/{id}` | platform | `{sharePct, months, status}` |
 | GET | `/platform/admin/referrals?profileId=&stage=&page=` | platform | paged `Referral` |
 | PUT | `/platform/admin/referrals/{id}/stage` | platform | `{stage, note?}` |
+| GET | `/platform/admin/partner-applications?status=&q=&page=&size=` | platform | paged applications from the landing site's "Apply to be a partner" form, newest first, with `counts` (`pendingTotal` is the Applications tab's badge). `GET …/{id}`, `GET …/defaults` → `{sharePct, months, canDecide, canChangeTerms}`. See `docs/plan-marketers.md`, "Apply to be a partner" |
+| POST | `/platform/admin/partner-applications/{id}/approve` | SUPER_ADMIN, SUPPORT | `{fullName?, email?, phone?, sharePct?, months?}` → runs the invite above, marks the application APPROVED and links the marketer → `{application, invited}`. Other than the settings' share/months: SUPER_ADMIN or FINANCE_ADMIN only |
+| POST | `/platform/admin/partner-applications/{id}/decline` | SUPER_ADMIN, SUPPORT | `{reason, shareReason}` → DECLINED; the applicant is emailed (the reason only when shared) |
 | GET | `/platform/admin/commissions?profileId=&status=&month=&page=` | money | paged `Commission` (+ `marketerName`, `businessName`) |
 | POST | `/platform/admin/commissions/{id}/pay` | money | `{reference, paidOn}` (exists; now records the reference) |
 | GET | `/platform/marketer/me` | MARKETER | profile + totals `{earnedTotal, due, paid, businesses, referrals}` |

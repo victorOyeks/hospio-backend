@@ -65,8 +65,82 @@ Decisions taken while building (tell the owner):
 | POST | `/platform/admin/fees/daily/{id}/refund` | money | clawback |
 | POST | `/platform/admin/commissions/{id}/pay` | money | legacy monthly-statement rows only; new lines are paid per statement |
 | GET | `/platform/internal/marketers/referral-codes/{code}` | internal | for tenant |
+| POST | `/platform/public/partner-applications` | anyone | the landing form: see "Apply to be a partner" below |
+| GET | `/platform/admin/partner-applications?status=&q=&page=&size=` · `/{id}` · `/defaults` | platform | paged applications with `counts` (`all`, `PENDING`, `APPROVED`, `DECLINED`, `pendingTotal`) · one · `{sharePct, months, canDecide, canChangeTerms}` |
+| POST | `/platform/admin/partner-applications/{id}/approve` · `/decline` | SUPER_ADMIN, SUPPORT | `{fullName?, email?, phone?, sharePct?, months?}` → `{application, invited}` · `{reason, shareReason}` |
 
 Admin marketers list: `businesses` counts **every** business naming the marketer (all stages, `byStage`), not only live agreements.
+
+## Apply to be a partner (18 Nov 2026)
+
+Marketers were only ever invited by an admin. Now anyone can **apply** on the landing site (`/partners/apply`, linked from the
+partner card and the footer); Hospio360 reviews it in the admin portal under Marketers · Applications, and an approval **is** the
+usual invite (`MarketerService.invite`), so nothing about the marketer, the agreement or the commission changes. QA script:
+`hotel-internal-system-admin-FE/docs/qa/64-partner-application-form.md`.
+
+**The form** (`PartnerApplicationService.submit`, table `platform.partner_applications`, migration platform 020): full name,
+email, Nigerian mobile (`0803…`, `803…`, `234803…`, `+234803…` → stored `+234XXXXXXXXXX`), city, state (the 36 states and FCT),
+kinds of businesses (`HOTEL`, `LOUNGE`, `BAR`, `RESTAURANT`, one or more), how many (`1-2`, `3-5`, `6-10`, `10+`), optional
+note (≤ 500) and company (≤ 150), and the tick "I have read the Referral partner terms and the Privacy Policy" (required). Kept
+with it: status (`PENDING` → `APPROVED` | `DECLINED`), who decided and when, the decline reason and whether it was shared, the
+marketer profile an approval made, the visitor's address and browser, and the versions of the two documents the page showed
+(checked against `legal_documents`; an unknown one is replaced by the version in force). The tick is **not** the partner's
+acceptance of the agreement: that still happens in the portal (`POST /marketer/agreement`).
+
+| Answer | When |
+|---|---|
+| 200 `{received: true}` "Thanks — we'll review and email you within 2 working days." | a new application; **also** a repeat (an application already `PENDING` for that email, or the email already belongs to a marketer) and a filled hidden field: none of those stores or sends anything, and the form can't be used to find out whose email is known |
+| 400 with a message per field (`data: {phone: "Enter a Nigerian phone number, …"}`) | something is missing or wrong |
+| 429 "You've sent a few applications in a short time. Please try again in an hour, or email us at …" | more than 3 in an hour from one address, or for one email |
+
+**Against abuse.**
+- *Plain text only.* Every value is trimmed, cut to its length and stored without `<` `>` or control characters; nothing the
+  form sends is ever rendered as HTML (the admin screens and the emails show it as text).
+- *Hidden field* (`website`): people never see it; a script that fills it gets the normal 200 and **nothing is stored** (decided:
+  a spam table would give scripts a way to write to the database; the drop is logged with the address).
+- *Hourly limit* (`PartnerApplicationLimiter`): 3 per address and 3 per email (`PARTNER_APPLICATIONS_PER_ADDRESS`,
+  `PARTNER_APPLICATIONS_PER_EMAIL`), counted in Redis (`partner-apply:ip:…`, `partner-apply:email:<sha-256>`, 1 hour); if Redis
+  can't be reached the count is kept in the instance's memory, so the form still works and is still limited. Only submissions
+  that pass the checks are counted.
+- *Whose address* (`SiteCallers`): the landing site posts from its own server, so it names the visitor in `X-Client-Address`
+  (Cloudflare's `CF-Connecting-IP`, else the first forwarded hop). platform-service believes that header **only** when the
+  request came from one of our own servers (this machine's addresses, or `SITE_ADDRESSES`); from anyone else it is ignored and
+  the caller's own address (nginx's `X-Real-IP`) counts. A production landing site on another machine must be listed in
+  `SITE_ADDRESSES`, otherwise every visitor shares that server's 3 an hour.
+- *One open application per email*: checked first, and a unique index (`status = 'PENDING'`) settles two requests arriving
+  together.
+- The applicant's "we received it" email goes out once per stored application, so the form can't be used to mail someone
+  repeatedly.
+
+**Review** (admin portal, Marketers · Applications; the tab's count is `pendingTotal`). Everyone on the platform team reads;
+**SUPER_ADMIN and SUPPORT decide** (the people who invite marketers in the admin portal today).
+- **Approve** opens the invite form prefilled (name, email, phone) at the settings' share and months (`fees.marketerSharePct`
+  20, `fees.marketerMonths` 12) and calls `POST …/approve`, which runs `MarketerService.invite` in the same transaction (row
+  locked: decided once), marks the application `APPROVED` and stores the new profile's id. A share or term other than the
+  settings' needs a money role (SUPER_ADMIN, FINANCE_ADMIN): support approving with other terms is a 403. An email that is
+  already a marketer or already has a login is refused as the invite refuses it (409); the admin corrects the email in the form.
+- **Decline** needs a reason (5–500 characters). The applicant is emailed; the reason is in the email only with
+  `shareReason: true`. A declined applicant may apply again.
+- Both are recorded in the activity log as Hospio360 (`PartnerApplicationApproved` / `PartnerApplicationDeclined`, actor
+  "Hospio360 · <admin>"), which is the **Admin activity** tab of Changes by Hospio360. They are not `platform_changes` rows:
+  those belong to a business and can be undone; an application belongs to nobody yet.
+
+**Messages** (email only; test domains are skipped as everywhere):
+- to the applicant on receipt, "We received your Hospio360 partner application" (what they entered, 2 working days);
+- on decline, "Your Hospio360 partner application" (polite; "A note from our team: …" only when the reason is shared);
+- on approval, the existing invite email from identity (link to `/accept-invite` on the admin portal);
+- to Hospio360: a bell notice `PARTNER_APPLICATION` ("New partner application") to every SUPER_ADMIN and SUPPORT user
+  (identity `GET /internal/users/platform?role=`), linking to `/dashboard/marketers?tab=applications&app=<id>`. It is a
+  `NoticeEvent` with no business, so messaging migration 011 makes `notifications.business_id` nullable (as on
+  `platform.alerts`; the row policy still lets only the platform see a row with no business).
+
+**Run on staging (18 Nov 2026).** API (36 checks) and browser (landing at 1440, 1024, 820 and 390; admin as super admin, support
+and finance): valid application stored cleaned with versions, address and browser; field messages; hidden field not stored;
+repeat and existing marketer answered the same with one record; 3 an hour per address and per email then 429; an outside caller
+naming another address is counted by its own; support approves at 20%/12 (marketer PENDING, application linked, invite link
+opens the portal with the terms), support at another share 403, finance 403, phone on another account 409 that says so, approve
+without a phone; decline with and without a reason; both decisions in Admin activity; bell for super admin. Screenshots:
+`~/Desktop/Hospio test screenshots/Partner application form (18 Nov 2026)/`.
 
 ## Testing on staging (QA only)
 
