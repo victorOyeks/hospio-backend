@@ -8,7 +8,7 @@ import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
-/** An order was paid or charged to a room. Inventory draws each line's recipe from the outlet's store. */
+/** An order was paid or charged to a room. Inventory draws each line's recipe from the line's store (else the outlet's). */
 @Data
 @SuperBuilder
 @NoArgsConstructor
@@ -22,7 +22,10 @@ public class OrderSettledEvent extends HospioEvent {
     private String settledBy;
     private List<Line> lines;
 
-    /** {@code recipe} is the menu item's recipe at the time of sale, per portion. */
+    /**
+     * {@code recipe} is what one portion draws at the time of sale. {@code storeId} is the store it draws from: the preparing
+     * outlet's for a dish made at another outlet; null means the order's {@code storeId} (events from before it existed).
+     */
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
@@ -31,6 +34,11 @@ public class OrderSettledEvent extends HospioEvent {
         private String name;
         private int quantity;
         private List<Ingredient> recipe;
+        private String storeId;
+
+        public Line(String menuItemId, String name, int quantity, List<Ingredient> recipe) {
+            this(menuItemId, name, quantity, recipe, null);
+        }
     }
 
     @Data

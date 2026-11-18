@@ -169,6 +169,26 @@ class OrderConsumptionTest {
         assertThat(InventoryService.canUse(user(Role.KITCHEN, AccessLevel.VIEW), kitchen)).isFalse();
     }
 
+    @Test
+    void aLineMadeAtAnotherOutletDrawsFromThatOutletsStoreOnce() {
+        Store bar = Store.builder().name("Bar store").kind("BAR").build();
+        bar.setId("bar");
+        when(stores.findById("bar")).thenReturn(Optional.of(bar));
+        // Sold at the bar (order store: bar), made in the kitchen: the line names the kitchen store.
+        OrderSettledEvent.Line chickenLine = dish("Peppered chicken", 1, "chicken", "0.1");
+        chickenLine.setStoreId("kitchen");
+        OrderSettledEvent e = OrderSettledEvent.builder().orderId("o9").orderNumber("B-0009").outletId("main-bar").storeId("bar")
+                .lines(List.of(chickenLine)).build();
+
+        service.onOrderSettled(e);
+        service.onOrderSettled(e);
+
+        assertThat(recorded).hasSize(1);
+        assertThat(recorded.get(0).getStoreId()).isEqualTo("kitchen");
+        assertThat(recorded.get(0).getItemId()).isEqualTo("chicken");
+        assertThat(chicken.getQuantity()).isEqualByComparingTo("0.20");
+    }
+
     private static HospioUserDetails user(Role role, AccessLevel level) {
         return new HospioUserDetails("u1", "x@x.ng", "Tester", "b1", List.of("h1"), Map.of(role, level), JwtUtil.SCOPE_HOTEL);
     }
