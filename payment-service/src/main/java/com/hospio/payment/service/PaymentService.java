@@ -4,6 +4,7 @@ import com.hospio.common.enums.PaymentMethod;
 import com.hospio.common.enums.PaymentStatus;
 import com.hospio.common.enums.Role;
 import com.hospio.common.exception.BadRequestException;
+import com.hospio.common.exception.ForbiddenException;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.integrations.PosProvider;
 import com.hospio.common.kafka.EventPublisher;
@@ -48,15 +49,22 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class PaymentService {
 
-    private static final Set<Role> PAYING_ROLES = Set.of(Role.FRONT_OFFICE, Role.BAR, Role.KITCHEN, Role.LAUNDRY, Role.MANAGER, Role.OWNER);
+    private static final Set<Role> PAYING_ROLES = Set.of(Role.FRONT_OFFICE, Role.CASHIER, Role.BAR, Role.KITCHEN, Role.LAUNDRY, Role.WAITER, Role.MANAGER,
+            Role.OWNER);
     /** Which desk a payment is taken for when the caller holds several roles and doesn't say: the same answer every time. */
-    static final List<Role> ROLE_PREFERENCE = List.of(Role.FRONT_OFFICE, Role.BAR, Role.KITCHEN, Role.LAUNDRY, Role.MANAGER, Role.OWNER);
+    static final List<Role> ROLE_PREFERENCE = List.of(Role.FRONT_OFFICE, Role.CASHIER, Role.BAR, Role.KITCHEN, Role.LAUNDRY, Role.WAITER, Role.MANAGER,
+            Role.OWNER);
     /**
      * The desks whose cash goes into a till (each has a Till screen). Cash taken for one of them needs that desk's till open, so
      * every naira counted at the close is in a drawer. Laundry hands its cash in (no till screen) and managers and owners have no
      * till of their own: their cash is still recorded, and Today's money lists it as cash taken with no till.
      */
-    static final Set<Role> TILL_DESKS = Set.of(Role.FRONT_OFFICE, Role.BAR, Role.KITCHEN);
+    static final Set<Role> TILL_DESKS = Set.of(Role.FRONT_OFFICE, Role.BAR, Role.KITCHEN, Role.CASHIER, Role.WAITER);
+
+    /** The till a desk's cash goes into: its own, except a waiter's, which goes into the cashier's (a waiter has no drawer). */
+    static Role tillOf(Role role) {
+        return role == Role.WAITER ? Role.CASHIER : role;
+    }
 
     private final PaymentRequestRepository payments;
     private final ReceiptRepository receipts;
@@ -140,7 +148,10 @@ public class PaymentService {
                 throw new BadRequestException("This booking is cancelled. It can't take a payment");
             }
         }
-        String desk = blankToNull(dto.orderId()) != null ? checkOrder(dto.orderId(), hotelId, dto.amount()) : null;
+        if ((role == Role.CASHIER || role == Role.WAITER) && blankToNull(dto.orderId()) == null) {
+            throw new BadRequestException("A " + role.name().toLowerCase() + " takes payment for restaurant and bar sales only");
+        }
+        String desk = blankToNull(dto.orderId()) != null ? checkOrder(dto.orderId(), hotelId, dto.amount(), user, role, dto.method()) : null;
         PaymentRequest p = PaymentRequest.builder().folioId(dto.folioId()).bookingId(bookingId).orderId(blankToNull(dto.orderId())).desk(desk).guestName(dto.guestName())
                 .guestPhone(dto.guestPhone()).guestEmail(dto.guestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
                 .role(role).method(dto.method()).amount(Money.of(dto.amount())).description(dto.description())
@@ -165,8 +176,11 @@ public class PaymentService {
         if (!TILL_DESKS.contains(role)) {
             return;
         }
-        if (finance.tillOpen(hotelId, role.name()).orElse(true)) {
+        if (finance.tillOpen(hotelId, tillOf(role).name()).orElse(true)) {
             return;
+        }
+        if (role == Role.WAITER) {
+            throw new BadRequestException("The cashier's till isn't open: a waiter's cash goes into it. Ask the cashier to open the till, or take card or transfer");
         }
         String desk = deskName(role);
         throw new BadRequestException("Open your till first: cash taken at the " + desk + " goes into the " + desk
@@ -185,9 +199,24 @@ public class PaymentService {
         if (!TILL_DESKS.contains(role)) {
             return new CashTill(role.name(), false, true, null);
         }
-        boolean open = finance.tillOpen(hotelId, role.name()).orElse(true);
+        if (role == Role.WAITER && !hotelConfig.waiterRules(hotelId).cash()) {
+            return new CashTill(role.name(), true, false, "Waiters don't take cash here: the cashier does. Card and transfer still work");
+        }
+        boolean open = finance.tillOpen(hotelId, tillOf(role).name()).orElse(true);
+        if (role == Role.WAITER) {
+            return new CashTill(role.name(), true, open, open ? null : "The cashier's till isn't open: a waiter's cash goes into it");
+        }
         String desk = deskName(role);
         return new CashTill(role.name(), true, open, open ? null : "Open your till first: cash taken at the " + desk + " goes into the " + desk + " till, and it isn't open");
+    }
+
+    /** The outlet desk of an order's payment (BAR or KITCHEN): a cashier or waiter with no POS of their own uses that desk's. */
+    private static Optional<Role> deskRole(String desk) {
+        try {
+            return desk == null ? Optional.empty() : Optional.of(Role.valueOf(desk));
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
     }
 
     static String deskName(Role role) {
@@ -210,8 +239,11 @@ public class PaymentService {
      * A payment for a kitchen or bar order: the order must be this hotel's, still open and not settled, and the amount no more than is due.
      * Returns the desk whose income the order is (BAR or KITCHEN), or null when fnb-service couldn't say.
      */
-    private String checkOrder(String orderId, String hotelId, BigDecimal amount) {
+    private String checkOrder(String orderId, String hotelId, BigDecimal amount, HospioUserDetails user, Role role, PaymentMethod method) {
         com.hospio.payment.client.FnbClient.OrderDue o = fnb.order(orderId).orElseThrow(() -> new BadRequestException("Order not found"));
+        if (role == Role.WAITER) {
+            requireWaiterMayPay(hotelId, user, o.openedBy(), method);
+        }
         if (o.status() == null) {
             return null; // fnb-service unreachable: take the money, the order is matched when it answers
         }
@@ -229,6 +261,23 @@ public class PaymentService {
             throw new BadRequestException("Only " + naira(o.due()) + " is due on " + n.replace("Order ", ""));
         }
         return o.desk();
+    }
+
+    /**
+     * A waiter takes payment only where Hotel setup allows it ("Waiters take payment"), for the orders they opened (a head waiter,
+     * Full access, for anyone's), and cash only where that is allowed too: it then goes into the cashier's open till.
+     */
+    void requireWaiterMayPay(String hotelId, HospioUserDetails user, String openedBy, PaymentMethod method) {
+        HotelConfigClient.WaiterRules rules = hotelConfig.waiterRules(hotelId);
+        if (!rules.takePayment()) {
+            throw new ForbiddenException("Waiters don't take payment here: the cashier does. A manager can allow it in Hotel setup → Restaurant & bar");
+        }
+        if (openedBy != null && !openedBy.equals(user.getUserId()) && !user.has(Role.WAITER, com.hospio.common.enums.AccessLevel.FULL)) {
+            throw new ForbiddenException("This sale was opened by another waiter. They, the cashier or a manager can take the payment");
+        }
+        if (method == PaymentMethod.CASH && !rules.cash()) {
+            throw new BadRequestException("Waiters don't take cash here: the cashier does. Card and transfer still work");
+        }
     }
 
     private static String naira(BigDecimal amount) {
@@ -274,7 +323,7 @@ public class PaymentService {
         // The POS the desk picked (one of this hotel's), else the one assigned to the desk's role.
         PosTerminal terminal = (terminalId != null
                 ? Optional.of(terminals.picked(hotelId, terminalId).orElseThrow(() -> new BadRequestException("That POS isn't one of this hotel's. Pick another")))
-                : terminals.forRole(hotelId, role))
+                : terminals.forRole(hotelId, role).or(() -> deskRole(p.getDesk()).flatMap(d -> terminals.forRole(hotelId, d))))
                 .orElseThrow(() -> new BadRequestException("No POS is assigned to " + role.name().toLowerCase().replace('_', ' ') + ". Pick another POS or take cash; a manager can assign one in Hotel setup"));
         if (terminal.getStatus() != PosTerminal.Status.ONLINE) {
             throw new BadRequestException("The POS " + terminal.getName() + " is offline. Use another POS or take cash");

@@ -15,8 +15,14 @@ public sealed interface SetupSection {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Basics(String checkInTime, String checkOutTime, String timezone, String receiptFooter) implements SetupSection {
-        public static final Basics DEFAULTS = new Basics("14:00", "12:00", "Africa/Lagos", "");
+    /** {@code openingTime}/{@code closingTime}: when a lounge, bar or restaurant trades ("" = not set); a hotel's desk never closes. */
+    record Basics(String checkInTime, String checkOutTime, String timezone, String receiptFooter, String openingTime, String closingTime)
+            implements SetupSection {
+        public static final Basics DEFAULTS = new Basics("14:00", "12:00", "Africa/Lagos", "", "", "");
+
+        public Basics(String checkInTime, String checkOutTime, String timezone, String receiptFooter) {
+            this(checkInTime, checkOutTime, timezone, receiptFooter, null, null);
+        }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -80,8 +86,22 @@ public sealed interface SetupSection {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Outlets(Boolean roomCharge, Boolean tabs, BigDecimal tabLimit) implements SetupSection {
-        public static final Outlets DEFAULTS = new Outlets(true, true, BigDecimal.valueOf(50000));
+    /**
+     * {@code tabMaxHours}: a tab open longer is flagged to the manager (dashboards, "Needs your action"). {@code tabNameRequired}: a
+     * tab needs the guest's name or a table. {@code waitersTakePayment}: waiters may take payment for their own orders (off: the
+     * cashier does). {@code waiterCash}: a waiter may take cash, which goes into the cashier's open till (off: card and transfer only).
+     */
+    record Outlets(Boolean roomCharge, Boolean tabs, BigDecimal tabLimit, Integer tabMaxHours, Boolean tabNameRequired,
+                   Boolean waitersTakePayment, Boolean waiterCash) implements SetupSection {
+        public static final Outlets DEFAULTS = new Outlets(true, true, BigDecimal.valueOf(50000), 4, false, false, false);
+
+        public Outlets(Boolean roomCharge, Boolean tabs, BigDecimal tabLimit) {
+            this(roomCharge, tabs, tabLimit, null, null, null, null);
+        }
+
+        public Outlets withRoomCharge(Boolean value) {
+            return new Outlets(value, tabs, tabLimit, tabMaxHours, tabNameRequired, waitersTakePayment, waiterCash);
+        }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

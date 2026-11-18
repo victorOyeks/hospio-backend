@@ -127,7 +127,7 @@ public class OrderService {
         List<Order> visible = list.stream().filter(o -> byId.containsKey(o.getOutletId()) && canSee(user, byId.get(o.getOutletId()), o)).toList();
         List<OrderResponse> out = new ArrayList<>(withLines(visible));
         // An outlet that makes things for others (the kitchen) also sees those lines as tickets, on the live board only.
-        if (outletId != null && byId.containsKey(outletId) && OutletAccess.sees(user, byId.get(outletId))
+        if (outletId != null && byId.containsKey(outletId) && OutletAccess.sees(user, byId.get(outletId)) && !OutletAccess.ownOnly(user, byId.get(outletId))
                 && !(s.equals("CLOSED") || s.equals("ALL") || s.equals("CANCELLED"))) {
             out.addAll(tickets(byId.get(outletId), byId, visible.stream().map(Order::getId).collect(Collectors.toSet())));
         }
@@ -225,6 +225,10 @@ public class OrderService {
         if (kind == Order.Kind.ROOM_SERVICE && request.roomId() == null) {
             throw new BadRequestException("Choose the room");
         }
+        if (kind == Order.Kind.TAB && s.tabNameRequired() && request.tableId() == null && request.roomId() == null
+                && (request.guestName() == null || request.guestName().isBlank())) {
+            throw new BadRequestException("Put the guest's name on the tab, or pick a table");
+        }
         Order o = Order.builder().outletId(outlet.getId()).kind(kind).guestName(request.guestName()).notes(request.notes())
                 .openedBy(user.getUserId()).openedByName(user.getFullName()).number(nextNumber(outlet)).build();
         if (request.tableId() != null) {
@@ -267,7 +271,7 @@ public class OrderService {
         OutletSettings.Settings s = settings.get(peek(orderId).getHotelId());
         Order o = lock(orderId);
         Outlet outlet = outlet(o.getOutletId());
-        requireTake(user, outlet, o.getKind());
+        requireTake(user, outlet, o);
         requireLive(o);
         if (o.isSettled()) {
             throw new BadRequestException("This order is already settled. Start a new one");
@@ -288,7 +292,7 @@ public class OrderService {
     public OrderResponse send(String orderId) {
         HospioUserDetails user = CurrentUser.require();
         Order o = lock(orderId);
-        requireTake(user, outlet(o.getOutletId()), o.getKind());
+        requireTake(user, outlet(o.getOutletId()), o);
         requireLive(o);
         List<OrderLine> all = lines.findByOrderIdOrderByCreatedAt(orderId);
         if (all.stream().noneMatch(OrderLine::isLive)) {
@@ -313,7 +317,11 @@ public class OrderService {
     public OrderResponse setStatus(String orderId, Order.Status status) {
         Order o = lock(orderId);
         Outlet outlet = outlet(o.getOutletId());
-        requireWorks(CurrentUser.require(), outlet);
+        if (status == Order.Status.SERVED) {
+            requireServes(CurrentUser.require(), outlet, o);
+        } else {
+            requireWorks(CurrentUser.require(), outlet);
+        }
         if (status == Order.Status.CANCELLED) {
             throw new BadRequestException("Cancel the order with a reason instead");
         }
@@ -373,7 +381,11 @@ public class OrderService {
             // Only the outlet that makes it (the kitchen) marks it ready.
             requireWorks(user, outlet(l.getPreparedAt()));
         } else {
-            requireWorks(user, outlet);
+            if (status == OrderLine.Status.SERVED) {
+                requireServes(user, outlet, o);
+            } else {
+                requireWorks(user, outlet);
+            }
             if (elsewhere && status == OrderLine.Status.SERVED && l.getStatus() == OrderLine.Status.SENT) {
                 throw new BadRequestException("The " + outlet(l.getPreparedAt()).getName() + " hasn't marked " + l.getName() + " ready yet");
             }
@@ -430,7 +442,7 @@ public class OrderService {
             throw new BadRequestException(l.getName() + " is already cancelled");
         }
         if (l.getStatus() == OrderLine.Status.NEW) {
-            requireTake(user, outlet, o.getKind());
+            requireTake(user, outlet, o);
         } else if (!OutletAccess.full(user, outlet)) {
             throw new ForbiddenException("Cancelling something already sent needs a manager or Full access");
         }
@@ -482,7 +494,7 @@ public class OrderService {
         boolean untouched = o.getStatus() == Order.Status.OPEN && lines.findByOrderIdOrderByCreatedAt(orderId).stream()
                 .noneMatch(l -> l.getStatus() != OrderLine.Status.NEW && l.getStatus() != OrderLine.Status.CANCELLED);
         if (untouched) {
-            requireTake(user, outlet, o.getKind());
+            requireTake(user, outlet, o);
         } else if (!OutletAccess.manager(user)) {
             throw new ForbiddenException("Cancelling an order already sent needs a manager");
         }
@@ -502,7 +514,7 @@ public class OrderService {
         // every check on it made again, so a card payment and a charge to the room can't both settle it.
         OrderRepository.Peek p = peek(orderId);
         Outlet outlet = outlet(p.getOutletId());
-        if (!OutletAccess.works(user, outlet) && !OutletAccess.frontOffice(user)) {
+        if (!OutletAccess.takes(user, outlet) && !OutletAccess.frontOffice(user) && !OutletAccess.cashier(user)) {
             throw new ForbiddenException("This order belongs to the " + outlet.getName());
         }
         if (!settings.get(p.getHotelId()).roomCharge()) {
@@ -517,6 +529,9 @@ public class OrderService {
             throw new BadRequestException("Room " + label(room, stay.roomNumber()) + " has no open bill");
         }
         Order o = lock(orderId);
+        if (!OutletAccess.cashier(user) && !OutletAccess.frontOffice(user)) {
+            requireOwn(user, outlet, o);
+        }
         requireLive(o);
         if (o.isSettled()) {
             throw new BadRequestException("This order is already settled");
@@ -606,13 +621,13 @@ public class OrderService {
         // The desk whose income this order is (BAR for a bar, KITCHEN for a kitchen or restaurant), whoever takes the money.
         String desk = outlets.findById(o.getOutletId()).map(outlet -> OutletAccess.roleFor(outlet).name()).orElse(null);
         return new OrderDue(o.getId(), o.getHotelId(), o.getNumber(), o.getStatus().name(), o.isSettled(), o.getTotal(), o.getPaidAmount(),
-                Money.of(o.getTotal().subtract(o.getPaidAmount()).max(BigDecimal.ZERO)), desk);
+                Money.of(o.getTotal().subtract(o.getPaidAmount()).max(BigDecimal.ZERO)), desk, o.getOpenedBy());
     }
 
     /** What payment-service reads before taking money for an order; {@code desk} is left out when the outlet is gone. */
     @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
     public record OrderDue(String id, String hotelId, String number, String status, boolean settled, BigDecimal total, BigDecimal paidAmount,
-                           BigDecimal due, String desk) {
+                           BigDecimal due, String desk, String openedBy) {
     }
 
     /** The internal "paid" route: the whole balance was paid by {@code method} (CASH when not said). */
@@ -628,7 +643,7 @@ public class OrderService {
     public OrderResponse moveTable(String orderId, String tableId) {
         Order o = lock(orderId);
         Outlet outlet = outlet(o.getOutletId());
-        requireWorks(CurrentUser.require(), outlet);
+        requireServes(CurrentUser.require(), outlet, o);
         requireLive(o);
         DiningTable t = table(tableId, outlet);
         o.setTableId(t.getId());
@@ -813,10 +828,33 @@ public class OrderService {
     }
 
     private void requireTake(HospioUserDetails user, Outlet outlet, Order.Kind kind) {
-        if (OutletAccess.works(user, outlet) || (kind == Order.Kind.ROOM_SERVICE && OutletAccess.frontOffice(user))) {
+        if (OutletAccess.takes(user, outlet) || (kind == Order.Kind.ROOM_SERVICE && OutletAccess.frontOffice(user))) {
             return;
         }
-        throw new ForbiddenException("This order belongs to the " + outlet.getName());
+        throw new ForbiddenException(OutletAccess.cashier(user) ? "A cashier takes payments. Orders are taken by a waiter or the " + outlet.getName()
+                : "This order belongs to the " + outlet.getName());
+    }
+
+    /** As {@link #requireTake(HospioUserDetails, Outlet, Order.Kind)} on an order that exists: a waiter works the orders they opened. */
+    private void requireTake(HospioUserDetails user, Outlet outlet, Order o) {
+        requireTake(user, outlet, o.getKind());
+        requireOwn(user, outlet, o);
+    }
+
+    /** Serving and moving a table: whoever works the outlet, or the waiter whose order it is. */
+    private static void requireServes(HospioUserDetails user, Outlet outlet, Order o) {
+        if (!OutletAccess.takes(user, outlet)) {
+            throw new ForbiddenException("This order belongs to the " + outlet.getName());
+        }
+        requireOwn(user, outlet, o);
+    }
+
+    /** A waiter (below Full access, with no other way into the outlet) only touches what they opened. */
+    private static void requireOwn(HospioUserDetails user, Outlet outlet, Order o) {
+        if (OutletAccess.ownOnly(user, outlet) && !OutletAccess.own(user, o.getOpenedBy())) {
+            String who = o.getOpenedByName() == null ? "someone else" : o.getOpenedByName();
+            throw new ForbiddenException(o.getNumber() + " was opened by " + who + ". Only they, a head waiter or a manager can work on it");
+        }
     }
 
     private static void requireWorks(HospioUserDetails user, Outlet outlet) {
@@ -826,6 +864,9 @@ public class OrderService {
     }
 
     private static boolean canSee(HospioUserDetails user, Outlet outlet, Order o) {
+        if (OutletAccess.ownOnly(user, outlet) && !OutletAccess.own(user, o.getOpenedBy())) {
+            return o.getKind() == Order.Kind.ROOM_SERVICE && user.has(com.hospio.common.enums.Role.FRONT_OFFICE);
+        }
         return OutletAccess.sees(user, outlet) || (o.getKind() == Order.Kind.ROOM_SERVICE && user.has(com.hospio.common.enums.Role.FRONT_OFFICE));
     }
 

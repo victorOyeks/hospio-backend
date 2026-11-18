@@ -23,7 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class SalesController {
 
-    static final String SEE = "@access.has('KITCHEN') or @access.has('BAR') or @access.managerView() or @access.has('FINANCE')";
+    static final String SEE = "@access.has('KITCHEN') or @access.has('BAR') or @access.managerView() or @access.has('FINANCE')"
+            + " or @access.has('WAITER') or @access.has('CASHIER')";
     /** The venue dashboards and reports: managers, owners (and a support look) and finance; every outlet of the location. */
     static final String MANAGEMENT = "@access.managerView() or @access.has('FINANCE')";
 

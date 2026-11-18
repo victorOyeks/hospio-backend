@@ -41,7 +41,9 @@ public class SalesService {
             throw new ForbiddenException("That outlet's sales aren't yours to see");
         }
         // Staff of one outlet don't see another's, even when they could see the board.
-        List<Outlet> mine = user.isPlatform() || user.isManagerOrOwner() || user.has(com.hospio.common.enums.Role.FINANCE) ? visible
+        // A cashier closes the shift for every outlet they take money for; a waiter has no outlet summary.
+        List<Outlet> mine = user.isPlatform() || user.isManagerOrOwner() || user.has(com.hospio.common.enums.Role.FINANCE)
+                || user.has(com.hospio.common.enums.Role.CASHIER) ? visible
                 : visible.stream().filter(o -> user.has(OutletAccess.roleFor(o))).toList();
         return summarise(TenantContext.requireHotel(), date == null ? Days.today() : date, mine);
     }

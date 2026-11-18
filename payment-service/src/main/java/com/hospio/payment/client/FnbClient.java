@@ -20,12 +20,15 @@ public class FnbClient {
 
     /** {@code status} null when fnb-service couldn't be reached (callers let the payment through). */
     /** {@code desk} is the desk whose income the order is: BAR for a bar outlet, KITCHEN for a kitchen or restaurant. */
-    public record OrderDue(String hotelId, String number, String status, boolean settled, BigDecimal due, String desk) {
+    public record OrderDue(String hotelId, String number, String status, boolean settled, BigDecimal due, String desk, String openedBy) {
+        public OrderDue(String hotelId, String number, String status, boolean settled, BigDecimal due, String desk) {
+            this(hotelId, number, status, settled, due, desk, null);
+        }
     }
 
     /** fnb-service's answer to GET /internal/orders/{id}/due. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record DueBody(String hotelId, String number, String status, Boolean settled, BigDecimal due, String desk) {
+    record DueBody(String hotelId, String number, String status, Boolean settled, BigDecimal due, String desk, String openedBy) {
     }
 
     private static final ParameterizedTypeReference<ApiResponse<DueBody>> DUE = new ParameterizedTypeReference<>() {
@@ -45,7 +48,7 @@ public class FnbClient {
             if (d == null) {
                 return Optional.empty();
             }
-            return Optional.of(new OrderDue(d.hotelId(), d.number(), d.status(), Boolean.TRUE.equals(d.settled()), d.due(), d.desk()));
+            return Optional.of(new OrderDue(d.hotelId(), d.number(), d.status(), Boolean.TRUE.equals(d.settled()), d.due(), d.desk(), d.openedBy()));
         } catch (HttpClientErrorException.NotFound e) {
             return Optional.empty();
         } catch (Exception e) {

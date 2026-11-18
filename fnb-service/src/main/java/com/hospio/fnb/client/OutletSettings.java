@@ -15,9 +15,14 @@ import org.springframework.stereotype.Component;
 public class OutletSettings {
 
     /** {@code serviceChargePct}: Hospio's fee passed to guests ("Service charge (x%)"), 0 when the hotel absorbs it. */
-    public record Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct, BigDecimal serviceChargePct) {
+    public record Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct, BigDecimal serviceChargePct,
+                           boolean tabNameRequired, boolean waitersTakePayment) {
         public Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct) {
             this(roomCharge, tabs, tabLimit, pricesIncludeTax, vatPct, BigDecimal.ZERO);
+        }
+
+        public Settings(boolean roomCharge, boolean tabs, BigDecimal tabLimit, boolean pricesIncludeTax, BigDecimal vatPct, BigDecimal serviceChargePct) {
+            this(roomCharge, tabs, tabLimit, pricesIncludeTax, vatPct, serviceChargePct, false, false);
         }
 
         public static Settings defaults() {
@@ -41,6 +46,8 @@ public class OutletSettings {
                 outlets.map(SetupSection.Outlets::tabLimit).orElse(d.tabLimit()),
                 taxes.map(SetupSection.TaxesCurrency::pricesIncludeTax).orElse(d.pricesIncludeTax()),
                 taxes.map(SetupSection.TaxesCurrency::vatPct).orElse(d.vatPct()),
-                com.hospio.common.billing.GuestServiceCharge.rate(reader.section(hotelId, SetupSection.Payments.class).orElse(null)));
+                com.hospio.common.billing.GuestServiceCharge.rate(reader.section(hotelId, SetupSection.Payments.class).orElse(null)),
+                outlets.map(SetupSection.Outlets::tabNameRequired).orElse(false),
+                outlets.map(SetupSection.Outlets::waitersTakePayment).orElse(false));
     }
 }

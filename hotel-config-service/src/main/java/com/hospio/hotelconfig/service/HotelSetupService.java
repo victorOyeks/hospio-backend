@@ -87,7 +87,7 @@ public class HotelSetupService {
     }
 
     static SetupSection.Outlets withoutRoomCharge(SetupSection.Outlets o) {
-        return new SetupSection.Outlets(false, o.tabs(), o.tabLimit());
+        return o.withRoomCharge(false);
     }
 
     /** Every catalogue section, the hotel's stored values laid over the defaults. */
@@ -200,6 +200,15 @@ public class HotelSetupService {
         }
         String hotelId = TenantContext.requireHotel();
         SetupTemplateSettings template;
+        if ("VENUE".equalsIgnoreCase(request.builtIn())) {
+            if (tenantClient.hasAccommodation(hotelId)) {
+                throw new BadRequestException("The lounge, bar and restaurant template is for a location without rooms");
+            }
+            return withHotelTenant(hotelId, () -> {
+                applyVenueTemplate(hotelId, caller.getUserId());
+                return all(hotelId);
+            });
+        }
         if (request.settings() != null) {
             template = request.settings();
         } else if (StringUtils.hasText(request.templateId())) {
@@ -223,6 +232,22 @@ public class HotelSetupService {
         withHotelTenant(hotelId, () -> {
             applyTemplate(hotelId, template, "template");
             return null;
+        });
+    }
+
+    /**
+     * The built-in "Lounge / bar / restaurant" template on a location that already has settings (one set up as a hotel first): the
+     * venue values are written, the venue list entries added, and the hotel catalogue's own default entries that a venue has no use
+     * for ("No-show", "Booked elsewhere") are hidden. Entries the business added itself are kept.
+     */
+    private void applyVenueTemplate(String hotelId, String by) {
+        applyTemplate(hotelId, SetupCatalogue.venueTemplate(), by);
+        SetupCatalogue.VENUE_LISTS.forEach((listName, wanted) -> {
+            Set<String> keep = new HashSet<>();
+            wanted.forEach(w -> keep.add(w.code()));
+            List<String> hotelOnly = SetupCatalogue.LISTS.getOrDefault(listName, List.of()).stream().map(SetupCatalogue.ListDefault::code)
+                    .filter(code -> !keep.contains(code)).toList();
+            lists.hide(hotelId, listName, hotelOnly);
         });
     }
 
@@ -273,17 +298,23 @@ public class HotelSetupService {
     public void createDefaults(String hotelId, String venueType) {
         Set<String> present = new HashSet<>();
         settings.findByHotelId(hotelId).forEach(s -> present.add(s.getSection() + "/" + s.getKey()));
-        if (!com.hospio.common.venue.VenueType.hasAccommodation(venueType, 0)
-                && present.add(SetupCatalogue.OUTLETS + "/roomCharge")) {
-            settings.save(Setting.builder().hotelId(hotelId).section(SetupCatalogue.OUTLETS).key("roomCharge").value(write(false))
-                    .updatedBy("defaults").build());
-        }
-        SetupCatalogue.SECTIONS.keySet().forEach(section -> SetupCatalogue.present(SetupCatalogue.defaults(section)).forEach(v -> {
-            if (present.add(section + "/" + v.key())) {
-                settings.save(Setting.builder().hotelId(hotelId).section(section).key(v.key()).value(write(v.value())).updatedBy("defaults").build());
+        // A lounge, bar or restaurant starts from the venue defaults (phase 3): nothing is stored for the stay keys, so a location
+        // that later gains rooms reads the hotel defaults for those (charge to a room is off by capability until then).
+        boolean accommodation = com.hospio.common.venue.VenueType.hasAccommodation(venueType, 0);
+        HotelSetup defaults = SetupCatalogue.defaultsFor(accommodation);
+        SetupCatalogue.SECTIONS.keySet().forEach(section -> {
+            SetupSection values = defaults.get(section);
+            if (values == null) {
+                return;
             }
-        }));
-        SetupCatalogue.LISTS.forEach((listName, items) -> {
+            SetupCatalogue.present(values).forEach(v -> {
+                if (present.add(section + "/" + v.key())) {
+                    settings.save(Setting.builder().hotelId(hotelId).section(section).key(v.key()).value(write(v.value()))
+                            .updatedBy(accommodation ? "defaults" : "venue defaults").build());
+                }
+            });
+        });
+        SetupCatalogue.listsFor(accommodation).forEach((listName, items) -> {
             List<ListsAndPricesService.SeedItem> seed = new ArrayList<>();
             for (int i = 0; i < items.size(); i++) {
                 seed.add(new ListsAndPricesService.SeedItem(items.get(i).code(), items.get(i).label(), i + 1));

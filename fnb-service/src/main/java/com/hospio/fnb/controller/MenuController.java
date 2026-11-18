@@ -39,6 +39,7 @@ public class MenuController {
     static final String MENU = "@access.manager() or @access.atLeast('KITCHEN','FULL') or @access.atLeast('BAR','FULL')";
 
     private final MenuService service;
+    private final com.hospio.fnb.client.TenantClient tenants;
 
     @GetMapping("/outlets")
     @PreAuthorize(READ)
@@ -49,13 +50,14 @@ public class MenuController {
     @PostMapping("/outlets")
     @PreAuthorize("@access.manager()")
     public ApiResponse<Outlet> addOutlet(@Valid @RequestBody OutletRequest request) {
-        return ApiResponse.ok("Outlet added", service.saveOutlet(null, request));
+        // Hospio360 adds a venue's outlets during onboarding: a platform caller works inside the location's business.
+        return ApiResponse.ok("Outlet added", tenants.withHotelTenant(() -> service.saveOutlet(null, request)));
     }
 
     @PutMapping("/outlets/{id}")
     @PreAuthorize("@access.manager()")
     public ApiResponse<Outlet> updateOutlet(@PathVariable String id, @Valid @RequestBody OutletRequest request) {
-        return ApiResponse.ok("Saved", service.saveOutlet(id, request));
+        return ApiResponse.ok("Saved", tenants.withHotelTenant(() -> service.saveOutlet(id, request)));
     }
 
     @GetMapping("/outlets/{outletId}/tables")

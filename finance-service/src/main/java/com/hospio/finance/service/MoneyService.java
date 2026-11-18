@@ -59,7 +59,12 @@ public class MoneyService {
     static final ZoneId LAGOS = ZoneId.of("Africa/Lagos");
 
     /** Roles that take cash and so have a till. */
-    static final List<Role> PAYING_ROLES = List.of(Role.FRONT_OFFICE, Role.FINANCE, Role.BAR, Role.KITCHEN, Role.LAUNDRY);
+    static final List<Role> PAYING_ROLES = List.of(Role.FRONT_OFFICE, Role.FINANCE, Role.CASHIER, Role.BAR, Role.KITCHEN, Role.LAUNDRY);
+
+    /** The till a desk's cash sits in: its own, except a waiter's, which goes into the cashier's (docs/plan-venue-type.md, phase 3). */
+    static String tillRole(String role) {
+        return Role.WAITER.name().equals(role) ? Role.CASHIER.name() : role;
+    }
 
     private final RevenueEntryRepository revenue;
     private final TillRepository tills;
@@ -87,7 +92,7 @@ public class MoneyService {
         }
         LocalDate date = (at == null ? Instant.now() : at).atZone(LAGOS).toLocalDate();
         boolean cash = PaymentMethod.CASH.name().equals(method);
-        Optional<Till> till = cash && role != null ? lockOpenTill(TenantContext.requireHotel(), role) : Optional.empty();
+        Optional<Till> till = cash && role != null ? lockOpenTill(TenantContext.requireHotel(), tillRole(role)) : Optional.empty();
         revenue.save(RevenueEntry.builder().paymentId(paymentId).businessDate(date).amount(Money.of(amount)).method(method).role(role).folioId(folioId)
                 .orderId(orderId).desk(desk == null || desk.isBlank() ? null : desk).unattachedCash(cash && till.isEmpty()).build());
         till.ifPresent(t -> {
@@ -106,7 +111,7 @@ public class MoneyService {
         if (tillEntries.findFirstByKindAndRef(TillEntry.Kind.REFUND, refundId).isPresent()) {
             return;
         }
-        lockOpenTill(TenantContext.requireHotel(), role).ifPresent(t -> addEntry(t, TillEntry.Kind.REFUND, Money.of(amount).negate(), "CASH", "Cash refund", refundId, null));
+        lockOpenTill(TenantContext.requireHotel(), tillRole(role)).ifPresent(t -> addEntry(t, TillEntry.Kind.REFUND, Money.of(amount).negate(), "CASH", "Cash refund", refundId, null));
     }
 
     @Transactional(readOnly = true)

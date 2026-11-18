@@ -39,6 +39,15 @@ public class HotelConfigClient {
                 Boolean.TRUE.equals(a.refundsNeedOwner()))).orElse(new ApprovalLimits(null, false));
     }
 
+    /** OUTLETS from Hotel setup (cached 60 s): whether waiters take payment, and whether they may take cash (into the cashier's till). */
+    public record WaiterRules(boolean takePayment, boolean cash) {
+    }
+
+    public WaiterRules waiterRules(String hotelId) {
+        return settings.section(hotelId, SetupSection.Outlets.class).map(o -> new WaiterRules(Boolean.TRUE.equals(o.waitersTakePayment()),
+                Boolean.TRUE.equals(o.waiterCash()))).orElse(new WaiterRules(false, false));
+    }
+
     public record PaymentSettings(boolean allowCash, boolean allowCard, boolean allowTransfer, String receipts) {
         public static PaymentSettings defaults() {
             return new PaymentSettings(true, true, true, "ASK");

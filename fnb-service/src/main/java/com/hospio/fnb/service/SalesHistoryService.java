@@ -78,7 +78,11 @@ public class SalesHistoryService {
     // ---- who sees what ----------------------------------------------------------------------------------------
 
     /** The caller's outlets for this request and what they may do there. */
-    record Scope(HospioUserDetails user, String hotelId, List<Outlet> outlets, boolean management, boolean anyFull) {
+    record Scope(HospioUserDetails user, String hotelId, List<Outlet> outlets, boolean management, boolean anyFull, boolean ownOnly) {
+        Scope(HospioUserDetails user, String hotelId, List<Outlet> outlets, boolean management, boolean anyFull) {
+            this(user, hotelId, outlets, management, anyFull, false);
+        }
+
         boolean mineByDefault() {
             return !management && !anyFull;
         }
@@ -98,15 +102,21 @@ public class SalesHistoryService {
         String hotelId = TenantContext.requireHotel();
         boolean mgmt = management(user);
         String d = desk == null ? "" : desk.trim().toUpperCase(Locale.ROOT);
-        if (!d.isEmpty() && !d.equals("BAR") && !d.equals("KITCHEN")) {
-            throw new BadRequestException("desk is BAR or KITCHEN");
+        if (!d.isEmpty() && !d.equals("BAR") && !d.equals("KITCHEN") && !d.equals("WAITER") && !d.equals("CASHIER")) {
+            throw new BadRequestException("desk is BAR, KITCHEN, WAITER or CASHIER");
         }
+        // Waiters and cashiers work every outlet of the location (phase 3); the bar and kitchen their own kind.
+        boolean floor = user.has(Role.WAITER) || user.has(Role.CASHIER);
+        boolean byKind = d.equals("BAR") || d.equals("KITCHEN");
         List<Outlet> visible = outlets.findByHotelIdOrderByName(hotelId).stream()
-                .filter(o -> OutletAccess.sees(user, o) && (mgmt || user.has(OutletAccess.roleFor(o))))
-                .filter(o -> d.isEmpty() || (d.equals("BAR") == (o.getKind() == Outlet.Kind.BAR)))
+                .filter(o -> OutletAccess.sees(user, o) && (mgmt || floor || user.has(OutletAccess.roleFor(o))))
+                .filter(o -> !byKind || (d.equals("BAR") == (o.getKind() == Outlet.Kind.BAR)))
                 .toList();
-        boolean anyFull = visible.stream().anyMatch(o -> OutletAccess.full(user, o));
-        return new Scope(user, hotelId, visible, mgmt, anyFull);
+        // A cashier settles anyone's sale, a head waiter works anyone's: both start on the whole outlet, like Full access.
+        boolean anyFull = visible.stream().anyMatch(o -> OutletAccess.full(user, o)) || user.has(Role.CASHIER)
+                || user.has(Role.WAITER, com.hospio.common.enums.AccessLevel.FULL);
+        boolean ownOnly = !visible.isEmpty() && visible.stream().allMatch(o -> OutletAccess.ownOnly(user, o));
+        return new Scope(user, hotelId, visible, mgmt, anyFull, ownOnly);
     }
 
     // ---- the list -----------------------------------------------------------------------------------------------
@@ -158,7 +168,7 @@ public class SalesHistoryService {
             throw new ForbiddenException("Exporting sales needs Full access or a manager");
         }
         List<Outlet> exportable = s.management() ? s.outlets() : s.outlets().stream().filter(o -> OutletAccess.full(s.user(), o)).toList();
-        Scope narrowed = new Scope(s.user(), s.hotelId(), exportable, s.management(), s.anyFull());
+        Scope narrowed = new Scope(s.user(), s.hotelId(), exportable, s.management(), s.anyFull(), s.ownOnly());
         Resolved r = resolve(narrowed, p, true);
         List<String> ids = query.pageIds(r.filter(), 0, EXPORT_LIMIT + 1);
         boolean truncated = ids.size() > EXPORT_LIMIT;
@@ -231,7 +241,8 @@ public class SalesHistoryService {
             throw new BadRequestException("Unknown payment method " + p.method().trim() + ". Use CASH, CARD, TRANSFER or ROOM");
         }
         Set<SaleBucket> buckets = SaleBucket.parseFilter(p.status());
-        boolean mine = p.mine() == null ? s.mineByDefault() : p.mine();
+        // A waiter never widens to the whole outlet: only the sales they opened.
+        boolean mine = s.ownOnly() || (p.mine() == null ? s.mineByDefault() : p.mine());
         String attendant = mine ? s.user().getUserId() : p.attendant() == null || p.attendant().isBlank() ? null : p.attendant().trim();
         if ("none".equalsIgnoreCase(attendant)) {
             attendant = "";
@@ -318,6 +329,9 @@ public class SalesHistoryService {
         Order o = orders.findById(id).orElseThrow(() -> new ResourceNotFoundException("Sale not found"));
         Outlet outlet = s.outlets().stream().filter(x -> x.getId().equals(o.getOutletId())).findFirst()
                 .orElseThrow(() -> new ForbiddenException("This sale belongs to another outlet"));
+        if (OutletAccess.ownOnly(s.user(), outlet) && !OutletAccess.own(s.user(), o.getOpenedBy())) {
+            throw new ForbiddenException("This sale was opened by someone else");
+        }
         List<OrderLine> all = lines.findByOrderIdOrderByCreatedAt(id);
         List<OrderPayment> paid = payments.findByOrderIdIn(List.of(id)).stream()
                 .sorted(Comparator.comparing(OrderPayment::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))).toList();
@@ -351,7 +365,23 @@ public class SalesHistoryService {
         if (!live) {
             return new SaleDetail.Can(false, false, false, null);
         }
+        BigDecimal due = o.getTotal().subtract(o.getPaidAmount() == null ? BigDecimal.ZERO : o.getPaidAmount());
         boolean works = OutletAccess.works(u, outlet);
+        if (!works && OutletAccess.cashier(u)) {
+            // The cashier takes the money for anyone's sale (and puts it on a room); cancelling stays with whoever took it or a manager.
+            return new SaleDetail.Can(due.signum() > 0, due.signum() > 0 && settings.get(o.getHotelId()).roomCharge(), false, null);
+        }
+        if (!works && OutletAccess.waiter(u)) {
+            boolean mine = OutletAccess.own(u, o.getOpenedBy()) || !OutletAccess.ownOnly(u, outlet);
+            if (!mine) {
+                return new SaleDetail.Can(false, false, false, "Opened by " + (o.getOpenedByName() == null ? "someone else" : o.getOpenedByName()));
+            }
+            OutletSettings.Settings st = settings.get(o.getHotelId());
+            boolean fresh = (o.getPaidAmount() == null || o.getPaidAmount().signum() <= 0) && o.getStatus() == Order.Status.OPEN
+                    && all.stream().allMatch(l -> l.getStatus() == OrderLine.Status.NEW || l.getStatus() == OrderLine.Status.CANCELLED);
+            return new SaleDetail.Can(due.signum() > 0 && st.waitersTakePayment(), due.signum() > 0 && st.roomCharge(), fresh,
+                    st.waitersTakePayment() ? null : "The cashier takes the payment");
+        }
         if (!works) {
             return new SaleDetail.Can(false, false, false, "View only");
         }
