@@ -724,12 +724,24 @@ public class MonthlyInvoiceService {
         }
         String reference = i.getNumber() + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
         String back = StringUtils.hasText(returnUrl) && returnUrl.startsWith(hotelAppUrl) ? returnUrl : payLink(i);
-        PlatformPaystackClient.Checkout c = paystack.initialize(user.getEmail(), owed, reference, back);
+        PlatformPaystackClient.Checkout c = paystack.initialize(payerEmail(user.getEmail()), owed, reference, back);
         asSystem(() -> {
             save(i, x -> x.setPaystackRef(c.reference()));
             return null;
         });
         return c;
+    }
+
+    /**
+     * Paystack refuses addresses on reserved test domains (QA owners at {@code @hospio-qa.test}): such a payer checks out as Hospio360's
+     * payments address, so the receipt Paystack sends lands with Hospio360. Real owners pay as themselves.
+     */
+    static String payerEmail(String email) {
+        String e = email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+        String domain = e.contains("@") ? e.substring(e.indexOf('@') + 1) : "";
+        boolean test = domain.isEmpty() || domain.endsWith(".test") || domain.endsWith(".example") || domain.endsWith(".invalid") || domain.endsWith(".localhost")
+                || domain.endsWith(".local") || domain.matches("(.+\\.)?example\\.(com|org|net)");
+        return test ? "payments@hospio360.com" : email.trim();
     }
 
     /** Back from Paystack, or its webhook (forwarded by messaging-service): checked with Paystack, recorded once. */
@@ -1140,7 +1152,9 @@ public class MonthlyInvoiceService {
     /** The day-by-day platform fee (and device share) of an invoice and the invoices carried into it; a manager's own locations only. */
     public List<DailyFeeService.DailyFeeView> days(String id, DailyFeeService dailyFees) {
         MonthlyInvoice i = mine(id);
-        return daysOf(i, dailyFees);
+        // Read as the platform once the invoice is known to be the caller's: row security would otherwise show only the location in the
+        // request's hotel header. A manager is narrowed to their own locations by visibleHotels (from the token, not the header).
+        return asSystem(() -> daysOf(i, dailyFees));
     }
 
     public List<DailyFeeService.DailyFeeView> daysAdmin(String id, DailyFeeService dailyFees) {

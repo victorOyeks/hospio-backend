@@ -302,4 +302,11 @@ class MonthlyInvoiceServiceTest {
         assertThat(i.getTotal()).isEqualByComparingTo("9000");
         assertThat(i.getAdjustmentsTotal()).isEqualByComparingTo("-3000");
     }
+
+    @Test
+    void aTestAddressPaysAsHospio360sPaymentsAddress() {
+        assertThat(MonthlyInvoiceService.payerEmail("qa.ownerb.fcekd@hospio-qa.test")).isEqualTo("payments@hospio360.com");
+        assertThat(MonthlyInvoiceService.payerEmail("x@example.com")).isEqualTo("payments@hospio360.com");
+        assertThat(MonthlyInvoiceService.payerEmail("godwin@royalsuites.ng")).isEqualTo("godwin@royalsuites.ng");
+    }
 }
