@@ -14,6 +14,8 @@ import lombok.experimental.SuperBuilder;
 public class HotelCreatedEvent extends HospioEvent {
     private String name;
     private String city;
+    /** com.hospio.common.venue.VenueType name; null (older events) reads as HOTEL. */
+    private String venueType;
 
     @Override
     public String summary() {

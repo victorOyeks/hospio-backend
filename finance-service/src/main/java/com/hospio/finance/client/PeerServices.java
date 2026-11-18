@@ -80,7 +80,10 @@ public class PeerServices {
 
     /** tenant's HotelResponse, the fields finance uses. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Hotel(String id, String name) {
+    public record Hotel(String id, String name, Boolean hasAccommodation) {
+        public Hotel(String id, String name) {
+            this(id, name, null);
+        }
     }
 
     /** One stay in reservation's DaySummary. */
@@ -177,11 +180,29 @@ public class PeerServices {
             List<Hotel> d = data(tenant.get().uri("/internal/businesses/{id}/hotels", businessId).retrieve().body(HOTELS));
             List<Hotel> out = new ArrayList<>();
             if (d != null) {
-                d.forEach(h -> out.add(new Hotel(h.id() == null ? "" : h.id(), h.name())));
+                d.forEach(h -> out.add(new Hotel(h.id() == null ? "" : h.id(), h.name(), h.hasAccommodation())));
             }
             return out;
         } catch (Exception e) {
             throw new ExternalServiceException("The hotels of this business can't be read right now", e);
+        }
+    }
+
+    private static final org.springframework.core.ParameterizedTypeReference<com.hospio.common.response.ApiResponse<Hotel>> HOTEL =
+            new org.springframework.core.ParameterizedTypeReference<>() {
+            };
+
+    /**
+     * Whether the location has accommodation (a hotel, or any location with rooms; docs/plan-venue-type.md). True when tenant-service
+     * can't be asked: the night audit then keeps its arrival and departure checks rather than dropping them on a guess.
+     */
+    public boolean hasAccommodation(String hotelId) {
+        try {
+            Hotel h = data(tenant.get().uri("/internal/hotels/{id}", hotelId).retrieve().body(HOTEL));
+            return h == null || h.hasAccommodation() == null || h.hasAccommodation();
+        } catch (Exception e) {
+            log.warn("tenant-service hotel {} failed: {}", hotelId, e.getMessage());
+            return true;
         }
     }
 

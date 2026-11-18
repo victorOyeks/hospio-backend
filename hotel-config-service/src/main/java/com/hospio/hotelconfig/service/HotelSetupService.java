@@ -79,7 +79,15 @@ public class HotelSetupService {
         if (out instanceof SetupSection.Payments p) {
             return p.withPlatformFeePct(tenantClient.feeRate(hotelId).orElse(null));
         }
+        // A lounge, bar or restaurant has no rooms to charge to (docs/plan-venue-type.md): off on every read, whatever is stored.
+        if (out instanceof SetupSection.Outlets o && Boolean.TRUE.equals(o.roomCharge()) && !tenantClient.hasAccommodation(hotelId)) {
+            return withoutRoomCharge(o);
+        }
         return out;
+    }
+
+    static SetupSection.Outlets withoutRoomCharge(SetupSection.Outlets o) {
+        return new SetupSection.Outlets(false, o.tabs(), o.tabLimit());
     }
 
     /** Every catalogue section, the hotel's stored values laid over the defaults. */
@@ -87,7 +95,13 @@ public class HotelSetupService {
     public HotelSetup all(String hotelId) {
         HotelSetup all = SetupCatalogue.withDefaults(stored(objectMapper, settings.findByHotelId(hotelId)));
         // As for one section: Payments carries the business's live fee rate (Hotel setup names it next to the guest-fee switch).
-        return withFeeRate(all, tenantClient.feeRate(hotelId).orElse(null));
+        HotelSetup withRate = withFeeRate(all, tenantClient.feeRate(hotelId).orElse(null));
+        SetupSection.Outlets outlets = withRate.get(SetupCatalogue.OUTLETS) instanceof SetupSection.Outlets o ? o : null;
+        if (outlets != null && Boolean.TRUE.equals(outlets.roomCharge()) && !tenantClient.hasAccommodation(hotelId)) {
+            SetupSection.Outlets off = withoutRoomCharge(outlets);
+            return HotelSetup.of(name -> SetupCatalogue.OUTLETS.equals(name) ? off : withRate.get(name));
+        }
+        return withRate;
     }
 
     /** The setup with Payments' {@code platformFeePct} set to the business's fee rate (never stored). */
@@ -249,8 +263,21 @@ public class HotelSetupService {
      */
     @Transactional
     public void createDefaults(String hotelId) {
+        createDefaults(hotelId, null);
+    }
+
+    /**
+     * {@code venueType} from HotelCreated: a location without accommodation starts with charge-to-room off (docs/plan-venue-type.md).
+     */
+    @Transactional
+    public void createDefaults(String hotelId, String venueType) {
         Set<String> present = new HashSet<>();
         settings.findByHotelId(hotelId).forEach(s -> present.add(s.getSection() + "/" + s.getKey()));
+        if (!com.hospio.common.venue.VenueType.hasAccommodation(venueType, 0)
+                && present.add(SetupCatalogue.OUTLETS + "/roomCharge")) {
+            settings.save(Setting.builder().hotelId(hotelId).section(SetupCatalogue.OUTLETS).key("roomCharge").value(write(false))
+                    .updatedBy("defaults").build());
+        }
         SetupCatalogue.SECTIONS.keySet().forEach(section -> SetupCatalogue.present(SetupCatalogue.defaults(section)).forEach(v -> {
             if (present.add(section + "/" + v.key())) {
                 settings.save(Setting.builder().hotelId(hotelId).section(section).key(v.key()).value(write(v.value())).updatedBy("defaults").build());

@@ -58,6 +58,13 @@ public final class NightAuditChecklist {
         return items;
     }
 
+    /** The checks that are about stays (arrivals, departures, departing balances), left out where there is no accommodation. */
+    public static final java.util.Set<String> STAY_KEYS = java.util.Set.of("arrivals", "departures", "balances");
+
+    public static List<Item> withoutStays(List<Item> items) {
+        return items.stream().filter(i -> !STAY_KEYS.contains(i.key())).toList();
+    }
+
     public static boolean done(List<Item> items, String key) {
         return items.stream().filter(i -> i.key().equals(key)).allMatch(Item::done);
     }

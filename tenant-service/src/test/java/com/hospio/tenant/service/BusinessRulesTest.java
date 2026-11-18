@@ -118,7 +118,7 @@ class BusinessRulesTest {
         try {
             for (String bad : List.of("0000000", "wuse@", "info@hotel", "a b@hotel.ng", "<x@hotel.ng>", "x@hotel..ng")) {
                 assertThatThrownBy(() -> service.updateMine(new com.hospio.tenant.dto.UpdateMyBusinessRequest("Wiseman Hotels", null, null,
-                        null, bad, null, null, null, null, null, null)))
+                        null, bad, null, null, null, null, null, null, null)))
                         .as(bad).isInstanceOf(BadRequestException.class)
                         .hasMessage("Business email must be a valid email, like name@hotel.com");
             }

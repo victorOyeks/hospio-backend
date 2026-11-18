@@ -199,6 +199,7 @@ public class BusinessService {
                 .city(city).source(request.source() == null ? Business.Source.BACK_OFFICE : request.source())
                 .marketerId(request.marketerId()).referralId(request.referralId()).accountManagerId(CurrentUser.require().getUserId())
                 .stage(Business.Stage.ONBOARDING)
+                .venueKind(request.venueKind() == null ? Business.Kind.HOTEL : request.venueKind())
                 .build());
         if (feeAddendumRef != null) {
             recordFee(business, null, defaultPct);
@@ -223,6 +224,7 @@ public class BusinessService {
                 .source(request.source() == null ? Business.Source.SELF_SERVE : request.source())
                 .marketerId(marketerId).referralId(request.referralId())
                 .stage(Business.Stage.ONBOARDING)
+                .venueKind(request.venueKind() == null ? Business.Kind.HOTEL : request.venueKind())
                 .build();
         business.setId(request.id());
         business = businesses.save(business);
@@ -286,6 +288,7 @@ public class BusinessService {
         if (r.legalName() != null) b.setLegalName(legalName);
         if (r.registrationNumber() != null) b.setRegistrationNumber(registration);
         if (r.businessType() != null) b.setBusinessType(r.businessType());
+        if (r.venueKind() != null) b.setVenueKind(r.venueKind());
         if (r.email() != null) b.setEmail(email);
         if (r.phone() != null) b.setPhone(phone);
         if (r.address() != null) b.setAddress(address);
@@ -384,6 +387,9 @@ public class BusinessService {
         b.setLegalName(r.legalName());
         b.setRegistrationNumber(r.registrationNumber());
         b.setBusinessType(r.businessType());
+        if (r.venueKind() != null) {
+            b.setVenueKind(r.venueKind());
+        }
         b.setEmail(email);
         b.setPhone(r.phone());
         b.setAddress(r.address());
@@ -411,7 +417,9 @@ public class BusinessService {
         Business business = find(businessId);
         String name = Fields.name(request.name(), "the hotel name", true);
         assertHotelNameFree(businessId, "", name);
-        Hotel hotel = hotels.save(Hotel.builder().businessId(businessId).name(name).city(Fields.city(request.city(), true))
+        com.hospio.common.venue.VenueType venueType = request.venueType() != null ? request.venueType()
+                : business.getVenueKind() == null ? com.hospio.common.venue.VenueType.HOTEL : business.getVenueKind().defaultVenue();
+        Hotel hotel = hotels.save(Hotel.builder().businessId(businessId).name(name).venueType(venueType).city(Fields.city(request.city(), true))
                 .address(Fields.address(request.address(), false)).phone(Fields.phone(request.phone(), "the hotel phone", false))
                 .email(Fields.email(request.email(), "the hotel email", false))
                 .timezone(request.timezone() == null ? business.getTimezone() : request.timezone())
@@ -421,7 +429,8 @@ public class BusinessService {
         business.setHotelCount(hotels.countByBusinessId(businessId));
         businesses.save(business);
         events.publish(KafkaTopics.HOTEL_CREATED, HotelCreatedEvent.builder()
-                .businessId(businessId).hotelId(hotel.getId()).name(hotel.getName()).city(hotel.getCity()).build());
+                .businessId(businessId).hotelId(hotel.getId()).name(hotel.getName()).city(hotel.getCity())
+                .venueType(hotel.getVenueType().name()).build());
         return HotelResponse.of(hotel);
     }
 
@@ -460,6 +469,7 @@ public class BusinessService {
         if (r.checkOutTime() != null) h.setCheckOutTime(Fields.time(r.checkOutTime(), "check-out", "12:00"));
         if (r.starRating() != null) h.setStarRating(r.starRating());
         if (r.managerUserId() != null) h.setManagerUserId(r.managerUserId());
+        if (r.venueType() != null) h.setVenueType(r.venueType());
         return HotelResponse.of(hotels.save(h));
     }
 
@@ -617,6 +627,7 @@ public class BusinessService {
     }
 
     BusinessResponse toResponse(Business b) {
+        List<HotelResponse> hs = hotelsOf(b.getId());
         BusinessResponse.Onboarding onboarding = drafts.findByBusinessId(b.getId())
                 .map(d -> new BusinessResponse.Onboarding(d.getStatus(), d.getStep(), draftData.completedSteps(d.getData())))
                 .orElse(null);
@@ -625,7 +636,8 @@ public class BusinessService {
                 b.getOwnerUserId(), b.getOwnerName(), b.getOwnerEmail(), b.getOwnerPhone(), b.getStage(), b.getAccountManagerId(),
                 b.getMarketerId(), b.getReferralId(), b.getFeeModel(), b.getFeeValue(), b.getCurrency(), b.getCountry(), b.getTimezone(),
                 b.getContractStartsOn(), b.getContractNotes(), b.getHotelCount(), b.getSuspendedAt(), b.getSuspensionReason(),
-                b.getCreatedAt(), hotelsOf(b.getId()), onboarding, b.getFeeAddendumRef());
+                b.getCreatedAt(), hs, onboarding, b.getFeeAddendumRef(), b.getVenueKind(),
+                hs.stream().anyMatch(HotelResponse::hasAccommodation));
     }
 
     /** {@code lastActiveAt} stays null: activity lives in platform-service, which fills it from its own log. */
@@ -637,6 +649,7 @@ public class BusinessService {
         int rooms = hs.stream().mapToInt(Hotel::getRoomCount).sum();
         return new BusinessSummary(b.getId(), b.getName(), b.getStage(), b.getSource(), b.getCity(), hs.size(), rooms,
                 b.getOwnerName(), b.getOwnerEmail(), b.getAccountManagerId(), managerNames.get(b.getAccountManagerId()), b.getMarketerId(),
-                b.getFeeModel(), b.getFeeValue(), b.getCreatedAt(), null, b.getFeeAddendumRef());
+                b.getFeeModel(), b.getFeeValue(), b.getCreatedAt(), null, b.getFeeAddendumRef(), b.getVenueKind(),
+                hs.stream().map(h -> h.getVenueType().name()).distinct().sorted().toList());
     }
 }

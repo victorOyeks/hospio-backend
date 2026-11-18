@@ -57,7 +57,7 @@ public class NightAuditService {
     private final ObjectMapper mapper;
 
     private record Computed(PeerServices.Day day, List<Till> openTills, List<PeerServices.Owing> owing, List<NightAuditChecklist.Item> checklist, int rooms,
-                            Optional<PeerServices.OpenOrders> orders) {
+                            Optional<PeerServices.OpenOrders> orders, boolean accommodation) {
     }
 
     /** The audit if one exists, with the live checklist while the day is open. Never creates a row. */
@@ -72,7 +72,7 @@ public class NightAuditService {
         Computed c = compute(hotelId, d);
         return new NightAuditView(a == null ? null : a.getId(), d, a == null ? NightAudit.Status.OPEN.name() : a.getStatus().name(), null, null, null, null, null,
                 a == null ? null : a.getNote(), null, a == null ? null : a.getChecklist(), c.checklist(), c.day().arrivals(), c.day().departures(),
-                c.day().inHouse(), c.day().noShows(), c.day().roomsOccupied(), c.rooms(), null);
+                c.day().inHouse(), c.day().noShows(), c.day().roomsOccupied(), c.rooms(), null, c.accommodation());
     }
 
     @Transactional(readOnly = true)
@@ -179,11 +179,11 @@ public class NightAuditService {
         events.publish(KafkaTopics.DAY_CLOSED, DayClosedEvent.builder().auditId(a.getId()).businessDate(d).revenue(a.getRevenue())
                 .cashCounted(a.getCashCounted()).variance(a.getVariance()).closedBy(user.getFullName()).build());
 
-        List<Delivery> sent = tellOwner(a, d, today, expensesTotal, occupied, c.rooms(), variance, user.getFullName(), hotelId);
+        List<Delivery> sent = tellOwner(a, d, today, expensesTotal, occupied, c.accommodation() ? c.rooms() : -1, variance, user.getFullName(), hotelId);
         NightAuditView view = closedView(a);
         return new NightAuditView(view.id(), view.businessDate(), view.status(), view.revenue(), view.cashCounted(), view.variance(), view.closedBy(), view.closedAt(),
                 view.note(), view.report(), view.savedChecklist(), view.checklist(), view.arrivals(), view.departures(), view.inHouse(), view.noShows(),
-                view.roomsOccupied(), view.rooms(), sent);
+                view.roomsOccupied(), view.rooms(), sent, view.accommodation());
     }
 
     // ---- helpers -------------------------------------------------------------------------------------
@@ -207,18 +207,23 @@ public class NightAuditService {
         Optional<PeerServices.OpenOrders> openOrders = peers.openOrders(hotelId, d);
         List<NightAuditChecklist.OutletOrders> outletOrders = openOrders.map(o -> o.outlets().stream()
                 .map(x -> new NightAuditChecklist.OutletOrders(x.name(), x.openTabs(), x.unsettled())).toList()).orElse(List.of());
-        return new Computed(day, open, owing, NightAuditChecklist.build(day.arrivalsPending(), day.departuresPending(), roles, owing.size(), Money.of(owed),
-                openOrders.isPresent(), outletOrders), rooms, openOrders);
+        // A lounge, bar or restaurant (no accommodation, docs/plan-venue-type.md) is checked on its tills and open tabs only.
+        boolean accommodation = rooms > 0 || peers.hasAccommodation(hotelId);
+        List<NightAuditChecklist.Item> checklist = NightAuditChecklist.build(day.arrivalsPending(), day.departuresPending(), roles, owing.size(),
+                Money.of(owed), openOrders.isPresent(), outletOrders);
+        return new Computed(day, open, owing, accommodation ? checklist : NightAuditChecklist.withoutStays(checklist), rooms, openOrders, accommodation);
     }
 
     private NightAuditView closedView(NightAudit a) {
         NightAuditReport r = read(a.getReport());
         NightAuditReport.Guests guests = r.guestsOrEmpty();
         NightAuditReport.Occupancy occ = r.occupancyOrEmpty();
-        List<NightAuditChecklist.Item> done = new ArrayList<>(NightAuditChecklist.build(0, 0, List.of(), 0, BigDecimal.ZERO, true, List.of()));
+        boolean accommodation = occ.rooms() > 0 || peers.hasAccommodation(a.getHotelId());
+        List<NightAuditChecklist.Item> all = NightAuditChecklist.build(0, 0, List.of(), 0, BigDecimal.ZERO, true, List.of());
+        List<NightAuditChecklist.Item> done = new ArrayList<>(accommodation ? all : NightAuditChecklist.withoutStays(all));
         return new NightAuditView(a.getId(), a.getBusinessDate(), a.getStatus().name(), a.getRevenue(), a.getCashCounted(), a.getVariance(), a.getClosedBy(), a.getClosedAt(),
                 a.getNote(), a.getReport(), a.getChecklist(), done, guests.arrivals(), guests.departures(), guests.inHouse(),
-                guests.noShows(), a.getRoomsOccupied() == null ? occ.roomsOccupied() : a.getRoomsOccupied(), occ.rooms(), null);
+                guests.noShows(), a.getRoomsOccupied() == null ? occ.roomsOccupied() : a.getRoomsOccupied(), occ.rooms(), null, accommodation);
     }
 
     private List<Delivery> tellOwner(NightAudit a, LocalDate d, MoneyToday today, BigDecimal expensesTotal, int occupied, int rooms, BigDecimal variance, String closedBy, String hotelId) {
@@ -227,12 +232,14 @@ public class NightAuditService {
             if (b == null) {
                 return List.of();
             }
-            String hotel = peers.hotels(a.getBusinessId()).stream().filter(h -> hotelId.equals(h.id())).map(PeerServices.Hotel::name).findFirst().orElse("your hotel");
+            String hotel = peers.hotels(a.getBusinessId()).stream().filter(h -> hotelId.equals(h.id())).map(PeerServices.Hotel::name).findFirst()
+                    .orElse(rooms < 0 ? "your venue" : "your hotel");
             String subject = hotel + " · day closed " + d + " · revenue " + today.revenue().toPlainString();
             String text = "Day " + d + " closed at " + hotel + " by " + closedBy + ".\n"
                     + "Revenue " + today.revenue().toPlainString() + " (" + today.paymentsCount() + " payments), expenses " + Money.of(expensesTotal).toPlainString()
                     + ", net " + Money.of(today.revenue().subtract(expensesTotal)).toPlainString() + ".\n"
-                    + "Occupancy " + occupied + " of " + rooms + " rooms" + (rooms > 0 ? " (" + MoneyService.pct(occupied, rooms) + "%)" : "") + ".\n"
+                    // rooms -1: a lounge, bar or restaurant, where occupancy means nothing.
+                    + (rooms < 0 ? "" : "Occupancy " + occupied + " of " + rooms + " rooms" + (rooms > 0 ? " (" + MoneyService.pct(occupied, rooms) + "%)" : "") + ".\n")
                     + (variance == null ? "Cash was not counted." : variance.signum() == 0 ? "Cash balanced." : "Cash " + (variance.signum() < 0 ? "short " : "over ") + variance.abs().toPlainString() + ".");
             return notifier.send(b.ownerEmail(), b.ownerPhone(), subject, text, Delivery.Kind.DAILY_REPORT, a.getId());
         } catch (RuntimeException e) {

@@ -33,6 +33,18 @@ public class Business extends BaseEntity {
     /** How the business came in: the owner signed up on the hotel app, or Hospio360 onboarded it. */
     public enum Source { SELF_SERVE, BACK_OFFICE }
 
+    /**
+     * What kind of business it is, asked in both wizards (docs/plan-venue-type.md). It only sets the venue type a new location
+     * starts with; MIXED (a hotel and a lounge, say) starts each one as a hotel and the type is picked per location.
+     */
+    public enum Kind {
+        HOTEL, LOUNGE, BAR, RESTAURANT, CLUB, MIXED;
+
+        public com.hospio.common.venue.VenueType defaultVenue() {
+            return this == MIXED ? com.hospio.common.venue.VenueType.HOTEL : com.hospio.common.venue.VenueType.valueOf(name());
+        }
+    }
+
     @Column(nullable = false)
     private String name;
 
@@ -124,4 +136,9 @@ public class Business extends BaseEntity {
 
     @Column(name = "suspension_reason", length = 500)
     private String suspensionReason;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "venue_kind", nullable = false, length = 20)
+    @lombok.Builder.Default
+    private Kind venueKind = Kind.HOTEL;
 }

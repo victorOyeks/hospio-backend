@@ -9,5 +9,14 @@ public record CreateBusinessRequest(String name, String legalName, String regist
                                     String ownerName, String ownerEmail, String ownerPhone,
                                     Business.FeeModel feeModel, BigDecimal feeValue, String currency, String country,
                                     String timezone, String marketerId, String city, Business.Source source, String referralId,
-                                    String feeAddendumRef) {
+                                    String feeAddendumRef, Business.Kind venueKind) {
+
+    public CreateBusinessRequest(String name, String legalName, String registrationNumber, String businessType,
+                                 String ownerName, String ownerEmail, String ownerPhone,
+                                 Business.FeeModel feeModel, BigDecimal feeValue, String currency, String country,
+                                 String timezone, String marketerId, String city, Business.Source source, String referralId,
+                                 String feeAddendumRef) {
+        this(name, legalName, registrationNumber, businessType, ownerName, ownerEmail, ownerPhone, feeModel, feeValue, currency, country,
+                timezone, marketerId, city, source, referralId, feeAddendumRef, null);
+    }
 }

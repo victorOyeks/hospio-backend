@@ -20,7 +20,11 @@ public class TenantClient {
 
     /** tenant-service's hotel, as far as hotel-config needs it. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record HotelRef(String businessId) {
+    record HotelRef(String businessId, String venueType, Integer roomCount, Boolean hasAccommodation) {
+        boolean accommodation() {
+            return hasAccommodation != null ? hasAccommodation
+                    : com.hospio.common.venue.VenueType.hasAccommodation(venueType, roomCount == null ? 0 : roomCount);
+        }
     }
 
     /** tenant-service's setup template: {@code settings} is the template's JSON text. */
@@ -81,6 +85,32 @@ public class TenantClient {
         } catch (Exception e) {
             log.warn("Could not read the fee rate for hotel {}: {}", hotelId, e.getMessage());
             return Optional.empty();
+        }
+    }
+
+    private final java.util.concurrent.ConcurrentHashMap<String, java.util.Map.Entry<java.time.Instant, Boolean>> accommodationCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Whether the location has accommodation (a hotel, or any location with rooms; docs/plan-venue-type.md), cached a minute. True when
+     * tenant-service can't be asked, so a hotel never loses charge-to-room over a blip.
+     */
+    public boolean hasAccommodation(String hotelId) {
+        var hit = accommodationCache.get(hotelId);
+        if (hit != null && hit.getKey().isAfter(java.time.Instant.now())) {
+            return hit.getValue();
+        }
+        try {
+            ApiResponse<HotelRef> body = restClient.get().uri("/internal/hotels/{id}", hotelId).retrieve().body(HOTEL);
+            if (body == null || body.data() == null) {
+                return true;
+            }
+            boolean yes = body.data().accommodation();
+            accommodationCache.put(hotelId, java.util.Map.entry(java.time.Instant.now().plusSeconds(60), yes));
+            return yes;
+        } catch (Exception e) {
+            log.warn("Could not read hotel {}: {}", hotelId, e.getMessage());
+            return true;
         }
     }
 

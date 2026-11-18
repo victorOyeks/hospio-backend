@@ -506,7 +506,7 @@ public class OrderService {
             throw new ForbiddenException("This order belongs to the " + outlet.getName());
         }
         if (!settings.get(p.getHotelId()).roomCharge()) {
-            throw new BadRequestException("Charging to a room is switched off for this hotel");
+            throw new BadRequestException("Charging to a room is switched off here (it needs rooms: a lounge, bar or restaurant has none)");
         }
         String room = roomId == null ? p.getRoomId() : roomId;
         if (room == null) {
