@@ -64,6 +64,9 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class MaintenanceService {
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.hospio.common.suspension.BusinessSuspension suspension;
+
     static final ZoneId LAGOS = ZoneId.of("Africa/Lagos");
     private static final long MAX_PHOTO = 2L * 1024 * 1024;
 
@@ -705,6 +708,10 @@ public class MaintenanceService {
             List<ScheduledJob> due = tx.execute(s -> jobs.findByDeletedFalseAndPausedFalseAndNextDueLessThanEqual(today));
             int opened = 0;
             for (ScheduledJob j : due == null ? List.<ScheduledJob>of() : due) {
+                // Nothing is opened for a suspended business (docs/suspension.md); the schedule is still due when it is reactivated.
+                if (suspension != null && suspension.isSuspended(j.getBusinessId())) {
+                    continue;
+                }
                 try {
                     Boolean ok = tx.execute(s -> openFromSchedule(j.getId(), today));
                     opened += Boolean.TRUE.equals(ok) ? 1 : 0;

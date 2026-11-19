@@ -31,6 +31,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Component
 public class ArrivalReminders {
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.hospio.common.suspension.BusinessSuspension suspension;
+
     private final BookingRepository bookings;
     private final GuestNotices notices;
     private final GuestMessagingSettings settings;
@@ -65,6 +68,10 @@ public class ArrivalReminders {
         int told = 0;
         for (Booking b : due) {
             String hotel = b.getHotelId();
+            // No guest messages for a suspended business (docs/suspension.md).
+            if (suspension != null && suspension.isSuspended(b.getBusinessId())) {
+                continue;
+            }
             if (!on.computeIfAbsent(hotel, h -> settings.forHotel(h).arrivalMessage())) {
                 continue;
             }

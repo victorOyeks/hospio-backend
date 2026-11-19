@@ -239,6 +239,72 @@ public class TenantClient {
         }
     }
 
+    // ---- suspension (docs/suspension.md) ----------------------------------------------------------------------
+
+    private static final ParameterizedTypeReference<ApiResponse<SuspensionDetail>> SUSPENSION = new ParameterizedTypeReference<>() {
+    };
+
+    /** tenant's BusinessResponse again, the suspension fields. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SuspensionDetail(String id, String name, String stage, Instant suspendedAt, String suspensionReason, String suspensionType,
+                                   boolean suspensionShowReason, java.time.LocalDate suspensionNoticeSentOn, String stageBeforeSuspension,
+                                   String suspendedByName) {
+        public boolean suspended() {
+            return "SUSPENDED".equals(stage);
+        }
+    }
+
+    /** The business's stage and suspension fields. Throws when tenant-service can't be asked: a suspension is never decided on a guess. */
+    public SuspensionDetail suspensionDetail(String businessId) {
+        try {
+            SuspensionDetail d = data(restClient.get().uri("/internal/businesses/{id}", businessId).retrieve().body(SUSPENSION));
+            if (d == null) {
+                throw new com.hospio.common.exception.ResourceNotFoundException("Business not found");
+            }
+            return d;
+        } catch (HttpClientErrorException.NotFound e) {
+            throw new com.hospio.common.exception.ResourceNotFoundException("Business not found");
+        } catch (org.springframework.web.client.RestClientException e) {
+            throw new com.hospio.common.exception.ExternalServiceException("Could not read the business right now. Try again", e);
+        }
+    }
+
+    /** PUT /internal/businesses/{id}/suspension: tenant's own refusal (already suspended, not live) is passed on as it reads. */
+    public SuspensionDetail suspend(String businessId, String reasonType, String reason, boolean showReason, java.time.LocalDate noticeSentOn,
+                                    String actorId, String actorName) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("reasonType", reasonType);
+        body.put("reason", reason);
+        body.put("showReason", showReason);
+        body.put("noticeSentOn", noticeSentOn == null ? null : noticeSentOn.toString());
+        body.put("actorId", actorId);
+        body.put("actorName", actorName);
+        return change(() -> data(restClient.put().uri("/internal/businesses/{id}/suspension", businessId).body(body).retrieve().body(SUSPENSION)));
+    }
+
+    /** DELETE /internal/businesses/{id}/suspension: back to the stage it had. */
+    public SuspensionDetail reactivate(String businessId) {
+        return change(() -> data(restClient.delete().uri("/internal/businesses/{id}/suspension", businessId).retrieve().body(SUSPENSION)));
+    }
+
+    private static SuspensionDetail change(java.util.function.Supplier<SuspensionDetail> call) {
+        try {
+            return call.get();
+        } catch (HttpClientErrorException e) {
+            String message = null;
+            try {
+                ApiResponse<?> body = e.getResponseBodyAs(new ParameterizedTypeReference<ApiResponse<Object>>() {
+                });
+                message = body == null ? null : body.message();
+            } catch (RuntimeException ignored) {
+                // fall through to the plain message
+            }
+            throw new com.hospio.common.exception.BadRequestException(message == null ? "The business could not be changed" : message);
+        } catch (org.springframework.web.client.RestClientException e) {
+            throw new com.hospio.common.exception.ExternalServiceException("Could not change the business right now. Nothing was changed; try again", e);
+        }
+    }
+
     static <T> T data(ApiResponse<T> body) {
         return body == null ? null : body.data();
     }

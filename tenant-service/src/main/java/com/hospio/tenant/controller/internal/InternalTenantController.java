@@ -63,6 +63,24 @@ public class InternalTenantController {
         return ApiResponse.ok(service.get(businessId));
     }
 
+    /** Every service's suspension check (common BusinessSuspension): cached 30 s by the caller. */
+    @GetMapping("/businesses/{businessId}/suspension")
+    public ApiResponse<com.hospio.tenant.dto.SuspensionStatus> suspension(@PathVariable String businessId) {
+        return ApiResponse.ok(asSystem(() -> service.suspension(businessId)));
+    }
+
+    /** platform-service suspends a business (docs/suspension.md). */
+    @PutMapping("/businesses/{businessId}/suspension")
+    public ApiResponse<BusinessResponse> suspend(@PathVariable String businessId, @Valid @RequestBody com.hospio.tenant.dto.SuspendRequest request) {
+        return ApiResponse.ok("Suspended", asSystem(() -> service.suspend(businessId, request)));
+    }
+
+    /** platform-service reactivates it: back to the stage it had. */
+    @org.springframework.web.bind.annotation.DeleteMapping("/businesses/{businessId}/suspension")
+    public ApiResponse<BusinessResponse> reactivate(@PathVariable String businessId) {
+        return ApiResponse.ok("Reactivated", asSystem(() -> service.reactivate(businessId)));
+    }
+
     /** platform-service dashboard: businesses in total and by stage, hotels and rooms. */
     @GetMapping("/businesses/summary")
     public ApiResponse<BusinessesSummaryResponse> summary() {

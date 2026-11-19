@@ -151,6 +151,16 @@ public class MonthlyInvoiceService {
                 .map(String::trim).filter(StringUtils::hasText).collect(Collectors.toSet());
     }
 
+    /** Real suspension (docs/suspension.md): asked after a payment, and before a reminder goes. Set by Spring; absent in unit tests. */
+    private ObjectProvider<SuspensionService> suspensions;
+    private com.hospio.common.suspension.BusinessSuspension suspended;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setSuspension(ObjectProvider<SuspensionService> suspensions, com.hospio.common.suspension.BusinessSuspension suspended) {
+        this.suspensions = suspensions;
+        this.suspended = suspended;
+    }
+
     // ---- views ------------------------------------------------------------------------------------------
 
     public record LineView(String id, String section, String hotelId, String hotelName, String label, String detail, BigDecimal baseAmount,
@@ -465,6 +475,10 @@ public class MonthlyInvoiceService {
                 try {
                     if (markOverdue(i, today)) {
                         overdue++;
+                    }
+                    // A suspended business gets no more reminders: it was told when it was suspended (docs/suspension.md).
+                    if (suspended != null && suspended.isSuspended(i.getBusinessId())) {
+                        continue;
                     }
                     String kind = noticeFor(i, today);
                     if (kind != null && sendNotice(i, kind, today)) {
@@ -846,6 +860,10 @@ public class MonthlyInvoiceService {
         }
         syncReceived(a.invoice().getId());
         sendReceipt(a.invoice(), a.payment(), a.paid());
+        if (a.paid() && suspensions != null) {
+            // Suspended for unpaid invoices and nothing overdue is left: the business comes back by itself.
+            suspensions.ifAvailable(sv -> sv.afterPayment(a.invoice().getBusinessId()));
+        }
         log.info("Invoice {}: NGN {} received by {} ({}){}", a.invoice().getNumber(), a.payment().getAmount(), via, reference, a.paid() ? ", paid" : "");
     }
 

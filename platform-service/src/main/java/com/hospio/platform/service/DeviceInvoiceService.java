@@ -48,6 +48,9 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class DeviceInvoiceService {
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.hospio.common.suspension.BusinessSuspension suspension;
+
     static final ZoneId LAGOS = ZoneId.of("Africa/Lagos");
     static final int REMIND_AFTER = 3;
     static final int FLAG_AFTER = 7;
@@ -102,6 +105,10 @@ public class DeviceInvoiceService {
         int voided = 0;
         for (DevicePackage p : packages.findByStatusInOrderByUpdatedAtDesc(List.of(DevicePackage.INSTALLED, DevicePackage.PAID_OFF))) {
             if (p.getInstalledAt() == null) {
+                continue;
+            }
+            // No new charges while a business is suspended (docs/suspension.md); what fell due meanwhile is made on the first run after.
+            if (suspension != null && suspension.isSuspended(p.getBusinessId())) {
                 continue;
             }
             try {
