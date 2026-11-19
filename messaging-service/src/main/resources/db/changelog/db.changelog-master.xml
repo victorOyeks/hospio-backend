@@ -21,5 +21,6 @@
     <include file="db/changelog/009-email-events.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/010-monthly-invoice-link.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/011-platform-notifications.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/012-no-guest-sms-price.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

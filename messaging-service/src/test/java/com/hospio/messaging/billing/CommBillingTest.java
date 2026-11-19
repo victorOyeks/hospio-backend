@@ -42,7 +42,6 @@ class CommBillingTest {
         CommPrices d = new CommPrices();
         d.setId("DEFAULT");
         d.setEmailPrice(new BigDecimal("5.00"));
-        d.setSmsPrice(new BigDecimal("10.00"));
         d.setWhatsappPrice(new BigDecimal("25.00"));
         when(prices.findById("DEFAULT")).thenReturn(Optional.of(d));
         when(tenants.hotel(anyString())).thenReturn(Optional.of(new TenantClient.Sender("Simpas Ikeja", "simpas@hotel.test")));
@@ -87,10 +86,32 @@ class CommBillingTest {
 
     @Test
     void aHotelsOwnPricesOverrideTheDefaults() {
-        when(plans.findByHotelId("h1")).thenReturn(Optional.of(CommPlan.builder().hotelId("h1").enabled(true).smsPrice(new BigDecimal("8.00")).build()));
-        assertThat(billing.price("h1", "SMS")).isEqualByComparingTo("8");
-        assertThat(billing.price("h1", "WHATSAPP")).isEqualByComparingTo("25");
+        when(plans.findByHotelId("h1")).thenReturn(Optional.of(CommPlan.builder().hotelId("h1").enabled(true).whatsappPrice(new BigDecimal("20.00")).build()));
+        assertThat(billing.price("h1", "WHATSAPP")).isEqualByComparingTo("20");
         assertThat(billing.price("h1", "EMAIL")).isEqualByComparingTo("5");
+    }
+
+    @Test
+    void thereIsNoSmsPriceGuestMessagesNeverGoBySms() {
+        when(plans.findByHotelId("h1")).thenReturn(Optional.of(CommPlan.builder().hotelId("h1").enabled(true).build()));
+        assertThat(billing.price("h1", "SMS")).isEqualByComparingTo("0");
+        assertThat(billing.defaults()).isEqualTo(new CommBilling.Prices(new BigDecimal("5.00"), new BigDecimal("25.00")));
+        assertThat(java.util.Arrays.stream(CommBilling.Prices.class.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName))
+                .containsExactly("email", "whatsapp");
+        assertThat(java.util.Arrays.stream(CommBilling.Usage.class.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName))
+                .noneMatch(n -> n.toLowerCase(java.util.Locale.ROOT).contains("sms"));
+    }
+
+    @Test
+    void anOlderRequestThatStillSendsAnSmsPriceIsAcceptedAndTheSmsIsIgnored() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper strict = new com.fasterxml.jackson.databind.ObjectMapper()
+                .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        CommBillingController.PlanRequest plan = strict.readValue(
+                "{\"businessId\":\"b1\",\"enabled\":true,\"email\":6,\"sms\":12,\"whatsapp\":30,\"useDefaults\":false}", CommBillingController.PlanRequest.class);
+        assertThat(plan.email()).isEqualByComparingTo("6");
+        assertThat(plan.whatsapp()).isEqualByComparingTo("30");
+        CommBillingController.PricesRequest prices = strict.readValue("{\"email\":5,\"sms\":10,\"whatsapp\":25}", CommBillingController.PricesRequest.class);
+        assertThat(prices.whatsapp()).isEqualByComparingTo("25");
     }
 
     /** The invoice repository saves as Postgres would: an id on first save, the same object back. */
@@ -113,6 +134,7 @@ class CommBillingTest {
 
     @Test
     void aMonthsMessagesBecomeOneInvoiceDueInTenDays() {
+        // An SMS here can only be an older straggler (guest messages no longer go by SMS): it is still counted, as history.
         invoicesSave("inv-1");
         attached("inv-1", 17, new Object[] {"EMAIL", 12L, new BigDecimal("60.00")}, new Object[] {"SMS", 3L, new BigDecimal("30.00")},
                 new Object[] {"WHATSAPP", 2L, new BigDecimal("50.00")});
@@ -274,7 +296,7 @@ class CommBillingTest {
     void severalHotelsPlansAreReadInOneGo() {
         when(plans.findByHotelIdIn(List.of("h1", "h2"))).thenReturn(List.of(CommPlan.builder().businessId("b1").hotelId("h2").enabled(true).build()));
         when(deliveries.unbilledUsageOf(eq(List.of("h1", "h2")), eq(CommBilling.CHARGED), any(), any()))
-                .thenReturn(List.<Object[]>of(new Object[] {"h2", "SMS", 4L, new BigDecimal("40.00")}));
+                .thenReturn(List.<Object[]>of(new Object[] {"h2", "WHATSAPP", 4L, new BigDecimal("100.00")}));
         CommInvoice open = due("inv-9", "h1");
         when(invoices.findByHotelIdInAndStatusIn(eq(List.of("h1", "h2")), any())).thenReturn(List.of(open));
         List<CommBilling.PlanView> views = billing.plansOf(null, List.of("h1", "h2"));
@@ -282,7 +304,8 @@ class CommBillingTest {
         assertThat(views.get(0).enabled()).isFalse();
         assertThat(views.get(0).outstanding()).isEqualByComparingTo("15");
         assertThat(views.get(1).enabled()).isTrue();
-        assertThat(views.get(1).thisMonth().smsCount()).isEqualTo(4);
+        assertThat(views.get(1).thisMonth().whatsappCount()).isEqualTo(4);
+        assertThat(views.get(1).thisMonth().total()).isEqualByComparingTo("100");
         verify(plans, never()).findByHotelId(anyString());
         verify(deliveries, never()).unbilledUsage(anyString(), any(), any(), any());
     }

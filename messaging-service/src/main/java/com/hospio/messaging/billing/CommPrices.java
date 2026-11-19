@@ -24,8 +24,6 @@ public class CommPrices {
     @Column(name = "email_price", nullable = false)
     private BigDecimal emailPrice;
 
-    @Column(name = "sms_price", nullable = false)
-    private BigDecimal smsPrice;
 
     @Column(name = "whatsapp_price", nullable = false)
     private BigDecimal whatsappPrice;
