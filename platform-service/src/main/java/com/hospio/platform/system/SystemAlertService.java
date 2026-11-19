@@ -150,13 +150,36 @@ public class SystemAlertService {
 
     // ---- raising, escalating, clearing -----------------------------------------------------------------
 
+    /** A message waiting for the next email: phase (Problem, Warning, Now critical, Recovered), title, detail, when. */
+    record Pending(String phase, String title, String detail, String key, Instant at) {
+    }
+
+    /** At most one email an hour: the first goes at once, what happens in the hour after waits and goes as one digest. */
+    static final Duration EMAIL_EVERY = Duration.ofHours(1);
+    /** A condition raised while alerts were off is told once it is still there this long after they were switched on. */
+    static final Duration AFTER_SWITCH_ON = Duration.ofMinutes(2);
+
+    private final List<Pending> pendingEmail = new ArrayList<>();
+    private Instant lastEmailAt;
+    private Boolean wasOn;
+    private Instant onSince;
+
     public synchronized Outcome evaluate(Report report) {
         return TenantContext.runWith(Tenant.system("system-health-alerts"), () -> evaluate(report, Instant.now()));
     }
 
     Outcome evaluate(Report report, Instant now) {
+        Thresholds t = report.thresholds();
+        boolean on = t == null || t.alertsOn();
+        if (on && !Boolean.TRUE.equals(wasOn)) {
+            onSince = now;
+        }
+        if (!on) {
+            pendingEmail.clear();
+        }
+        wasOn = on;
         Map<String, AlertStateStore.State> states = store.load();
-        List<Condition> holding = conditions(report, report.thresholds(), states.keySet());
+        List<Condition> holding = conditions(report, t, states.keySet());
         Map<String, Condition> byKey = new LinkedHashMap<>();
         holding.forEach(c -> byKey.put(c.key(), c));
         List<String> raised = new ArrayList<>();
@@ -172,35 +195,48 @@ public class SystemAlertService {
                     waiting.add(c.key());
                     continue;
                 }
-                raise(c, now, report);
+                raise(c, now, report, on);
                 raised.add(c.key());
             } else if (CRITICAL.equals(c.level()) && WARNING.equals(s.level())) {
-                escalate(s, c, now, report);
+                escalate(s, c, now, report, on);
                 escalated.add(c.key());
-            } else if (!Objects.equals(s.detail(), c.detail()) || !Objects.equals(s.title(), c.title())) {
-                refresh(s, c, now);
+            } else {
+                if (!Objects.equals(s.detail(), c.detail()) || !Objects.equals(s.title(), c.title())) {
+                    refresh(s, c, now);
+                }
+                // Raised while alerts were off and still there a while after they were switched on: told now, once.
+                if (on && !s.notified() && onSince != null && !now.isBefore(onSince.plus(AFTER_SWITCH_ON))) {
+                    store.markNotified(s.key());
+                    tell(CRITICAL.equals(c.level()) ? "Problem" : "Warning", c.title(), c.detail(), c.key(), now, report);
+                    raised.add(c.key());
+                }
             }
         }
         for (AlertStateStore.State s : states.values()) {
             if (!byKey.containsKey(s.key())) {
-                recover(s, now, report);
+                recover(s, now, report, on);
                 recovered.add(s.key());
             }
         }
+        if (on) {
+            flushEmail(now, report);
+        }
         if (!raised.isEmpty() || !escalated.isEmpty() || !recovered.isEmpty()) {
-            log.info("System health alerts: raised {}, worse {}, recovered {}", raised, escalated, recovered);
+            log.info("System health alerts{}: raised {}, worse {}, recovered {}", on ? "" : " (alerts off: nobody told)", raised, escalated, recovered);
         }
         return new Outcome(raised, escalated, recovered, waiting);
     }
 
-    private void raise(Condition c, Instant now, Report report) {
+    private void raise(Condition c, Instant now, Report report, boolean on) {
         Alert a = alerts.save(Alert.builder().kind(KIND).businessName("Server").title(c.title()).detail(c.detail()).tone(tone(c.level()))
                 .openedAt(now).build());
-        store.insert(new AlertStateStore.State(c.key(), c.level(), c.title(), c.detail(), now, a.getId()));
-        tell(c.level().equals(CRITICAL) ? "Problem" : "Warning", c.title(), c.detail(), c.key(), now, report);
+        store.insert(new AlertStateStore.State(c.key(), c.level(), c.title(), c.detail(), now, a.getId(), on));
+        if (on) {
+            tell(c.level().equals(CRITICAL) ? "Problem" : "Warning", c.title(), c.detail(), c.key(), now, report);
+        }
     }
 
-    private void escalate(AlertStateStore.State s, Condition c, Instant now, Report report) {
+    private void escalate(AlertStateStore.State s, Condition c, Instant now, Report report, boolean on) {
         if (s.alertId() != null) {
             alerts.findById(s.alertId()).filter(Alert::isOpen).ifPresent(a -> {
                 a.setTitle(c.title());
@@ -210,7 +246,12 @@ public class SystemAlertService {
             });
         }
         store.update(s.key(), c.level(), c.title(), c.detail());
-        tell("Now critical", c.title(), c.detail(), c.key(), now, report);
+        if (on) {
+            if (!s.notified()) {
+                store.markNotified(s.key());
+            }
+            tell(s.notified() ? "Now critical" : "Problem", c.title(), c.detail(), c.key(), now, report);
+        }
     }
 
     private void refresh(AlertStateStore.State s, Condition c, Instant now) {
@@ -224,7 +265,7 @@ public class SystemAlertService {
         store.update(s.key(), s.level(), c.title(), c.detail());
     }
 
-    private void recover(AlertStateStore.State s, Instant now, Report report) {
+    private void recover(AlertStateStore.State s, Instant now, Report report, boolean on) {
         if (s.alertId() != null) {
             alerts.findById(s.alertId()).filter(Alert::isOpen).ifPresent(a -> {
                 a.setDismissedAt(now);
@@ -234,39 +275,79 @@ public class SystemAlertService {
             });
         }
         store.delete(s.key());
-        long minutes = Math.max(1, Duration.between(s.raisedAt(), now).toMinutes());
-        tell("Recovered", s.title(), "Back to normal after " + minutes + (minutes == 1 ? " minute" : " minutes") + " (alerted " + WHEN.format(s.raisedAt()) + ")",
-                s.key(), now, report);
+        // Only a problem someone was told about gets a "recovered" note.
+        if (on && s.notified()) {
+            long minutes = Math.max(1, Duration.between(s.raisedAt(), now).toMinutes());
+            tell("Recovered", s.title(), "Back to normal after " + minutes + (minutes == 1 ? " minute" : " minutes") + " (alerted "
+                    + WHEN.format(s.raisedAt()) + ")", s.key(), now, report);
+        }
     }
 
     // ---- telling the super admins ------------------------------------------------------------------------
 
-    /** The bell of every Super admin and, when email alerts are on, an email to each. Never fails the evaluation. */
+    /** The bell of every Super admin now (when the bell is on), and the email queued for {@link #flushEmail}. Never fails the evaluation. */
     private void tell(String phase, String title, String detail, String key, Instant now, Report report) {
+        Thresholds t = report.thresholds();
+        if (t == null || t.emailAlerts()) {
+            pendingEmail.add(new Pending(phase, title, detail, key, now));
+        }
+        if (t != null && !t.bellAlerts()) {
+            return;
+        }
         try {
-            List<IdentityClient.Contact> admins = identity.platformStaff(Role.SUPER_ADMIN.name());
-            List<String> ids = admins.stream().map(IdentityClient.Contact::id).filter(Objects::nonNull).distinct().toList();
+            List<String> ids = identity.platformStaff(Role.SUPER_ADMIN.name()).stream().map(IdentityClient.Contact::id).filter(Objects::nonNull)
+                    .distinct().toList();
             if (ids.isEmpty()) {
                 log.warn("System health alert {} ({}): no super admin to tell", key, phase);
                 return;
             }
-            String heading = phase + ": " + title;
-            events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().kind(KIND).title(heading).body(detail).link("/dashboard/system")
+            events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().kind(KIND).title(phase + ": " + title).body(detail).link("/dashboard/system")
                     .userIds(new ArrayList<>(ids)).build());
-            if (report.thresholds() == null || report.thresholds().emailAlerts()) {
-                String host = report.server() == null || report.server().hostname() == null ? "the Hospio360 server" : "server " + report.server().hostname();
-                String text = "Hospio360 system health\n\n" + heading + "\n" + (detail == null ? "" : detail + "\n") + "When: " + WHEN.format(now)
-                        + " (Lagos time) on " + host + "\n\nOpen System health: " + adminUrl + "/dashboard/system\n\n"
-                        + ("Recovered".equals(phase) ? "" : "You get one email when this starts, one if it gets worse and one when it is back to normal. ")
-                        + "The limits are in Settings → System health.\n\nHospio360\n";
-                List<Delivery> mails = admins.stream().filter(a -> a.email() != null && !a.email().isBlank()).map(a -> Delivery.email(a.email(),
-                        "Hospio360 server " + phase.toLowerCase(Locale.ROOT) + ": " + title, text, Delivery.Kind.NOTICE,
-                        "system-health:" + key + ":" + phase + ":" + now.getEpochSecond())).toList();
-                deliveries.send(mails);
-            }
         } catch (RuntimeException e) {
-            log.warn("System health alert {} ({}): the super admins were not told: {}", key, phase, e.getMessage());
+            log.warn("System health alert {} ({}): the bell was not rung: {}", key, phase, e.getMessage());
         }
+    }
+
+    /**
+     * Sends what is queued as one email to every Super admin, unless an email went in the last hour (then it waits and goes as one
+     * digest when the hour is up). One message: its own subject; several: "N updates" listing each.
+     */
+    void flushEmail(Instant now, Report report) {
+        if (pendingEmail.isEmpty() || lastEmailAt != null && now.isBefore(lastEmailAt.plus(EMAIL_EVERY))) {
+            return;
+        }
+        List<Pending> batch = new ArrayList<>(pendingEmail);
+        pendingEmail.clear();
+        lastEmailAt = now;
+        try {
+            List<IdentityClient.Contact> admins = identity.platformStaff(Role.SUPER_ADMIN.name());
+            String host = report.server() == null || report.server().hostname() == null ? "the Hospio360 server" : "server " + report.server().hostname();
+            String subject = batch.size() == 1 ? "Hospio360 server " + batch.get(0).phase().toLowerCase(Locale.ROOT) + ": " + batch.get(0).title()
+                    : "Hospio360 server: " + batch.size() + " updates (" + summary(batch) + ")";
+            StringBuilder text = new StringBuilder("Hospio360 system health on ").append(host).append("\n\n");
+            for (Pending p : batch) {
+                text.append(p.phase()).append(": ").append(p.title()).append('\n');
+                if (p.detail() != null) {
+                    text.append("  ").append(p.detail()).append('\n');
+                }
+                text.append("  ").append(WHEN.format(p.at())).append(" (Lagos time)\n\n");
+            }
+            text.append("Open System health: ").append(adminUrl).append("/dashboard/system\n\n")
+                    .append("Each problem is emailed once when it starts, once if it gets worse and once when it clears, at most one email an hour ")
+                    .append("(more in that hour come together). Switch alerts off or change the limits on System health → Alerts.\n\nHospio360\n");
+            String ref = "system-health:" + (batch.size() == 1 ? batch.get(0).key() + ":" + batch.get(0).phase() : "digest") + ":" + now.getEpochSecond();
+            deliveries.send(admins.stream().filter(a -> a.email() != null && !a.email().isBlank())
+                    .map(a -> Delivery.email(a.email(), subject, text.toString(), Delivery.Kind.NOTICE, ref)).toList());
+        } catch (RuntimeException e) {
+            log.warn("System health alert email not sent: {}", e.getMessage());
+        }
+    }
+
+    private static String summary(List<Pending> batch) {
+        long problems = batch.stream().filter(p -> !"Recovered".equals(p.phase())).count();
+        long back = batch.size() - problems;
+        return (problems > 0 ? problems + (problems == 1 ? " problem" : " problems") : "") + (problems > 0 && back > 0 ? ", " : "")
+                + (back > 0 ? back + " recovered" : "");
     }
 
     private static String tone(String level) {

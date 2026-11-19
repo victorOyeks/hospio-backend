@@ -131,13 +131,14 @@ public class PlatformSettingsService {
         }
     }
 
-    /** Writes every default that is not stored yet (the seeder). Never overwrites a saved value. */
+    /** Writes every default that is not stored yet (the seeder), except null ones. Never overwrites a saved value. */
     @Transactional
     public int seedDefaults() {
         int created = 0;
         for (Map.Entry<String, Record> g : PlatformSettingsCatalogue.defaults().entrySet()) {
             for (RecordComponent c : g.getValue().getClass().getRecordComponents()) {
-                if (settings.findByGroupNameAndSettingKey(g.getKey(), c.getName()).isEmpty()) {
+                // A default of null (system health's alertsOn: the environment decides) is not stored.
+                if (valueOf(c, g.getValue()) != null && settings.findByGroupNameAndSettingKey(g.getKey(), c.getName()).isEmpty()) {
                     settings.save(PlatformSetting.builder().groupName(g.getKey()).settingKey(c.getName())
                             .value(write(valueOf(c, g.getValue()))).updatedBy("seed").build());
                     created++;

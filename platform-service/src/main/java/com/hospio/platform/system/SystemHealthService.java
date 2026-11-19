@@ -133,7 +133,7 @@ public class SystemHealthService {
         }
         long started = System.nanoTime();
         SystemHealthSettings s = settings.systemHealth();
-        Thresholds t = thresholds(s);
+        Thresholds t = thresholds(s, config.alertsDefault(), config.environment());
 
         CompletableFuture<Server> server = part(this::server, () -> null);
         CompletableFuture<List<ServiceRow>> services = part(() -> services(host.bootEpochSeconds().orElse(null)), List::of);
@@ -362,9 +362,13 @@ public class SystemHealthService {
             } else if (memoryPressure(memPct, swapPct, t)) {
                 out.add(new Reason(SystemHealthDtos.WARNING, "Memory", "Memory " + Math.round(memPct) + "% used and swap " + Math.round(swapPct) + "% used"));
             }
-            if (s.load5() != null && s.cores() > 0 && s.load5() > s.cores()) {
-                out.add(new Reason(s.load5() > 2.0 * s.cores() ? SystemHealthDtos.PROBLEM : SystemHealthDtos.WARNING, "CPU",
-                        "CPU busy: 5-minute load " + s.load5() + " on " + s.cores() + " cores"));
+            // Load counts threads waiting as well as running: with ~35 JVMs a load of 1-1.5x the cores is normal here while the CPU is
+            // mostly idle, so only a 15-minute load over twice the cores (or the CPU over 90% busy) is called busy.
+            if (s.load15() != null && s.cores() > 0 && s.load15() > 2.0 * s.cores()) {
+                out.add(new Reason(s.load15() > 3.0 * s.cores() ? SystemHealthDtos.PROBLEM : SystemHealthDtos.WARNING, "CPU",
+                        "CPU busy: 15-minute load " + s.load15() + " on " + s.cores() + " cores"));
+            } else if (s.cpuPct() != null && s.cpuPct() >= 90) {
+                out.add(new Reason(SystemHealthDtos.WARNING, "CPU", "CPU " + Math.round(s.cpuPct()) + "% busy"));
             }
         }
         for (ServiceRow row : rows) {
@@ -434,11 +438,17 @@ public class SystemHealthService {
     }
 
     static Thresholds thresholds(SystemHealthSettings s) {
+        return thresholds(s, true, "test");
+    }
+
+    static Thresholds thresholds(SystemHealthSettings s, boolean alertsDefault, String environment) {
         SystemHealthSettings d = SystemHealthSettings.DEFAULTS;
         return new Thresholds(or(s.diskWarnPct(), d.diskWarnPct()), or(s.diskCriticalPct(), d.diskCriticalPct()), or(s.memoryPct(), d.memoryPct()),
                 or(s.swapPct(), d.swapPct()), or(s.memoryMinutes(), d.memoryMinutes()), or(s.serviceDownMinutes(), d.serviceDownMinutes()),
                 or(s.certDays(), d.certDays()), or(s.kafkaLag(), d.kafkaLag()), or(s.kafkaStuckMinutes(), d.kafkaStuckMinutes()),
-                or(s.dbConnectionsPct(), d.dbConnectionsPct()), s.emailAlerts() == null ? Boolean.TRUE.equals(d.emailAlerts()) : s.emailAlerts());
+                or(s.dbConnectionsPct(), d.dbConnectionsPct()), s.emailAlerts() == null ? Boolean.TRUE.equals(d.emailAlerts()) : s.emailAlerts(),
+                s.alertsOn() == null ? alertsDefault : s.alertsOn(), s.bellAlerts() == null || s.bellAlerts(), s.alertsOn() != null, alertsDefault,
+                environment);
     }
 
     private static int or(Integer v, Integer d) {

@@ -99,17 +99,33 @@ in `platform.system_snapshots`. **24 h** shows every snapshot, **7 days** hourly
 
 ## Alerts
 
+### The switch (System health → Alerts)
+
+**Alerts** on/off, with **Email** and **Bell** as separate switches (Super admin; also in Settings → System health). **Off:**
+nothing is emailed or sent to the bell; the page and the Dashboard's System alerts still show every problem. **Default:** off on
+dev and staging, on in production, until someone saves the switch (the saved value wins). The environment is `HOSPIO_ENV` when
+set, else an active Spring profile named dev/local/staging, else the admin portal's address (`ADMIN_APP_URL` with "staging" =
+staging). Every switch change is written to the activity log as the person who made it (Changes by Hospio360 → Activity,
+"System health alerts: switched off …"). On staging the switch was saved **off** on 19 Nov 2026 at the owner's request.
+
+Switching alerts back on does not send a burst: a problem raised while alerts were off is told only if it is still there two
+minutes after they were switched on, and a "recovered" note goes only for a problem someone was told about.
+
+### What alerts and how often
+
 Checked once a minute (`SystemHealthJob`, one instance). Each condition alerts **once** when it starts: an alert on the
-Dashboard's System alerts ("Server · …", with an Open link to this page), the **bell** of every Super admin and, unless
-switched off, an **email** to each Super admin (Brevo, the usual mail path). It alerts again only if it gets **worse**
-(warning → critical) and once more when it **clears** ("Recovered: … back to normal after N minutes"); the dashboard alert is
-then dismissed automatically. Dismissing the dashboard alert by hand does not re-raise it while the problem lasts. Never SMS or
+Dashboard's System alerts ("Server · …", with an Open link to this page), the **bell** of every Super admin and an **email** to
+each Super admin (Brevo, the usual mail path). It alerts again only if it gets **worse** (warning → critical) and once more when
+it **clears** ("Recovered: … back to normal after N minutes"); the dashboard alert is then dismissed automatically. **Email is
+at most one an hour:** the first goes at once; whatever happens in the hour after waits and goes as one digest ("Hospio360
+server: 3 updates (2 problems, 1 recovered)"). The bell rings for each. The digest waits in memory, so a restart of
+platform-service drops a waiting digest (the bell and dashboard already have it). Dismissing the dashboard alert by hand does not re-raise it while the problem lasts. Never SMS or
 WhatsApp. The raised conditions are kept in `platform.system_alert_states`, so a restart doesn't alert again.
 
 | Condition | Default limit (Settings → System health) | Wait |
 | --- | --- | --- |
 | A disk filling up | warning at **85%** used, critical at **95%** (clears 1 point under the warning) | none |
-| Memory running out | memory **90%** used **and** swap **75%** used (or memory 97% alone) | **10 min** |
+| Memory running out | memory **90%** used **and** swap **75%** used (or memory 97% alone) | **15 min** |
 | A service down | not running (failed, stopped, restarting) or unhealthy | **2 min** |
 | A certificate expiring | under **14 days** left (critical under 7) | none |
 | Kafka consumer stuck | **500** messages waiting with **no progress for 10 min** | (in the rule) |
@@ -120,8 +136,15 @@ How long a condition has lasted is counted in memory, so after a platform-servic
 platform-service itself is down nothing is checked (its own unit shows on the page once it is back). Emails and the bell go
 through Kafka and messaging-service, so with Kafka down only the Dashboard alert is made.
 
-Alerts go to the **Super admins** only (on staging: amoria@hospio360.com, a test inbox, and victor@oyeksglobal.com). The
-**Email** switch in the settings leaves the bell and dashboard on.
+Alerts go to the **Super admins** only (on staging: amoria@hospio360.com, a test inbox whose mail bounces, and
+victor@oyeksglobal.com).
+
+CPU is not an alert. On the page, CPU is called busy only when the 15-minute load is over twice the cores (or the CPU is over
+90% busy): load counts threads waiting as well as running, and with ~35 JVMs and Kafka on 6 cores a load of 6-9 is normal here
+while the CPU is ~70% idle. Measured 19 Nov 2026: platform-service (with System health gathering every minute) used 14.5 s of
+CPU in 120 s, the same as folio-service (14.0 s) and a third of messaging-service (40.7 s); one collection takes under 1 s.
+The load peaks of 10-14 that day came from deploys (JVMs starting, the web apps rebuilt) and a platform-service that couldn't
+start for six minutes, not from the page.
 
 ## How to act
 

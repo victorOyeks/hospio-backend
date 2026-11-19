@@ -10,6 +10,7 @@ import com.hospio.platform.settings.GeneralSettings;
 import com.hospio.platform.settings.PlatformSettings;
 import com.hospio.platform.settings.SecuritySettings;
 import com.hospio.platform.settings.SystemHealthSettings;
+import com.hospio.platform.system.AlertSwitchLog;
 import io.swagger.v3.oas.annotations.Operation;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +30,8 @@ public class AdminSettingsController {
 
     private final PlatformSettingsService settings;
     private final IntegrationsService integrations;
+    private final com.hospio.platform.system.SystemHealthConfig systemHealth;
+    private final AlertSwitchLog switchLog;
 
     @Operation(summary = "Every settings group (general, fees, security), saved values laid over the defaults")
     @GetMapping("/settings")
@@ -62,7 +65,12 @@ public class AdminSettingsController {
     @PutMapping("/settings/system")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ApiResponse<SystemHealthSettings> updateSystem(@RequestBody SystemHealthSettings values) {
-        return ApiResponse.ok("Settings saved", settings.update(values));
+        SystemHealthSettings before = settings.systemGroup();
+        SystemHealthSettings after = settings.update(values);
+        boolean byDefault = systemHealth.alertsDefault();
+        switchLog.record(AlertSwitchLog.or(before.alertsOn(), byDefault), AlertSwitchLog.or(before.emailAlerts(), true), AlertSwitchLog.or(before.bellAlerts(), true),
+                AlertSwitchLog.or(after.alertsOn(), byDefault), AlertSwitchLog.or(after.emailAlerts(), true), AlertSwitchLog.or(after.bellAlerts(), true));
+        return ApiResponse.ok("Settings saved", after);
     }
 
     @Operation(summary = "Any other group: refused")

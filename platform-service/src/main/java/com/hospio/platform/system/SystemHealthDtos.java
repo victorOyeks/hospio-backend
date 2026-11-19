@@ -99,9 +99,18 @@ public final class SystemHealthDtos {
     public record History(List<Point> day, List<Point> week, Double diskGrowthPerDay, Double diskFullInDays, String diskTrend) {
     }
 
-    /** The limits in force (Settings → System health), so the page can say what it measures against. */
+    /**
+     * The limits in force (Settings → System health), so the page can say what it measures against. alertsOn: the switch in force
+     * (saved, else alertsDefault for this environment); alertsSaved: whether someone saved it; environment: dev, staging or production.
+     */
     public record Thresholds(int diskWarnPct, int diskCriticalPct, int memoryPct, int swapPct, int memoryMinutes, int serviceDownMinutes,
-                             int certDays, int kafkaLag, int kafkaStuckMinutes, int dbConnectionsPct, boolean emailAlerts) {
+                             int certDays, int kafkaLag, int kafkaStuckMinutes, int dbConnectionsPct, boolean emailAlerts, boolean alertsOn,
+                             boolean bellAlerts, boolean alertsSaved, boolean alertsDefault, String environment) {
+        public Thresholds(int diskWarnPct, int diskCriticalPct, int memoryPct, int swapPct, int memoryMinutes, int serviceDownMinutes,
+                          int certDays, int kafkaLag, int kafkaStuckMinutes, int dbConnectionsPct, boolean emailAlerts) {
+            this(diskWarnPct, diskCriticalPct, memoryPct, swapPct, memoryMinutes, serviceDownMinutes, certDays, kafkaLag, kafkaStuckMinutes,
+                    dbConnectionsPct, emailAlerts, true, true, true, true, "test");
+        }
     }
 
     /** Something else running on the same server (another product, Docker, Postgres): its memory counts in the server's totals. */
