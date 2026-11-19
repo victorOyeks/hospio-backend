@@ -102,6 +102,21 @@ public class SystemHealthService {
 
     /** The page's answer: the kept one when under 15 s old (5 s when {@code fresh}), otherwise a new collection. */
     public Report report(boolean fresh) {
+        return withCurrentLimits(kept(fresh));
+    }
+
+    /** The limits and switches as saved now: a look gathered before a save must not show the old switch (one small settings read). */
+    private Report withCurrentLimits(Report r) {
+        try {
+            Thresholds t = thresholds(settings.systemHealth(), config.alertsDefault(), config.environment());
+            return t.equals(r.thresholds()) ? r : new Report(r.at(), r.overall(), r.reasons(), r.notes(), r.server(), r.services(), r.database(),
+                    r.kafka(), r.redis(), r.certs(), r.history(), t, r.otherApps(), r.collectSeconds());
+        } catch (RuntimeException e) {
+            return r;
+        }
+    }
+
+    private Report kept(boolean fresh) {
         Report r = cached;
         Instant now = Instant.now();
         if (fresh) {
