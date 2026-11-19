@@ -82,7 +82,7 @@ class FeeSettingsTest {
     void everyGroupKeepsTheKeysTheWebAppReads() throws Exception {
         when(repo.findByGroupName(anyString())).thenReturn(List.of());
         Map<String, Object> json = mapper.readValue(mapper.writeValueAsString(service.all()), LinkedHashMap.class);
-        assertThat(json).containsOnlyKeys("general", "fees", "security");
+        assertThat(json).containsOnlyKeys("general", "fees", "security", "system");
         assertThat((Map<String, Object>) json.get("general")).containsOnlyKeys("company", "supportEmail", "supportWhatsApp", "website", "timezone");
         assertThat(((Map<String, Object>) json.get("fees")).keySet()).containsExactly("model", "perRoom", "revenuePct", "trialDays", "dueDay",
                 "graceDays", "marketerSharePct", "marketerMonths", "whtPct", "providerFeePct", "hmsSharePct", "marketerMinPayout", "invoiceVatPct",
@@ -110,12 +110,12 @@ class FeeSettingsTest {
     @Test
     void seedingWritesEveryDefaultOnce() {
         when(repo.findByGroupNameAndSettingKey(anyString(), anyString())).thenReturn(Optional.empty());
-        assertThat(service.seedDefaults()).isEqualTo(5 + 14 + 4);
+        assertThat(service.seedDefaults()).isEqualTo(5 + 14 + 4 + 11);
     }
 
     @Test
-    void catalogueHasTheThreeGroups() {
-        assertThat(PlatformSettingsCatalogue.defaults().keySet()).containsExactly("general", "fees", "security");
+    void catalogueHasTheFourGroups() {
+        assertThat(PlatformSettingsCatalogue.defaults().keySet()).containsExactly("general", "fees", "security", "system");
         assertThat(SecuritySettings.DEFAULTS.sessionHours()).isEqualTo(12);
         assertThat(SecuritySettings.DEFAULTS.require2Step()).isFalse();
         assertThat(GeneralSettings.DEFAULTS.company()).isEqualTo("Hospio360");

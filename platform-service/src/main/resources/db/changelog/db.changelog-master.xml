@@ -33,5 +33,6 @@
     <include file="db/changelog/021-suspension-notices.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/022-no-receipt-printers.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/023-no-fee-debit.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/024-system-health.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

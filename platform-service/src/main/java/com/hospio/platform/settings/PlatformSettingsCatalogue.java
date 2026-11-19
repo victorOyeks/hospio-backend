@@ -14,8 +14,10 @@ public final class PlatformSettingsCatalogue {
     public static final String GENERAL = "general";
     public static final String FEES = "fees";
     public static final String SECURITY = "security";
+    /** System health alert limits (docs/system-health.md). */
+    public static final String SYSTEM = "system";
 
-    public static final List<String> GROUPS = List.of(GENERAL, FEES, SECURITY);
+    public static final List<String> GROUPS = List.of(GENERAL, FEES, SECURITY, SYSTEM);
 
     private PlatformSettingsCatalogue() {
     }
@@ -26,6 +28,7 @@ public final class PlatformSettingsCatalogue {
         all.put(GENERAL, GeneralSettings.DEFAULTS);
         all.put(FEES, FeeSettings.DEFAULTS);
         all.put(SECURITY, SecuritySettings.DEFAULTS);
+        all.put(SYSTEM, SystemHealthSettings.DEFAULTS);
         return all;
     }
 

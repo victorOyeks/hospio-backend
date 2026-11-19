@@ -98,6 +98,23 @@ hospio:
     # @hospio-qa.test, or an id in BILLING_QA_BUSINESS_IDS) are invoiced, reminded or restricted; real-looking businesses never are.
     qa-only: ${BILLING_QA_ONLY:false}
     qa-business-ids: ${BILLING_QA_BUSINESS_IDS:}
+  # Platform → System health (docs/system-health.md). The units, ports and folders looked at are fixed here, never by a request.
+  system-health:
+    enabled: ${SYSTEM_HEALTH_ENABLED:true}
+    # Units are <unit-prefix><service>-service and <unit-prefix>api-gateway (systemd, staging: hospio-identity-service ...).
+    unit-prefix: ${SYSTEM_HEALTH_UNIT_PREFIX:hospio-}
+    gateway-url: ${SYSTEM_HEALTH_GATEWAY_URL:http://localhost:9200}
+    # Where CI leaves each service's app.sha (the deployed commit) and each web app's current/.sha.
+    deploy-dir: ${SYSTEM_HEALTH_DEPLOY_DIR:/opt/hospio-staging}
+    apps-dir: ${SYSTEM_HEALTH_APPS_DIR:/home/devoyeks/apps}
+    # Web apps: unit=port=Name, comma separated (their page must answer on 127.0.0.1:port).
+    frontends: ${SYSTEM_HEALTH_FRONTENDS:his-fe-staging=3001=Hotel app (web-staging),hospio-admin-staging=3002=Admin portal (admin-staging),hospio-landing-staging=3003=Landing site (hospio360.com)}
+    # Public hostnames whose TLS certificate expiry is checked.
+    cert-hosts: ${SYSTEM_HEALTH_CERT_HOSTS:hospio360.com,www.hospio360.com,web-staging.hospio360.com,admin-staging.hospio360.com,api-staging.hospio360.com}
+    # Folders whose size is shown: Label=/path, comma separated (measured in the background every 15 minutes).
+    dirs: ${SYSTEM_HEALTH_DIRS:All logs=/var/log,System journal=/var/log/journal,Hospio services and uploads=/opt/hospio-staging,Hospio web apps=/home/devoyeks/apps,Earlier backups=/home/devoyeks/backups}
+    # How the database is backed up, in words; empty = "No scheduled backup" on the page.
+    backups: ${SYSTEM_HEALTH_BACKUPS:}
   legal:
     # A material new version of a legal document needs this many days' notice (docs/legal-acceptance.md).
     material-notice-days: ${LEGAL_MATERIAL_NOTICE_DAYS:30}
