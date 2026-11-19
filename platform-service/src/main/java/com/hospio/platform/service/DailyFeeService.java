@@ -54,6 +54,7 @@ public class DailyFeeService {
     private final TransactionTemplate tx;
     private final ObjectMapper mapper;
     private final DevicePackageService devices;
+    private final com.hospio.platform.repository.BillingStartRepository starts;
 
     public record RunResult(LocalDate date, int worked, int skipped, List<String> notes) {
     }
@@ -72,9 +73,10 @@ public class DailyFeeService {
             for (TenantClient.Business summary : billedDaily()) {
                 TenantClient.Business b = summary.hotels().isEmpty() ? tenant.business(summary.id()).orElse(summary) : summary;
                 BigDecimal rate = feeRules.valueFor(b);
+                LocalDate start = chargesStart(b.id());
                 for (TenantClient.Hotel h : b.hotels()) {
                     try {
-                        DailyFee f = workOut(b, h, date, rate);
+                        DailyFee f = workOut(b, h, date, rate, start);
                         if (f != null) {
                             worked++;
                         } else {
@@ -104,8 +106,16 @@ public class DailyFeeService {
         return out;
     }
 
-    /** The hotel's fee for the day; null when it was already worked out. */
-    DailyFee workOut(TenantClient.Business b, TenantClient.Hotel h, LocalDate date, BigDecimal rate) {
+    /** The business's charges start date (docs/plan-monthly-invoices.md, "Charges start on"); null = free. */
+    LocalDate chargesStart(String businessId) {
+        return starts.findByBusinessId(businessId).map(com.hospio.platform.entity.BillingStart::getChargesStartOn).orElse(null);
+    }
+
+    /**
+     * The hotel's fee for the day; null when it was already worked out. Before the business's charges start (or with no start date) the
+     * day is FREE: its platform fee is shown ({@code waivedFee}) but not charged; a device share is charged either way.
+     */
+    DailyFee workOut(TenantClient.Business b, TenantClient.Hotel h, LocalDate date, BigDecimal rate, LocalDate chargesStart) {
         if (fees.findByHotelIdAndFeeDate(h.id(), date).isPresent()) {
             return null;
         }
@@ -117,11 +127,11 @@ public class DailyFeeService {
         return tx.execute(st -> {
             // No debits (docs/plan-monthly-invoices.md): the day's fee and device share wait for the month's invoice; nothing is carried.
             BigDecimal deviceFee = device.fee();
-            BigDecimal due = Money.of(fee.add(deviceFee));
-            String status = due.signum() <= 0 ? DailyFee.NO_FEE : DailyFee.ACCRUED;
             DailyFee f = DailyFee.builder().businessId(b.id()).hotelId(h.id()).hotelName(h.name()).feeDate(date).salesTotal(total)
-                    .salesLines(write(lines)).rate(rate).fee(fee).carriedIn(BigDecimal.ZERO).due(due).status(status)
+                    .salesLines(write(lines)).rate(rate).fee(fee).carriedIn(BigDecimal.ZERO).due(Money.of(fee.add(deviceFee))).status(DailyFee.NO_FEE)
                     .devicePackageId(device.packageId()).deviceRate(device.rate()).deviceFee(deviceFee).deviceCarriedIn(BigDecimal.ZERO).build();
+            // Free before the charges start: the fee moves to waivedFee; status ACCRUED, FREE or NO_FEE.
+            ChargesStartService.apply(f, chargesStart);
             return fees.save(f);
         });
     }
@@ -140,14 +150,16 @@ public class DailyFeeService {
                                List<DailySales.Line> lines, BigDecimal rate, BigDecimal fee, BigDecimal carriedIn, BigDecimal due,
                                BigDecimal collected, String status, String provider, String debitRef, int attempts, String lastError,
                                Instant statementSentAt, Instant debitedAt, String devicePackageId, BigDecimal deviceRate, BigDecimal deviceFee,
-                               BigDecimal deviceCarriedIn, BigDecimal platformPaid, BigDecimal devicePaid, BigDecimal refunded, String refundNote) {
+                               BigDecimal deviceCarriedIn, BigDecimal platformPaid, BigDecimal devicePaid, BigDecimal refunded, String refundNote,
+                               BigDecimal waivedFee) {
     }
 
     public DailyFeeView view(DailyFee f) {
         return new DailyFeeView(f.getId(), f.getBusinessId(), f.getHotelId(), f.getHotelName(), f.getFeeDate(), f.getSalesTotal(),
                 read(f.getSalesLines()), f.getRate(), f.getFee(), f.getCarriedIn(), f.getDue(), f.getCollected(), f.getStatus(), f.getProvider(),
                 f.getDebitRef(), f.getAttempts(), f.getLastError(), f.getStatementSentAt(), f.getDebitedAt(), f.getDevicePackageId(), f.getDeviceRate(),
-                f.getDeviceFee(), f.getDeviceCarriedIn(), f.platformPaid(), f.devicePaid(), f.getRefunded(), f.getRefundNote());
+                f.getDeviceFee(), f.getDeviceCarriedIn(), f.platformPaid(), f.devicePaid(), f.getRefunded(), f.getRefundNote(),
+                f.getWaivedFee());
     }
 
     /** The owner's own business, newest first (row security keeps it to their business). */
@@ -190,7 +202,7 @@ public class DailyFeeService {
             TenantClient.Business b = tenant.business(businessId).orElseThrow(() -> new ResourceNotFoundException("Business not found"));
             TenantClient.Hotel h = b.hotels().stream().filter(x -> x.id().equals(hotelId)).findFirst()
                     .orElseThrow(() -> new ResourceNotFoundException("Hotel not found"));
-            DailyFee f = workOut(b, h, date, feeRules.valueFor(b));
+            DailyFee f = workOut(b, h, date, feeRules.valueFor(b), chargesStart(b.id()));
             if (f == null) {
                 throw new BadRequestException("That day is already worked out for this " + com.hospio.common.venue.VenuePlaces.at(hotelId).place());
             }
@@ -201,14 +213,14 @@ public class DailyFeeService {
     /** Works a shadow or no-fee day out again (e.g. after a correction); a day with a debit on it is never redone. */
     public DailyFeeView redo(String id) {
         DailyFee f = fees.findById(id).orElseThrow(() -> new ResourceNotFoundException("Daily fee not found"));
-        if (f.getMonthlyInvoiceId() != null || !List.of(DailyFee.SHADOW, DailyFee.NO_FEE, DailyFee.ACCRUED).contains(f.getStatus())) {
+        if (f.getMonthlyInvoiceId() != null || !List.of(DailyFee.SHADOW, DailyFee.NO_FEE, DailyFee.ACCRUED, DailyFee.FREE).contains(f.getStatus())) {
             throw new BadRequestException("Only a day not on an invoice yet can be worked out again");
         }
         TenantClient.Business b = tenant.business(f.getBusinessId()).orElseThrow(() -> new ResourceNotFoundException("Business not found"));
         TenantClient.Hotel h = b.hotels().stream().filter(x -> x.id().equals(f.getHotelId())).findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Hotel not found"));
         tx.executeWithoutResult(st -> fees.delete(f));
-        DailyFee again = workOut(b, h, f.getFeeDate(), feeRules.valueFor(b));
+        DailyFee again = workOut(b, h, f.getFeeDate(), feeRules.valueFor(b), chargesStart(b.id()));
         return view(again);
     }
 

@@ -45,6 +45,11 @@ public class DailyFee extends TenantEntity {
     public static final String ACCRUED = "ACCRUED";
     /** On a monthly invoice that is not paid yet. */
     public static final String INVOICED = "INVOICED";
+    /**
+     * Before the business's charges start (docs/plan-monthly-invoices.md, "Charges start on"): the platform fee is worked out for
+     * visibility ({@code waivedFee}) but {@code fee} is 0 and it is never invoiced. A device share on the day is still billed.
+     */
+    public static final String FREE = "FREE";
 
     @Column(name = "hotel_name", length = 150)
     private String hotelName;
@@ -129,6 +134,11 @@ public class DailyFee extends TenantEntity {
     /** The monthly invoice the day was billed on (docs/plan-monthly-invoices.md); null until the invoice for its month is issued. */
     @Column(name = "monthly_invoice_id", length = 36)
     private String monthlyInvoiceId;
+
+    /** A FREE day's platform fee, not charged (shown to the owner and admins); 0 on a billed day. {@code fee + waivedFee} = rate × sales. */
+    @Column(name = "waived_fee", nullable = false)
+    @lombok.Builder.Default
+    private BigDecimal waivedFee = BigDecimal.ZERO;
 
     public BigDecimal remaining() {
         return due.subtract(collected).max(BigDecimal.ZERO);

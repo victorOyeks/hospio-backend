@@ -47,6 +47,10 @@ public record ReceiptOutlook(String outcome, String reason, Boolean guestMessage
         if (t.startsWith("Not sent: ")) {
             t = t.substring("Not sent: ".length());
         }
+        // A channel's name keeps its capitals: "WhatsApp is switched off for this hotel (…)", "Email …" reads "email".
+        if (t.startsWith("WhatsApp") || t.startsWith("SMS")) {
+            return t;
+        }
         return t.isEmpty() ? t : Character.toLowerCase(t.charAt(0)) + t.substring(1);
     }
 }

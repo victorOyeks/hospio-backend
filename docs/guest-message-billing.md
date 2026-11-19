@@ -19,15 +19,22 @@ hotel monthly. Everything lives in messaging-service (`billing/`), next to the d
 
 The list is `CommBilling.BILLABLE_KINDS`, by `Delivery.Kind`.
 
-## Switching it on
+## Switching it on: WhatsApp and email separately (19 Nov 2026)
 
-A hotel's service is a `messaging.comm_plans` row: `enabled`, its own prices (null = the default), and a suspension.
+A hotel's service is a `messaging.comm_plans` row: **`whatsapp_on`**, **`email_on`**, its own prices (null = the default), and a
+suspension. `enabled` stays as "either is on" for older readers (migration messaging 013: a plan that was on got both on, one that
+was off both off).
 
-- **Off or no plan:** billable messages are **not sent**. Their delivery record is `SKIPPED` with the reason ("Guest
-  messages are off for this hotel").
-- **Suspended:** the same, with "Guest messages are suspended: invoice … was due on …".
-- The owner or manager switches it on in **Hotel setup → Guest messages**. Hospio360 can switch it on and set the hotel's
-  prices from the admin portal, during onboarding or later.
+- **A channel off (or no plan):** billable messages on that channel are **not sent and not charged**. Their delivery record is
+  `SKIPPED` with the reason "WhatsApp is switched off for this hotel (Hotel setup → Guest messages)" (or "Email is …"; the place
+  and setup words follow the venue type). The desk's receipt note says "Receipt not sent: WhatsApp is switched off for this hotel (…)".
+- **Suspended:** both channels, with "Guest messages are suspended: invoice … was due on …" (unchanged).
+- The owner or manager switches each channel in **Hotel setup → Guest messages** (`PUT /billing/messages {whatsappOn?, emailOn?}`;
+  an older `{enabled}` sets both). Hospio360 can switch them and set the hotel's prices from the admin portal
+  (`PUT /billing/messages/admin/plans/{hotelId} {…, whatsappOn?, emailOn?}`), during onboarding or later.
+- **Free period:** before the business's charges start (docs/plan-monthly-invoices.md, "Free until charges start") a message on a
+  channel that is on is sent and recorded at **NGN 0** with `deliveries.free_period = true` ("Free period" on the screens); it is
+  never put on a `MSG-` invoice. `PlanView` has `emailOn`, `whatsappOn`, `freePeriod` and `chargesStartOn`; message rows have `freePeriod`.
 
 ## Prices
 
@@ -79,7 +86,7 @@ OPay can sit beside Paystack the same way once there are OPay keys.
 | Hotel (owner, manager; `X-Hotel-Id`) | Hospio360 (platform) |
 |---|---|
 | `GET /billing/messages` (plan, prices `{email, whatsapp}`, this month's usage `{emailCount, whatsappCount, emailAmount, whatsappAmount, total}`, outstanding) | `GET/PUT /billing/messages/admin/prices {email, whatsapp}` (an `sms` field is ignored) |
-| `PUT /billing/messages {enabled}` | `GET /billing/messages/admin/plans?hotelIds=` |
+| `PUT /billing/messages {whatsappOn?, emailOn?}` (older `{enabled}` = both) | `GET /billing/messages/admin/plans?hotelIds=` |
 | `GET /billing/messages/this-month` (messages so far) | `PUT /billing/messages/admin/plans/{hotelId} {businessId, enabled, email, whatsapp, useDefaults}` (an `sms` field is ignored) |
 | `GET /billing/messages/invoices`, `/invoices/{id}`, `/invoices/{id}/messages` | `POST /billing/messages/admin/plans/{hotelId}/suspension {suspended, reason}` |
 | `POST /billing/messages/invoices/{id}/pay {returnUrl}` | `GET /billing/messages/admin/invoices?status&month&hotelId` |

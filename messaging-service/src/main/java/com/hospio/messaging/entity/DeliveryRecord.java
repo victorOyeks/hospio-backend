@@ -100,6 +100,11 @@ public class DeliveryRecord extends BaseEntity {
     @Column(name = "unit_price")
     private java.math.BigDecimal unitPrice;
 
+    /** Sent before the business's charges start (docs/plan-monthly-invoices.md): priced at NGN 0 and never invoiced. */
+    @Column(name = "free_period", nullable = false)
+    @lombok.Builder.Default
+    private boolean freePeriod = false;
+
     @Column(name = "invoice_id", length = 36)
     private String invoiceId;
 

@@ -249,6 +249,34 @@ class CommBillingTest {
     }
 
     @Test
+    void eachChannelHasItsOwnSwitchAndOffSaysWhichOne() {
+        CommPlan p = CommPlan.builder().businessId("b1").hotelId("h1").build();
+        p.setChannels(true, false); // email on, WhatsApp off
+        assertThat(p.isEnabled()).as("either on").isTrue();
+        when(plans.findByHotelId("h1")).thenReturn(Optional.of(p));
+        assertThat(billing.gate("h1", "RECEIPT", "EMAIL")).isEqualTo(new CommBilling.Gate(true, true, null));
+        CommBilling.Gate wa = billing.gate("h1", "RECEIPT", "WHATSAPP");
+        assertThat(wa.allowed()).isFalse();
+        assertThat(wa.reason()).startsWith("WhatsApp is switched off for this ").contains("→ Guest messages");
+        p.setChannels(false, true);
+        assertThat(billing.gate("h1", "BOOKING_CONFIRMATION", "EMAIL").reason()).startsWith("Email is switched off for this ");
+        assertThat(billing.gate("h1", "BOOKING_CONFIRMATION", "WHATSAPP").allowed()).isTrue();
+        p.setChannels(false, false);
+        assertThat(p.isEnabled()).isFalse();
+        assertThat(billing.gate("h1", "RECEIPT", "WHATSAPP").reason()).startsWith("WhatsApp is switched off");
+        // No plan at all: still worded by channel.
+        when(plans.findByHotelId("h1")).thenReturn(Optional.empty());
+        assertThat(billing.gate("h1", "RECEIPT", "EMAIL").reason()).startsWith("Email is switched off");
+        // A free kind always goes, whatever the switches.
+        assertThat(billing.gate("h1", "OTP", "WHATSAPP")).isEqualTo(CommBilling.Gate.FREE);
+    }
+
+    @Test
+    void withoutThePlatformAnswerNothingIsFree() {
+        assertThat(billing.freePeriod("b1", "h1")).isFalse();
+    }
+
+    @Test
     void onlyMessagesThatWentOutAreCharged() {
         assertThat(CommBilling.CHARGED).containsExactlyInAnyOrder(DeliveryRecord.Status.SENT, DeliveryRecord.Status.DELIVERED);
         assertThat(CommBilling.label("BOOKING_CONFIRMATION")).isEqualTo("Booking confirmations");

@@ -44,10 +44,10 @@ public class CommBillingController {
 
     /** One billed (or billable) message as the invoice detail lists it. */
     public record MessageRow(String id, Instant at, String kind, String label, String channel, String sentVia, String to, String subject,
-                             String status, BigDecimal price) {
+                             String status, BigDecimal price, boolean freePeriod) {
         static MessageRow of(DeliveryRecord d) {
             return new MessageRow(d.getId(), d.getSentAt() == null ? d.getCreatedAt() : d.getSentAt(), d.getKind(), CommBilling.label(d.getKind()),
-                    d.getChannel(), d.getSentVia(), d.getToAddress(), d.getSubject(), d.getStatus().name(), d.getUnitPrice());
+                    d.getChannel(), d.getSentVia(), d.getToAddress(), d.getSubject(), d.getStatus().name(), d.getUnitPrice(), d.isFreePeriod());
         }
     }
 
@@ -57,7 +57,8 @@ public class CommBillingController {
         }
     }
 
-    public record EnabledRequest(Boolean enabled) {
+    /** {@code emailOn} / {@code whatsappOn} switch one channel each (null leaves it); an older client's {@code enabled} switches both. */
+    public record EnabledRequest(Boolean enabled, Boolean emailOn, Boolean whatsappOn) {
     }
 
     public record PayRequest(String returnUrl) {
@@ -70,7 +71,8 @@ public class CommBillingController {
 
     /** As {@link PricesRequest}: an {@code sms} price in the body is ignored. */
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
-    public record PlanRequest(String businessId, Boolean enabled, BigDecimal email, BigDecimal whatsapp, Boolean useDefaults) {
+    public record PlanRequest(String businessId, Boolean enabled, BigDecimal email, BigDecimal whatsapp, Boolean useDefaults, Boolean emailOn,
+                              Boolean whatsappOn) {
     }
 
     public record IssueRequest(String month, String hotelId, String businessId) {
@@ -93,12 +95,16 @@ public class CommBillingController {
     @PutMapping("/billing/messages")
     @PreAuthorize("@access.manager()")
     public ApiResponse<CommBilling.PlanView> setEnabled(@RequestBody EnabledRequest request) {
-        if (request == null || request.enabled() == null) {
-            throw new BadRequestException("Say whether guest messages are on (enabled: true or false)");
+        if (request == null || (request.enabled() == null && request.emailOn() == null && request.whatsappOn() == null)) {
+            throw new BadRequestException("Say which guest messages are on (whatsappOn, emailOn: true or false)");
         }
         String business = TenantContext.current().map(t -> t.businessId()).orElse(CurrentUser.require().getBusinessId());
-        CommBilling.PlanView view = billing.setEnabled(business, TenantContext.requireHotel(), request.enabled());
-        return ApiResponse.ok(request.enabled() ? "Guest messages are on" : "Guest messages are off", view);
+        Boolean email = request.emailOn() != null ? request.emailOn() : request.enabled();
+        Boolean whatsapp = request.whatsappOn() != null ? request.whatsappOn() : request.enabled();
+        CommBilling.PlanView view = billing.setChannels(business, TenantContext.requireHotel(), email, whatsapp);
+        String said = request.emailOn() == null && request.whatsappOn() == null ? (request.enabled() ? "Guest messages are on" : "Guest messages are off")
+                : "WhatsApp " + (view.whatsappOn() ? "on" : "off") + " · Email " + (view.emailOn() ? "on" : "off");
+        return ApiResponse.ok(said, view);
     }
 
     @GetMapping("/billing/messages/this-month")
@@ -170,7 +176,7 @@ public class CommBillingController {
         if (r.businessId() == null || r.businessId().isBlank()) {
             throw new BadRequestException("Say which business the location belongs to (businessId)");
         }
-        return ApiResponse.ok("Guest messages saved", billing.setPlan(r.businessId(), hotelId, r.enabled(), r.email(), r.whatsapp(),
+        return ApiResponse.ok("Guest messages saved", billing.setPlan(r.businessId(), hotelId, r.enabled(), r.emailOn(), r.whatsappOn(), r.email(), r.whatsapp(),
                 Boolean.TRUE.equals(r.useDefaults())));
     }
 
