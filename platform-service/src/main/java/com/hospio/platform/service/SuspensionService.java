@@ -364,8 +364,8 @@ public class SuspensionService {
     Mail noticeMail(TenantClient.Business b, List<OverdueInvoice> overdue, LocalDate suspendOn) {
         String day = MonthlyInvoiceService.DAY.format(suspendOn);
         StringBuilder t = new StringBuilder(hello(b));
-        t.append(overdue.size() == 1 ? "This Hospio360 invoice is" : "These Hospio360 invoices are").append(" more than ").append(OVERDUE_DAYS)
-                .append(" days past ").append(overdue.size() == 1 ? "its" : "their").append(" due date and still unpaid:\n\n");
+        t.append(overdue.size() == 1 ? "This Hospio360 invoice is more than " + OVERDUE_DAYS + " days past its due date and still unpaid:\n\n"
+                : "These Hospio360 invoices are overdue and still unpaid, the oldest more than " + OVERDUE_DAYS + " days past its due date:\n\n");
         for (OverdueInvoice i : overdue) {
             t.append("- ").append(i.number()).append(" (").append(i.monthLabel()).append("): NGN ").append(MonthlyInvoiceService.naira(i.outstanding()))
                     .append(", due ").append(MonthlyInvoiceService.DAY.format(i.dueOn())).append('\n');
