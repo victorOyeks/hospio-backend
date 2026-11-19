@@ -21,11 +21,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Resend receipt (Manager · Payments, My payments, the take-payment screen): the receipt of an approved payment goes to the guest
- * again by email, or on WhatsApp (its approved template) when the guest has a phone and no email, as the automatic receipt does.
- * The delivery is published like every other one; on
- * staging (deliveries echo on) it comes back in the response so the screen can show what would have gone out.
- * The receipt keeps who it was last sent to and how.
+ * Payment receipts go to the guest on WhatsApp only (the owner's call, 19 Nov 2026: no printed receipts, no emailed payment
+ * receipts): the approved {@code hospio_payment_receipt_v2} template to the guest's phone. Two ways in: Send on WhatsApp right after
+ * taking a payment, or from My payments, a sale or a split bill's part ({@link #send}, every desk that takes payments), and Send
+ * receipt again for managers and finance ({@link #resend}). A print or email channel from an older screen is refused in words. The
+ * delivery is published like every other one (messaging-service records it, and staging's allow-list holds back any number not on
+ * it). The receipt keeps who it was last sent to and how. Emailing a receipt or a folio ({@link #email}) stays for other callers.
  */
 @Service
 @RequiredArgsConstructor
@@ -38,15 +39,34 @@ public class ReceiptService {
     public record Resent(String receiptNumber, String sentTo, String sentVia, List<Delivery> deliveries) {
     }
 
+    /** The words an older screen gets when it asks for a printed or emailed payment receipt. */
+    static final String WHATSAPP_ONLY = "Receipts go to the guest on WhatsApp only: pick WhatsApp or Don't send";
+
+    /** Send receipt again (managers and finance): on WhatsApp to the phone the payment has. */
     @Transactional
     public Resent resend(String paymentId) {
-        PaymentRequest p = payments.findById(paymentId).orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
+        return send(new ReceiptViews.SendRequest(paymentId, null, null));
+    }
+
+    /**
+     * The receipt of an approved payment on WhatsApp: to {@code phone} when given (the guest's number as the desk typed it, kept on
+     * the payment when it had none), else to the phone the payment has. {@code channel} is WHATSAPP (or left out); PRINT, EMAIL and
+     * anything else are refused in words.
+     */
+    @Transactional
+    public Resent send(ReceiptViews.SendRequest request) {
+        if (request == null || blank(request.paymentId())) {
+            throw new BadRequestException("Say which payment's receipt to send");
+        }
+        checkChannel(request.channel());
+        PaymentRequest p = payments.findById(request.paymentId()).orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
         if (p.getHotelId() != null && !p.getHotelId().equals(TenantContext.requireHotel())) {
             throw new ResourceNotFoundException("Payment not found");
         }
         if (p.getStatus() != PaymentStatus.APPROVED) {
             throw new BadRequestException("Only an approved payment has a receipt");
         }
+        String phone = blank(request.phone()) ? p.getGuestPhone() : com.hospio.common.util.Phones.clean(request.phone(), "The guest's WhatsApp number");
         Receipt receipt = receipts.findFirstByPaymentIdOrderByCreatedAtAsc(p.getId())
                 .orElseThrow(() -> new BadRequestException("This payment has no receipt yet"));
         String text = "Receipt " + receipt.getNumber() + ". Thank you" + (blank(p.getGuestName()) ? "" : " " + p.getGuestName())
@@ -55,9 +75,13 @@ public class ReceiptService {
                 + (blank(p.getProviderRef()) ? "" : ". Ref " + p.getProviderRef()) + ".";
         String method = p.getMethod().name().toLowerCase(java.util.Locale.ROOT);
         String first = blank(p.getGuestName()) ? "there" : p.getGuestName().trim().split("\\s+")[0];
-        Delivery delivery = resendDelivery(p.getGuestEmail(), p.getGuestPhone(), receipt.getNumber(), text,
+        Delivery delivery = whatsAppDelivery(phone, receipt.getNumber(), text,
                 List.of(first, "@hotel", naira(p.getAmount()), Character.toUpperCase(method.charAt(0)) + method.substring(1),
                         blank(p.getProviderRef()) ? receipt.getNumber() : p.getProviderRef()));
+        if (blank(p.getGuestPhone())) {
+            p.setGuestPhone(delivery.to());
+            payments.save(p);
+        }
         List<Delivery> echoed = deliveries.send(delivery);
         receipt.setSentTo(delivery.to());
         receipt.setSentVia(delivery.channel().name());
@@ -65,23 +89,30 @@ public class ReceiptService {
         return new Resent(receipt.getNumber(), delivery.to(), delivery.channel().name(), echoed);
     }
 
-    /**
-     * The receipt again, the same way the automatic one goes (docs/email.md, docs/sms-whatsapp.md): by email when the guest has one,
-     * else on WhatsApp as the approved {@code hospio_payment_receipt_v2} template ({@code values}: first name, @hotel, amount, method,
-     * reference). Neither: refused in words, the desk prints it or emails it to an address the guest gives.
-     */
-    static Delivery resendDelivery(String email, String phone, String number, String text, List<String> values) {
-        if (!blank(email)) {
-            return Delivery.email(email.trim(), "Your receipt " + number, text, Delivery.Kind.RECEIPT, number);
+    /** WHATSAPP or nothing; a printed or emailed payment receipt (older screens) is refused in words. */
+    static void checkChannel(String channel) {
+        if (blank(channel) || "WHATSAPP".equalsIgnoreCase(channel.trim())) {
+            return;
         }
-        if (!blank(phone)) {
-            return Delivery.whatsApp(phone.trim(), "Receipt", text, Delivery.Kind.RECEIPT, number)
-                    .withTemplate(com.hospio.common.delivery.WhatsAppTemplates.RECEIPT, values);
+        if ("NONE".equalsIgnoreCase(channel.trim()) || "NEVER".equalsIgnoreCase(channel.trim())) {
+            throw new BadRequestException("Nothing to send: Don't send means no receipt. Pick WhatsApp to send one");
         }
-        throw new BadRequestException("This payment has no guest email or phone · print the receipt or email it from the receipt page");
+        throw new BadRequestException(WHATSAPP_ONLY);
     }
 
-    // ---- printable and emailed receipts ---------------------------------------------------------------
+    /**
+     * The receipt on WhatsApp as the approved {@code hospio_payment_receipt_v2} template ({@code values}: first name, @hotel, amount,
+     * method, reference). No phone: refused in words.
+     */
+    static Delivery whatsAppDelivery(String phone, String number, String text, List<String> values) {
+        if (blank(phone)) {
+            throw new BadRequestException("This payment has no guest phone · type the guest's WhatsApp number to send the receipt");
+        }
+        return Delivery.whatsApp(phone.trim(), "Receipt", text, Delivery.Kind.RECEIPT, number)
+                .withTemplate(com.hospio.common.delivery.WhatsAppTemplates.RECEIPT, values);
+    }
+
+    // ---- receipts to view (and email, for other callers) ---------------------------------------------------------------
 
     /** One payment's receipt, for the receipt page. The payment must be approved and belong to the caller's hotel. */
     @Transactional(readOnly = true)

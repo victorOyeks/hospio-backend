@@ -116,7 +116,7 @@ public class PaymentController {
     @PreAuthorize("@access.manager() or @access.atLeast('FINANCE','EDIT')")
     public ApiResponse<ReceiptService.Resent> resendReceipt(@PathVariable String id) {
         ReceiptService.Resent r = receipts.resend(id);
-        return ApiResponse.ok("Receipt " + r.receiptNumber() + " sent to " + r.sentTo(), r);
+        return ApiResponse.ok("Receipt " + r.receiptNumber() + " sent on WhatsApp to " + r.sentTo(), r);
     }
 
     @PostMapping("/{id}/cancel")

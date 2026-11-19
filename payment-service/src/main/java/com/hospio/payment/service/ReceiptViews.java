@@ -9,7 +9,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.regex.Pattern;
 
-/** What a printed or emailed receipt shows for one approved payment (docs/manager-leftovers.md · Receipts). */
+/** What a receipt shows (the receipt page, the WhatsApp receipt, an emailed receipt or folio) for one approved payment (docs/manager-leftovers.md · Receipts). */
 public final class ReceiptViews {
 
     private ReceiptViews() {
@@ -33,6 +33,10 @@ public final class ReceiptViews {
 
     /** Email a receipt: one of paymentId, orderId (a bar or kitchen sale) or folioId (a stay at check-out), to an address. */
     public record EmailRequest(String paymentId, String orderId, String folioId, String to, String text) {
+    }
+
+    /** Send a payment's receipt on WhatsApp: {@code channel} WHATSAPP (or left out), {@code phone} the guest's number when the payment has none or another. */
+    public record SendRequest(String paymentId, String channel, String phone) {
     }
 
     public record Emailed(List<String> receiptNumbers, String to, List<Delivery> deliveries) {

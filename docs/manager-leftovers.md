@@ -33,7 +33,8 @@ All behind the gateway (`https://api-staging.hospio360.com`). A refusal is one s
 | POST | `/housekeeping/tasks/{id}/inspect` | housekeeping FULL, manager | (existing) a fail needs the note ("Say what needs doing again") and tells the attendant; a pass makes the room ready |
 | GET | `/payment/receipts/{paymentId}` | front office, bar, kitchen, laundry, finance, manager, owner | one approved payment's receipt: number, issued, amount, method, reference, taken by, guest |
 | GET | `/payment/receipts?orderId=` or `?folioId=` | the same | a sale's or a folio's receipts, oldest first |
-| POST | `/payment/receipts/email` | those roles at EDIT, manager | `{paymentId | orderId | folioId, to, text}`: the receipt as printed to the address given (docs/email.md); the receipts remember where they were sent |
+| POST | `/payment/receipts/email` | those roles at EDIT, manager | `{paymentId | orderId | folioId, to, text}`: the receipt's text to the address given (docs/email.md); the receipts remember where they were sent. Not offered for payment receipts since 19 Nov 2026 |
+| POST | `/payment/receipts/send` | those roles at EDIT, manager | `{paymentId, channel?, phone?}`: the payment's receipt on WhatsApp (docs/whatsapp-receipts.md); PRINT / EMAIL refused |
 
 ## Rules
 
@@ -54,14 +55,14 @@ All behind the gateway (`https://api-staging.hospio360.com`). A refusal is one s
   and blocks (property areas), or "somewhere else" typed in. The front office has the same screen.
 - **Receipts.** One number per approved payment, issued by payment-service (`RCP-<year>-<6 digits>`, unique per hotel by
   index). A sale's receipt lists its payments' numbers; a folio's receipt lists the stay's charges, discounts, tax and
-  every payment line. Print is the browser's (`window.print()`), A4 or an 80 mm roll; Email receipt uses the email
-  contract.
+  every payment line. Since 19 Nov 2026 nothing is printed for guests (docs/whatsapp-receipts.md): the receipt page is
+  Save as PDF (A4) for managers and owners, and guests get the WhatsApp receipt.
 
 ## Web
 
 `data.activity`, `data.receipts`, `data.finance.{categories,budget,bills}`, `data.housekeeping.{lostFoundItem,places}`
 (`packages/api/src/data/ml.ts`), actions in `packages/api/src/actions/ml.ts`, routes in `packages/api/src/api/routes-ml.ts`.
-The receipt page is `/receipt?payment=|sale=|folio=[&paper=80mm]` (outside the dashboard shell so only the receipt prints).
+The receipt page is `/receipt?payment=|sale=|folio=` (outside the dashboard shell so only the receipt is saved as a PDF; an old `&paper=80mm` is ignored).
 
 ## Limits
 

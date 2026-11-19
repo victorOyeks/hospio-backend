@@ -4,13 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 
-/** "Don't send" on the take-payment screen (NONE) sends no receipt; anything else does. */
+/** "Don't send" on the take-payment screen (NONE, or PRINT from an older screen) sends no receipt; anything else sends the WhatsApp one. */
 class ReceiptPreferenceTest {
 
     @Test
     void noneAndNeverSendNothing() {
         assertThat(MessagingEventListener.sendsReceipt("NONE")).isFalse();
         assertThat(MessagingEventListener.sendsReceipt("never")).isFalse();
+        assertThat(MessagingEventListener.sendsReceipt("PRINT")).isFalse();
     }
 
     @Test

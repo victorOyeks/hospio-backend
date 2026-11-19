@@ -31,5 +31,6 @@
     <include file="db/changelog/019-monthly-invoices.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/020-partner-applications.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/021-suspension-notices.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/022-no-receipt-printers.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

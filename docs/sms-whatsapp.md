@@ -86,7 +86,7 @@ Templates are in `scripts/whatsapp/templates.json` and submitted with `scripts/w
 | Booking confirmed | `hospio_booking_confirmation_v2` | first name, `@hotel`, reference, check-in, check-out, room type, `@hotelPhone`, **link** | reservation `GuestNotices` |
 | Dates changed | `hospio_booking_changed_v2` | first name, `@hotel`, reference, check-in, check-out, `@hotelPhone`, **link** | reservation `GuestNotices` |
 | Cancelled | `hospio_booking_cancelled_v2` | first name, `@hotel`, reference, "was" dates, reason, `@hotelPhone`, **link** | reservation `GuestNotices` |
-| Receipt (guest without email) | `hospio_payment_receipt_v2` | first name, `@hotel`, amount, paid by, reference | messaging `MessagingEventListener` |
+| Receipt (every payment receipt since 19 Nov 2026, docs/whatsapp-receipts.md) | `hospio_payment_receipt_v2` | first name, `@hotel`, amount, paid by, reference | messaging `MessagingEventListener` |
 | Phone code, "Send on WhatsApp instead" | `oyeks_otp` (authentication: the code also goes on the copy button) | code | identity `DeliveryComposer` |
 | Day before arrival | `hospio_checkin_reminder_v2` | first name, `@hotel`, reference, check-in time, `@hotelPhone`, **link** | reservation `ArrivalReminders` |
 

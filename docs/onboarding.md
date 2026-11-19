@@ -158,7 +158,7 @@ The setup is `section → key → value`. The catalogue below is the contract wi
 | `MESSAGING` | `whatsappNumber` "", `sendConfirmation` true, `arrivalMessage` true, `sendReceipts` true | manager, owner |
 | `STAFF` | `lateMinutes` 15 | manager, owner |
 | `NIGHT_AUDIT` | `closeTime` 23:00, `tillsClosedFirst` true, `arrivalsResolvedFirst` true | manager, owner |
-| `POS` | `provider` "logging", `offlineCash` true, `receiptChannel` "PRINT" | manager, owner |
+| `POS` | `provider` "logging", `offlineCash` true, `receiptChannel` "WHATSAPP" (was "PRINT" until 19 Nov 2026) | manager, owner |
 
 Lists (`/setup/lists/{listName}`): `CANCEL_REASONS`, `DISCOUNT_REASONS`, `VOID_REASONS`, `WRITE_OFF_REASONS`, `SHIFTS` (Morning 07–15, Afternoon 15–23, Night 23–07), `DEPARTMENTS` (one per hotel role), `PUBLIC_AREAS`, `HOUSEKEEPING_CHECKLIST`, `PAYMENT_METHODS` (Cash, Card, Transfer).
 
