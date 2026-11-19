@@ -106,3 +106,29 @@ everyone back in when it is lifted. Back from Paystack it confirms the payment a
 
 `GET /platform/admin/qa/suspension/{businessId}/email?kind=NOTICE|SUSPENDED|REACTIVATED` → the email's subject and text for the
 business as it is now. Overdue invoices are made with `POST /platform/admin/qa/billing/issue` using an old `issuedOn`.
+
+## Staging log
+
+19 Nov 2026, QA businesses only: **QA Owner B Hotels fcekd** (owner, a manager, a front-desk login, a shared device at its Abuja
+location); QA Debit Rate rrydw, QA Venue 5jf4, QA Referred Hotel uuxcq and Simpas Ikeja as the unaffected ones. Old-month fee days
+were seeded by SQL (ids `sus-…`) and issued with the QA endpoint. Screenshots: `~/Desktop/Hospio test screenshots/Real suspension (18 Nov 2026)/`.
+
+| Scenario | Result |
+|---|---|
+| Candidates | HIN-202609-0001 (₦3,000, issued as on 5 Oct, due 12 Oct: 38 days overdue, soft pause on) and HIN-202608-0001 (₦1,500, due 8 Nov). The business is listed with both, ₦4,500, 38 days, "Not sent"; no other business is listed; support reads the list, an owner gets 403 |
+| Who may do what | Support: notice and suspend 403. Finance without a recorded notice: 403 "No 7 days' notice was recorded… Only a super admin can suspend before that"; finance for another reason: 403. A note under 8 characters, a suspension date under 7 days ahead: 400. `PUT …/stage` to Suspended: 400 "Use Suspend business". Royal Suites Ltd: notice and suspend 400 "Staging only suspends QA businesses" |
+| Notice | Sent by the super admin from the business page: row in `suspension_notices` (sent 19 Nov, suspend from 26 Nov, both invoices, ₦4,500, EMAILED), delivery `INVOICE_FINAL` to the owner (`SKIPPED`, "Not sent: test address", as for every `.test` address), bell rows for OWNER and MANAGER at both locations, a line in Changes by Hospio360. The business stayed Live |
+| Suspend (unpaid invoices) | The notice row was moved back 8 days by SQL to stand for the wait. The finance admin suspended from the business page with the note shown. State: SUSPENDED, UNPAID_INVOICE, previous stage LIVE, notice 11 Nov, by Tobi Lawal. Email "…is suspended" recorded, bell "Account suspended", audit line |
+| Locked out | Owner, manager and front desk, each on **34 endpoints across all 14 services**: every one 403, `X-Business-Suspended: true`, code `BUSINESS_SUSPENDED` (the same 34 gave no such answer before the suspension and after it). A PIN unlock on the shared device signs in and is then refused the same way. In the browser all three land on `/suspended` from sign-in, from deep links, from an address that doesn't exist and from the PIN lock; someone already in the app was moved there within a minute |
+| Allow-list | 200 while suspended: sign-in, refresh, sign-out, `GET /identity/users/me`, the suspension status, `GET /tenant/businesses/mine`, `GET /tenant/hotels`, billing status, invoice list / detail / days / PDF, an earlier receipt PDF, Pay now (Paystack checkout address), `GET /platform/legal/me`. A manager's Pay now and a staff invoice list get their ordinary role 403, without the suspension code |
+| Hospio360 and others | The admin reads the business, its people, bookings and billing. A support "view as" token reads bookings and the business, opens the hotel app's dashboard, and a write is still refused as read-only. QA Debit Rate rrydw, QA Venue 5jf4, QA Referred Hotel uuxcq and four Simpas Ikeja `qa.pin.*` logins: nothing refused; a sale opened and cancelled at the Simpas bar; a marketer's portal calls all 200 |
+| Jobs | The 08:00 step as on 18 Nov (before): 2 notices. As on 19 Nov (suspended): 0. A daily report schedule made due while suspended stayed unrun for 29 minutes (the job runs every 5) and ran 70 seconds after reactivation; the same schedule ran within 5 minutes when the business was not suspended. Guest messages: unit test only (`MailDispatcherTest`), no live guest message was made |
+| Paying lifts it | Paystack test card charged on the server for `HIN-202609-0001-QASUS…` + signed `charge.success` webhook (unsigned: 401): September PAID, **still suspended** (August overdue). Then August the same way: PAID, and at once stage LIVE, suspension fields cleared, audit "Reactivated automatically · Hospio360 · automatic", email "…is active again", bell "Account active again". After the 30 s cache all three logins and the PIN session worked; banner NONE; POS pause off on both locations; new sales and bookings open. The owner's and the manager's open suspended screens went back to the dashboard without being touched |
+| Another reason | Stage set to At risk, HIN-202607-0001 (₦2,100) 18 days overdue. Finance: 403. Super admin suspended (OTHER, note shown), no warnings, previous stage AT_RISK; a second suspend and `PUT …/stage` to Live: 400. The owner's screen says paying does not lift it. The owner paid by Paystack: PAID, nothing overdue, **still suspended**, still 403. Finance reactivate: 403; without a note: 400; super admin: **back to At risk**. Everyone back in. Stage put back to Live afterwards |
+
+Clean-up: no business is suspended, no QA invoice is open, the test shared device ("QA B Abuja front desk") is removed and the
+test report schedule is stopped. The front-desk login `qa.mi.staff.fcekd@hospio-qa.test` now has PIN 864913.
+
+Found and fixed during the run: hotel-config-service's build did not ship with the first deploy (it kept answering a suspended
+business until it was redeployed: every service must be running the new `common`); the notice said every listed invoice was 30
+days overdue (it now says the oldest is); an address that doesn't exist showed the 404 page instead of the suspended screen.
