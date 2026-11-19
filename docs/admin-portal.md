@@ -4,6 +4,15 @@ Everything the Hospio360 admin portal (apps/admin) and the marketer portal show,
 
 Conventions: every route needs the gateway prefix (`/platform`, `/identity`, `/payment`, `/tenant`). "platform" means `@access.platform()` (SUPER_ADMIN, SUPPORT, FINANCE_ADMIN); money routes are SUPER_ADMIN or FINANCE_ADMIN (`@access.has('SUPER_ADMIN') or @access.has('FINANCE_ADMIN')`); team and settings are SUPER_ADMIN only. Lists are paged (`page`, `size`, `PagedResponse`) unless noted. Names of people (admins, owners) are resolved server-side where the row needs them, so the web app never joins fixtures.
 
+## Words: businesses and locations (venue type, phase 5)
+
+The portal serves hotels, lounges, bars and restaurants, so its own copy says **business** (who pays, who is referred, who support
+talks to) and **location** (a branch: tenant-service's hotel). Routes and fields keep their names (`/dashboard/hotels`,
+`/platform/admin/businesses/{id}/hotels/…`, `hotelId`). Customers → **Locations** (was Hotels) lists every location with its
+**Kind** (`venueType` from `GET /tenant/admin/hotels`), a kind filter (`?kind=`) and "—" for rooms where there are none;
+"Set up a business for them" sends `venueKind`; the marketer portal says "Refer a business". Server texts only this portal shows
+say location or business too (`docs/plan-venue-type.md`, "Phase 5: wording").
+
 ## Deliveries (cross-cutting, phase 3)
 
 A `Delivery` is a message the platform would send: `{channel: "EMAIL" | "SMS" | "WHATSAPP", to, subject?, text, kind: "TEMP_PASSWORD" | "INVITE" | "PHONE_CODE" | "HANDOVER_PACK" | "PASSWORD_RESET" | "FEE_STATEMENT" | "TICKET_UPDATE", ref?}`. Services build deliveries through `common` `DeliveryComposer` and publish a `DeliveryRequested` event (messaging-service will send them once a provider exists). When `hospio.deliveries.echo=true` (staging: `DELIVERIES_ECHO=true`), the same deliveries are also returned in the response under `deliveries: Delivery[]`. Responses that carry it: identity `UserCreatedResponse` (temp password + invite), `AuthResponse` from sign-up (phone code), `send-code`, reset-password, resend-invite; tenant `HandoverResponse` (owner login + handover pack text); platform fee statement creation and ticket updates. The web apps show every `deliveries` entry in the DeliveryNotice (top-centre, stays until closed, copy buttons) with the line "Email and SMS are not connected on staging; this is what we would have sent."

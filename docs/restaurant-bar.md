@@ -189,3 +189,11 @@ on rooms. docs/plan-venue-type.md (Phase 4) has the rules in words.
 - **Outlets per person** (`StaffOutlets`, `fnb.staff_outlets`): no rows = every outlet. With rows, orders, the board, sales history
   and payments at another outlet are refused ("You aren't assigned to Main Bar. A manager can add it to your outlets (Staff →
   Edit)"). Managers, owners, finance and Hospio360 are never narrowed; front office keeps room service.
+
+## Words at a lounge, bar or restaurant (venue type, phase 5)
+
+Where this document says "Hotel setup → Restaurant & bar", a lounge reads "Lounge setup → Restaurant & bar" (Bar setup, Restaurant
+setup), on screen and in the refusals ("Waiters don't take payment here: the cashier does. A manager can allow it in Lounge setup →
+Restaurant & bar", "Tabs are switched off for this lounge", "This lounge doesn't take cash"). Nothing about rooms shows there: no
+Charge to room, no "On rooms" tile on Sales, no Room service order type, no room part in a split. The routes, fields and rules
+above are the same for every kind of location (`docs/plan-venue-type.md`, "Phase 5: wording").

@@ -336,7 +336,9 @@ public class MonthlyInvoiceService {
                 String hotelName = Objects.requireNonNullElse(m.hotelName(), hotelNames.getOrDefault(m.hotelId(), "Location"));
                 out.add(line(b.id(), m.hotelId(), MonthlyInvoiceLine.MESSAGES, hotelName, "Guest messages · " + hotelName + " · "
                                 + MONTH.format(YearMonth.parse(m.month())),
-                        m.emailCount() + " email" + (m.emailCount() == 1 ? "" : "s") + ", " + m.smsCount() + " SMS, " + m.whatsappCount() + " WhatsApp ("
+                        m.emailCount() + " email" + (m.emailCount() == 1 ? "" : "s") + ", "
+                                // Guest messages are emails and WhatsApp (SMS is only for sign-in codes); an older invoice that charged some still says so.
+                                + (m.smsCount() > 0 ? m.smsCount() + " SMS, " : "") + m.whatsappCount() + " WhatsApp ("
                                 + m.number() + ")", null, null, Money.of(m.total()), MonthlyInvoiceLine.COMM_INVOICE, m.id(), order[0]++));
             }
             // Devices & internet: schedule items due in or before the month, then the from-sales share.

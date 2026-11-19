@@ -73,3 +73,13 @@ take payment (and cash) is Hotel setup → Restaurant & bar (`OUTLETS.waitersTak
   identity counts wrong tries and locks as it does for PIN sign-in. Nobody approves their own request.
 - A waiter, cashier, bar or kitchen person can be kept to some outlets of the location (fnb `staff_outlets`); the role and level
   are unchanged.
+
+## A location without rooms (venue type, phase 5)
+
+At a lounge, bar or restaurant (`hasAccommodation` false) Roles & Permissions offers no Front office or Housekeeping, and every
+role's list leaves out the lines about rooms, stays, folios, linen and room service (`packages/api/src/roles.ts`
+`rolePermissions(role, stays)`, `managerOnlyActions(stays)`; the services' guards are the same, the lines just have nothing to act
+on there). The owner's role reads "Owner" in a business that is not hotels only ("Hotel owner" otherwise), a manager "Run this
+lounge: sales, tabs, staff, money" (`roleLabel`, `roleDescription`). Server messages about roles and shared devices name the
+location ("That role is at a location you don't manage", "Only the lounge's managers and the owner manage its shared devices");
+a hotels-only business reads "hotel" as before.
