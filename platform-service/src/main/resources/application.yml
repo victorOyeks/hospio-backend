@@ -93,6 +93,12 @@ hospio:
     # QA only, never in production: one hotel's day worked out, and the monthly invoice issued / its daily steps run for a chosen date
     # (QaFeeController, QaBillingController, docs/plan-monthly-invoices.md). On for staging with QA_FEE_SIMULATION=true.
     fee-simulation: ${QA_FEE_SIMULATION:false}
+    # QA only, never in production: POST /admin/qa/retention/run (QaRetentionController) runs the 03:30 audit log retention now.
+    tools: ${QA_TOOLS:${QA_FEE_SIMULATION:false}}
+  retention:
+    # Audit logs (activity log, Changes by Hospio360) are kept this many days when the admin setting Security → audit retention days
+    # isn't set (docs/data-retention.md). Never less than 7.
+    audit-days: ${AUDIT_RETENTION_DAYS:7}
   billing:
     # Monthly invoice (docs/plan-monthly-invoices.md). On staging BILLING_QA_ONLY=true: only QA businesses (name starting "QA", an owner at
     # @hospio-qa.test, or an id in BILLING_QA_BUSINESS_IDS) are invoiced, reminded or restricted; real-looking businesses never are.

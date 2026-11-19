@@ -37,6 +37,20 @@ public class InsightsController {
     private final PlatformAdminService admin;
     private final SupportService support;
     private final ChangeService changes;
+    private final com.hospio.platform.service.PlatformSettingsService settings;
+
+    public record Retention(int days) {
+    }
+
+    /**
+     * How long audit logs (this activity log, Changes by Hospio360) are kept before they are deleted automatically (docs/data-retention.md):
+     * what the pages' note says. Anyone signed in.
+     */
+    @GetMapping("/activity/retention")
+    public ApiResponse<Retention> retention() {
+        return ApiResponse.ok(new Retention(com.hospio.common.tenancy.TenantContext.runWith(com.hospio.common.tenancy.Tenant.system("audit-retention"),
+                () -> com.hospio.platform.jobs.AuditRetentionJob.retentionDays(settings.security().auditRetentionDays()))));
+    }
 
     /**
      * The activity log (docs/manager-leftovers.md): newest first, paged (size 1 to 200), filtered by {@code q} (summary, person, event),

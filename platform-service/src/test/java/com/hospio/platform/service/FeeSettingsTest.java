@@ -89,7 +89,7 @@ class FeeSettingsTest {
                 "invoiceMinimum");
         assertThat((Map<String, Object>) json.get("fees")).containsEntry("perRoom", 1500).containsEntry("revenuePct", 1.5).containsEntry("trialDays", 30);
         assertThat((Map<String, Object>) json.get("security")).containsEntry("sessionHours", 12).containsEntry("require2Step", false)
-                .containsEntry("adminIpAllowlist", false).containsEntry("auditRetentionDays", 183);
+                .containsEntry("adminIpAllowlist", false).containsEntry("auditRetentionDays", 7);
     }
 
     @Test
