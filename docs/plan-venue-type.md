@@ -404,7 +404,7 @@ QA script: `hotel-internal-system-admin-FE/docs/qa/62-venue-dashboards-reports.m
   **Lounge sweep** (QA Lounge qhye; owner 32 pages, manager 36, bar 12, kitchen 11, waiter 7, cashier 9: every menu page, every
   setup section, Help and My profile; visible text searched for hotel, room, check-in, folio, booking): first pass 22 pages with
   hits, last pass **0** for owner, manager, kitchen, waiter and cashier, and one for the bar (the tag "room service" under a
-  stored "New bar order … from Wale Waiter" notice: the tag is now "new order" unless the order is for a room). No sideways
+  stored "New bar order … from Wale Waiter" notice: the tag is now "new order" unless the order is for a room). Search boxes and example placeholders were swept too on the last pass (the header, Help, Tasks, Activity and Staff ones no longer name bookings, check-in or rooms there). No sideways
   scroll at 820 or 1024 on any of them. Allowed places: "Not used at a lounge" ("rooms and stays"), the kind picker's hints
   ("A hotel has rooms…", "…no rooms"), "Rooms later?" on the owner's Outlets step, names people typed, text stored before today,
   "On rooms" only when a past sale has some.
