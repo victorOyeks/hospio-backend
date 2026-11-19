@@ -33,6 +33,7 @@ public class UnitProbe {
     /** unit → {cpu ns, nanoTime} at the previous look, for CPU % since then. */
     private final Map<String, long[]> lastCpu = new ConcurrentHashMap<>();
 
+    @org.springframework.beans.factory.annotation.Autowired
     public UnitProbe(CommandRunner runner) {
         this(runner, Path.of("/proc"));
     }
