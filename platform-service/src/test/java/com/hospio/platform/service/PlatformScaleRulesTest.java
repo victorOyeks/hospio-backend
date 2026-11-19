@@ -19,7 +19,7 @@ import com.hospio.common.kafka.events.NoticeEvent;
 import com.hospio.common.tenancy.TenantBinder;
 import com.hospio.platform.entity.FeeStatement;
 import com.hospio.platform.entity.Report;
-import com.hospio.platform.jobs.ActivityRetentionJob;
+import com.hospio.platform.jobs.AuditRetentionJob;
 import com.hospio.platform.kafka.PlatformEventListener;
 import com.hospio.platform.repository.ActivityEntryRepository;
 import com.hospio.platform.repository.ReportRepository;
@@ -60,27 +60,58 @@ class PlatformScaleRulesTest {
     }
 
     @Test
-    void retentionReadsTheSettingAndNeverKeepsLessThanAMonth() {
-        assertThat(ActivityRetentionJob.retentionDays(365)).isEqualTo(365);
-        assertThat(ActivityRetentionJob.retentionDays("90")).isEqualTo(90);
-        assertThat(ActivityRetentionJob.retentionDays(7)).isEqualTo(30);
-        // Six months unless an admin sets otherwise.
-        assertThat(ActivityRetentionJob.retentionDays(null)).isEqualTo(183);
-        assertThat(ActivityRetentionJob.retentionDays("forever")).isEqualTo(183);
+    void retentionReadsTheSettingAndNeverKeepsLessThanAWeek() {
+        assertThat(AuditRetentionJob.retentionDays(365)).isEqualTo(365);
+        assertThat(AuditRetentionJob.retentionDays("90")).isEqualTo(90);
+        assertThat(AuditRetentionJob.retentionDays(3)).isEqualTo(7);
+        // 7 days unless an admin sets more; the property is the fallback when the setting is missing or unreadable.
+        assertThat(AuditRetentionJob.retentionDays(null)).isEqualTo(7);
+        assertThat(AuditRetentionJob.retentionDays("forever")).isEqualTo(7);
+        assertThat(AuditRetentionJob.retentionDays(null, 14)).isEqualTo(14);
+        assertThat(AuditRetentionJob.retentionDays(7, 14)).isEqualTo(7);
     }
 
     @Test
     void retentionDeletesBatchByBatchUntilNoneAreLeft() {
         ActivityEntryRepository entries = mock(ActivityEntryRepository.class);
+        com.hospio.platform.repository.PlatformChangeRepository changes = mock(com.hospio.platform.repository.PlatformChangeRepository.class);
         PlatformSettingsService settings = mock(PlatformSettingsService.class);
-        when(settings.security()).thenReturn(new com.hospio.platform.settings.SecuritySettings(false, 12, false, 200));
-        when(entries.deleteOlderThan(any(), anyInt())).thenReturn(5000, 5000, 12, 0);
-        Instant before = Instant.now().minus(200, ChronoUnit.DAYS);
+        when(settings.security()).thenReturn(new com.hospio.platform.settings.SecuritySettings(false, 12, false, 7));
+        when(entries.rollUpAndDeleteOlderThan(any(), anyInt())).thenReturn(5000, 5000, 12, 0);
+        when(changes.deleteExpired(any(), any(), anyInt())).thenReturn(3, 0);
+        Instant before = Instant.now().minus(7, ChronoUnit.DAYS);
 
-        assertThat(new ActivityRetentionJob(entries, settings).run()).isEqualTo(10012);
+        AuditRetentionJob.Result r = new AuditRetentionJob(entries, changes, settings, 7).run();
+
+        assertThat(r.activityDeleted()).isEqualTo(10012);
+        assertThat(r.changesDeleted()).isEqualTo(3);
+        assertThat(r.days()).isEqualTo(7);
         org.mockito.ArgumentCaptor<Instant> cutoff = org.mockito.ArgumentCaptor.forClass(Instant.class);
-        verify(entries, times(4)).deleteOlderThan(cutoff.capture(), eq(5000));
+        verify(entries, times(4)).rollUpAndDeleteOlderThan(cutoff.capture(), eq(5000));
         assertThat(cutoff.getValue()).isBetween(before.minusSeconds(5), before.plusSeconds(5));
+        // Changes: the same cutoff, and "now" for the undo window, so a change still undoable is never deleted.
+        org.mockito.ArgumentCaptor<Instant> changeCutoff = org.mockito.ArgumentCaptor.forClass(Instant.class);
+        org.mockito.ArgumentCaptor<Instant> now = org.mockito.ArgumentCaptor.forClass(Instant.class);
+        verify(changes, times(2)).deleteExpired(changeCutoff.capture(), now.capture(), eq(5000));
+        assertThat(changeCutoff.getValue()).isBetween(before.minusSeconds(5), before.plusSeconds(5));
+        assertThat(now.getValue()).isBetween(Instant.now().minusSeconds(5), Instant.now());
+        verify(entries).forgetPeopleSeenBefore(any());
+        verify(entries).forgetCountsBefore(any());
+    }
+
+    @Test
+    void aSettingBelowAWeekStillKeepsAWeek() {
+        ActivityEntryRepository entries = mock(ActivityEntryRepository.class);
+        com.hospio.platform.repository.PlatformChangeRepository changes = mock(com.hospio.platform.repository.PlatformChangeRepository.class);
+        PlatformSettingsService settings = mock(PlatformSettingsService.class);
+        when(settings.security()).thenReturn(new com.hospio.platform.settings.SecuritySettings(false, 12, false, 1));
+        Instant week = Instant.now().minus(7, ChronoUnit.DAYS);
+
+        new AuditRetentionJob(entries, changes, settings, 7).run();
+
+        org.mockito.ArgumentCaptor<Instant> cutoff = org.mockito.ArgumentCaptor.forClass(Instant.class);
+        verify(entries).rollUpAndDeleteOlderThan(cutoff.capture(), eq(5000));
+        assertThat(cutoff.getValue()).isBetween(week.minusSeconds(5), week.plusSeconds(5));
     }
 
     @Test

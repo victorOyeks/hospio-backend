@@ -237,8 +237,8 @@ public class AlertService {
                 continue;
             }
             boolean closedLately = activity.existsByBusinessIdAndEventTypeAndOccurredAtAfter(b.id(), "DayClosed", now.minus(AUDIT_DAYS, ChronoUnit.DAYS));
-            // "Ever closed a day" only matters when none was closed lately; the log itself keeps auditRetentionDays.
-            if (!closedLately && activity.existsByBusinessIdAndEventType(b.id(), "DayClosed")) {
+            // "Ever closed a day" only matters when none was closed lately; past the log's 7 days the daily counts answer it.
+            if (!closedLately && activity.everHappened(b.id(), "DayClosed")) {
                 noAudit.add(b.id());
                 raise(Alert.NIGHT_AUDIT_MISSED, b.id(), null, "Night audit missed", "No day has been closed for " + AUDIT_DAYS + " days", "warning");
             }

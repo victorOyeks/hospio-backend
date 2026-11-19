@@ -50,7 +50,7 @@ public class HealthService {
     public HealthScore compute(String businessId) {
         Instant week = Instant.now().minus(7, ChronoUnit.DAYS);
         long dayCloses = activity.countByBusinessIdAndEventTypeAndOccurredAtAfter(businessId, "DayClosed", week);
-        boolean everClosed = activity.existsByBusinessIdAndEventType(businessId, "DayClosed");
+        boolean everClosed = activity.everHappened(businessId, "DayClosed");
         Factors f = new Factors(
                 activity.countDistinctActorsSince(businessId, week),
                 activity.countByBusinessIdAndEventTypeAndOccurredAtAfter(businessId, "BookingCreated", week),

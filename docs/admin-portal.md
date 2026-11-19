@@ -138,7 +138,7 @@ admins and "View as owner" still see it.
 
 ## Settings and integrations (platform, SUPER_ADMIN)
 
-`PlatformSetting` (new): group (`general`, `fees`, `security`), key, value JSON. Defaults: general `{company, supportEmail, supportWhatsApp, website, timezone}`; fees `{model, perRoom 1500, revenuePct 2, trialDays 30, dueDay 5, graceDays 10, marketerSharePct 20, marketerMonths 12 (was 24 until 18 Nov 2026), whtPct 5, marketerMinPayout 5000, providerFeePct 0.5, hmsSharePct 1.5}`; security `{require2Step false, sessionHours 12, adminIpAllowlist false, auditRetentionDays 365}`.
+`PlatformSetting` (new): group (`general`, `fees`, `security`), key, value JSON. Defaults: general `{company, supportEmail, supportWhatsApp, website, timezone}`; fees `{model, perRoom 1500, revenuePct 2, trialDays 30, dueDay 5, graceDays 10, marketerSharePct 20, marketerMonths 12 (was 24 until 18 Nov 2026), whtPct 5, marketerMinPayout 5000, providerFeePct 0.5, hmsSharePct 1.5}`; security `{require2Step false, sessionHours 12, adminIpAllowlist false, auditRetentionDays 7}` (audit logs kept 7 days since 19 Nov 2026, `docs/data-retention.md`).
 
 | Method | Path | Who | Response |
 |---|---|---|---|

@@ -70,6 +70,9 @@ class PlatformScaleQueriesTest {
     void clean() {
         TenantContext.set(Tenant.system("test"));
         jdbc.update("delete from platform.activity_log");
+        jdbc.update("delete from platform.activity_daily_counts");
+        jdbc.update("delete from platform.activity_people_seen");
+        jdbc.update("delete from platform.platform_changes");
         jdbc.update("delete from platform.fee_statements");
         jdbc.update("delete from platform.health_scores");
         jdbc.update("delete from platform.reports");
@@ -97,18 +100,63 @@ class PlatformScaleQueriesTest {
     }
 
     @Test
-    void retentionDeletesOldEntriesInBatchesUntilNoneAreLeft() {
-        Instant old = Instant.now().minus(400, ChronoUnit.DAYS);
+    void retentionDeletesOldEntriesInBatchesUntilNoneAreLeftAndKeepsTheirCounts() {
+        Instant old = Instant.parse("2026-01-10T12:00:00Z");
         for (int i = 0; i < 7; i++) {
             log(UUID.randomUUID().toString(), "b1", "BookingCreated", old);
         }
+        log(UUID.randomUUID().toString(), "b1", "DayClosed", old);
         log(UUID.randomUUID().toString(), "b1", "BookingCreated", Instant.now());
-        Instant cutoff = Instant.now().minus(365, ChronoUnit.DAYS);
-        assertThat(activity.deleteOlderThan(cutoff, 3)).isEqualTo(3);
-        assertThat(activity.deleteOlderThan(cutoff, 3)).isEqualTo(3);
-        assertThat(activity.deleteOlderThan(cutoff, 3)).isEqualTo(1);
-        assertThat(activity.deleteOlderThan(cutoff, 3)).isZero();
+        Instant cutoff = Instant.now().minus(7, ChronoUnit.DAYS);
+        assertThat(activity.rollUpAndDeleteOlderThan(cutoff, 3)).isEqualTo(3);
+        assertThat(activity.rollUpAndDeleteOlderThan(cutoff, 3)).isEqualTo(3);
+        assertThat(activity.rollUpAndDeleteOlderThan(cutoff, 3)).isEqualTo(2);
+        assertThat(activity.rollUpAndDeleteOlderThan(cutoff, 3)).isZero();
+        // The newer entry stays; the old ones are counts now (no text, no person), added up across batches.
         assertThat(activity.count()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select events from platform.activity_daily_counts where business_id = 'b1' and event_type = 'BookingCreated' "
+                + "and day = date '2026-01-10'", Long.class)).isEqualTo(7);
+        assertThat(activity.everHappened("b1", "DayClosed")).isTrue();
+        assertThat(activity.everHappened("b1", "RoomCleaned")).isFalse();
+        assertThat(activity.happenedSince("b1", "DayClosed", old.minus(1, ChronoUnit.DAYS), java.time.LocalDate.parse("2026-01-09"))).isTrue();
+        assertThat(activity.happenedSince("b1", "DayClosed", old.plus(1, ChronoUnit.DAYS), java.time.LocalDate.parse("2026-01-11"))).isFalse();
+        // Ada (u1) is still counted as active since before the cutoff, once.
+        assertThat(activity.countDistinctActorsSince("b1", old.minus(1, ChronoUnit.DAYS))).isEqualTo(1);
+    }
+
+    @Test
+    void usageWeeksAddTheLogAndTheDailyCounts() {
+        Instant from = Instant.parse("2026-09-07T00:00:00Z").minus(1, ChronoUnit.HOURS); // Monday 7 Sep, 00:00 Lagos
+        Instant to = from.plus(56, ChronoUnit.DAYS);
+        log(UUID.randomUUID().toString(), "b1", "BookingCreated", from.plus(1, ChronoUnit.HOURS));
+        log(UUID.randomUUID().toString(), "b1", "BookingCreated", from.plus(8, ChronoUnit.DAYS));
+        activity.rollUpAndDeleteOlderThan(from.plus(2, ChronoUnit.DAYS), 100); // the first one becomes a count
+        long[][] weeks = OverviewService.weekly(activity.weeklyCounts("b1", OverviewService.WEEKLY_TYPES, from, to,
+                java.time.LocalDate.parse("2026-09-07"), java.time.LocalDate.parse("2026-11-02")), 8);
+        assertThat(weeks[0]).containsExactly(1, 0, 0);
+        assertThat(weeks[1]).containsExactly(1, 0, 0);
+        assertThat(activity.countsByType("b1", OverviewService.WEEKLY_TYPES, from, java.time.LocalDate.parse("2026-09-07")))
+                .singleElement().satisfies(r -> assertThat(((Number) r[1]).longValue()).isEqualTo(2));
+    }
+
+    @Test
+    void aChangeIsDeletedOnlyOnceItsUndoWindowHasEnded() {
+        Instant now = Instant.now();
+        change("old", now.minus(10, ChronoUnit.DAYS), now.minus(3, ChronoUnit.DAYS));
+        change("six-days", now.minus(6, ChronoUnit.DAYS), now.plus(1, ChronoUnit.DAYS));
+        // Older than the cutoff but still undoable (a window longer than 7 days): kept.
+        change("still-undoable", now.minus(9, ChronoUnit.DAYS), now.plus(1, ChronoUnit.HOURS));
+        assertThat(changes.deleteExpired(now.minus(7, ChronoUnit.DAYS), now, 10)).isEqualTo(1);
+        assertThat(jdbc.queryForList("select id from platform.platform_changes order by id", String.class))
+                .containsExactly("six-days", "still-undoable");
+    }
+
+    @Autowired
+    com.hospio.platform.repository.PlatformChangeRepository changes;
+
+    private void change(String id, Instant at, Instant undoUntil) {
+        jdbc.update("insert into platform.platform_changes (id, business_id, area, description, reason, undo_until, created_at, updated_at) "
+                + "values (?, 'b1', 'Rates', 'x', 'y', ?, ?, ?)", id, java.sql.Timestamp.from(undoUntil), java.sql.Timestamp.from(at), java.sql.Timestamp.from(at));
     }
 
     @Test
@@ -123,11 +171,12 @@ class PlatformScaleQueriesTest {
         log(UUID.randomUUID().toString(), "b2", "BookingCreated", from);
         log(UUID.randomUUID().toString(), "b1", "RoomCleaned", from);
 
-        long[][] weeks = OverviewService.weekly(activity.weeklyCounts("b1", OverviewService.WEEKLY_TYPES, from, to), 8);
+        long[][] weeks = OverviewService.weekly(activity.weeklyCounts("b1", OverviewService.WEEKLY_TYPES, from, to,
+                java.time.LocalDate.parse("2026-09-07"), java.time.LocalDate.parse("2026-11-02")), 8);
         assertThat(weeks[0]).containsExactly(2, 0, 0);
         assertThat(weeks[1]).containsExactly(0, 1, 0);
         assertThat(weeks[7]).containsExactly(0, 0, 1);
-        assertThat(activity.countsByType("b1", OverviewService.WEEKLY_TYPES, from)).hasSize(3);
+        assertThat(activity.countsByType("b1", OverviewService.WEEKLY_TYPES, from, java.time.LocalDate.parse("2026-09-07"))).hasSize(3);
         assertThat(activity.existsByBusinessIdAndEventTypeAndOccurredAtAfter("b1", "RoomCleaned", from.minus(1, ChronoUnit.DAYS))).isTrue();
         assertThat(activity.existsByBusinessIdAndEventTypeAndOccurredAtAfter("b1", "DayClosed", from.minus(1, ChronoUnit.DAYS))).isFalse();
         assertThat(activity.existsByBusinessIdAndOccurredAtAfter("b2", to)).isFalse();

@@ -140,19 +140,19 @@ public class OverviewService {
         LocalDate first = thisWeek.minusWeeks(7);
         Instant from = first.atStartOfDay(LAGOS).toInstant();
         Instant to = thisWeek.plusWeeks(1).atStartOfDay(LAGOS).toInstant();
-        long[][] perWeek = weekly(activity.weeklyCounts(businessId, WEEKLY_TYPES, from, to), 8);
+        long[][] perWeek = weekly(activity.weeklyCounts(businessId, WEEKLY_TYPES, from, to, first, thisWeek.plusWeeks(1)), 8);
         List<WeekCount> weeks = new ArrayList<>();
         for (int i = 0; i < 8; i++) {
             weeks.add(new WeekCount(first.plusWeeks(i), perWeek[i][0], perWeek[i][1], perWeek[i][2]));
         }
         Instant month = now.minus(30, ChronoUnit.DAYS);
         Map<String, Long> last30 = new HashMap<>();
-        for (Object[] row : activity.countsByType(businessId, WEEKLY_TYPES, month)) {
+        for (Object[] row : activity.countsByType(businessId, WEEKLY_TYPES, month, LocalDate.ofInstant(month, LAGOS))) {
             last30.put((String) row[0], asLong(row[1]));
         }
         Instant ever = now.minus(FEATURE_WINDOW);
         Map<String, Boolean> features = new LinkedHashMap<>();
-        FEATURES.forEach((feature, type) -> features.put(feature, activity.existsByBusinessIdAndEventTypeAndOccurredAtAfter(businessId, type, ever)));
+        FEATURES.forEach((feature, type) -> features.put(feature, activity.happenedSince(businessId, type, ever, LocalDate.ofInstant(ever, LAGOS))));
         return new Usage(businessId, activity.countDistinctActorsSince(businessId, now.minus(7, ChronoUnit.DAYS)), activity.countDistinctActorsSince(businessId, month),
                 last30.getOrDefault("BookingCreated", 0L), last30.getOrDefault("PaymentApproved", 0L), last30.getOrDefault("MessageSent", 0L), weeks, features);
     }
