@@ -32,8 +32,6 @@ public class CommPlan extends TenantEntity {
     @Column(name = "email_price")
     private BigDecimal emailPrice;
 
-    @Column(name = "sms_price")
-    private BigDecimal smsPrice;
 
     @Column(name = "whatsapp_price")
     private BigDecimal whatsappPrice;

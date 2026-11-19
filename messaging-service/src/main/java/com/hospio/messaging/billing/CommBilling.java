@@ -36,9 +36,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 /**
- * Guest messages as a paid service (docs/guest-message-billing.md). A hotel switches it on; from then every email, SMS or
- * WhatsApp it sends outside (to guests, companies, suppliers) is priced when it goes out, by the channel it actually went on
- * (a WhatsApp that went as an SMS is an SMS), and a message the network rejected costs nothing. On the 1st (Lagos) last
+ * Guest messages as a paid service (docs/guest-message-billing.md). A hotel switches it on; from then every email or
+ * WhatsApp it sends outside (to guests, companies, suppliers) is priced when it goes out, by the channel it actually went on,
+ * and a message the network rejected costs nothing. Guest messages never go by SMS (SMS is only for sign-in and verification
+ * codes, which are free), so there is no SMS price; an older invoice that charged some SMS keeps its SMS count and amount. On the 1st (Lagos) last
  * month's messages become one invoice per hotel, due ten days later; an invoice still unpaid after that suspends the
  * hotel's guest messages until it is paid. Codes, sign-in, invites and resets are never billable and always go.
  */
@@ -56,11 +57,11 @@ public class CommBilling {
     public static final ZoneId LAGOS = ZoneId.of("Africa/Lagos");
     public static final int GRACE_DAYS = 10;
 
-    /** Effective prices per message, in naira. */
-    public record Prices(BigDecimal email, BigDecimal sms, BigDecimal whatsapp) {
+    /** Effective prices per message, in naira: email and WhatsApp (guest messages never go by SMS). */
+    public record Prices(BigDecimal email, BigDecimal whatsapp) {
         public BigDecimal of(String channel) {
             return switch (channel == null ? "" : channel.toUpperCase(Locale.ROOT)) {
-                case "SMS" -> sms;
+                case "SMS" -> BigDecimal.ZERO; // never for a billable message (codes only); free if it ever happened
                 case "WHATSAPP" -> whatsapp;
                 default -> email;
             };
@@ -72,9 +73,12 @@ public class CommBilling {
         public static final Gate FREE = new Gate(false, true, null);
     }
 
-    /** A month's usage so far: per channel counts and amounts. */
-    public record Usage(int emailCount, int smsCount, int whatsappCount, BigDecimal emailAmount, BigDecimal smsAmount, BigDecimal whatsappAmount,
-                        BigDecimal total) {
+    /** A month's usage so far: per channel counts and amounts (email and WhatsApp). */
+    public record Usage(int emailCount, int whatsappCount, BigDecimal emailAmount, BigDecimal whatsappAmount, BigDecimal total) {
+    }
+
+    /** Usage summed per channel, with SMS kept apart: only an older invoice's messages can be SMS (historical, read-only). */
+    private record Tally(Usage usage, int smsCount, BigDecimal smsAmount) {
     }
 
     /** A hotel's service as the screens show it. */
@@ -156,8 +160,7 @@ public class CommBilling {
 
     public Prices defaults() {
         CommPrices p = asSystem(() -> prices.findById("DEFAULT")).orElse(null);
-        return p == null ? new Prices(new BigDecimal("5.00"), new BigDecimal("10.00"), new BigDecimal("25.00"))
-                : new Prices(p.getEmailPrice(), p.getSmsPrice(), p.getWhatsappPrice());
+        return p == null ? new Prices(new BigDecimal("5.00"), new BigDecimal("25.00")) : new Prices(p.getEmailPrice(), p.getWhatsappPrice());
     }
 
     private Prices effective(CommPlan plan) {
@@ -168,7 +171,7 @@ public class CommBilling {
         if (plan == null) {
             return d;
         }
-        return new Prices(plan.getEmailPrice() == null ? d.email() : plan.getEmailPrice(), plan.getSmsPrice() == null ? d.sms() : plan.getSmsPrice(),
+        return new Prices(plan.getEmailPrice() == null ? d.email() : plan.getEmailPrice(),
                 plan.getWhatsappPrice() == null ? d.whatsapp() : plan.getWhatsappPrice());
     }
 
@@ -186,7 +189,7 @@ public class CommBilling {
 
     private PlanView view(String hotelId, CommPlan plan, YearMonth month, Usage usage, List<CommInvoice> open, Prices defaults) {
         BigDecimal outstanding = open.stream().map(CommInvoice::getTotalAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        boolean custom = plan != null && (plan.getEmailPrice() != null || plan.getSmsPrice() != null || plan.getWhatsappPrice() != null);
+        boolean custom = plan != null && (plan.getEmailPrice() != null || plan.getWhatsappPrice() != null);
         return new PlanView(hotelId, tenants.hotel(hotelId).map(TenantClient.Sender::name).orElse(null), plan != null && plan.isEnabled(),
                 effective(plan, defaults), custom, defaults, plan != null && plan.getSuspendedAt() != null, plan == null ? null : plan.getSuspendedReason(),
                 plan == null ? null : plan.getSuspendedAt(), plan == null ? null : plan.getChangedBy(), plan == null ? null : plan.getChangedAt(),
@@ -209,11 +212,11 @@ public class CommBilling {
     public Usage usage(String hotelId, YearMonth month) {
         Instant from = month.atDay(1).atStartOfDay(LAGOS).toInstant();
         Instant to = month.plusMonths(1).atDay(1).atStartOfDay(LAGOS).toInstant();
-        return usageOf(deliveries.unbilledUsage(hotelId, CHARGED, from, to), 0);
+        return usageOf(deliveries.unbilledUsage(hotelId, CHARGED, from, to), 0).usage();
     }
 
-    /** Rows of [..., via, count, amount] (the via at {@code at}) summed per channel. */
-    private static Usage usageOf(List<Object[]> rows, int at) {
+    /** Rows of [..., via, count, amount] (the via at {@code at}) summed per channel; the total counts everything. */
+    private static Tally usageOf(List<Object[]> rows, int at) {
         int[] counts = new int[3];
         BigDecimal[] amounts = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
         for (Object[] row : rows) {
@@ -221,7 +224,7 @@ public class CommBilling {
             counts[i] += ((Number) row[at + 1]).intValue();
             amounts[i] = amounts[i].add(money(row[at + 2]));
         }
-        return new Usage(counts[0], counts[1], counts[2], amounts[0], amounts[1], amounts[2], amounts[0].add(amounts[1]).add(amounts[2]));
+        return new Tally(new Usage(counts[0], counts[2], amounts[0], amounts[2], amounts[0].add(amounts[1]).add(amounts[2])), counts[1], amounts[1]);
     }
 
     public Page<DeliveryRecord> thisMonthMessages(String hotelId, int page, int size) {
@@ -395,12 +398,13 @@ public class CommBilling {
                 if (deliveries.attachToInvoice(saved.getId(), hotelId, CHARGED, to) == 0) {
                     throw new NothingToBill(); // rolls the empty invoice back
                 }
-                Usage u = usageOf(deliveries.invoiceUsage(saved.getId()), 0);
+                Tally t = usageOf(deliveries.invoiceUsage(saved.getId()), 0);
+                Usage u = t.usage();
                 saved.setEmailCount(u.emailCount());
-                saved.setSmsCount(u.smsCount());
+                saved.setSmsCount(t.smsCount()); // 0 going forward: guest messages never go by SMS
                 saved.setWhatsappCount(u.whatsappCount());
                 saved.setEmailAmount(u.emailAmount());
-                saved.setSmsAmount(u.smsAmount());
+                saved.setSmsAmount(t.smsAmount());
                 saved.setWhatsappAmount(u.whatsappAmount());
                 saved.setTotalAmount(u.total());
                 return invoices.save(saved);
@@ -476,7 +480,7 @@ public class CommBilling {
         String link = hotelAppUrl + "/dashboard/hotel-setup/guest-messages?invoice=" + inv.getId();
         String text = "Hello,\n\nYour guest-message invoice for " + monthName(inv.getMonth()) + " is ready.\n\nInvoice: " + inv.getNumber()
                 + "\nHotel: " + nz(inv.getHotelName()) + "\nEmails: " + inv.getEmailCount() + " (" + naira(inv.getEmailAmount()) + ")"
-                + "\nSMS: " + inv.getSmsCount() + " (" + naira(inv.getSmsAmount()) + ")"
+                + (inv.getSmsCount() > 0 ? "\nSMS (older messages): " + inv.getSmsCount() + " (" + naira(inv.getSmsAmount()) + ")" : "")
                 + "\nWhatsApp: " + inv.getWhatsappCount() + " (" + naira(inv.getWhatsappAmount()) + ")"
                 + "\nTotal: " + naira(inv.getTotalAmount()) + "\nDue by: " + inv.getDueOn()
                 + "\n\nIf it is not paid by then, guest messages are paused until it is.\n\nPay or see every message: " + link;
@@ -581,7 +585,7 @@ public class CommBilling {
 
     // ---- Hospio360's side --------------------------------------------------------------------------------------------
 
-    public Prices setDefaults(BigDecimal email, BigDecimal sms, BigDecimal whatsapp) {
+    public Prices setDefaults(BigDecimal email, BigDecimal whatsapp) {
         HospioUserDetails me = CurrentUser.require();
         CommPrices p = prices.findById("DEFAULT").orElseGet(() -> {
             CommPrices n = new CommPrices();
@@ -589,7 +593,6 @@ public class CommBilling {
             return n;
         });
         p.setEmailPrice(price(email, "email"));
-        p.setSmsPrice(price(sms, "SMS"));
         p.setWhatsappPrice(price(whatsapp, "WhatsApp"));
         p.setUpdatedBy(me.getFullName());
         p.setUpdatedAt(Instant.now());
@@ -598,7 +601,7 @@ public class CommBilling {
     }
 
     /** Hospio360 sets a hotel's service: on or off and its own prices (null = the default). */
-    public PlanView setPlan(String businessId, String hotelId, Boolean enabled, BigDecimal email, BigDecimal sms, BigDecimal whatsapp, boolean clearPrices) {
+    public PlanView setPlan(String businessId, String hotelId, Boolean enabled, BigDecimal email, BigDecimal whatsapp, boolean clearPrices) {
         HospioUserDetails me = CurrentUser.require();
         CommPlan plan = asSystem(() -> plans.findByHotelId(hotelId)).orElseGet(() -> CommPlan.builder().businessId(businessId).hotelId(hotelId).build());
         if (plan.getBusinessId() == null) {
@@ -609,14 +612,10 @@ public class CommBilling {
         }
         if (clearPrices) {
             plan.setEmailPrice(null);
-            plan.setSmsPrice(null);
             plan.setWhatsappPrice(null);
         } else {
             if (email != null) {
                 plan.setEmailPrice(price(email, "email"));
-            }
-            if (sms != null) {
-                plan.setSmsPrice(price(sms, "SMS"));
             }
             if (whatsapp != null) {
                 plan.setWhatsappPrice(price(whatsapp, "WhatsApp"));
@@ -655,7 +654,7 @@ public class CommBilling {
         });
         List<PlanView> out = new ArrayList<>();
         for (String h : hotelIds) {
-            out.add(view(h, byHotel.get(h), month, usageOf(usage.getOrDefault(h, List.of()), 1), open.getOrDefault(h, List.of()), d));
+            out.add(view(h, byHotel.get(h), month, usageOf(usage.getOrDefault(h, List.of()), 1).usage(), open.getOrDefault(h, List.of()), d));
         }
         return out;
     }

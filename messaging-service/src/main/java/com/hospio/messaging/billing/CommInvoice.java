@@ -37,6 +37,7 @@ public class CommInvoice extends TenantEntity {
     @Column(name = "email_count", nullable = false)
     private int emailCount;
 
+    /** Historical only: guest messages no longer go by SMS, so this is 0 on every new invoice; an older one keeps what it charged. */
     @Column(name = "sms_count", nullable = false)
     private int smsCount;
 
@@ -46,6 +47,7 @@ public class CommInvoice extends TenantEntity {
     @Column(name = "email_amount", nullable = false)
     private BigDecimal emailAmount;
 
+    /** Historical only, as {@link #smsCount}. */
     @Column(name = "sms_amount", nullable = false)
     private BigDecimal smsAmount;
 

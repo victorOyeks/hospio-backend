@@ -14,7 +14,7 @@ public final class MessageBillingDtos {
     private MessageBillingDtos() {
     }
 
-    /** One hotel's guest-message invoice not on a monthly invoice yet. */
+    /** One hotel's guest-message invoice not on a monthly invoice yet. {@code smsCount} is history: above 0 only on an older invoice. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ToBill(String id, String number, String month, String hotelId, String hotelName, int emailCount, int smsCount, int whatsappCount,
                          BigDecimal total) {

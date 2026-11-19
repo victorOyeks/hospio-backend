@@ -63,10 +63,14 @@ public class CommBillingController {
     public record PayRequest(String returnUrl) {
     }
 
-    public record PricesRequest(BigDecimal email, BigDecimal sms, BigDecimal whatsapp) {
+    /** Email and WhatsApp prices. An older client that still sends {@code sms} is accepted; the field is ignored (no SMS price). */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    public record PricesRequest(BigDecimal email, BigDecimal whatsapp) {
     }
 
-    public record PlanRequest(String businessId, Boolean enabled, BigDecimal email, BigDecimal sms, BigDecimal whatsapp, Boolean useDefaults) {
+    /** As {@link PricesRequest}: an {@code sms} price in the body is ignored. */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    public record PlanRequest(String businessId, Boolean enabled, BigDecimal email, BigDecimal whatsapp, Boolean useDefaults) {
     }
 
     public record IssueRequest(String month, String hotelId, String businessId) {
@@ -150,7 +154,7 @@ public class CommBillingController {
     @PutMapping("/billing/messages/admin/prices")
     @PreAuthorize("@access.platform()")
     public ApiResponse<CommBilling.Prices> setDefaults(@RequestBody PricesRequest r) {
-        return ApiResponse.ok("Default prices saved", billing.setDefaults(r.email(), r.sms(), r.whatsapp()));
+        return ApiResponse.ok("Default prices saved", billing.setDefaults(r.email(), r.whatsapp()));
     }
 
     /** The plans of these hotels (a business's hotels, as the admin portal lists them). */
@@ -166,7 +170,7 @@ public class CommBillingController {
         if (r.businessId() == null || r.businessId().isBlank()) {
             throw new BadRequestException("Say which business the location belongs to (businessId)");
         }
-        return ApiResponse.ok("Guest messages saved", billing.setPlan(r.businessId(), hotelId, r.enabled(), r.email(), r.sms(), r.whatsapp(),
+        return ApiResponse.ok("Guest messages saved", billing.setPlan(r.businessId(), hotelId, r.enabled(), r.email(), r.whatsapp(),
                 Boolean.TRUE.equals(r.useDefaults())));
     }
 
