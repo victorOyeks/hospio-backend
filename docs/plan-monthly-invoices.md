@@ -50,6 +50,29 @@ Owner decision: a business pays **no platform fee until its "Charges start on" d
 
 API (platform-service): `GET /admin/billing/charges-start` (`{rows: [{businessId, chargesStartOn, state: FREE|STARTS|BILLING, label}]}`; not listed = free) · `GET /admin/businesses/{id}/charges-start` (`{chargesStartOn, state, label, ratePct, canEdit, setByName, setAt, reason, history}`) · `GET …/charges-start/preview?date=` (money; `{earlier, toBill: {days, fee}, toFree: {days, fee}, message}`) · `PUT …/charges-start {chargesStartOn | null, reason, confirmEarlier}` (money) · `GET /billing/charges` (owner, manager: `{state, chargesStartOn, ratePct, title, message}`) · `GET /internal/billing/charges-start/{businessId}` · QA `POST /admin/qa/billing/charges-start-reminders?today=`. `DailyFeeView` gains `waivedFee`. Frontend: hospio-frontend `docs/qa/77-free-period-billing-start.md`.
 
+### Staging log: free until charges start (19 Nov 2026)
+
+QA businesses only. New business **QA Free Period ie2rw** (owner `qa.free.owner.ie2rw@hospio-qa.test`, restaurant "QA Free ie2rw Grill"),
+created after the deploy, so it started with no date. 19 Nov was a real cash sale (₦100,000 takeaway); the other days (5, 20, 25 Oct;
+3, 8, 12, 16 Nov) were seeded by SQL as FREE rows (ids `fp-…`, test only). Screenshots: `~/Desktop/Hospio test screenshots/Free period and billing start (19 Nov 2026)/`.
+
+| Scenario | Result |
+|---|---|
+| No date | Money tab "Free", no tag row (= Free); owner banner "Free: no charges until Hospio360 tells you"; 19 Nov worked out **FREE**: sales 100,000, fee 0, waived 1,500, due 0; October issue run → "Nothing to invoice" (no platform-fee invoice) |
+| Support | reads the date; `PUT` 403; no Change/Clear on the Money tab; onboarding step 3 date disabled |
+| Set 15 Oct (past, earlier) | preview: 7 free days become billable (NGN 26,700); without `confirmEarlier` 400 "… Confirm to go ahead."; with it (Finance admin) 20, 25 Oct and the 5 Nov days ACCRUED, 5 Oct stays FREE |
+| Partial month | October issued → **HIN-202610-0004**, platform 10,500 = "2 sale days, 20 October to 25 October · NGN 700,000.00 × 1.5%" (SQL: the two linked days, sales 700,000, fee 10,500) |
+| Clear | free again: the 5 Nov days back to FREE (fee 0, waived kept), the October invoice and its two days untouched (INVOICED) |
+| Future date 1 Mar 2027 | no confirm needed (nothing becomes billable); STARTS; owner banner "Charges start on 1 March 2027 — 1.5% of daily sales, invoiced monthly"; tags "Billing from 1 Mar 2027" in Businesses and Fees & billing; history of the 3 changes (also in Changes by Hospio360, area Billing start) |
+| 7-day reminder | QA run as on 22 Feb 2027: 1 business reminded, bell to the 3 money admins, email to each (victor@ delivered; amoria@ and tobi@hospio360.com bounced: those mailboxes don't exist); a second run reminded nobody |
+| Devices only | MONTHLY package (tablet 180,000 over 3 + data plan 30,000, signed schedule QA-FREE-DEV-1) → November issued **HIN-202611-0005**: Devices only (instalment 1 of 3 60,000 + data plan 30,000 = 90,000), platform 0; the 5 free November days not linked. Steps as on 12 Dec: overdue, restricted (both invoices), business RESTRICTED → so restriction works with devices alone. Both recorded paid by transfer (QA-FREE-OCTINV / QA-FREE-NOVINV) to lift it |
+| Guest messages | both off on the new restaurant; owner Email on / WhatsApp off: receipt outlook and the resend say "Receipt not sent: WhatsApp is switched off for this restaurant (Restaurant setup → Guest messages)", delivery SKIPPED with that reason; a guest email went to a `.test` address (SKIPPED, test address); Email off: guest email refused 400 "Email is switched off for this restaurant (…)"; WhatsApp on: a fake number HELD_BACK. One receipt to the allow-listed number in the free period: SENT, `free_period` true, NGN 0 (the provider then reported it undeliverable, so it ended FAILED and is not charged anyway) |
+| Existing businesses | migration 027 set 32 dates (e.g. QA Owner B Hotels fcekd 10 Jul 2026, QA Debit Rate rrydw 28 Oct 2026, Royal Suites 14 Nov 2026, THEWISEMAN 15 / 15 / 10 Nov 2026; all first day worked out or contract start). Their daily-fee totals by status and their invoices were identical before and after (fcekd: 11 PAID 41,430.01, 1 ACCRUED 2,790.00; rrydw: 2 PAID 3,000; HIN-… unchanged); owner fcekd sees "Charges started on 10 July 2026" |
+| Tablet widths | Money tab, owner Billing & invoices and Guest messages at 1024, 820 and 768 px: no sideways scroll |
+
+Fixed during the run: saving the date returned 500 (the Changes by Hospio360 record re-bound the connection to the business inside the
+transaction, so row security refused the platform-only row); the record is now written after the commit.
+
 ## How it works
 
 1. **Issue** (`MonthlyInvoiceJob` 07:00 on the 1st → `MonthlyInvoiceService.issueAll(last month, today)`; per business LIVE/AT_RISK): messaging `GET /internal/billing/messages/to-bill?businessId&month` (open `MSG-` invoices for months ≤ M, not linked) — a failure stops that business's invoice (retried by an admin run); then in one transaction under an advisory lock: daily fees of the business with no invoice and `feeDate ≤ month end`, open device items due by month end, `CARRIED_FORWARD` invoices and paid invoices with a credit, VAT, total, status, number; rows are linked (`daily_fees.monthly_invoice_id`, `device_invoices.monthly_invoice_id/number`, `carried_into_id`); then messaging `POST /internal/billing/messages/link`; then the ISSUED notice. One live invoice per business and month (unique index where status ≠ VOID).

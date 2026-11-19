@@ -126,3 +126,13 @@ identity `POST /auth/sign-up` gains `acceptTerms` and `acceptDebit` (both must b
 - Referral partners: a fee day inside the 12 months collected after the window still earns; an ended partner's carried balance is paid
   with the final statement regardless of the ₦5,000 minimum (`docs/plan-marketers.md`).
 - Existing owners, staff and marketers accept once at their next sign-in (expected).
+
+## Free until charges start (19 Nov 2026, wording only)
+
+Terms 5.1 and Fees 1.3 (hospio360.com/legal) now say the platform fee applies from the **charges start date** in the Order Form or set
+by Hospio360 and shown under Billing & invoices; days before it (or with no date) are free of the platform fee and guest message charges;
+devices are not part of the free period. Added to the web text of TOS-2026-11B / FEES-2026-11B **without a new version** (nobody is asked
+again), like the laundry lines. Word templates: **02 Order Form** row "Start date (Effective Date)" is now **"Charges start on"**
+(`[Start date]`, blank = free until Hospio360 sets it) and **00** describes the field; only 02 and 00 were rebuilt (backup in the
+scratchpad `legal/backup-charges-start-*`). 01 Terms and 03 Billing summary get the same sentence at their next rebuild.
+
