@@ -643,7 +643,7 @@ public class MonthlyInvoiceService {
         String stillWorks = "Signing in, checking guests out, recording cash on existing bills and tabs, reports and paying the invoice keep working.";
         String footer = "\n\n" + "Hospio360 · " + COMPANY_LINE;
         String summary = summary(i);
-        return switch (kind) {
+        Notice words = switch (kind) {
             case MonthlyInvoiceEvent.ISSUED -> MonthlyInvoice.CARRIED_FORWARD.equals(i.getStatus())
                     ? new Notice("Hospio360 · " + monthName + ": " + "NGN " + naira(i.getTotal()) + " carried forward",
                     hello + "Your Hospio360 invoice for " + monthName + " comes to NGN " + naira(i.getTotal()) + ", under NGN "
@@ -675,13 +675,40 @@ public class MonthlyInvoiceService {
                     Delivery.Kind.INVOICE_FINAL, "Final notice: invoice " + i.getNumber(),
                     "Pay " + owed + " today. From " + SHORT.format(pauseDay) + " 06:00 card/transfer POS payments, new sales and new bookings pause");
             case MonthlyInvoiceEvent.RESTRICTED -> new Notice("Paused: card/transfer payments, new sales and new bookings · invoice " + i.getNumber() + " unpaid",
-                    hello + "Hospio360 invoice " + i.getNumber() + " (" + monthName + ", " + owed + ") is unpaid, so card/transfer POS payments, new sales "
-                            + "and new bookings are paused. " + stillWorks + "\n\nEverything resumes within a minute of payment.\n\nPay now: " + link + footer,
+                    hello + "Hospio360 invoice " + i.getNumber() + " (" + monthName + ", " + owed + ") is unpaid, so card/transfer POS payments, new sales and new bookings are paused. "
+                            + stillWorks + "\n\nEverything resumes within a minute of payment.\n\nPay now: " + link + footer,
                     Delivery.Kind.INVOICE_FINAL, "Paused until invoice " + i.getNumber() + " is paid",
                     "Card/transfer POS payments, new sales and bookings are paused. The owner can pay " + owed + " now");
             default -> new Notice("Hospio360 invoice " + i.getNumber(), hello + summary + "\nSee it: " + link + footer, Delivery.Kind.INVOICE,
                     "Invoice " + i.getNumber(), owed);
         };
+        return hasStays(i.getBusinessId(), b) ? words
+                : new Notice(withoutStays(words.subject()), withoutStays(words.text()), words.emailKind(), withoutStays(words.bellTitle()),
+                        withoutStays(words.bellBody()));
+    }
+
+    /**
+     * Whether the business has rooms anywhere (docs/plan-venue-type.md, phase 5): a hotel-only business always, else any location with
+     * rooms. Unknown reads as yes, so a hotel's notices never change.
+     */
+    private boolean hasStays(String businessId, TenantClient.Business b) {
+        if (com.hospio.common.venue.VenuePlaces.ofBusiness(businessId).isHotel()) {
+            return true;
+        }
+        TenantClient.Business business = b != null ? b : asSystem(() -> tenant.business(businessId).orElse(null));
+        return business == null || business.hotels().stream().anyMatch(h -> h.roomCount() > 0);
+    }
+
+    /** The same notice for a lounge, bar or restaurant: nothing about bookings or checking guests out. */
+    static String withoutStays(String text) {
+        return text == null ? null : text
+                .replace("card/transfer POS payments, new sales and new bookings", "card/transfer POS payments and new sales")
+                .replace("card/transfer payments, new sales and new bookings", "card/transfer payments and new sales")
+                .replace("Card/transfer POS payments, new sales and new bookings", "Card/transfer POS payments and new sales")
+                .replace("Card/transfer POS payments, new sales and bookings", "Card/transfer POS payments and new sales")
+                .replace("Signing in, checking guests out, recording cash", "Signing in, recording cash")
+                .replace("Signing in, check-out, cash on existing", "Signing in, cash on existing")
+                .replace("Check-out and cash on existing bills and tabs still work.", "Cash on existing bills and tabs still works.");
     }
 
     /** The invoice's figures, one "Label: value" a line (the email lays them out as a table). */
@@ -1272,8 +1299,11 @@ public class MonthlyInvoiceService {
     public BillingHold.Hold hold(String businessId) {
         return asSystem(() -> invoices.findByBusinessIdAndStatusIn(businessId, OPEN).stream().filter(MonthlyInvoice::restricted)
                 .min(Comparator.comparing(MonthlyInvoice::getDueOn))
-                .map(i -> new BillingHold.Hold(true, i.getNumber(), "the Hospio360 invoice " + i.getNumber() + " (" + MONTH.format(YearMonth.parse(i.getMonth()))
-                        + ") is unpaid. They resume within a minute of the owner paying it under Billing & invoices. Check-out and cash on existing bills and tabs still work."))
+                .map(i -> {
+                    String why = "the Hospio360 invoice " + i.getNumber() + " (" + MONTH.format(YearMonth.parse(i.getMonth()))
+                            + ") is unpaid. They resume within a minute of the owner paying it under Billing & invoices. Check-out and cash on existing bills and tabs still work.";
+                    return new BillingHold.Hold(true, i.getNumber(), hasStays(businessId, null) ? why : withoutStays(why));
+                })
                 .orElse(BillingHold.Hold.NONE));
     }
 
@@ -1314,8 +1344,10 @@ public class MonthlyInvoiceService {
                     + (owner ? "" : " Ask the owner to pay it.");
             default -> "NGN " + naira(i.outstanding()) + " for " + monthName + ", due " + DAY.format(i.getDueOn()) + "." + (owner ? "" : " The owner pays it.");
         };
+        boolean stays = hasStays(user.getBusinessId(), null);
         return new BillingStatus(state, i.getId(), i.getNumber(), monthName, manager ? i.outstanding() : null, i.getDueOn(), i.lastDay(),
-                restrictFrom(i), i.restricted(), owner && !user.isReadOnly(), title, message);
+                restrictFrom(i), i.restricted(), owner && !user.isReadOnly(), stays ? title : withoutStays(title),
+                stays ? message : withoutStays(message));
     }
 
     static String statusState(MonthlyInvoice i, LocalDate today) {

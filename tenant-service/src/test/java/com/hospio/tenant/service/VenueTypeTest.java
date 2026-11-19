@@ -135,6 +135,25 @@ class VenueTypeTest {
         assertThat(OnboardingService.welcomeText("Ada Obi", "QA Hotels", "https://x")).contains("rooms, prices and staff");
     }
 
+    /** -Dvenue.email.texts=dir: the handover pack and welcome of a lounge, for messaging's VenueEmailPreviewWriter. */
+    @Test
+    @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "venue.email.texts", matches = ".+")
+    void writeTheLoungeEmailTexts() throws Exception {
+        java.nio.file.Path dir = java.nio.file.Path.of(System.getProperty("venue.email.texts"));
+        java.nio.file.Files.createDirectories(dir);
+        HandoverPack pack = new HandoverPack("https://web-staging.hospio360.com");
+        HotelResponse lounge = HotelResponse.of(hotel("h1", "QA Lounge Wuse Bar", VenueType.LOUNGE, 0));
+        HotelResponse hotel = HotelResponse.of(hotel("h2", "QA Rooms Ikeja", VenueType.HOTEL, 12));
+        java.nio.file.Files.writeString(dir.resolve("handover-pack-lounge.txt"), "HANDOVER_PACK\nHospio360\nlocation\nYour Hospio360 handover pack \u00b7 QA Lounge qhye\n"
+                + pack.text("QA Lounge qhye", "Ada", List.of(lounge), List.of()));
+        java.nio.file.Files.writeString(dir.resolve("handover-pack-mixed.txt"), "HANDOVER_PACK\nHospio360\nlocation\nYour Hospio360 handover pack \u00b7 QA Venue Mixed cvt5\n"
+                + pack.text("QA Venue Mixed cvt5", "Ada", List.of(hotel, lounge), List.of()));
+        java.nio.file.Files.writeString(dir.resolve("handover-pack-hotel.txt"), "HANDOVER_PACK\nHospio360\nhotel\nYour Hospio360 handover pack \u00b7 QA Hotels\n"
+                + pack.text("QA Hotels", "Ada", List.of(hotel), List.of()));
+        java.nio.file.Files.writeString(dir.resolve("welcome-lounge.txt"), "WELCOME\nHospio360\nlocation\nWelcome to Hospio360 \u00b7 QA Lounge qhye is live\n"
+                + OnboardingService.welcomeText("Ada Obi", "QA Lounge qhye", "https://web-staging.hospio360.com", false));
+    }
+
     private static Hotel hotel(String id, String name, VenueType type, int rooms) {
         Hotel h = Hotel.builder().businessId("b1").name(name).city("Abuja").venueType(type).roomCount(rooms).build();
         h.setId(id);

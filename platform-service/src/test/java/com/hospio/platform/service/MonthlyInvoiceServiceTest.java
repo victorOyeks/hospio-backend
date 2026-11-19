@@ -278,6 +278,40 @@ class MonthlyInvoiceServiceTest {
     }
 
     @Test
+    void aLoungeIsNotToldAboutBookingsOrCheckOut() throws Exception {
+        com.hospio.common.venue.VenuePlaces places = new com.hospio.common.venue.VenuePlaces();
+        places.remember("b|b1", com.hospio.common.venue.VenueWording.LOCATION);
+        com.hospio.common.venue.VenuePlaces.useForTests(places);
+        try {
+            MonthlyInvoice i = invoice(ISSUED);
+            i.setId("inv1");
+            i.setBusinessName("QA Lounge qhye");
+            TenantClient.Business lounge = new TenantClient.Business("b1", "QA Lounge qhye", "Abuja", "LIVE", null, null, "Ada", "ada@hospio-qa.test", null,
+                    "PERCENT_OF_SALES", new BigDecimal("1.5"), null, null, null, null, 1, List.of(new TenantClient.Hotel("h1", "QA Lounge Wuse Bar", "Abuja", 0, "ACTIVE", null)));
+            String dir = System.getProperty("venue.email.texts");
+            for (String kind : List.of(MonthlyInvoiceEvent.ISSUED, MonthlyInvoiceEvent.REMINDER, MonthlyInvoiceEvent.FINAL_WARNING, MonthlyInvoiceEvent.RESTRICTED)) {
+                MonthlyInvoiceService.Notice n = service.noticeText(i, kind, lounge);
+                assertThat(n.subject() + n.text() + n.bellTitle() + n.bellBody()).as(kind).doesNotContainIgnoringCase("booking").doesNotContain("checking guests out")
+                        .doesNotContainIgnoringCase("hotel");
+                if (dir != null) {
+                    java.nio.file.Files.createDirectories(java.nio.file.Path.of(dir));
+                    java.nio.file.Files.writeString(java.nio.file.Path.of(dir, "invoice-" + kind.toLowerCase(java.util.Locale.ROOT) + "-lounge.txt"),
+                            n.emailKind() + "\nHospio360\nlocation\n" + n.subject() + "\n" + n.text());
+                }
+            }
+            assertThat(service.noticeText(i, MonthlyInvoiceEvent.FINAL_WARNING, lounge).text())
+                    .contains("card/transfer POS payments and new sales pause until it is paid. Signing in, recording cash on existing bills and tabs");
+            // A mixed business (a location with rooms) keeps the booking wording.
+            TenantClient.Business mixed = new TenantClient.Business("b1", "QA Mixed", "Lagos", "LIVE", null, null, "Ada", "ada@hospio-qa.test", null, "PERCENT_OF_SALES",
+                    new BigDecimal("1.5"), null, null, null, null, 2, List.of(new TenantClient.Hotel("h1", "Lounge", "Lagos", 0, "ACTIVE", null),
+                    new TenantClient.Hotel("h2", "Hotel", "Lagos", 12, "ACTIVE", null)));
+            assertThat(service.noticeText(i, MonthlyInvoiceEvent.FINAL_WARNING, mixed).text()).contains("new sales and new bookings pause");
+        } finally {
+            com.hospio.common.venue.VenuePlaces.useForTests(null);
+        }
+    }
+
+    @Test
     void aCreditNoteIsALineOnTheInvoiceAndLowersTheTotal() {
         MonthlyInvoice i = invoice(ISSUED);
         i.setId("inv1");
