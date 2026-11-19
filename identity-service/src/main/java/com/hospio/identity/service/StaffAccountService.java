@@ -100,13 +100,18 @@ public class StaffAccountService {
         return userService.get(user.getId());
     }
 
+    /** Shortest reason a suspension is logged with (the web keeps Suspend off until it is typed). */
+    static final int SUSPEND_REASON_MIN = 3;
+
     @Transactional
     public UserResponse suspend(String userId, StaffAccountRequests.Suspend request) {
         HospioUserDetails caller = CurrentUser.require();
         UserAccount user = target(caller, userId, "suspend");
         String reason = request == null ? null : clean(request.reason());
-        if (reason == null || reason.length() < 3) {
-            throw new BadRequestException("Say why " + user.getFullName() + " is suspended");
+        // Checked before anything changes: a blank or one-word-short reason never suspends (DEF-092).
+        if (reason == null || reason.length() < SUSPEND_REASON_MIN) {
+            throw new BadRequestException("Enter a reason to suspend " + user.getFullName() + " (at least " + SUSPEND_REASON_MIN
+                    + " characters). They have not been suspended");
         }
         if (user.getStatus() == UserAccount.Status.SUSPENDED) {
             throw new BadRequestException(user.getFullName() + " is already suspended");

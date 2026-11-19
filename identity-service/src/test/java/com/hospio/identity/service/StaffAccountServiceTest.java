@@ -114,8 +114,16 @@ class StaffAccountServiceTest {
     @Test
     void suspendingNeedsAReasonAndHappensOnce() {
         signInAs("godwin", "b1", Role.OWNER, "h1");
+        String needsReason = "Enter a reason to suspend Ada Okeke (at least 3 characters). They have not been suspended";
         assertThatThrownBy(() -> service.suspend("ada", new StaffAccountRequests.Suspend(" ")))
-                .isInstanceOf(BadRequestException.class).hasMessage("Say why Ada Okeke is suspended");
+                .isInstanceOf(BadRequestException.class).hasMessage(needsReason);
+        assertThatThrownBy(() -> service.suspend("ada", new StaffAccountRequests.Suspend(null)))
+                .isInstanceOf(BadRequestException.class).hasMessage(needsReason);
+        assertThatThrownBy(() -> service.suspend("ada", null))
+                .isInstanceOf(BadRequestException.class).hasMessage(needsReason);
+        assertThatThrownBy(() -> service.suspend("ada", new StaffAccountRequests.Suspend(" ok ")))
+                .isInstanceOf(BadRequestException.class).hasMessage(needsReason);
+        assertThat(ada.getStatus()).isEqualTo(UserAccount.Status.ACTIVE);
         ada.setStatus(UserAccount.Status.SUSPENDED);
         assertThatThrownBy(() -> service.suspend("ada", new StaffAccountRequests.Suspend("Again")))
                 .isInstanceOf(BadRequestException.class).hasMessage("Ada Okeke is already suspended");
