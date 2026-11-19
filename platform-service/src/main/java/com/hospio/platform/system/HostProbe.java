@@ -32,6 +32,7 @@ public class HostProbe {
     private final Path etc;
     private long[] lastCpu;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public HostProbe() {
         this(Path.of("/proc"), Path.of("/etc"));
     }
