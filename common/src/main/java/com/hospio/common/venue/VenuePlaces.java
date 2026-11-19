@@ -121,8 +121,8 @@ public class VenuePlaces {
         instance = places;
     }
 
-    /** Tests: a fixed answer for a location or ("b|" + id) a business. */
-    void remember(String key, VenueWording words) {
+    /** Tests: a fixed answer for a location ("h|" + id) or a business ("b|" + id). */
+    public void remember(String key, VenueWording words) {
         cache.put(key, new Cached(words, Long.MAX_VALUE));
     }
 }

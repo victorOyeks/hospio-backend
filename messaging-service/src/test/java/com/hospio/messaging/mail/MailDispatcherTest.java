@@ -515,4 +515,27 @@ class MailDispatcherTest {
         assertThat(dispatcher.banner("h-royal", "Royal Suites & Spa")).isEqualTo("https://hospio360.com/whatsapp/banner?c=0b4f50&n=Royal%20Suites%20%26%20Spa");
         assertThat(dispatcher.banner("h-plain", "Plain Hotel")).isNull();
     }
+
+    @Test
+    void theHandoverPackAndWelcomeTakeTheirPlaceFromTheBusinessTheyAreAbout() {
+        com.hospio.common.venue.VenuePlaces places = new com.hospio.common.venue.VenuePlaces();
+        places.remember("b|biz-lounge", com.hospio.common.venue.VenueWording.LOCATION);
+        places.remember("h|h-lounge", com.hospio.common.venue.VenueWording.of("LOUNGE"));
+        com.hospio.common.venue.VenuePlaces.useForTests(places);
+        try {
+            org.assertj.core.api.Assertions.assertThat(MailDispatcher.placeWords(DeliveryRecord.builder().kind("HANDOVER_PACK").ref("biz-lounge").build()).place())
+                    .isEqualTo("location");
+            org.assertj.core.api.Assertions.assertThat(MailDispatcher.placeWords(DeliveryRecord.builder().kind("WELCOME").ref("biz-lounge").build()).place())
+                    .isEqualTo("location");
+            org.assertj.core.api.Assertions.assertThat(MailDispatcher.placeWords(DeliveryRecord.builder().kind("RECEIPT").hotelId("h-lounge").build()).place())
+                    .isEqualTo("lounge");
+            // A mail about no place (an invite from Hospio360, an invoice reference) reads as before.
+            org.assertj.core.api.Assertions.assertThat(MailDispatcher.placeWords(DeliveryRecord.builder().kind("INVOICE").ref("biz-lounge").build()).place())
+                    .isEqualTo("hotel");
+            org.assertj.core.api.Assertions.assertThat(MailDispatcher.placeWords(DeliveryRecord.builder().kind("WELCOME").ref("unknown").build()).place())
+                    .isEqualTo("hotel");
+        } finally {
+            com.hospio.common.venue.VenuePlaces.useForTests(null);
+        }
+    }
 }

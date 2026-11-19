@@ -371,6 +371,23 @@ public class MailDispatcher {
         finish(recordId, result);
     }
 
+    /**
+     * The place a mail is about, for its footer and heading (docs/plan-venue-type.md, phase 5): its location, else its business. The
+     * handover pack and the owner's welcome go out from Hospio360 itself with no business in the context; their reference is the
+     * business id. Anything else without a place reads as a hotel's, as before.
+     */
+    static com.hospio.common.venue.VenueWording placeWords(DeliveryRecord r) {
+        if (r.getHotelId() != null) {
+            return com.hospio.common.venue.VenuePlaces.at(r.getHotelId());
+        }
+        if (r.getBusinessId() != null) {
+            return com.hospio.common.venue.VenuePlaces.ofBusiness(r.getBusinessId());
+        }
+        boolean aboutABusiness = "HANDOVER_PACK".equalsIgnoreCase(r.getKind()) || "WELCOME".equalsIgnoreCase(r.getKind());
+        return aboutABusiness && r.getRef() != null ? com.hospio.common.venue.VenuePlaces.ofBusiness(r.getRef())
+                : com.hospio.common.venue.VenueWording.HOTEL;
+    }
+
     private Result sendEmail(DeliveryRecord r) {
         From sender;
         SmtpGateway.Email mail;
@@ -378,8 +395,7 @@ public class MailDispatcher {
             sender = senderFor(r.getBusinessId(), r.getHotelId(), r.getFromName(), r.getReplyTo());
             EmailTemplates.Rendered rendered = templates.render(r.getKind(), sender.name(), r.getSubject(), r.getBodyText(),
                     brands == null ? EmailTemplates.Brand.HOSPIO : brands.brand(r.getHotelId()),
-                    r.getHotelId() != null ? com.hospio.common.venue.VenuePlaces.at(r.getHotelId())
-                            : com.hospio.common.venue.VenuePlaces.ofBusiness(r.getBusinessId()));
+                    placeWords(r));
             String html = notBlank(r.getBodyHtml()) ? r.getBodyHtml() : rendered.html();
             mail = new SmtpGateway.Email(sender().fromAddress(), sender.name(), r.getToAddress(), sender.replyTo(), rendered.subject(), html, rendered.text());
         } catch (RuntimeException ex) {

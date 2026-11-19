@@ -107,7 +107,10 @@ public class InvoicePdf {
                         + "USSD through Paystack.", BODY));
                 doc.add(new Paragraph(payLink, SMALL));
                 doc.add(new Paragraph("If it is still unpaid after " + DAY.format(v.lastDay()) + ", from " + DAY.format(v.lastDay().plusDays(1))
-                        + " 06:00 card/transfer POS payments, new sales and new bookings pause until it is paid. Signing in, check-out, cash on existing bills, "
+                        // A business with a lounge, bar or restaurant among its locations is not told about bookings and check-out.
+                        + (com.hospio.common.venue.VenuePlaces.ofBusiness(v.businessId()).isHotel()
+                        ? " 06:00 card/transfer POS payments, new sales and new bookings pause until it is paid. Signing in, check-out, cash on existing bills, "
+                        : " 06:00 card/transfer POS payments and new sales pause until it is paid. Signing in, cash on existing bills, ")
                         + "reports and paying the invoice keep working.", SMALL));
             } else if ("PAID".equals(v.status())) {
                 doc.add(new Paragraph("Paid in full" + (v.paidAt() == null ? "" : " on " + WHEN.format(v.paidAt())) + ". Thank you.", BOLD));
