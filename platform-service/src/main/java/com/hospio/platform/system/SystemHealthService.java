@@ -75,7 +75,9 @@ public class SystemHealthService {
     private final DirSizes dirs;
     private final SnapshotStore snapshots;
     private final PlatformSettingsService settings;
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).followRedirects(HttpClient.Redirect.NEVER).build();
+    /** HTTP/1.1: Java's default HTTP/2 asks a plain-http server to upgrade (h2c), which the Next.js web apps answer by dropping the connection. */
+    private final HttpClient http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(2))
+            .followRedirects(HttpClient.Redirect.NEVER).build();
 
     private volatile Report cached;
 
