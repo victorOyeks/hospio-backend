@@ -68,6 +68,12 @@ public class EmailTemplates {
         }
     }
 
+    /** Hospio360's own sender name (MAIL_FROM_NAME_DEFAULT): its mail carries the wordmark instead of initials and a name. */
+    static final String HOSPIO_NAME = "Hospio360";
+    /** The wordmark PNGs (2x of 161 × 32), served by the landing site (hotel-internal-system-admin-FE apps/landing/public/brand). */
+    static final String WORDMARK_WHITE = "https://hospio360.com/brand/hospio360-wordmark-white@2x.png";
+    static final String WORDMARK_MAROON = "https://hospio360.com/brand/hospio360-wordmark-maroon@2x.png";
+
     /** The app's tokens (packages/ui globals.css). */
     private static final String INK = "#212121";
     private static final String INK_2 = "#616161";
@@ -190,19 +196,27 @@ public class EmailTemplates {
                 .append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:").append(PAGE).append(";padding:28px 12px;\"><tr><td align=\"center\">")
                 .append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:600px;\">");
 
-        // Header band: the hotel's colour, its logo (or its initials) and name.
+        // Header band: the hotel's colour, its logo (or its initials) and name; Hospio360's own mail shows its wordmark.
         h.append("<tr><td style=\"background:").append(b.colour()).append(";border-radius:16px 16px 0 0;padding:22px 32px;\">")
                 .append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\"><tr>");
-        if (b.logoUrl() != null) {
-            h.append("<td style=\"padding-right:12px;\"><img src=\"").append(esc(b.logoUrl())).append("\" alt=\"").append(esc(from))
-                    .append("\" height=\"36\" style=\"display:block;height:36px;max-width:160px;border-radius:8px;\"></td>");
+        if (b.logoUrl() == null && HOSPIO_NAME.equalsIgnoreCase(from)) {
+            // Hospio360's own mail: its wordmark (logo Option C), an outlined PNG so it never depends on a font. White on the
+            // maroon band, maroon when the band is light.
+            String mark = "#ffffff".equalsIgnoreCase(b.onColour()) ? WORDMARK_WHITE : WORDMARK_MAROON;
+            h.append("<td><img src=\"").append(mark).append("\" alt=\"Hospio360\" width=\"161\" height=\"32\" ")
+                    .append("style=\"display:block;width:161px;height:32px;border:0;outline:none;text-decoration:none;\"></td>");
         } else {
-            h.append("<td style=\"padding-right:12px;\"><div style=\"width:36px;height:36px;line-height:36px;text-align:center;border-radius:10px;")
-                    .append("background:rgba(255,255,255,0.18);color:").append(b.onColour()).append(";font-weight:700;font-size:14px;\">")
-                    .append(esc(initials(from))).append("</div></td>");
+            if (b.logoUrl() != null) {
+                h.append("<td style=\"padding-right:12px;\"><img src=\"").append(esc(b.logoUrl())).append("\" alt=\"").append(esc(from))
+                        .append("\" height=\"36\" style=\"display:block;height:36px;max-width:160px;border-radius:8px;\"></td>");
+            } else {
+                h.append("<td style=\"padding-right:12px;\"><div style=\"width:36px;height:36px;line-height:36px;text-align:center;border-radius:10px;")
+                        .append("background:rgba(255,255,255,0.18);color:").append(b.onColour()).append(";font-weight:700;font-size:14px;\">")
+                        .append(esc(initials(from))).append("</div></td>");
+            }
+            h.append("<td style=\"color:").append(b.onColour()).append(";font-size:17px;font-weight:700;letter-spacing:-0.01em;\">").append(esc(from)).append("</td>");
         }
-        h.append("<td style=\"color:").append(b.onColour()).append(";font-size:17px;font-weight:700;letter-spacing:-0.01em;\">").append(esc(from)).append("</td>")
-                .append("</tr></table></td></tr>");
+        h.append("</tr></table></td></tr>");
 
         // Card: badge, heading, then the body's blocks.
         h.append("<tr><td style=\"background:#ffffff;border:1px solid ").append(LINE).append(";border-top:0;border-radius:0 0 16px 16px;padding:30px 32px 26px 32px;\">")
