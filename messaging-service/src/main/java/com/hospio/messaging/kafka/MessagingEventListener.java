@@ -245,7 +245,8 @@ public class MessagingEventListener {
         bound(e, () -> {
             boolean outside = e.getOutsideOutlet() != null ? e.getOutsideOutlet() : e.getRoomId() != null;
             if (outside) {
-                notifications.notifyRoles(e.getEventId(), "ROOM_SERVICE", "New " + ("BAR".equals(e.getOutletKind()) ? "bar" : "kitchen") + " order" + (e.getOrderNumber() == null ? "" : " " + e.getOrderNumber()),
+                // The tag under the notice: room service only when the order is for a room (a waiter's order at a lounge is a new order).
+                notifications.notifyRoles(e.getEventId(), e.getRoomId() != null ? "ROOM_SERVICE" : "NEW_ORDER", "New " + ("BAR".equals(e.getOutletKind()) ? "bar" : "kitchen") + " order" + (e.getOrderNumber() == null ? "" : " " + e.getOrderNumber()),
                         e.getOutletName() + " · " + naira(e.getTotal()) + (e.getActorName() == null ? "" : " · from " + e.getActorName()), "/dashboard?order=" + e.getOrderId(),
                         "BAR".equals(e.getOutletKind()) ? "BAR" : "KITCHEN");
             }

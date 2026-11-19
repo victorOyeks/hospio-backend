@@ -77,7 +77,14 @@ whose effective date has passed is in force; from then, everyone who accepts tha
 Text changes that aren't material (an address, a typo) are made on hospio360.com/legal without a new version, so nobody is
 asked again: the platform holds only versions, the text lives in the landing site (`apps/landing/src/legal/documents.json`). The
 Terms 17.1 (notices: "our registered office in Lagos, Nigeria") and the entity line on every legal page were reworded this way
-on 18 Nov 2026.
+on 18 Nov 2026. On 19 Nov 2026, the same way (wording only, no new version, nobody asked again): guest message charges are emails and
+WhatsApp messages only, SMS being only for sign-in codes (Terms 5.4(b) and 5.9, Fees 3.2(b), Referral partner terms 4.3); Terms 7.3 and
+Fees 5.5 say what a full suspension is; and Terms 7.3 names the grounds for suspending for another reason (a serious breach of the
+Terms such as fraud, misuse of the Platform or of guests' data, or attempts to avoid fees; protecting the Platform, other customers
+or data; or at the customer's request), with "where it is safe and lawful to do so, we will tell you why and how to have the
+suspension lifted". The owner approved the last one as a wording change because there are no live customers yet and production
+gives 30 days' notice at go-live. The Word templates (01 Terms, 02 Order Form, 03 Billing summary, 10 Referral partner, 00 guide)
+were rebuilt with the same wording.
 A **material** change needs 30 days' notice (`hospio.legal.material-notice-days`): its effective date must be at least 30 days ahead,
 and until then it shows as "Coming" in My profile → Terms & acceptances. Put the new text on hospio360.com/legal first.
 

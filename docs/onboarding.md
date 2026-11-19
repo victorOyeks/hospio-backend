@@ -2,6 +2,23 @@
 
 How a hotel business gets into Hospio360 and sets itself up, on both paths, and the API contract the web apps build against. Figma: Hotel Owner page, section "Onboarding" (3163:16113, 12 screens); Platform admin page, "Phase 2 · Back-office onboarding & handover" (3328:661, J1–J18 and Owner K1–K3) and "Phase 1 · Businesses & hotels" (3321:327).
 
+## Hotels, lounges, bars and restaurants
+
+"Hotel" in this document, in the routes and in the fields (`/hotels`, `hotelId`) means a **location** of the business. Since the
+venue type work (`docs/plan-venue-type.md`) a business has a kind (`venueKind`: HOTEL, LOUNGE, BAR, RESTAURANT, CLUB or MIXED)
+and each location a type (`venueType`: the same without MIXED) with the capability `hasAccommodation`. Both wizards ask "What
+kind of business?" first. What differs for a location without rooms:
+
+- **Self-serve**: step 2 is "Your first lounge" (bar, restaurant; "location" for a mixed business) without check-in times, and
+  step 3 is **Outlets** (bar, restaurant, kitchen) instead of rooms and prices. The step numbers are the same.
+- **Back office**: "Set up a business for them" asks the kind; step 4 is **Locations** with a type per row, step 5 Rooms reads
+  "Not needed", step 6 applies the lounge, bar and restaurant setup by itself and takes the outlets, People offers no front office
+  or housekeeping, the go-live checklist has no rooms line.
+- **Words** (phase 5): the apps, emails and server messages name the place by its type ("Lounge setup", "Lounge name must contain
+  letters…", "Your business is ready on Hospio360"), and by "location(s)" for a business that is not hotels only ("This business
+  already has a location called X…", the owner's **Locations** page with **Add a location**). A hotel reads what this document
+  quotes. Rule and tables: `docs/plan-venue-type.md`, "Phase 5: wording"; the helper is `common/venue/VenueWording`.
+
 ## The two paths
 
 **Self-serve (the hotel signs up).** The owner creates an account on the hotel app (`/sign-up`), confirms their phone, and walks a 4-step wizard: business, first hotel, rooms and prices, first manager. Each step writes to the real services as it is saved; the wizard's progress is kept in the business's onboarding draft (`source = SELF_SERVE`). Finishing the wizard sets the business `LIVE`. The manager gets a temporary password and an invite link the owner can send; the manager sets a password on `/accept-invite` and lands on their first day.
@@ -48,7 +65,7 @@ blocks saving another step):
   Also applies to the owner's own business profile.
 - **Owner email**: refused when another business's owner has it or a login already signs in with it (409 "x already has an account…").
 - **Owner phone**: refused when another business's owner has it (last ten digits) or a login uses it (409 "…already in use…").
-- **Hotel name**: one per business, any case or spacing (409 "This business already has a hotel called X…"); also for owners.
+- **Hotel name**: one per business, any case or spacing (409 "This business already has a hotel called X…"; "…a location called X…" in a business that is not hotels only); also for owners.
 
 The wizard's step 2 second contact (kept in the draft only) is checked by `PUT /tenant/onboarding/{id}/step` when filled.
 

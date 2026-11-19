@@ -1,5 +1,7 @@
 # Lounge, bar and restaurant businesses (venue type)
 
+**Status: all six phases done (19 Nov 2026).** What is left is under "Known limits".
+
 Tracker for letting a lounge, bar, restaurant or club run on Hospio360 without pretending to be a hotel, and for businesses that own
 both (a hotel and a lounge). Agreed with the owner on 18 Nov 2026, after the QA Lounge test (business "QA Lounge qhye",
 venue "QA Lounge Wuse Bar"): a lounge could already trade with 0 rooms, but every screen still spoke hotel, the owner's sign-up could
@@ -40,8 +42,107 @@ not get past "Rooms & prices", and room features (bookings, folios, charge-to-ro
 | 2 | Venue dashboards and reports: sales by outlet, item and staff; open tabs; tills and cash-ups; best sellers; hour-of-day; owner comparison across locations by kind (only real comparisons) | Done (18 Nov 2026) |
 | 3 | "Lounge / bar / restaurant" setup template (no stay rules or housekeeping, tabs on with a limit, service charge, happy hours) applied by kind in both wizards; Waiter and Cashier roles with default access levels; role pickers offer them for venues | Done (18 Nov 2026) |
 | 4 | The bill: splitting (equally, by item, by amount) with each part paid its own way and a receipt per part; manual discounts and complimentary items with a limit and a reason; void and discount requests from the floor, approved from the dashboard or with the manager's PIN on the device; optional tips; outlets per person | Done (18 Nov 2026) |
-| 5 | Wording: landing page, sign-up and sign-in ("hotel, lounge or restaurant"), handover pack and owner acceptance, admin portal ("Hotels" directory → Locations with kind), owner "Hotels" page → Locations, server messages that still say "hotel", Hotel setup → Location setup | In progress: **landing page done (19 Nov 2026)** (home page, new /features page, site title and description, share image, demo email; FE QA script 68); the rest to do |
-| 6 | Regression across hotel customers and docs: every role on a hotel, a lounge and a mixed business; contracts (onboarding.md, roles-permissions.md, restaurant-bar.md) updated | To do |
+| 5 | Wording: a lounge, bar or restaurant reads its own word everywhere (landing page, apps, admin portal, help, emails, server messages); a hotel reads what it read before | Done (19 Nov 2026) |
+| 6 | Regression across hotel customers and docs: every role on a hotel, a lounge and a mixed business; contracts (onboarding.md, admin-portal.md, roles-permissions.md, restaurant-bar.md) updated | Done (19 Nov 2026) |
+
+## Phase 5: wording
+
+**Rule.** The word comes from the **location's type** ("hotel", "lounge", "bar", "restaurant", "club") for anything about one
+location, and from the **business** for anything about all of it: "hotel(s)" while every location is a hotel, otherwise
+"location(s)". The settings area is "Hotel setup" at a hotel and "Lounge setup" (Bar setup, Restaurant setup) at a venue; its
+address stays `/dashboard/hotel-setup`. Copy about rooms, bookings, stays and folios is gated on the capability
+(`hasAccommodation`), not reworded. A hotel reads exactly what it read before, with the few deliberate exceptions listed below.
+No API field, route, enum or legal version changed. The landing page was done first (web QA script 68).
+
+**How it is built.**
+
+- Backend: `common/venue/VenueWording` + `VenuePlaces` (below).
+- Web: `packages/api/src/venue.ts` `wording(location)`, `businessWording(locations, kind)` and `adaptText(text, words)`, the mirror
+  of `VenueWording`. `adaptText` rewrites the hotel words of **our own copy** only ("hotel(s)", "Hotel setup"; never inside an
+  address, an email, a `{{hotel}}` placeholder or "hotel guest") and returns hotel wording untouched, so the source strings stay
+  the hotel's. The dashboard shell puts the words in a context (`packages/ui/src/shared/wording.tsx`): `usePlaceText()` for copy
+  about the active location, `useBizText()` for the owner's business-level copy, `useWording().stays` to leave out copy about
+  rooms. Server pages use `getWords()` (`packages/api/src/words.ts`). A name someone typed never goes through `adaptText`.
+- Help: `helpFor(app, roles, role, words)` words every guide for the place, leaves out the guides about rooms and stays (a guide
+  whose page is a rooms-and-stays page, or marked `stay`), and uses a guide's `venue` version where its steps differ (add a
+  location, pause or close, guest messaging, night audit, new order, brand colours…).
+- Roles: `rolePermissions(role, stays)` and `managerOnlyActions(stays)` leave out the lines about rooms, stays and folios;
+  `roleLabel` / `roleDescription` ("Owner", "Run this lounge: sales, tabs, staff, money").
+
+### Web: what changed and what was left
+
+Method: every user-facing string with "hotel" in `apps/hotel`, `apps/admin`, `packages/ui` and `packages/api` (1,045 lines in 199
+files, comments and identifiers excluded) classified; then every menu page of each role at QA Lounge qhye swept in the browser for
+"hotel", "room", "check-in", "folio" and "booking" until none was left (exceptions in the phase 6 log).
+
+| Area | A lounge, bar or restaurant now reads | A hotel reads |
+|---|---|---|
+| Menu | "Lounge setup"; owner: "Locations" | "Hotel setup"; "Hotels" (a mixed business: "Locations") |
+| Owner · Locations page | "Locations", "Add a location" (asks the **Kind of location**, no check-in times, no rooms step, "Outlets are added in Lounge setup → Restaurants & tables"), "Edit / Close / Reopen location", "Pause lounge", the kind in each row, no Rooms or Occupancy column, tile or tab at a location without rooms | the same page as before, except "Revenue · month to date" → **"Money received · month to date"** (it counts money received) |
+| Owner pages (Staff, Users, Financials, Payments, Reports, Operations, Messaging, Settings, Hospio fees, dashboard) | "All locations", "your locations", "Location" column and CSV header, "Change role & locations", "what each location sold", role "Owner" | unchanged ("All hotels", "Hotel owner"…) |
+| Setup | "Lounge setup", "Lounge basics", "Lounge status", "Pause / Close / Reopen this lounge" (no "Pause new bookings" or "Guests in house finish their stay"), colours note without the booking page | unchanged |
+| Staff, roles, tills, finance | "Remove from lounge", "the lounge's usual float", "set in Lounge setup → Money", "The lounge's list…", Roles & permissions without Front office, Housekeeping and the room / folio / booking lines | unchanged |
+| Bar, kitchen, waiter, cashier | "…adds one in Lounge setup → Restaurants & tables", no "On rooms" tile on Sales | unchanged (Charge to room, "Hotel guest", "On rooms") |
+| Laundry | no "Charged to rooms today" tile | unchanged |
+| Night audit | links to Financials and Payments instead of Bookings, Folios, Organizations | unchanged |
+| Billing | "…card/transfer POS payments and new sales pause…" (no new bookings, no check-out) | unchanged |
+| Reports | "Location" columns; Revenue by source: "Restaurant, bar and other revenue" | unchanged |
+| Help | guides in the place's words; rooms, bookings, folio, charge-to-room and minibar guides left out; venue versions of 20 guides; What's new without the room items | unchanged |
+| Sign-in panel (before anyone is known) | "Run your business from one place." "For hotels, lounges, bars and restaurants: sales, guests, money and your team…" | the same new text |
+| Sign-up, owner wizard | "Create your account", "For owners of hotels, lounges, bars and restaurants", "Lounge setup", "Locations → Add a location" | "Create your account" (was "Create your hotel account") |
+| Admin portal | Customers → **Locations** (was Hotels) with a **Kind** column and filter and "—" for rooms where there are none; "Set up a business for them" asks **What kind of business?**; "location" / "business" through Fees & billing, Payments & POS, Support, Devices, Guest messages, Changes, onboarding People / Connections / Setup, Marketers ("Refer a business") and help | (Hospio360 staff only) |
+
+Deliberately left:
+
+- Addresses (`/dashboard/hotels`, `/dashboard/hotel-setup`, `/hotel-owner/...`), API fields (`hotelId`, `hotelName`), code names.
+- Everything a location without rooms never sees: Front office, Rooms, Bookings, Folios, Organizations, Housekeeping, room panels,
+  the back-office Rooms step, the guest's booking page (`/stay/...`).
+- Charge-to-room labels ("Hotel guest", "Charge to room", "On rooms" when a past sale has some).
+- "Not used at a lounge" (the page that explains a rooms page has no use there) says "rooms and stays" on purpose.
+- Fallbacks shown only when a name is missing ("this hotel" in a few server pages; never seen in practice).
+- Legal pages (they already say "venue"); the PWA names ("Hospio360") and icons.
+- Notifications and activity already stored (history keeps its words).
+
+**What a hotel reads differently in the web apps** (all deliberate): "Money received · month to date"; the sign-in panel and
+"Create your account"; "Enter a valid email, like name@example.com"; "More locations can be added to your account later" on the
+invite page; "Your location: …" in the copied invite text; a few last-resort errors ("That location is not one of yours",
+"Choose a location first", "The location could not be saved"); the lock screen's fallback name.
+
+### Backend
+
+**Helper.** `common/venue/VenueWording` (pure words: `place()` hotel / lounge / bar / restaurant / club / location, `places()`,
+`capital()`, `a()`, `possessive()`, `setup()` = "Hotel setup" / "Lounge setup" / "Setup"; `of(type)` for one location,
+`ofBusiness(kind, types)` = "hotel" while every location is a hotel, else "location") and `common/venue/VenuePlaces` (the words for
+a hotel id or business id, asked from tenant-service `/internal/hotels/{id}` and `/internal/businesses/{id}`, cached 5 minutes;
+static `here()`, `at(hotelId)`, `business()`, `ofBusiness(id)`). Anything unknown, unreachable or unconfigured (unit tests) reads
+as a hotel, so **a hotel's messages are byte-for-byte what they were**. tenant-service uses its own rows, not the lookup.
+Method: every string literal with "hotel(s)" in `*/src/main` (196 hits in 80 files) classified; no API field, route, enum, event
+or column renamed.
+
+| Service | Changed (hotel reads the same; a lounge reads its own word) | Left as is, and why |
+|---|---|---|
+| tenant | "Enter the lounge name", "the lounge phone / email", "Only the owner can add a lounge", "That lounge is not yours", "Only the owner, this lounge's manager or Hospio360 can edit it", "…change a lounge's status", "Lounge added"; a name already used: hotel "already has a hotel called X", venue "already has a **location** called X" (the other one may be of any kind) | "Hotel not found" (an id that matches nothing has no type); welcome and handover pack text (done in phase 1) |
+| payment | "This lounge doesn't take cash / cards / transfers", "That POS isn't one of this lounge's", "…assign one in Lounge setup", "…Record tips in Lounge setup → Restaurant & bar", "…allow it in Lounge setup → Restaurant & bar", "This lounge has no keys for the terminal's provider", "Could not check the lounge right now", fee debit "The lounge has no opay keys", "Choose a location first (X-Hotel-Id header)" (hotel-only business: "a hotel") | "Hotel not found" (TerminalService: unknown id) |
+| fnb | "Tabs are switched off for this lounge", "The outlet that makes it isn't one of this lounge's" | (charge-to-room refusal reworded in phase 1) |
+| hotel-config | "Only a manager or the owner can change Lounge setup", "Lounge setup has no section X" | "Could not find which business hotel {id} belongs to" (internal failure with an id) |
+| finance | "That category isn't in this lounge's list" (bills, pay-outs), "…can see the lounge's bills", "…ceiling this lounge has set for a single expense", "The locations of this business can't be read right now", day-closed email fallback name "your lounge" (was "your venue") | Night audit checklist (venue version since phase 1); "Rooms & front desk" report group (hotel desks only) |
+| inventory | "That supplier / item isn't in this lounge's list / stock" | — |
+| housekeeping | laundry "That item isn't in this lounge's stock", "That payment isn't in this lounge", lost & found "…this lounge's lost & found" | room and linen messages (accommodation only) |
+| maintenance | "That asset isn't in this lounge" | "That room isn't in this hotel" (rooms only) |
+| property | "X is already a floor or wing in this lounge" | room type and room number messages (rooms only) |
+| identity | "That role is at a location you don't manage", "Choose the location this role is for", "You can only add people to your own locations", "That location does not belong to this business", "That person does not work at one of your locations", shared devices: "Only staff of the location…", "That location is not one of yours", "Pick a location", "Only the lounge's managers and the owner manage its shared devices", PIN sign-in "We don't know that person at this lounge", PIN reminder notice "…on the location's shared tablets" (business-level ones read "hotel(s)" for a hotel-only business) | — |
+| messaging | every email's footer: "Hospio360 · lounge management by Oyeks Global" (mixed business mail: "hospitality management"; hotel: "hotel management" as before); handover pack heading "Your business is ready on Hospio360" for a venue or mixed business (the pack and the owner's welcome are business-level mail: the place comes from the business id in their reference, since they go out with no business in the context; a mail tied to one lounge would read "Your lounge is ready"); "Guest messages are off for this lounge (Lounge setup → Guest messages)", "This lounge has no guest-message plan", "This lounge has no manager to message yet", "None of your locations has a manager…", "Only the owner messages a location's managers as a group", default subject "A message from your lounge" | booking messages to guests ("That booking is not at this hotel", guest inbox roles): bookings exist only with rooms |
+| platform | alert "…payments declined at this lounge in the last hour", scheduled report notice "· your lounge only", "That location is not one of yours", device invoice reminder "…make sure the lounge's Moniepoint/OPay account can be debited", "That day is already worked out for this lounge", "Enter the lounge's OPay keys first", "This lounge's package is…"; activity log "Lounge setup · SECTION · key changed"; **monthly invoice** emails, bell notices, the app's billing banner, the hold reason and the invoice PDF for a business without rooms: "card/transfer POS payments and new sales pause" (no "new bookings"), "Signing in, recording cash on existing bills and tabs…" (no "checking guests out" / "check-out"); a mixed business with rooms keeps the booking wording (the PDF drops it for any business that is not hotel-only) | suspension emails (they say "business"; no hotel wording); "Hotel not found" (unknown id) |
+| reservation, folio | "Choose a location first…" only | everything else: bookings, stays, folios and guest notices are sent only by a location with rooms |
+| common | JWT filter: "You don't have access to that location. Pick one of your locations or sign in again" (hotel-only business: unchanged) | "This action needs a hotel business in context", "Not a Hotel setup section" (never shown to a user); "Hotel could not honour the booking" (booking cancel reason) |
+
+**What a hotel (or Hospio360's own team) now reads differently** — deliberate, all small:
+
+- Email validation example: "…must be a valid email, like name@example.com" (was name@hotel.com), for everyone.
+- Admin portal only (Hospio360 staff): POS connection check "2 locations have keys", "No location has Moniepoint or OPay keys saved", "Locations without keys", "Payments still need each location's own keys"; integration field hints ("Each location's own keys are set on the location", "…paid out of the business's OPay account"); "That location is not in this business", "That location isn't one of this business's", "Approvals are decided by the business's own managers", "refund to the business", "N locations got the default stores", "Say which business the location belongs to (businessId)"; the legal acceptances CSV column "Hotel" is now "Location".
+
+**Checked.** `mvn -o -fae test` over every module: 1,119 tests, 0 failures (new: common `VenueWordingTest`, tenant `VenueTypeTest.messagesNameThePlaceByItsType`, messaging `EmailTemplatesTest` + `MailDispatcherTest` place tests, platform `MonthlyInvoiceServiceTest.aLoungeIsNotToldAboutBookingsOrCheckOut`). Staging (script `p5_be_check.py`, nothing created): QA Lounge qhye reads "Lounge setup has no section…", "already has a location called QA Lounge Wuse Bar", "Lounge name must contain letters…", "You don't have access to that location. Pick one of your locations…", "Choose a location first…" (that one also in payment and reservation); Simpas Ikeja (qa.pin.*) reads "Hotel setup has no section…", "…that hotel. Pick one of your hotels…" and its bookings, outlets, setup and till answer 200; QA Venue Mixed cvt5 reads Lounge setup / Hotel setup by the location chosen, "location(s)" at business level, and "already has a hotel called…" for a hotel-type name.
+Emails rendered to HTML (texts from the real builders; `-Dvenue.email.texts=<dir>` on tenant, platform and messaging tests): handover pack (lounge, mixed, hotel for comparison), welcome, day closed, invoice issued / reminder / final warning / restricted. No "hotel", "room", "booking", "check-in" or "folio" in the lounge ones.
 
 ## Phase 4: the bill
 
@@ -166,11 +267,35 @@ QA script: `hotel-internal-system-admin-FE/docs/qa/62-venue-dashboards-reports.m
 - **Hotel setup**: no Rooms & stay rules, Housekeeping, check-in/out times or "Guests can charge to their room".
 - **Staff**: Front office (and housekeeping in the back-office People step) not offered at a location without rooms.
 
+## Known limits (after phase 6)
+
+- **Words follow the type, features follow the rooms.** A lounge that adds rooms gets the room pages and stay settings by
+  itself but is still called a lounge ("Lounge setup"); change its type to Hotel (admin onboarding → Locations, or
+  `PUT /tenant/hotels/{id}`) to change the words.
+- **Club** is a type with its own word ("Club setup"); the owner's sign-up offers Hotel, Lounge, Bar, Restaurant and Mixed, so a
+  club is set per location (or by Hospio360).
+- **A mixed business with its lounge chosen** still sees the hotel's rooms and occupancy on the business-level pages
+  (Locations, dashboard branch cards, Occupancy report): they are about every location.
+- **Stored text keeps its words**: notifications, activity entries and audit lines written before 19 Nov 2026 ("Setting changed ·
+  Hotel setup · …" is now "Lounge setup · …" for new entries only).
+- **Laundry and maintenance at a venue** are worded for the place and lose the room tiles and guides, but those desks were built
+  around rooms (linen from housekeeping, rooms out of order); nobody has run them at a lounge yet.
+- **Fallback names** when a location has no name at hand still say "this hotel" in a few server pages and "the hotel" on a device
+  invoice with no location; never seen with real data.
+- **Emails to a real inbox were not checked on staging** (`.test` addresses are skipped by design): the venue texts are rendered
+  from the real builders by the tests (`-Dvenue.email.texts=<folder>`), the day-closed one composed in the service's words.
+- **The owner's welcome email of a mixed business** says "check each hotel's rooms, prices and staff" (any location with rooms).
+- **Simpas Ikeja** was regressed with the `qa.pin.*` accounts only (front office, bar, kitchen, waiter, cashier); the manager's
+  and owner's hotel pages (Hotel setup, Hotels, reports, roles) were checked on QA hotels (QA Debit Rate rrydw, the Mixed cvt5
+  hotel), not on Simpas.
+- Not built for venues: table reservations or a floor plan, a guest-facing menu or QR ordering, loyalty, scheduled or emailed
+  outlet reports, tip pooling.
+
 ## QA approach
 
 - Unit tests: tenant `VenueTypeTest` (capability, default type from the kind, handover pack and welcome text), finance `NightAuditServiceTest` (lounge checklist tills + orders only; hotel unchanged), hotel-config `RoomChargeVenueTest`, FE `packages/api/src/venue.test.ts` (capability, stay-only paths).
 - Staging end to end (API + browser): (a) admin onboards "QA Venue <id>" as a Lounge with one location: no rooms, go-live green, handover, owner accepts; owner/manager/bar/kitchen see no hotel modules; (b) owner self-serve sign-up as a Restaurant through Outlets; (c) mixed business: hotel + lounge, room features only on the hotel; (d) regression on Simpas Ikeja (hotel): front office, bookings, check-in, folios, charge to room from the bar, night audit.
-- QA script: `hotel-internal-system-admin-FE/docs/qa/61-venue-type.md`.
+- QA scripts: `hotel-internal-system-admin-FE/docs/qa/61-venue-type.md` (phase 1), 62, 65, 67, 68 (landing) and `70-venue-wording-and-regression.md` (phases 5 and 6).
 
 ## Log
 
@@ -271,3 +396,45 @@ QA script: `hotel-internal-system-admin-FE/docs/qa/62-venue-dashboards-reports.m
   Left for a decision: tips stay off everywhere until the owner decides (no tip pooling or pay-out is built: the report says who
   earned what and the till how much cash is held); a refund of a paid part still goes through Payments; a split by item is
   offered only before any money is taken.
+- 19 Nov 2026: **phases 5 and 6 done; the programme is complete.** Backend `346ffad` + `1b54106` (VenueWording, ~80 messages,
+  emails, invoice texts; 1,119 tests) and the invoice line / notification tag / docs commit after them; web `983d845d`,
+  `cc7a7195`, `17e5747b`, `23636a1c`, `3342675a` with QA script 70 and the one-page summary
+  (`hotel-internal-system-admin-FE/docs/hospio360-for-lounges-bars-restaurants.md`). Staging, QA businesses only, cash and the
+  Bar test terminal, no SMS or WhatsApp:
+  **Lounge sweep** (QA Lounge qhye; owner 32 pages, manager 36, bar 12, kitchen 11, waiter 7, cashier 9: every menu page, every
+  setup section, Help and My profile; visible text searched for hotel, room, check-in, folio, booking): first pass 22 pages with
+  hits, last pass **0** for owner, manager, kitchen, waiter and cashier, and one for the bar (the tag "room service" under a
+  stored "New bar order … from Wale Waiter" notice: the tag is now "new order" unless the order is for a room). No sideways
+  scroll at 820 or 1024 on any of them. Allowed places: "Not used at a lounge" ("rooms and stays"), the kind picker's hints
+  ("A hotel has rooms…", "…no rooms"), "Rooms later?" on the owner's Outlets step, names people typed, text stored before today,
+  "On rooms" only when a past sale has some.
+  **Lounge flow** (API, orders B-0019 to B-0022): bar sale ₦3,000 cash; the bill offers no charge to a room and the call answers
+  400 "…it needs rooms: a lounge, bar or restaurant has none"; waiter tab with Peppered chicken → kitchen ticket → ready; the
+  waiter refused ("…A manager can allow it in Lounge setup → Restaurant & bar"); cashier ₦6,000 by card on the Bar test terminal,
+  the tab closing once both items were served; ₦3,800 split in two (cash + transfer); night audit `accommodation: false` with
+  tills and orders only; sales report ₦45,975 sold and paid, nothing on rooms; billing status and tills fine; no hotel word in
+  anything the server said.
+  **Hotel** (Simpas Ikeja, `qa.pin.*` only, booking HBE2TFAY): walk-in → "Room B130 hasn't been cleaned yet. A manager can check
+  the guest in anyway" → checked in to A116 (13 occupied rooms refused by name) → folio ₦35,000 → bar tab on the room
+  (₦35,139.53) → laundry on the room, taken to delivered (₦36,639.53) → ₦36,650 cash on a new front desk till → balance nil →
+  checked out → A116 Dirty with a housekeeping task; till closed balanced; "Hotel setup has no section…", "…that hotel. Pick one
+  of your hotels…"; Hotel setup still has check-in time, room charge on and stay rules. Browser: front office (17 pages) and bar
+  (12) read no "lounge" or "location" as the place's word. Hotels-only owner (QA Debit Rate rrydw, 35 pages): menu Hotels and
+  Hotel setup, "Hotel owner", "Add new hotel", "Money received · month to date".
+  **Mixed** (QA Venue Mixed cvt5): hotel chosen → Locations, Bookings, **Hotel setup**, Rooms & stay rules and Housekeeping in
+  setup; lounge chosen → **Lounge setup**, no Bookings, no stay sections; "locations" on the owner's pages both ways (14 checks).
+  **Sign-up and onboarding**: sign-in panel and sign-up for hotels, lounges, bars and restaurants; the restaurant owner still in
+  the wizard (QA Venue Resto yrio): "Your first restaurant", Outlets, no hotel wording; admin: Locations directory with Kind and
+  the Lounge filter, Businesses "Locations · rooms", "What kind of business?" in Set up a business, the lounge in onboarding
+  (QA Venue wy4f) reads "each location". PWA names unchanged ("Hospio360", "Hospio360 Admin").
+  **Emails** rendered to HTML (handover pack lounge / mixed / hotel, welcome, day closed, invoice issued, reminder, final
+  warning, restricted): no hotel, room, booking, check-in or folio in the lounge ones; the mixed pack's only one is its hotel's
+  "12 rooms".
+  Found and fixed on the way: at a mixed business's hotel the menu read "Location setup" (the setup's name is now put in after
+  the other words); two sentences had lost the space before them; the monthly invoice line printed "0 SMS"; the sign-in still
+  showed "Folio 1042"; the admin wizard's People step said "each hotel" for a lounge.
+  Legal, wording only (no new versions; `docs/legal-acceptance.md`): guest message charges are emails and WhatsApp (SMS only for
+  sign-in codes), and Terms 7.3 names the grounds for another suspension; the 11 Word templates were rebuilt with both, the
+  suspension wording, the new wordmark and no receipt printers.
+  Housekeeping: phase 4 and suspension worktrees and branches removed (all clean and merged); the web repo's leftover autostash
+  (phase 3 work, all upstream) dropped.
