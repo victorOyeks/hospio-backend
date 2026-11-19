@@ -28,6 +28,8 @@ import com.hospio.tenant.dto.HotelResponse;
 import com.hospio.tenant.dto.HotelStatusRequest;
 import com.hospio.tenant.dto.InternalCreateBusinessRequest;
 import com.hospio.tenant.dto.StageChangeRequest;
+import com.hospio.tenant.dto.SuspendRequest;
+import com.hospio.tenant.dto.SuspensionStatus;
 import com.hospio.tenant.dto.UpdateBusinessRequest;
 import com.hospio.tenant.dto.UpdateHotelRequest;
 import com.hospio.tenant.dto.UpdateMyBusinessRequest;
@@ -353,8 +355,69 @@ public class BusinessService {
     public BusinessResponse changeStage(String id, StageChangeRequest request) {
         requirePlatform();
         Business business = find(id);
+        // Suspending and reactivating have their own steps (reason type, notice, emails, audit): platform-service runs them.
+        if (request.stage() == Business.Stage.SUSPENDED && business.getStage() != Business.Stage.SUSPENDED) {
+            throw new BadRequestException("Use Suspend business: a suspension needs its reason type and the notice date");
+        }
+        if (business.getStage() == Business.Stage.SUSPENDED && request.stage() != Business.Stage.SUSPENDED) {
+            throw new BadRequestException("This business is suspended. Use Reactivate to put it back to its previous stage");
+        }
         moveStage(business, request.stage(), request.reason());
         return toResponse(business);
+    }
+
+    // ---- suspension (docs/suspension.md) -----------------------------------------------------------------
+
+    /** What every service asks before it serves someone at the business; the note only when the admin chose to show it. */
+    @Transactional(readOnly = true)
+    public SuspensionStatus suspension(String businessId) {
+        return businesses.findById(businessId).map(BusinessService::statusOf).orElse(SuspensionStatus.NONE);
+    }
+
+    /** The signed-in person's own business. */
+    @Transactional(readOnly = true)
+    public SuspensionStatus mySuspension() {
+        return suspension(TenantContext.requireBusiness());
+    }
+
+    private static SuspensionStatus statusOf(Business b) {
+        if (b.getStage() != Business.Stage.SUSPENDED) {
+            return SuspensionStatus.NONE;
+        }
+        return new SuspensionStatus(true, b.getSuspendedAt(), b.getSuspensionType() == null ? Business.SuspensionType.OTHER.name()
+                : b.getSuspensionType().name(), b.isSuspensionShowReason() ? b.getSuspensionReason() : null);
+    }
+
+    /** Suspends a LIVE or AT_RISK business (called by platform-service, which checked who and why). */
+    @Transactional
+    public BusinessResponse suspend(String id, SuspendRequest r) {
+        Business b = find(id);
+        if (b.getStage() == Business.Stage.SUSPENDED) {
+            throw new BadRequestException(b.getName() + " is already suspended");
+        }
+        if (b.getStage() != Business.Stage.LIVE && b.getStage() != Business.Stage.AT_RISK) {
+            throw new BadRequestException("Only a Live or At risk business can be suspended (" + b.getName() + " is " + b.getStage() + ")");
+        }
+        b.setStageBeforeSuspension(b.getStage());
+        b.setSuspensionType(r.reasonType());
+        b.setSuspensionShowReason(Boolean.TRUE.equals(r.showReason()));
+        b.setSuspensionNoticeSentOn(r.noticeSentOn());
+        b.setSuspendedBy(r.actorId());
+        b.setSuspendedByName(r.actorName());
+        moveStage(b, Business.Stage.SUSPENDED, r.reason());
+        return toResponse(b);
+    }
+
+    /** Puts a suspended business back to the stage it had (LIVE when unknown). */
+    @Transactional
+    public BusinessResponse reactivate(String id) {
+        Business b = find(id);
+        if (b.getStage() != Business.Stage.SUSPENDED) {
+            throw new BadRequestException(b.getName() + " isn't suspended");
+        }
+        Business.Stage back = b.getStageBeforeSuspension() == null ? Business.Stage.LIVE : b.getStageBeforeSuspension();
+        moveStage(b, back, null);
+        return toResponse(b);
     }
 
     @Transactional
@@ -532,6 +595,12 @@ public class BusinessService {
         } else if (from == Business.Stage.SUSPENDED) {
             business.setSuspendedAt(null);
             business.setSuspensionReason(null);
+            business.setSuspensionType(null);
+            business.setSuspensionShowReason(false);
+            business.setSuspensionNoticeSentOn(null);
+            business.setStageBeforeSuspension(null);
+            business.setSuspendedBy(null);
+            business.setSuspendedByName(null);
         }
         businesses.save(business);
         events.publish(KafkaTopics.BUSINESS_STAGE_CHANGED, BusinessStageChangedEvent.builder()
@@ -637,7 +706,8 @@ public class BusinessService {
                 b.getMarketerId(), b.getReferralId(), b.getFeeModel(), b.getFeeValue(), b.getCurrency(), b.getCountry(), b.getTimezone(),
                 b.getContractStartsOn(), b.getContractNotes(), b.getHotelCount(), b.getSuspendedAt(), b.getSuspensionReason(),
                 b.getCreatedAt(), hs, onboarding, b.getFeeAddendumRef(), b.getVenueKind(),
-                hs.stream().anyMatch(HotelResponse::hasAccommodation));
+                hs.stream().anyMatch(HotelResponse::hasAccommodation), b.getSuspensionType(), b.isSuspensionShowReason(),
+                b.getSuspensionNoticeSentOn(), b.getStageBeforeSuspension(), b.getSuspendedByName());
     }
 
     /** {@code lastActiveAt} stays null: activity lives in platform-service, which fills it from its own log. */

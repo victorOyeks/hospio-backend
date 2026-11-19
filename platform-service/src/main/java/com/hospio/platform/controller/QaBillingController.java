@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class QaBillingController {
 
     private final MonthlyInvoiceService invoices;
+    private final com.hospio.platform.service.SuspensionService suspensions;
 
     public record IssueRequest(String businessId, String month, LocalDate issuedOn) {
     }
@@ -61,5 +62,12 @@ public class QaBillingController {
     public ApiResponse<Map<String, String>> notice(@PathVariable String id, @RequestParam String kind) {
         var n = invoices.preview(id, kind.toUpperCase(java.util.Locale.ROOT));
         return ApiResponse.ok(Map.of("subject", n.subject(), "text", n.text(), "kind", n.emailKind().name()));
+    }
+
+    @Operation(summary = "QA: the subject and text of a suspension email for a business as it is now (NOTICE, SUSPENDED, REACTIVATED)")
+    @GetMapping("/admin/qa/suspension/{businessId}/email")
+    public ApiResponse<Map<String, String>> suspensionEmail(@PathVariable String businessId, @RequestParam String kind) {
+        var m = suspensions.preview(businessId, kind);
+        return ApiResponse.ok(Map.of("subject", m.subject(), "text", m.text(), "bellTitle", m.bellTitle(), "bellBody", m.bellBody()));
     }
 }

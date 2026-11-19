@@ -48,6 +48,9 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class ReportScheduleService {
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.hospio.common.suspension.BusinessSuspension suspension;
+
     /** The reports the owner portal can build, by kind. */
     public static final Map<String, String> CATALOGUE = new LinkedHashMap<>();
 
@@ -150,6 +153,10 @@ public class ReportScheduleService {
         int ran = 0;
         for (Report schedule : due) {
             try {
+                // A suspended business gets no scheduled reports (docs/suspension.md); the schedule waits and runs once it is reactivated.
+                if (suspension != null && suspension.isSuspended(schedule.getBusinessId())) {
+                    continue;
+                }
                 ZonedDateTime now = ZonedDateTime.now(LAGOS);
                 Instant next = nextRun(schedule.getSchedule(), sendAt(schedule.getSendAt()), now.plusMinutes(1));
                 boolean mine = TenantContext.runWith(Tenant.systemFor(schedule.getBusinessId(), null, "system", "Hospio"),

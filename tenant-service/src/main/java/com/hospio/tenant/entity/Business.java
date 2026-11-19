@@ -137,6 +137,33 @@ public class Business extends BaseEntity {
     @Column(name = "suspension_reason", length = 500)
     private String suspensionReason;
 
+    /** Why it is suspended (docs/suspension.md): only UNPAID_INVOICE lifts by itself when every overdue invoice is paid. */
+    public enum SuspensionType { UNPAID_INVOICE, OTHER }
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "suspension_type", length = 20)
+    private SuspensionType suspensionType;
+
+    /** Whether the people at the business see {@code suspensionReason} on the suspended screen. */
+    @Column(name = "suspension_show_reason", nullable = false)
+    @lombok.Builder.Default
+    private boolean suspensionShowReason = false;
+
+    /** The day the 7 days' notice went to the owner (Terms 7.3), when one was sent. */
+    @Column(name = "suspension_notice_sent_on")
+    private LocalDate suspensionNoticeSentOn;
+
+    /** The stage to put back on reactivation (LIVE or AT_RISK). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "stage_before_suspension", length = 20)
+    private Stage stageBeforeSuspension;
+
+    @Column(name = "suspended_by", length = 36)
+    private String suspendedBy;
+
+    @Column(name = "suspended_by_name", length = 150)
+    private String suspendedByName;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "venue_kind", nullable = false, length = 20)
     @lombok.Builder.Default

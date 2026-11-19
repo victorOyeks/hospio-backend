@@ -38,6 +38,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class MailDispatcher {
 
+    static final String SUSPENDED_REASON = "Not sent: the business's Hospio360 account is suspended";
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.hospio.common.suspension.BusinessSuspension suspension;
+
     /** Kinds whose content goes stale (a code, a temporary password, a reset or invite link): never sent once old. */
     public static final Set<String> EXPIRING_KINDS = Set.of("PHONE_CODE", "TEMP_PASSWORD", "PASSWORD_RESET", "INVITE");
 
@@ -222,11 +227,17 @@ public class MailDispatcher {
             DeliveryRecord.Status wanted = !email ? (text ? DeliveryRecord.Status.QUEUED : DeliveryRecord.Status.NOT_CONNECTED)
                     : !enabled() ? DeliveryRecord.Status.DISABLED : DeliveryRecord.Status.QUEUED;
             // A message the hotel pays for goes only while its guest-message service is on and not suspended.
-            com.hospio.messaging.billing.CommBilling.Gate gate = billing == null ? com.hospio.messaging.billing.CommBilling.Gate.FREE
+            com.hospio.messaging.billing.CommBilling.Gate planGate = billing == null ? com.hospio.messaging.billing.CommBilling.Gate.FREE
                     : billing.gate(e.getHotelId(), e.getKind());
             // A reserved test domain (.test, .example, example.com…) can never receive mail: recorded SKIPPED, never sent, on
             // every server (docs/email.md, "Test addresses are never sent"). Screens that say "sent to …" treat SKIPPED as normal.
             boolean testAddress = email && TestAddresses.reserved(e.getTo());
+            // A suspended business sends nothing to guests (docs/suspension.md): receipts, booking messages, reminders, statements and
+            // typed messages are recorded SKIPPED with the reason. Hospio360's own mail to the owner (invoices, notices) still goes.
+            boolean businessSuspended = suspension != null && e.getKind() != null && e.getBusinessId() != null
+                    && com.hospio.messaging.billing.CommBilling.BILLABLE_KINDS.contains(e.getKind()) && suspension.isSuspended(e.getBusinessId());
+            com.hospio.messaging.billing.CommBilling.Gate gate = businessSuspended
+                    ? new com.hospio.messaging.billing.CommBilling.Gate(true, false, SUSPENDED_REASON) : planGate;
             DeliveryRecord.Status status = testAddress || noTemplate || (gate.billable() && !gate.allowed()) ? DeliveryRecord.Status.SKIPPED : wanted;
             if (status == DeliveryRecord.Status.SKIPPED) {
                 log.info("{} {} to {} not sent: {}", channel, e.getKind(), e.getTo(), testAddress ? TestAddresses.REASON

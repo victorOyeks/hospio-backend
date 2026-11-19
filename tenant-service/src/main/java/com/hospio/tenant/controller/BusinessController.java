@@ -40,6 +40,15 @@ public class BusinessController {
         return ApiResponse.ok(service.mine());
     }
 
+    @Operation(summary = "Whether my business is suspended: since when and, when Hospio360 chose to show it, why (docs/suspension.md)")
+    @GetMapping("/businesses/suspension")
+    public ApiResponse<com.hospio.tenant.dto.SuspensionStatus> mySuspension() {
+        if (TenantContext.current().map(t -> t.businessId() == null).orElse(true)) {
+            return ApiResponse.ok(com.hospio.tenant.dto.SuspensionStatus.NONE);
+        }
+        return ApiResponse.ok(service.mySuspension());
+    }
+
     @Operation(summary = "Owner: edit the business profile (name, legal, contacts, address, brand, timezone)")
     @PutMapping("/businesses/mine")
     @PreAuthorize("@access.owner()")

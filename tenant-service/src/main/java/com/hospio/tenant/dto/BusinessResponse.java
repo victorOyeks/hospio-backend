@@ -14,7 +14,9 @@ public record BusinessResponse(String id, String name, String legalName, String 
                                BigDecimal feeValue, String currency, String country, String timezone, LocalDate contractStartsOn,
                                String contractNotes, int hotelCount, Instant suspendedAt, String suspensionReason, Instant createdAt,
                                List<HotelResponse> hotels, Onboarding onboarding, String feeAddendumRef,
-                               Business.Kind venueKind, boolean hasAccommodation) {
+                               Business.Kind venueKind, boolean hasAccommodation, Business.SuspensionType suspensionType,
+                               boolean suspensionShowReason, LocalDate suspensionNoticeSentOn, Business.Stage stageBeforeSuspension,
+                               String suspendedByName) {
 
     /** Where the business is in its wizard; null when it never had one. */
     public record Onboarding(OnboardingDraft.Status status, int step, List<Integer> completedSteps) {
