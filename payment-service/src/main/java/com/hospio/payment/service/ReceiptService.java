@@ -36,8 +36,65 @@ public class ReceiptService {
     private final ReceiptRepository receipts;
     private final DeliveryService deliveries;
 
-    public record Resent(String receiptNumber, String sentTo, String sentVia, List<Delivery> deliveries) {
+    /**
+     * The receipt handed to messaging-service, and what became of it as far as is known now (docs/whatsapp-receipts.md, "What the desk is
+     * told"): {@code outcome} QUEUED, SKIPPED, HELD_BACK, NOT_CONNECTED or UNKNOWN with messaging's {@code reason}, whether the hotel's
+     * guest messages are on, and {@code message}, the words the desk sees.
+     */
+    public record Resent(String receiptNumber, String sentTo, String sentVia, List<Delivery> deliveries, String outcome, String reason,
+                         Boolean guestMessagesOn, String message) {
     }
+
+    /** Asks messaging-service what becomes of a receipt (absent in unit tests: UNKNOWN). */
+    private com.hospio.payment.client.MessagingClient messaging;
+
+    /** Hotel setup → Guest messaging "Send receipts automatically" (absent in unit tests: on). */
+    private com.hospio.payment.client.HotelConfigClient hotelConfig;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMessaging(com.hospio.payment.client.MessagingClient messaging) {
+        this.messaging = messaging;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setHotelConfig(com.hospio.payment.client.HotelConfigClient hotelConfig) {
+        this.hotelConfig = hotelConfig;
+    }
+
+    /** What a receipt on WhatsApp to {@code phone} at the caller's hotel would come to (no phone: whether guest messages are on). */
+    public com.hospio.payment.dto.ReceiptOutlook outlook(String phone) {
+        String hotel = TenantContext.requireHotel();
+        String business = TenantContext.current().map(t -> t.businessId()).orElse(null);
+        return messaging == null ? com.hospio.payment.dto.ReceiptOutlook.unknown() : messaging.receiptOutlook(hotel, business, phone);
+    }
+
+    /**
+     * The automatic receipt of a payment just taken (POST /payments with receiptPreference WHATSAPP; messaging-service sends it once the
+     * payment is approved): null when the desk chose Don't send. Never throws: a payment never fails over its receipt.
+     */
+    public com.hospio.payment.dto.ReceiptOutlook automatic(String paymentId) {
+        try {
+            PaymentRequest p = payments.findById(paymentId).orElse(null);
+            if (p == null || !"WHATSAPP".equalsIgnoreCase(p.getReceiptPreference())) {
+                return null;
+            }
+            if (hotelConfig != null && p.getHotelId() != null && !hotelConfig.sendsReceipts(p.getHotelId())) {
+                return new com.hospio.payment.dto.ReceiptOutlook(com.hospio.payment.dto.ReceiptOutlook.SKIPPED, AUTO_OFF, null);
+            }
+            if (blank(p.getGuestPhone())) {
+                return com.hospio.payment.dto.ReceiptOutlook.noPhone(null);
+            }
+            String business = TenantContext.current().map(t -> t.businessId()).orElse(null);
+            return messaging == null ? com.hospio.payment.dto.ReceiptOutlook.unknown() : messaging.receiptOutlook(p.getHotelId(), business, p.getGuestPhone());
+        } catch (RuntimeException e) {
+            return com.hospio.payment.dto.ReceiptOutlook.unknown();
+        }
+    }
+
+    static final String AUTO_OFF = "Automatic receipts are off (Hotel setup → Guest messaging)";
+
+    /** No phone on the payment and none typed: nothing is sent. */
+    static final String NO_PHONE = "Receipt not sent: no phone number · type the guest's WhatsApp number to send it";
 
     /** The words an older screen gets when it asks for a printed or emailed payment receipt. */
     static final String WHATSAPP_ONLY = "Receipts go to the guest on WhatsApp only: pick WhatsApp or Don't send";
@@ -82,11 +139,21 @@ public class ReceiptService {
             p.setGuestPhone(delivery.to());
             payments.save(p);
         }
+        // Asked before it is handed over, so the desk is told the truth: skipped (guest messages off), held back (staging's allow-list).
+        com.hospio.payment.dto.ReceiptOutlook outlook = messaging == null ? com.hospio.payment.dto.ReceiptOutlook.unknown()
+                : messaging.receiptOutlook(p.getHotelId(), TenantContext.current().map(t -> t.businessId()).orElse(null), delivery.to());
+        // Handed over whatever the outlook: messaging-service records it (SKIPPED with the reason), so the deliveries show it.
         List<Delivery> echoed = deliveries.send(delivery);
-        receipt.setSentTo(delivery.to());
-        receipt.setSentVia(delivery.channel().name());
-        receipts.save(receipt);
-        return new Resent(receipt.getNumber(), delivery.to(), delivery.channel().name(), echoed);
+        if (outlook.sent() || com.hospio.payment.dto.ReceiptOutlook.HELD_BACK.equals(outlook.outcome())) {
+            receipt.setSentTo(delivery.to());
+            receipt.setSentVia(delivery.channel().name());
+            receipts.save(receipt);
+        }
+        return resent(receipt.getNumber(), delivery.to(), delivery.channel().name(), echoed, outlook);
+    }
+
+    static Resent resent(String number, String to, String via, List<Delivery> echoed, com.hospio.payment.dto.ReceiptOutlook outlook) {
+        return new Resent(number, to, via, echoed, outlook.outcome(), outlook.reason(), outlook.guestMessagesOn(), outlook.message(number, to));
     }
 
     /** WHATSAPP or nothing; a printed or emailed payment receipt (older screens) is refused in words. */
@@ -106,7 +173,7 @@ public class ReceiptService {
      */
     static Delivery whatsAppDelivery(String phone, String number, String text, List<String> values) {
         if (blank(phone)) {
-            throw new BadRequestException("This payment has no guest phone · type the guest's WhatsApp number to send the receipt");
+            throw new BadRequestException(NO_PHONE);
         }
         return Delivery.whatsApp(phone.trim(), "Receipt", text, Delivery.Kind.RECEIPT, number)
                 .withTemplate(com.hospio.common.delivery.WhatsAppTemplates.RECEIPT, values);

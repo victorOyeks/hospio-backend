@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.validation.Valid;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,6 +29,7 @@ public class InternalMessagingController {
     private final OutboundService outbound;
     private final NotificationService notifications;
     private final ConversationService conversations;
+    private final com.hospio.messaging.service.DeliveryOutlook outlook;
 
     @PostMapping("/send")
     public ApiResponse<OutboundMessage> send(@RequestBody Map<String, String> body) {
@@ -45,5 +47,18 @@ public class InternalMessagingController {
     @PostMapping("/inbound")
     public ApiResponse<Conversation> inbound(@RequestParam String hotelId, @Valid @RequestBody MessagingRequests.InboundRequest request) {
         return ApiResponse.ok(conversations.inbound(hotelId, request));
+    }
+
+    /**
+     * What would become of a guest message sent now (docs/whatsapp-receipts.md): payment-service asks before it tells the desk
+     * "Receipt sent", so a receipt skipped (guest messages off), held back (staging allow-list) or not connected says so.
+     */
+    @GetMapping("/deliveries/outlook")
+    public ApiResponse<com.hospio.messaging.service.DeliveryOutlook.Outlook> outlook(@RequestParam String hotelId,
+                                                                                  @RequestParam(required = false) String businessId,
+                                                                                  @RequestParam(required = false) String kind,
+                                                                                  @RequestParam(required = false) String channel,
+                                                                                  @RequestParam(required = false) String to) {
+        return ApiResponse.ok(outlook.of(hotelId, businessId, kind, channel, to));
     }
 }

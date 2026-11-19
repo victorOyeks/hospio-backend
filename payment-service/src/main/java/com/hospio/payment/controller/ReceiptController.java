@@ -50,7 +50,17 @@ public class ReceiptController {
     @PreAuthorize(SENDERS)
     public ApiResponse<ReceiptService.Resent> send(@RequestBody ReceiptViews.SendRequest request) {
         ReceiptService.Resent r = receipts.send(request);
-        return ApiResponse.ok("Receipt " + r.receiptNumber() + " sent on WhatsApp to " + r.sentTo(), r);
+        return ApiResponse.ok(r.message(), r);
+    }
+
+    /**
+     * Before the desk sends: would a WhatsApp receipt go (the hotel's guest messages on, the number not held back)? {@code phone} left
+     * out: only whether guest messages are on, for the note under the receipt step's WhatsApp choice.
+     */
+    @GetMapping("/outlook")
+    @PreAuthorize(TAKERS)
+    public ApiResponse<com.hospio.payment.dto.ReceiptOutlook> outlook(@RequestParam(required = false) String phone) {
+        return ApiResponse.ok(receipts.outlook(phone));
     }
 
     @PostMapping("/email")

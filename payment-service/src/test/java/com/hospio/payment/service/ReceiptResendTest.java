@@ -29,7 +29,7 @@ class ReceiptResendTest {
     void noPhoneIsRefusedInWords() {
         assertThatThrownBy(() -> ReceiptService.whatsAppDelivery(" ", "RCP-1", "x", VALUES))
                 .isInstanceOf(BadRequestException.class)
-                .hasMessage("This payment has no guest phone · type the guest's WhatsApp number to send the receipt");
+                .hasMessage("Receipt not sent: no phone number · type the guest's WhatsApp number to send it");
     }
 
     @Test
