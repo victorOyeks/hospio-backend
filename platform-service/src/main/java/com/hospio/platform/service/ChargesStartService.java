@@ -317,6 +317,7 @@ public class ChargesStartService {
                     : "Charges already start on " + LONG.format(proposed) + " for " + b.name());
         }
         int[] redone = {0};
+        String[] said = {null};
         asSystem(() -> tx.execute(st -> {
             fees.lock("monthly-invoice:" + businessId);
             List<DailyFee> open = fees.findByBusinessIdAndMonthlyInvoiceIdIsNullAndStatusInOrderByFeeDateAsc(businessId, REDOABLE);
@@ -340,12 +341,19 @@ public class ChargesStartService {
             String description = proposed == null ? "Charges start date cleared: free from the next day not on an invoice"
                     + (current == null ? "" : " (was " + LONG.format(current) + ")")
                     : "Charges start on " + LONG.format(proposed) + (current == null ? " (was free)" : " (was " + LONG.format(current) + ")");
+            said[0] = description;
             changeRows.save(BillingStartChange.builder().businessId(businessId).beforeOn(current).afterOn(proposed).description(description)
                     .reason(reason).madeBy(me.getUserId()).madeByName("Hospio360 · " + me.getFullName()).daysRedone(redone[0]).build());
-            changes.recordAs(new PlatformRequests.PlatformChangeRequest(businessId, null, AREA, description, reason, json(current), json(proposed)),
-                    me.getUserId(), me.getFullName());
             return null;
         }));
+        // After the commit: the audit record re-binds the connection to the business (its CHANGE_BY_PLATFORM event), which must not happen
+        // before this transaction's platform-only rows are flushed. The permanent history row above is already saved.
+        try {
+            asSystem(() -> changes.recordAs(new PlatformRequests.PlatformChangeRequest(businessId, null, AREA, said[0], reason, json(current), json(proposed)),
+                    me.getUserId(), me.getFullName()));
+        } catch (RuntimeException e) {
+            log.warn("Charges start change for {} saved, but not recorded in Changes by Hospio360: {}", businessId, e.getMessage());
+        }
         log.info("Charges start for {} ({}): {} → {} by {}; {} day(s) worked out again", b.name(), businessId, current, proposed, me.getFullName(), redone[0]);
         return view(businessId);
     }
