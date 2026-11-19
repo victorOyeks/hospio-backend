@@ -61,7 +61,7 @@ class SystemHealthRulesTest {
         long mem = 12 * GB;
         long swap = 4 * GB;
         return new Server("vmi", "Ubuntu", "6.8", 100L, Instant.now(), "UTC", 6, 1.0, 1.0, 1.0, 10.0, mem, (long) (mem * memPct / 100), 0L, swap,
-                (long) (swap * swapPct / 100), 0.0, List.of(root), List.of(), null, root.level(), null);
+                (long) (swap * swapPct / 100), 0.0, List.of(root), List.of(), null, null, root.level(), null);
     }
 
     static ServiceRow svc(String key, String state, String health) {
@@ -92,6 +92,15 @@ class SystemHealthRulesTest {
         assertThat(SystemHealthService.level("active", "UNKNOWN", 0)).isEqualTo("WARNING");
         assertThat(SystemHealthService.level("active", "UP", 3)).isEqualTo("WARNING");
         assertThat(SystemHealthService.level(null, "UP", null)).isEqualTo("OK");
+    }
+
+    @Test
+    void oneSlowAnswerAfterAHealthyOneIsNotYetAWarning() {
+        SystemHealthService svc = new SystemHealthService(null, null, null, null, null, null, null, null, null, null);
+        SystemHealthConfig.Target web = new SystemHealthConfig.Target("his-fe-staging", "Hotel app", "WEB", "his-fe-staging", 3001,
+                "http://127.0.0.1:3001/", "/nonexistent/.sha");
+        assertThat(svc.row(web, null, false, "UNKNOWN", "slow", true).level()).isEqualTo("OK");
+        assertThat(svc.row(web, null, false, "UNKNOWN", "slow", false).level()).isEqualTo("WARNING");
     }
 
     @Test
