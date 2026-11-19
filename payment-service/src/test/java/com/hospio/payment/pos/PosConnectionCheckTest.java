@@ -80,7 +80,7 @@ class PosConnectionCheckTest {
         ConnectionCheck c = run("logging", 3000);
         assertThat(c.key()).isEqualTo("payment-provider");
         assertThat(c.status()).isEqualTo("TEST_MODE");
-        assertThat(c.detail()).startsWith("Test provider: nothing is charged.").contains("No hotel has Moniepoint or OPay keys saved");
+        assertThat(c.detail()).startsWith("Test provider: nothing is charged.").contains("No location has Moniepoint or OPay keys saved");
         assertThat(hits).hasValue(0);
         neverUsesAHotelsKeys();
     }
@@ -90,7 +90,7 @@ class PosConnectionCheckTest {
         when(hotels.statuses()).thenReturn(List.of(new HotelPosService.Status("h9", List.of(), true)));
         ConnectionCheck c = run("moniepoint", 3000);
         assertThat(c.status()).isEqualTo("NOT_CONFIGURED");
-        assertThat(c.detail()).contains("card payments are refused", "1 hotel has POS paused");
+        assertThat(c.detail()).contains("card payments are refused", "1 location has POS paused");
     }
 
     @Test
@@ -100,8 +100,8 @@ class PosConnectionCheckTest {
                 new HotelPosService.Status("h2", List.of("OPAY"), false)));
         ConnectionCheck c = run("logging", 3000);
         assertThat(c.status()).isEqualTo("CONNECTED");
-        assertThat(c.detail()).contains("Moniepoint: 1 hotel has keys; Moniepoint answered at " + url() + "/moniepoint (HTTP 404)",
-                "OPay: 2 hotels have keys; OPay answered", "Hotels without keys: test provider: nothing is charged",
+        assertThat(c.detail()).contains("Moniepoint: 1 location has keys; Moniepoint answered at " + url() + "/moniepoint (HTTP 404)",
+                "OPay: 2 locations have keys; OPay answered", "Locations without keys: test provider: nothing is charged",
                 "nothing is pushed to a terminal");
         assertThat(hits).hasValue(2);
         neverUsesAHotelsKeys();
@@ -134,7 +134,7 @@ class PosConnectionCheckTest {
         when(hotels.keyStoreReady()).thenReturn(false);
         ConnectionCheck c = run("logging", 3000);
         assertThat(c.status()).isEqualTo("ERROR");
-        assertThat(c.detail()).contains("1 hotel has keys saved, but the key store has no SECRETS_KEY");
+        assertThat(c.detail()).contains("1 location has keys saved, but the key store has no SECRETS_KEY");
         assertThat(hits).hasValue(0);
     }
 

@@ -19,6 +19,6 @@ public class SettingChangedEvent extends HospioEvent {
 
     @Override
     public String summary() {
-        return "Hotel setup · " + section + " · " + key + " changed";
+        return com.hospio.common.venue.VenuePlaces.at(getHotelId()).setup() + " · " + section + " · " + key + " changed";
     }
 }

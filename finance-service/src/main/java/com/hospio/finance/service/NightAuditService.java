@@ -233,7 +233,7 @@ public class NightAuditService {
                 return List.of();
             }
             String hotel = peers.hotels(a.getBusinessId()).stream().filter(h -> hotelId.equals(h.id())).map(PeerServices.Hotel::name).findFirst()
-                    .orElse(rooms < 0 ? "your venue" : "your hotel");
+                    .orElse("your " + com.hospio.common.venue.VenuePlaces.at(hotelId).place());
             String subject = hotel + " · day closed " + d + " · revenue " + today.revenue().toPlainString();
             String text = "Day " + d + " closed at " + hotel + " by " + closedBy + ".\n"
                     + "Revenue " + today.revenue().toPlainString() + " (" + today.paymentsCount() + " payments), expenses " + Money.of(expensesTotal).toPlainString()

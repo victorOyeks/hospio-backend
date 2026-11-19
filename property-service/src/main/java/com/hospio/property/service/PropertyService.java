@@ -386,7 +386,7 @@ public class PropertyService {
             areas.findByHotelIdOrderBySortOrderAscNameAsc(hotelId).stream()
                     .filter(a -> !a.getId().equals(area.getId()) && a.getName().equalsIgnoreCase(name)).findFirst()
                     .ifPresent(a -> {
-                        throw new ConflictException(a.getName() + " is already a floor or wing in this hotel");
+                        throw new ConflictException(a.getName() + " is already a floor or wing in this " + com.hospio.common.venue.VenuePlaces.here().place());
                     });
             if (id == null && request.sortOrder() == null) {
                 // New ones go after the ones already there.

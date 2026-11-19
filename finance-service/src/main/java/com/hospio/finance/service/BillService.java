@@ -199,7 +199,7 @@ public class BillService {
         }
         BillRules.Clean c = BillRules.check(r.payee(), r.category(), r.amount(), r.dueDate(), r.repeats(), r.note());
         String code = categories.find(TenantContext.requireHotel(), c.category()).filter(x -> x.isActive()).map(x -> x.getCode())
-                .orElseThrow(() -> new BadRequestException("That category isn't in this hotel's list"));
+                .orElseThrow(() -> new BadRequestException("That category isn't in this " + com.hospio.common.venue.VenuePlaces.here().possessive() + " list"));
         return new BillRules.Clean(c.payee(), code, c.amount(), c.dueDate(), c.repeats(), c.note());
     }
 
@@ -240,7 +240,7 @@ public class BillService {
     static void requireRead() {
         HospioUserDetails u = CurrentUser.require();
         if (!(u.isPlatform() || u.isManagerOrOwner() || u.has(Role.FINANCE, AccessLevel.VIEW))) {
-            throw new ForbiddenException("Only managers, the owner and Finance can see the hotel's bills");
+            throw new ForbiddenException("Only managers, the owner and Finance can see the " + com.hospio.common.venue.VenuePlaces.here().possessive() + " bills");
         }
     }
 

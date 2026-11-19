@@ -88,7 +88,7 @@ public class LaundryClients {
     public record Payment(String id, String status, BigDecimal amount, String method) {
     }
 
-    /** The payment as payment-service has it; 400 "That payment isn't in this hotel" when it doesn't know it. */
+    /** The payment as payment-service has it; 400 "That payment isn't in this " + com.hospio.common.venue.VenuePlaces.here().place() when it doesn't know it. */
     public Payment payment(String paymentId) {
         try {
             ApiResponse<PaymentRef> body = payment.get().uri("/internal/payments/{id}", paymentId).retrieve().body(PAYMENT);
@@ -99,7 +99,7 @@ public class LaundryClients {
             return new Payment(d.id() == null ? "" : d.id(), d.status(), zeroIfNull(d.amount()), d.method());
         } catch (RestClientResponseException e) {
             if (e.getStatusCode().value() == 404 || e.getStatusCode().value() == 400) {
-                throw new BadRequestException("That payment isn't in this hotel");
+                throw new BadRequestException("That payment isn't in this " + com.hospio.common.venue.VenuePlaces.here().place());
             }
             throw new BadRequestException("Can't check the payment right now · try again");
         } catch (RuntimeException e) {

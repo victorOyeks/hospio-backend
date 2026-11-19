@@ -178,7 +178,7 @@ public class AuthService {
                     .or(() -> users.findByPhone(id))
                     .or(() -> users.findByEmailIgnoreCase(id))
                     .filter(u -> device.getBusinessId().equals(u.getBusinessId()))
-                    .orElseThrow(() -> new UnauthorizedException("We don't know that person at this hotel"));
+                    .orElseThrow(() -> new UnauthorizedException("We don't know that person at this " + com.hospio.common.venue.VenuePlaces.at(device.getHotelId()).place()));
             if (!pinAllowed(user)) {
                 throw new ForbiddenException("Owners sign in with email and password, not a PIN");
             }

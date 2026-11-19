@@ -21,6 +21,6 @@ public class AdminInventoryController {
     @PostMapping("/admin/stores/backfill-defaults")
     public ApiResponse<DefaultStoresBackfill.Result> backfillDefaultStores() {
         DefaultStoresBackfill.Result r = backfill.run();
-        return ApiResponse.ok(r.hotelsChanged() + " hotels got the default stores", r);
+        return ApiResponse.ok(r.hotelsChanged() + " locations got the default stores", r);
     }
 }

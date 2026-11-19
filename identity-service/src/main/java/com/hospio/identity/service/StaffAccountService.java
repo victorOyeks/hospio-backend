@@ -190,7 +190,7 @@ public class StaffAccountService {
             throw new BadRequestException(user.getFullName() + " already has a PIN");
         }
         notice(List.of(user.getId()), user.getBusinessId(), null, "Set a PIN for the shared devices",
-                caller.getFullName() + " asks you to set a PIN so you can switch in quickly on the hotel's shared tablets. "
+                caller.getFullName() + " asks you to set a PIN so you can switch in quickly on the " + com.hospio.common.venue.VenuePlaces.ofBusiness(user.getBusinessId()).possessive() + " shared tablets. "
                         + "Open My profile & security, Security");
     }
 
@@ -257,7 +257,7 @@ public class StaffAccountService {
         if (!caller.has(Role.OWNER)) {
             Set<String> mine = Set.copyOf(caller.getHotelIds());
             if (theirs.stream().noneMatch(g -> g.getHotelId() != null && mine.contains(g.getHotelId()))) {
-                throw new ForbiddenException("That person does not work at one of your hotels");
+                throw new ForbiddenException("That person does not work at one of your " + com.hospio.common.venue.VenuePlaces.business().places());
             }
             if (theirs.stream().anyMatch(g -> g.getRole() == Role.MANAGER)) {
                 throw new ForbiddenException("Only the owner can " + verb + " a manager");

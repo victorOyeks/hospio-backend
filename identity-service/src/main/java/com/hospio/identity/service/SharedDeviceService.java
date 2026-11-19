@@ -65,11 +65,11 @@ public class SharedDeviceService {
     public SharedDeviceDtos.SetupResult setup(SharedDeviceDtos.Setup request) {
         HospioUserDetails caller = CurrentUser.require();
         if (caller.isPlatform() || caller.getActedBy() != null || caller.getBusinessId() == null) {
-            throw new ForbiddenException("Only staff of the hotel can set up a shared device");
+            throw new ForbiddenException("Only staff of the " + com.hospio.common.venue.VenuePlaces.business().place() + " can set up a shared device");
         }
         String hotelId = request.hotelId();
         if (!caller.getHotelIds().contains(hotelId)) {
-            throw new ForbiddenException("That hotel is not one of yours");
+            throw new ForbiddenException("That " + com.hospio.common.venue.VenuePlaces.business().place() + " is not one of yours");
         }
         Map<Role, AccessLevel> mine = callerRolesAt(caller, hotelId);
         boolean managerOrOwner = caller.has(Role.OWNER) || mine.containsKey(Role.MANAGER);
@@ -105,7 +105,7 @@ public class SharedDeviceService {
         HospioUserDetails caller = CurrentUser.require();
         String hotel = StringUtils.hasText(hotelId) ? hotelId : TenantContext.current().map(Tenant::hotelId).orElse(null);
         if (hotel == null) {
-            throw new BadRequestException("Pick a hotel");
+            throw new BadRequestException("Pick " + com.hospio.common.venue.VenuePlaces.business().a());
         }
         requireManagerAt(caller, hotel);
         return devices.findByHotelIdAndRevokedAtIsNullOrderByNameAsc(hotel).stream().map(SharedDeviceService::view).toList();
@@ -273,10 +273,10 @@ public class SharedDeviceService {
 
     private void requireManagerAt(HospioUserDetails caller, String hotelId) {
         if (caller.isPlatform() || caller.getActedBy() != null || !caller.getHotelIds().contains(hotelId)) {
-            throw new ForbiddenException("Only the hotel's managers and the owner manage its shared devices");
+            throw new ForbiddenException("Only the " + com.hospio.common.venue.VenuePlaces.at(hotelId).possessive() + " managers and the owner manage its shared devices");
         }
         if (!caller.has(Role.OWNER) && !callerRolesAt(caller, hotelId).containsKey(Role.MANAGER)) {
-            throw new ForbiddenException("Only the hotel's managers and the owner manage its shared devices");
+            throw new ForbiddenException("Only the " + com.hospio.common.venue.VenuePlaces.at(hotelId).possessive() + " managers and the owner manage its shared devices");
         }
     }
 

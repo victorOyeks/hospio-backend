@@ -109,7 +109,7 @@ public class ApprovalService {
     public Approval decideOnDevice(String id, PlatformRequests.DeviceDecision request) {
         HospioUserDetails caller = CurrentUser.require();
         if (caller.isPlatform() || caller.isReadOnly()) {
-            throw new ForbiddenException("Approvals are decided by the hotel's own managers");
+            throw new ForbiddenException("Approvals are decided by the business's own managers");
         }
         Approval a = approvals.findById(id).orElseThrow(() -> new ResourceNotFoundException("Approval not found"));
         if (a.getStatus() != ApprovalStatus.PENDING && a.getStatus() != ApprovalStatus.QUESTION) {

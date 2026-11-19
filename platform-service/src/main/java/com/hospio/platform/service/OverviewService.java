@@ -188,7 +188,7 @@ public class OverviewService {
             Future<HotelFigures.HotelConfig> askedConfig = pool.submit(() -> hotelOverviews.hotelConfig(hotelId));
             TenantClient.Business b = tenant.business(businessId).orElseThrow(() -> new ResourceNotFoundException("Business not found"));
             TenantClient.Hotel hotel = b.hotels().stream().filter(h -> hotelId.equals(h.id())).findFirst()
-                    .orElseThrow(() -> new ResourceNotFoundException("That hotel is not in this business"));
+                    .orElseThrow(() -> new ResourceNotFoundException("That location is not in this business"));
             Future<String> managerName = pool.submit(() -> names.name(hotel.managerUserId()).orElse(null));
             long deadline = System.nanoTime() + HOTEL_OVERVIEW_DEADLINE.toNanos();
 

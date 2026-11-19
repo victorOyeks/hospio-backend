@@ -352,7 +352,7 @@ public class GuestInboxService {
         c.setDoneAt(null);
         c.setDoneByName(null);
         c = conversations.save(c);
-        Delivery d = new Delivery(channel == NotificationChannel.EMAIL ? Delivery.Channel.EMAIL : Delivery.Channel.WHATSAPP, to, StringUtils.hasText(subject) ? subject : "A message from your hotel", body, Delivery.Kind.MESSAGE, null);
+        Delivery d = new Delivery(channel == NotificationChannel.EMAIL ? Delivery.Channel.EMAIL : Delivery.Channel.WHATSAPP, to, StringUtils.hasText(subject) ? subject : "A message from your " + com.hospio.common.venue.VenuePlaces.here().place(), body, Delivery.Kind.MESSAGE, null);
         String status = deliveries.marked(d).status();
         Message m = messages.save(Message.builder().conversationId(c.getId()).direction(Message.Direction.OUT).senderId(me.getUserId())
                 .senderName(me.getFullName()).body(body).channel(channel.name())

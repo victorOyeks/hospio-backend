@@ -220,7 +220,7 @@ public class DevicePackageService {
         DevicePackage saved = tx.execute(st -> {
             DevicePackage p = packages.findFirstByHotelIdAndStatusNotOrderByCreatedAtDesc(hotelId, DevicePackage.CANCELLED).orElse(null);
             if (p != null && !DevicePackage.DRAFT.equals(p.getStatus())) {
-                throw new BadRequestException("This hotel's package is " + label(p.getStatus()) + ": it can't be changed. Cancel it to set up a new one");
+                throw new BadRequestException("This " + com.hospio.common.venue.VenuePlaces.at(hotelId).possessive() + " package is " + label(p.getStatus()) + ": it can't be changed. Cancel it to set up a new one");
             }
             if (p == null) {
                 p = DevicePackage.builder().businessId(businessId).hotelId(hotelId).status(DevicePackage.DRAFT).build();
@@ -614,7 +614,7 @@ public class DevicePackageService {
     private TenantClient.Hotel hotelOf(String businessId, String hotelId) {
         TenantClient.Business b = tenant.business(businessId).orElseThrow(() -> new ResourceNotFoundException("Business not found"));
         return b.hotels().stream().filter(h -> h.id().equals(hotelId)).findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("That hotel isn't one of this business's"));
+                .orElseThrow(() -> new ResourceNotFoundException("That location isn't one of this business's"));
     }
 
     private DevicePackage lock(String id) {

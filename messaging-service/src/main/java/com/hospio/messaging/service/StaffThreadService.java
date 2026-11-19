@@ -60,11 +60,11 @@ public class StaffThreadService {
         String recipientName;
         if (toManagers) {
             if (!me.has(Role.OWNER)) {
-                throw new ForbiddenException("Only the owner messages a hotel's managers as a group");
+                throw new ForbiddenException("Only the owner messages " + com.hospio.common.venue.VenuePlaces.business().a() + "'s managers as a group");
             }
             to = managersOf(hotelId, me.getUserId());
             if (to.isEmpty()) {
-                throw new BadRequestException("This hotel has no manager to message yet");
+                throw new BadRequestException("This " + com.hospio.common.venue.VenuePlaces.at(hotelId).place() + " has no manager to message yet");
             }
             recipientName = "Managers";
         } else {
@@ -105,7 +105,7 @@ public class StaffThreadService {
             }
         }
         if (managers.isEmpty()) {
-            throw new BadRequestException("None of your hotels has a manager to message yet");
+            throw new BadRequestException("None of your " + com.hospio.common.venue.VenuePlaces.business().places() + " has a manager to message yet");
         }
         String broadcastId = UUID.randomUUID().toString();
         String subject = subject(request.subject(), request.body());
@@ -265,7 +265,7 @@ public class StaffThreadService {
                     .filter(m -> m.status() == null || "ACTIVE".equals(m.status()))
                     .toList();
         } catch (RuntimeException e) {
-            throw new ExternalServiceException("Could not look up the hotel's managers right now. Try again", e);
+            throw new ExternalServiceException("Could not look up the " + com.hospio.common.venue.VenuePlaces.here().possessive() + " managers right now. Try again", e);
         }
     }
 

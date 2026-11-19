@@ -141,7 +141,7 @@ public class CommBilling {
         }
         Optional<CommPlan> plan = asSystem(() -> plans.findByHotelId(hotelId));
         if (plan.isEmpty() || !plan.get().isEnabled()) {
-            return new Gate(true, false, "Guest messages are off for this hotel (Hotel setup → Guest messages)");
+            return new Gate(true, false, "Guest messages are off for this " + com.hospio.common.venue.VenuePlaces.at(hotelId).place() + " (" + com.hospio.common.venue.VenuePlaces.at(hotelId).setup() + " → Guest messages)");
         }
         if (plan.get().getSuspendedAt() != null) {
             return new Gate(true, false, "Guest messages are suspended: " + nz(plan.get().getSuspendedReason()));
@@ -629,7 +629,7 @@ public class CommBilling {
     }
 
     public PlanView setSuspended(String hotelId, boolean suspended, String reason) {
-        CommPlan plan = asSystem(() -> plans.findByHotelId(hotelId)).orElseThrow(() -> new ResourceNotFoundException("This hotel has no guest-message plan"));
+        CommPlan plan = asSystem(() -> plans.findByHotelId(hotelId)).orElseThrow(() -> new ResourceNotFoundException("This " + com.hospio.common.venue.VenuePlaces.at(hotelId).place() + " has no guest-message plan"));
         plan.setSuspendedAt(suspended ? Instant.now() : null);
         plan.setSuspendedReason(suspended ? (StringUtils.hasText(reason) ? reason.trim() : "suspended by Hospio360") : null);
         asSystem(() -> plans.save(plan));

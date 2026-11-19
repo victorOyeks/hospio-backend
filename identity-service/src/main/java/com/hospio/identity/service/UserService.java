@@ -322,7 +322,7 @@ public class UserService {
                 throw new ForbiddenException("Only Hospio360 can change the owner's access");
             }
             if (!caller.has(Role.OWNER) && (grant.getHotelId() == null || !caller.getHotelIds().contains(grant.getHotelId()))) {
-                throw new ForbiddenException("That role is at a hotel you don't manage");
+                throw new ForbiddenException("That role is at " + com.hospio.common.venue.VenuePlaces.business().a() + " you don't manage");
             }
         }
         String label = AccessDates.roleLabel(grant.getRole());
@@ -562,18 +562,18 @@ public class UserService {
     private String resolveHotel(HospioUserDetails caller, String businessId, String requested) {
         String hotelId = StringUtils.hasText(requested) ? requested : TenantContext.current().map(Tenant::hotelId).orElse(null);
         if (!StringUtils.hasText(hotelId)) {
-            throw new BadRequestException("Choose the hotel this role is for");
+            throw new BadRequestException("Choose the " + com.hospio.common.venue.VenuePlaces.business().place() + " this role is for");
         }
         if (caller.getHotelIds().contains(hotelId)) {
             return hotelId;
         }
         if (!caller.isPlatform() && !caller.has(Role.OWNER)) {
-            throw new ForbiddenException("You can only add people to your own hotels");
+            throw new ForbiddenException("You can only add people to your own " + com.hospio.common.venue.VenuePlaces.business().places());
         }
         List<String> hotels = tenantClient.hotelIds(businessId)
-                .orElseThrow(() -> new ExternalServiceException("Could not confirm the hotel with tenant-service right now"));
+                .orElseThrow(() -> new ExternalServiceException("Could not confirm the " + com.hospio.common.venue.VenuePlaces.business().place() + " with tenant-service right now"));
         if (!hotels.contains(hotelId)) {
-            throw new BadRequestException("That hotel does not belong to this business");
+            throw new BadRequestException("That " + com.hospio.common.venue.VenuePlaces.business().place() + " does not belong to this business");
         }
         return hotelId;
     }
@@ -625,7 +625,7 @@ public class UserService {
             Set<String> mine = Set.copyOf(caller.getHotelIds());
             boolean atMyHotel = grants.findByUserId(user.getId()).stream().anyMatch(g -> g.getHotelId() != null && mine.contains(g.getHotelId()));
             if (!atMyHotel) {
-                throw new ForbiddenException("That person does not work at one of your hotels");
+                throw new ForbiddenException("That person does not work at one of your " + com.hospio.common.venue.VenuePlaces.business().places());
             }
         }
     }
@@ -637,7 +637,7 @@ public class UserService {
             hotel = TenantContext.current().map(Tenant::hotelId).orElse(null);
         }
         if (hotel == null && !businessWide) {
-            throw new BadRequestException("Choose the hotel this role is for");
+            throw new BadRequestException("Choose the " + com.hospio.common.venue.VenuePlaces.business().place() + " this role is for");
         }
         RoleGrant existing = grants.findByUserIdAndHotelIdAndRole(user.getId(), hotel, role).orElse(null);
         RoleGrant grant = existing == null ? new RoleGrant() : existing;

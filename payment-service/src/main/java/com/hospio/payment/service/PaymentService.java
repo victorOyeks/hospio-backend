@@ -128,17 +128,17 @@ public class PaymentService {
         switch (dto.method()) {
             case CASH -> {
                 if (!settings.allowCash()) {
-                    throw new BadRequestException("This hotel doesn't take cash");
+                    throw new BadRequestException("This " + com.hospio.common.venue.VenuePlaces.here().place() + " doesn't take cash");
                 }
             }
             case CARD -> {
                 if (!settings.allowCard()) {
-                    throw new BadRequestException("This hotel doesn't take cards");
+                    throw new BadRequestException("This " + com.hospio.common.venue.VenuePlaces.here().place() + " doesn't take cards");
                 }
             }
             case TRANSFER -> {
                 if (!settings.allowTransfer()) {
-                    throw new BadRequestException("This hotel doesn't take transfers");
+                    throw new BadRequestException("This " + com.hospio.common.venue.VenuePlaces.here().place() + " doesn't take transfers");
                 }
             }
             case ORGANIZATION -> throw new BadRequestException("Organization stays are billed, not paid here");
@@ -166,7 +166,7 @@ public class PaymentService {
                 throw new BadRequestException("A tip is taken with a restaurant or bar sale");
             }
             if (!hotelConfig.recordsTips(hotelId)) {
-                throw new BadRequestException("Tips aren't recorded here. A manager can switch on Record tips in Hotel setup → Restaurant & bar");
+                throw new BadRequestException("Tips aren't recorded here. A manager can switch on Record tips in " + com.hospio.common.venue.VenuePlaces.here().setup() + " → Restaurant & bar");
             }
         }
         String partId = blankToNull(dto.orderId()) == null ? null : blankToNull(dto.partId());
@@ -323,7 +323,7 @@ public class PaymentService {
     void requireWaiterMayPay(String hotelId, HospioUserDetails user, String openedBy, PaymentMethod method) {
         HotelConfigClient.WaiterRules rules = hotelConfig.waiterRules(hotelId);
         if (!rules.takePayment()) {
-            throw new ForbiddenException("Waiters don't take payment here: the cashier does. A manager can allow it in Hotel setup → Restaurant & bar");
+            throw new ForbiddenException("Waiters don't take payment here: the cashier does. A manager can allow it in " + com.hospio.common.venue.VenuePlaces.here().setup() + " → Restaurant & bar");
         }
         if (openedBy != null && !openedBy.equals(user.getUserId()) && !user.has(Role.WAITER, com.hospio.common.enums.AccessLevel.FULL)) {
             throw new ForbiddenException("This sale was opened by another waiter. They, the cashier or a manager can take the payment");
@@ -380,9 +380,9 @@ public class PaymentService {
         }
         // The POS the desk picked (one of this hotel's), else the one assigned to the desk's role.
         PosTerminal terminal = (terminalId != null
-                ? Optional.of(terminals.picked(hotelId, terminalId).orElseThrow(() -> new BadRequestException("That POS isn't one of this hotel's. Pick another")))
+                ? Optional.of(terminals.picked(hotelId, terminalId).orElseThrow(() -> new BadRequestException("That POS isn't one of this " + com.hospio.common.venue.VenuePlaces.here().possessive() + ". Pick another")))
                 : terminals.forRole(hotelId, role).or(() -> deskRole(p.getDesk()).flatMap(d -> terminals.forRole(hotelId, d))))
-                .orElseThrow(() -> new BadRequestException("No POS is assigned to " + role.name().toLowerCase().replace('_', ' ') + ". Pick another POS or take cash; a manager can assign one in Hotel setup"));
+                .orElseThrow(() -> new BadRequestException("No POS is assigned to " + role.name().toLowerCase().replace('_', ' ') + ". Pick another POS or take cash; a manager can assign one in " + com.hospio.common.venue.VenuePlaces.here().setup()));
         if (terminal.getStatus() != PosTerminal.Status.ONLINE) {
             throw new BadRequestException("The POS " + terminal.getName() + " is offline. Use another POS or take cash");
         }

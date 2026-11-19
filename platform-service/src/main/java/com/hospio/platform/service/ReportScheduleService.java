@@ -94,7 +94,7 @@ public class ReportScheduleService {
         LocalTime at = sendAt(request.sendAt());
         String hotelId = StringUtils.hasText(request.hotelId()) ? request.hotelId() : null;
         if (hotelId != null && !user.getHotelIds().contains(hotelId)) {
-            throw new ForbiddenException("That hotel is not one of yours");
+            throw new ForbiddenException("That " + com.hospio.common.venue.VenuePlaces.business().place() + " is not one of yours");
         }
         if (hotelId == null && !user.has(Role.OWNER)) {
             hotelId = TenantContext.requireHotel();
@@ -200,7 +200,7 @@ public class ReportScheduleService {
             for (String hotelId : hotelsOf(schedule)) {
                 events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().eventId(scheduled ? runId(schedule, period, "notice:" + hotelId) : null)
                         .kind("REPORT").title(title)
-                        .body("Sent by " + schedule.getRequestedByName() + " · your hotel only").link(link(schedule, period, hotelId))
+                        .body("Sent by " + schedule.getRequestedByName() + " · your " + com.hospio.common.venue.VenuePlaces.at(hotelId).place() + " only").link(link(schedule, period, hotelId))
                         .businessId(schedule.getBusinessId()).hotelId(hotelId).roles(List.of(Role.MANAGER.name())).build());
             }
         }
@@ -253,7 +253,7 @@ public class ReportScheduleService {
         }
         String hotelId = StringUtils.hasText(request.hotelId()) ? request.hotelId() : null;
         if (hotelId != null && !user.getHotelIds().contains(hotelId)) {
-            throw new ForbiddenException("That hotel is not one of yours");
+            throw new ForbiddenException("That " + com.hospio.common.venue.VenuePlaces.business().place() + " is not one of yours");
         }
         if (hotelId == null && !user.has(Role.OWNER)) {
             hotelId = TenantContext.requireHotel();

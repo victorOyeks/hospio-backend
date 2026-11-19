@@ -472,19 +472,21 @@ public class BusinessService {
         HospioUserDetails caller = CurrentUser.require();
         String businessId = caller.isPlatform() ? request.businessId() : TenantContext.requireBusiness();
         if (!StringUtils.hasText(businessId)) {
-            throw new BadRequestException("Say which business the hotel belongs to (businessId)");
-        }
-        if (!caller.isPlatform() && !caller.has(Role.OWNER)) {
-            throw new ForbiddenException("Only the owner can add a hotel");
+            throw new BadRequestException("Say which business the location belongs to (businessId)");
         }
         Business business = find(businessId);
-        String name = Fields.name(request.name(), "the hotel name", true);
-        assertHotelNameFree(businessId, "", name);
         com.hospio.common.venue.VenueType venueType = request.venueType() != null ? request.venueType()
                 : business.getVenueKind() == null ? com.hospio.common.venue.VenueType.HOTEL : business.getVenueKind().defaultVenue();
+        // The place is named by its type in every message: "the lounge name", "Only the owner can add a lounge" (plan-venue-type.md, phase 5).
+        String place = com.hospio.common.venue.VenueWording.of(venueType).place();
+        if (!caller.isPlatform() && !caller.has(Role.OWNER)) {
+            throw new ForbiddenException("Only the owner can add a " + place);
+        }
+        String name = Fields.name(request.name(), "the " + place + " name", true);
+        assertHotelNameFree(businessId, "", name, venueType);
         Hotel hotel = hotels.save(Hotel.builder().businessId(businessId).name(name).venueType(venueType).city(Fields.city(request.city(), true))
-                .address(Fields.address(request.address(), false)).phone(Fields.phone(request.phone(), "the hotel phone", false))
-                .email(Fields.email(request.email(), "the hotel email", false))
+                .address(Fields.address(request.address(), false)).phone(Fields.phone(request.phone(), "the " + place + " phone", false))
+                .email(Fields.email(request.email(), "the " + place + " email", false))
                 .timezone(request.timezone() == null ? business.getTimezone() : request.timezone())
                 .checkInTime(Fields.time(request.checkInTime(), "check-in", "14:00"))
                 .checkOutTime(Fields.time(request.checkOutTime(), "check-out", "12:00"))
@@ -504,7 +506,7 @@ public class BusinessService {
         HospioUserDetails caller = CurrentUser.require();
         if (!caller.isPlatform() && !(hotel.getBusinessId().equals(caller.getBusinessId())
                 && (caller.has(Role.OWNER) || caller.getHotelIds().contains(hotelId)))) {
-            throw new ForbiddenException("That hotel is not yours");
+            throw new ForbiddenException("That " + com.hospio.common.venue.VenueWording.of(hotel.getVenueType()).place() + " is not yours");
         }
         return HotelResponse.of(hotel);
     }
@@ -516,17 +518,18 @@ public class BusinessService {
         boolean owner = caller.has(Role.OWNER) && h.getBusinessId().equals(caller.getBusinessId());
         boolean managerHere = caller.has(Role.MANAGER) && caller.getHotelIds().contains(hotelId);
         if (!caller.isPlatform() && !owner && !managerHere) {
-            throw new ForbiddenException("Only the owner, this hotel's manager or Hospio360 can edit it");
+            throw new ForbiddenException("Only the owner, this " + com.hospio.common.venue.VenueWording.of(h.getVenueType()).possessive() + " manager or Hospio360 can edit it");
         }
-        String name = Fields.name(r.name(), "the hotel name", true);
+        String place = com.hospio.common.venue.VenueWording.of(r.venueType() != null ? r.venueType() : h.getVenueType()).place();
+        String name = Fields.name(r.name(), "the " + place + " name", true);
         if (!Fields.nameKey(name).equals(Fields.nameKey(h.getName()))) {
-            assertHotelNameFree(h.getBusinessId(), h.getId(), name);
+            assertHotelNameFree(h.getBusinessId(), h.getId(), name, r.venueType() != null ? r.venueType() : h.getVenueType());
         }
         h.setName(name);
         if (r.city() != null) h.setCity(Fields.city(r.city(), true));
         if (r.address() != null) h.setAddress(Fields.address(r.address(), false));
-        if (r.phone() != null) h.setPhone(Fields.phone(r.phone(), "the hotel phone", false));
-        if (r.email() != null) h.setEmail(Fields.email(r.email(), "the hotel email", false));
+        if (r.phone() != null) h.setPhone(Fields.phone(r.phone(), "the " + place + " phone", false));
+        if (r.email() != null) h.setEmail(Fields.email(r.email(), "the " + place + " email", false));
         if (r.timezone() != null) h.setTimezone(r.timezone());
         if (r.checkInTime() != null) h.setCheckInTime(Fields.time(r.checkInTime(), "check-in", "14:00"));
         if (r.checkOutTime() != null) h.setCheckOutTime(Fields.time(r.checkOutTime(), "check-out", "12:00"));
@@ -541,7 +544,7 @@ public class BusinessService {
         Hotel h = findHotel(hotelId);
         HospioUserDetails caller = CurrentUser.require();
         if (!caller.isPlatform() && !(caller.has(Role.OWNER) && h.getBusinessId().equals(caller.getBusinessId()))) {
-            throw new ForbiddenException("Only the owner or Hospio360 can change a hotel's status");
+            throw new ForbiddenException("Only the owner or Hospio360 can change a " + com.hospio.common.venue.VenueWording.of(h.getVenueType()).possessive() + " status");
         }
         h.setStatus(request.status());
         h.setStatusReason(request.status() == Hotel.Status.ACTIVE ? null : request.reason());
@@ -654,9 +657,11 @@ public class BusinessService {
     }
 
     /** One hotel name per business, any case or spacing. */
-    private void assertHotelNameFree(String businessId, String hotelId, String name) {
+    private void assertHotelNameFree(String businessId, String hotelId, String name, com.hospio.common.venue.VenueType type) {
+        // The other one may be of any kind, so a lounge is told "a location called"; a hotel reads as before.
+        String a = com.hospio.common.venue.VenueWording.of(type).isHotel() ? "a hotel" : "a location";
         hotels.otherWithName(businessId, hotelId, Fields.nameKey(name)).ifPresent(other -> {
-            throw new ConflictException("This business already has a hotel called " + other + ". Give this one a different name");
+            throw new ConflictException("This business already has " + a + " called " + other + ". Give this one a different name");
         });
     }
 

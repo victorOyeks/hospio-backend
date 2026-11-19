@@ -184,7 +184,7 @@ public class PeerServices {
             }
             return out;
         } catch (Exception e) {
-            throw new ExternalServiceException("The hotels of this business can't be read right now", e);
+            throw new ExternalServiceException("The " + com.hospio.common.venue.VenuePlaces.business().places() + " of this business can't be read right now", e);
         }
     }
 

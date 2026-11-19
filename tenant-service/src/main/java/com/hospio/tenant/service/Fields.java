@@ -99,7 +99,7 @@ public final class Fields {
         // As the mail provider takes it in a header (messaging MailDispatcher.address): one @, a dotted domain, no spaces,
         // brackets, commas, semicolons or quotes.
         if (t.length() > 160 || !t.matches("^[^\\s@<>,;\"]+@[^\\s@<>,;\"]+\\.[^\\s@<>,;\".]{2,}$") || t.contains("..")) {
-            throw new BadRequestException(capital(what) + " must be a valid email, like name@hotel.com");
+            throw new BadRequestException(capital(what) + " must be a valid email, like name@example.com");
         }
         return t;
     }

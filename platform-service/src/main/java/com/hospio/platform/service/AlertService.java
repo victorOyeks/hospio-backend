@@ -121,7 +121,7 @@ public class AlertService {
         }
         long declines = activity.countByHotelIdAndEventTypeAndOccurredAtAfter(hotelId, "PaymentDeclined", Instant.now().minus(1, ChronoUnit.HOURS));
         if (paymentsFailing(declines)) {
-            raise(Alert.PAYMENTS_FAILING, businessId, hotelId, "Payments failing", declines + " card or transfer payments declined at this hotel in the last hour", "danger");
+            raise(Alert.PAYMENTS_FAILING, businessId, hotelId, "Payments failing", declines + " card or transfer payments declined at this " + com.hospio.common.venue.VenuePlaces.at(hotelId).place() + " in the last hour", "danger");
         }
     }
 

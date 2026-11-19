@@ -123,7 +123,7 @@ public class HotelSetupService {
                 throw new ForbiddenException("Only the owner can change " + sec.toLowerCase().replace('_', ' '));
             }
             if (!caller.isManagerOrOwner()) {
-                throw new ForbiddenException("Only a manager or the owner can change Hotel setup");
+                throw new ForbiddenException("Only a manager or the owner can change " + com.hospio.common.venue.VenuePlaces.here().setup());
             }
         }
         SetupSection sent = readSent(objectMapper, typeOf(sec), body);
@@ -396,7 +396,7 @@ public class HotelSetupService {
     }
 
     private static Class<? extends SetupSection> typeOf(String section) {
-        return SetupCatalogue.typeOf(section).orElseThrow(() -> new BadRequestException("Hotel setup has no section " + section));
+        return SetupCatalogue.typeOf(section).orElseThrow(() -> new BadRequestException(com.hospio.common.venue.VenuePlaces.here().setup() + " has no section " + section));
     }
 
     private String write(Object value) {

@@ -82,7 +82,8 @@ public class BusinessController {
     @PostMapping("/hotels")
     @PreAuthorize("@access.owner()")
     public ApiResponse<HotelResponse> addHotel(@Valid @RequestBody CreateHotelRequest request) {
-        return ApiResponse.ok("Hotel added", service.addHotel(request));
+        HotelResponse added = service.addHotel(request);
+        return ApiResponse.ok(com.hospio.common.venue.VenueWording.of(added.venueType()).capital() + " added", added);
     }
 
     @Operation(summary = "Edit a hotel: owner, that hotel's manager, or platform")

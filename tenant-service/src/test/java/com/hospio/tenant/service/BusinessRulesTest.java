@@ -120,7 +120,7 @@ class BusinessRulesTest {
                 assertThatThrownBy(() -> service.updateMine(new com.hospio.tenant.dto.UpdateMyBusinessRequest("Wiseman Hotels", null, null,
                         null, bad, null, null, null, null, null, null, null)))
                         .as(bad).isInstanceOf(BadRequestException.class)
-                        .hasMessage("Business email must be a valid email, like name@hotel.com");
+                        .hasMessage("Business email must be a valid email, like name@example.com");
             }
             verify(businesses, never()).save(any());
         } finally {
@@ -132,9 +132,9 @@ class BusinessRulesTest {
     void anOnboardingStepRefusesAnEmailThatIsNotAnAddress() throws Exception {
         ObjectMapper json = new ObjectMapper();
         assertThatThrownBy(() -> OnboardingService.checkEmails(json.readValue("{\"name\":\"Wiseman\",\"email\":\"0000000\"}",
-                com.hospio.tenant.dto.OnboardingStepData.class))).hasMessage("Business email must be a valid email, like name@hotel.com");
+                com.hospio.tenant.dto.OnboardingStepData.class))).hasMessage("Business email must be a valid email, like name@example.com");
         assertThatThrownBy(() -> OnboardingService.checkEmails(json.readValue("{\"ownerEmail\":\"wuse@\"}",
-                com.hospio.tenant.dto.OnboardingStepData.class))).hasMessage("Owner's email must be a valid email, like name@hotel.com");
+                com.hospio.tenant.dto.OnboardingStepData.class))).hasMessage("Owner's email must be a valid email, like name@example.com");
         OnboardingService.checkEmails(json.readValue("{\"name\":\"Wiseman\",\"email\":\"\"}", com.hospio.tenant.dto.OnboardingStepData.class));
         OnboardingService.checkEmails(json.readValue("{\"email\":\"frontdesk@wiseman.ng\"}", com.hospio.tenant.dto.OnboardingStepData.class));
         OnboardingService.checkEmails(null);
