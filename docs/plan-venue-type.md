@@ -76,7 +76,7 @@ How it works for staff (the contract is docs/restaurant-bar.md, "The bill").
 Data: fnb `009-splits-discounts-tips` (`order_splits`, `order_split_parts`, `order_tips`, `sale_requests`, `staff_outlets`,
 `orders.room_amount`, `split_parts`, bill discount columns, `order_lines.manual_discount`, `bill_discount`, `complimentary`…),
 payment `011-payment-part-tip`, finance `007-till-cash-tips`; settings `OUTLETS.discountRoles`, `OUTLETS.recordTips`.
-QA script: `hotel-internal-system-admin-FE/docs/qa/66-bill-splitting-discounts-approvals-tips.md`.
+QA script: `hotel-internal-system-admin-FE/docs/qa/67-bill-splitting-discounts-approvals-tips.md`.
 
 ## Phase 3: venue setup, waiters and cashiers
 
@@ -224,3 +224,50 @@ QA script: `hotel-internal-system-admin-FE/docs/qa/62-venue-dashboards-reports.m
   Not built (decisions for the owner): a per-person outlet list (waiters and cashiers work every outlet of their location); manual
   discounts or complimentary items on an outlet sale with a limit (only happy hours exist), so the setup seeds reasons only;
   manager approval of a void from the waiter's or cashier's screen (they are refused and a manager does it).
+- 18 to 19 Nov 2026: phase 4 built and shipped (backend `1da9dea` the bill, `38a827c` splitParts, the complimentary-tab and approver
+  refusal fixes and these docs; web "Venue type phase 4: the bill…" and follow-ups, QA 67). The first staging run failed on a
+  platform-service build in CI and deployed part of the services; a `[deploy-all]` push redeployed everything. Staging e2e, QA
+  venues only, cash and the Bar test terminal (the logging POS confirmed through its webhook), API and browser:
+  **Equal split**: a ₦10,000 tab (4 Chapman) between three is 3,333.33 + 3,333.33 + 3,333.34 (VAT 232.55 + 232.55 + 232.57 =
+  697.67), paid cash (Bar till), card and transfer on the Bar test terminal; a payment naming no part is refused ("B-0021 is split
+  into 3 parts…"), more than the part too ("Only ₦3,333.33 is due on part 1 of 3 of B-0021"), undo and adding an item are refused
+  once a part is paid; the tab closed on the third payment with ₦10,000 paid in 3 payments.
+  **By item, service charge on** (guest pays the 1.5 % fee; VAT 7.5 % included): Star Lager + Chapman + Coke = ₦4,866.98 (service
+  charge 66.98, VAT 334.88); Guest 1 (Star Lager, half the Coke) ₦1,926.51, Guest 2 (Chapman, half the Coke) ₦2,940.47, adding up
+  exactly, service charge 26.51 + 40.47 and VAT 132.55 + 202.33; paid transfer + cash into the cashier till by the cashier; an item
+  on nobody's bill is refused; a waiter can't split while waiters don't take payment.
+  **By amount / undo / void**: ₦3,800 as 1,000 + 1,500.50 + rest 1,299.50; undone; more than the bill refused; split again in two,
+  then the bar's void request, the manager's and the owner's bell ("Approval needed: void"), approved from the manager's
+  approvals: sale cancelled, split undone, the requester's bell "Approved: Void the whole sale (₦3,800)", the void under Bisi with
+  "… · approved by Tunde Lounge Manager". With a part paid the void is refused; an approval arriving late is kept "not applied".
+  **Discounts**: cashier 10 % of ₦8,500 at once (₦7,650); 25 % sent to a manager, a wrong PIN on her screen refused, the manager's
+  PIN approved it there (₦6,375, "by Chika Cashier", approved by Tunde, note "Decided on Chika Cashier's screen"); the cashier
+  can't approve it herself (403); a free Star Lager from the bar approved by the owner (complimentary, reason, giver and approver
+  on the line; ₦5,250 paid); the waiter's 5 % declined with a note (nothing changed, bell "Declined…: Not today"); the owner
+  declined a waiter's void on his screen with her password; the manager made a whole bill free at once (it closes as
+  complimentary; a tab too after a fix).
+  **Tips**: refused while "Record tips" is off; on: cash ₦3,000 + ₦500 tip by the cashier for Wale's tab (payment 3,500, sale and
+  income 3,000, `order_tips` 500 for Wale, till expected +3,500 with cash tips held 500 and a TIP entry) and card ₦1,600 + ₦200 on
+  the test terminal; Tips report ₦700 (cash 500, card 200; Wale 500, Bisi 200); a waiter sees only their own; switched off again.
+  **Outlets per person**: Kemi kept to VIP Lounge: refused at Main Bar (403 "You aren't assigned to Main Bar…"), works at VIP; a
+  cashier kept to VIP can neither open a Main Bar bill nor take its payment; both set back to all outlets.
+  **By SQL**: each split sale's `order_payments` add up to its total; tips are in `order_tips` only (not in `order_payments` or
+  `revenue_entries`); the day's fee base at the lounge (the `SalesReport.daily` sum) went from ₦72,558.21 to ₦100,728.76 =
+  +₦28,170.55, exactly the new payments less VAT and service charge: the ₦10,000 split sale counts 9,302.33 (as one unsplit sale
+  would), the tipped sales 2,790.70 and 1,488.37 (3,000 and 1,600 less VAT, no tip), the discounted sale 4,883.72 (₦5,250 paid of
+  ₦8,500 listed), the complimentary bill nothing. Sales by staff and the sales count take a split sale once; Voids & discounts
+  lists reasons, givers and approvers.
+  **Hotel** (Simpas Ikeja, `qa.pin.*` only, cash): a ₦2,400 bar tab split in two, part 1 on room A102 (folio line "Bar · B-0017
+  (part 1 of a split bill)" 1,116.28 + VAT 83.72), part 2 cash: closed, ₦1,200 paid at the bar and ₦1,200 on the room; charging
+  the whole tab is refused while split; the hotel cashier gave 10 % on the waiter's ₦3,600 tab, took ₦1,000 cash and put the
+  rest (₦2,240) on the room; a whole tab on a room as before; a tip refused (tips off); the folio rose by exactly ₦4,640.
+  **Browser** (1024 and 820): tab → Split or discount → the bill; split equally in three, by item and by amount windows; undo;
+  pay a part in cash (change ₦0.67) and back on the bill with ₦6,666.67 to pay; discount over the limit → Send to a manager →
+  Manager is here with a wrong then the right PIN; the tip step; cash tips on the till; the manager's Needs your action,
+  Approvals, Hotel setup (Who gives a discount, Record tips), Reports → Tips and Voids & discounts, Staff outlets; no sideways
+  scroll. Found and fixed on the way: a refused PIN reached the screen as "Could not check that PIN" (the 401 body was lost
+  between services); a tab made wholly complimentary stayed open at ₦0; the bill showed the items net of VAT; the payment steps
+  rounded a part to the naira; the reason picker fell back to free text.
+  Left for a decision: tips stay off everywhere until the owner decides (no tip pooling or pay-out is built: the report says who
+  earned what and the till how much cash is held); a refund of a paid part still goes through Payments; a split by item is
+  offered only before any money is taken.
