@@ -13,6 +13,7 @@ import com.hospio.platform.settings.GeneralSettings;
 import com.hospio.platform.settings.PlatformSettings;
 import com.hospio.platform.settings.PlatformSettingsCatalogue;
 import com.hospio.platform.settings.SecuritySettings;
+import com.hospio.platform.settings.SystemHealthSettings;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.RecordComponent;
 import java.util.Arrays;
@@ -37,7 +38,7 @@ public class PlatformSettingsService {
 
     @Transactional(readOnly = true)
     public PlatformSettings all() {
-        return new PlatformSettings(general(), feesGroup(), security());
+        return new PlatformSettings(general(), feesGroup(), security(), systemGroup());
     }
 
     @Transactional(readOnly = true)
@@ -54,6 +55,17 @@ public class PlatformSettingsService {
     @Transactional(readOnly = true)
     public SecuritySettings security() {
         return read(PlatformSettingsCatalogue.SECURITY, SecuritySettings.DEFAULTS);
+    }
+
+    @Transactional(readOnly = true)
+    public SystemHealthSettings systemGroup() {
+        return read(PlatformSettingsCatalogue.SYSTEM, SystemHealthSettings.DEFAULTS);
+    }
+
+    /** The system health limits; works from any thread, as the platform (the system health job). */
+    @Transactional(readOnly = true)
+    public SystemHealthSettings systemHealth() {
+        return TenantContext.runWith(Tenant.system("settings"), this::systemGroup);
     }
 
     /** The fees group; works from any thread, as the platform (jobs, internal calls). */
@@ -78,6 +90,45 @@ public class PlatformSettingsService {
     public SecuritySettings update(SecuritySettings values) {
         save(PlatformSettingsCatalogue.SECURITY, values);
         return security();
+    }
+
+    /**
+     * Saves the system health limits after checking them against what is stored: percentages 1-100 with the warning under the
+     * critical level, minutes 1-1440, certificate days 1-90, a Kafka lag of at least 1.
+     */
+    @Transactional
+    public SystemHealthSettings update(SystemHealthSettings values) {
+        if (values == null) {
+            throw new BadRequestException("Send the group's values");
+        }
+        SystemHealthSettings now = systemGroup();
+        int warn = pick(values.diskWarnPct(), now.diskWarnPct());
+        int critical = pick(values.diskCriticalPct(), now.diskCriticalPct());
+        between("Disk warning (%)", warn, 1, 100);
+        between("Disk critical (%)", critical, 1, 100);
+        if (warn >= critical) {
+            throw new BadRequestException("The disk warning level must be under the critical level");
+        }
+        between("Memory (%)", pick(values.memoryPct(), now.memoryPct()), 1, 100);
+        between("Swap (%)", pick(values.swapPct(), now.swapPct()), 1, 100);
+        between("Memory high for (minutes)", pick(values.memoryMinutes(), now.memoryMinutes()), 1, 1440);
+        between("Service down for (minutes)", pick(values.serviceDownMinutes(), now.serviceDownMinutes()), 1, 1440);
+        between("Certificate days", pick(values.certDays(), now.certDays()), 1, 90);
+        between("Kafka messages waiting", pick(values.kafkaLag(), now.kafkaLag()), 1, 10_000_000);
+        between("Kafka stuck for (minutes)", pick(values.kafkaStuckMinutes(), now.kafkaStuckMinutes()), 1, 1440);
+        between("Database connections (%)", pick(values.dbConnectionsPct(), now.dbConnectionsPct()), 1, 100);
+        save(PlatformSettingsCatalogue.SYSTEM, values);
+        return systemGroup();
+    }
+
+    private static int pick(Integer sent, Integer stored) {
+        return sent != null ? sent : stored == null ? 0 : stored;
+    }
+
+    private static void between(String label, int value, int min, int max) {
+        if (value < min || value > max) {
+            throw new BadRequestException(label + " must be between " + min + " and " + max);
+        }
     }
 
     /** Writes every default that is not stored yet (the seeder). Never overwrites a saved value. */

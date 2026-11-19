@@ -150,6 +150,8 @@ admins and "View as owner" still see it.
 
 ## Health and alerts (platform)
 
+Server alerts (kind `SYSTEM_HEALTH`, no business, business name "Server": disk, memory, a service down, certificates, Kafka, database connections) come from Platform → System health; see `docs/system-health.md`.
+
 `HealthScore` exists (`score`, `factors`); a nightly job computes every LIVE business: factors adoption (active users last 7 days / users), bookings last 7 days, payments last 7 days, open tickets, overdue fees, night audits missed. `Alert` (new): businessId, businessName, kind (`FEES_OVERDUE`, `NIGHT_AUDIT_MISSED`, `PAYMENTS_FAILING`, `NO_ACTIVITY`, `TICKET_URGENT`, `ONBOARDING_STALLED`), title, detail, tone danger|warning|grey, openedAt, dismissedAt, dismissedBy. Raised by listeners (payment failed events, urgent tickets) and the nightly job; cleared automatically when the cause ends.
 
 | Method | Path | Who | Response |

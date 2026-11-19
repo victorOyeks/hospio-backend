@@ -26,3 +26,6 @@ After phase 4: the manager, front desk and other hotel roles (separate plan).
   re-acceptance; append-only records with IP and browser; admin Acceptance tab + CSV, owner's Terms & acceptances. Same day: platform
   fee lock (1.5% for everyone, addendum reference otherwise), phone-code cooldown (60 s), an ended marketer's final statement, default
   stores backfill.
+- 2026-11-19: Platform → System health (docs/system-health.md): server CPU/memory/disks, every Hospio unit's systemd state and health,
+  Postgres, Kafka lag, Redis, TLS certificates, 7 days of 5-minute snapshots with a disk-full estimate; server alerts (dashboard, bell,
+  email to Super admins; once, worse, recovered) with limits in Settings → System health. Super admin and Support only.

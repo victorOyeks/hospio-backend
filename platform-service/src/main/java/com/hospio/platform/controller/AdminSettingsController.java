@@ -9,6 +9,7 @@ import com.hospio.platform.settings.FeeSettings;
 import com.hospio.platform.settings.GeneralSettings;
 import com.hospio.platform.settings.PlatformSettings;
 import com.hospio.platform.settings.SecuritySettings;
+import com.hospio.platform.settings.SystemHealthSettings;
 import io.swagger.v3.oas.annotations.Operation;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +55,13 @@ public class AdminSettingsController {
     @PutMapping("/settings/security")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ApiResponse<SecuritySettings> updateSecurity(@RequestBody SecuritySettings values) {
+        return ApiResponse.ok("Settings saved", settings.update(values));
+    }
+
+    @Operation(summary = "SUPER_ADMIN: save the system health alert limits (fields left out keep their value); returns the merged group")
+    @PutMapping("/settings/system")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ApiResponse<SystemHealthSettings> updateSystem(@RequestBody SystemHealthSettings values) {
         return ApiResponse.ok("Settings saved", settings.update(values));
     }
 
