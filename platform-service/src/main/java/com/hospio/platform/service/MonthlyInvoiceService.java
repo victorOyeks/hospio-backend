@@ -14,7 +14,7 @@ import com.hospio.common.security.HospioUserDetails;
 import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.common.util.Money;
-import com.hospio.platform.client.FeeDebitClient;
+import com.hospio.platform.client.PosPauseClient;
 import com.hospio.platform.client.MessageBillingClient;
 import com.hospio.platform.client.PlatformPaystackClient;
 import com.hospio.platform.client.TenantClient;
@@ -104,7 +104,7 @@ public class MonthlyInvoiceService {
     private final DeviceInvoiceService deviceInvoices;
     private final DevicePackageService devices;
     private final FeeCollectionRepository collections;
-    private final FeeDebitClient pos;
+    private final PosPauseClient pos;
     private final MessageBillingClient messages;
     private final TenantClient tenant;
     private final PlatformSettingsService settings;
@@ -120,7 +120,7 @@ public class MonthlyInvoiceService {
 
     public MonthlyInvoiceService(MonthlyInvoiceRepository invoices, MonthlyInvoiceLineRepository lines, MonthlyInvoicePaymentRepository payments,
                                  MonthlyInvoiceEventRepository events, DailyFeeRepository fees, DeviceInvoiceRepository deviceItems,
-                                 DeviceInvoiceService deviceInvoices, DevicePackageService devices, FeeCollectionRepository collections, FeeDebitClient pos,
+                                 DeviceInvoiceService deviceInvoices, DevicePackageService devices, FeeCollectionRepository collections, PosPauseClient pos,
                                  MessageBillingClient messages, TenantClient tenant, PlatformSettingsService settings, PlatformPaystackClient paystack,
                                  DeliveryService deliveries, ObjectProvider<EventPublisher> publisher, CommissionService commission, BillingHold holds,
                                  TransactionTemplate tx, @Value("${hospio.apps.hotel-url:https://web-staging.hospio360.com}") String hotelAppUrl,

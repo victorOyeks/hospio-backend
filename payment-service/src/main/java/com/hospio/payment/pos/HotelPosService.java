@@ -20,7 +20,7 @@ import org.springframework.util.StringUtils;
 
 /**
  * Each hotel's POS provider keys (docs/pos-providers.md): a hotel can hold keys for Moniepoint and OPay side by side. Each card
- * payment uses the keys of its terminal's provider; the daily fee debit uses the provider chosen for it. Hospio admins set the
+ * payment uses the keys of its terminal's provider. Hospio admins set the
  * keys; the hotel's managers and owner see them masked. Keys are encrypted at rest (SecretBox). A field sent blank keeps its saved
  * value, so one key can be replaced on its own. The hotel's POS pause lives in hotel_pos_configs.
  */

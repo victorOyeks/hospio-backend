@@ -10,14 +10,13 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hospio.common.billing.FeeDebitDtos;
 import com.hospio.common.delivery.DeliveryService;
 import com.hospio.common.enums.AccessLevel;
 import com.hospio.common.enums.Role;
 import com.hospio.common.exception.ResourceNotFoundException;
 import com.hospio.common.security.HospioUserDetails;
 import com.hospio.common.security.JwtUtil;
-import com.hospio.platform.client.FeeDebitClient;
+import com.hospio.platform.client.PosPauseClient;
 import com.hospio.platform.client.PlatformPaystackClient;
 import com.hospio.platform.client.TenantClient;
 import com.hospio.platform.entity.DeviceInvoice;
@@ -56,11 +55,11 @@ class DeviceInvoiceServiceTest {
     private final DevicePaymentRepository payments = mock(DevicePaymentRepository.class);
     private final DevicePackageService devices = mock(DevicePackageService.class);
     private final FeeCollectionRepository collections = mock(FeeCollectionRepository.class);
-    private final FeeDebitClient debits = mock(FeeDebitClient.class);
+    private final PosPauseClient pos = mock(PosPauseClient.class);
     private final PlatformPaystackClient paystack = mock(PlatformPaystackClient.class);
     private final TenantClient tenant = mock(TenantClient.class);
     private final AlertService alerts = mock(AlertService.class);
-    private final DeviceInvoiceService service = new DeviceInvoiceService(invoices, packages, payments, devices, collections, debits, paystack, tenant,
+    private final DeviceInvoiceService service = new DeviceInvoiceService(invoices, packages, payments, devices, collections, pos, paystack, tenant,
             mock(DeliveryService.class), alerts, new TransactionTemplate(mock(PlatformTransactionManager.class)));
     private final List<DeviceInvoice> saved = new ArrayList<>();
 
@@ -149,37 +148,6 @@ class DeviceInvoiceServiceTest {
     }
 
     @Test
-    void anOpenInvoiceIsDebitedOnceADayAndAnApprovedDebitPaysIt() {
-        DeviceInvoice i = invoice(DeviceInvoice.DUE, TODAY);
-        when(collections.findByHotelId(HOTEL)).thenReturn(Optional.of(FeeCollection.builder().hotelId(HOTEL).provider("OPAY").debitEnabled(true).build()));
-        when(debits.debit(eq(HOTEL), eq("OPAY"), any(), anyString(), anyString())).thenReturn(new FeeDebitDtos.DebitResult("APPROVED", new BigDecimal("141666.67"), "OP1", null));
-        when(invoices.findByHotelIdAndStatusIn(eq(HOTEL), any())).thenReturn(List.of());
-        when(packages.lockById("pk1")).thenReturn(Optional.of(monthly("425000", 3, TODAY)));
-
-        assertThat(service.debit(i, TODAY)).isEqualTo("PAID");
-        assertThat(i.getStatus()).isEqualTo(DeviceInvoice.PAID);
-        assertThat(i.getPaidVia()).isEqualTo("DEBIT");
-        verify(devices).credit(any(), eq(new BigDecimal("141666.67")));
-
-        DeviceInvoice j = invoice(DeviceInvoice.DUE, TODAY);
-        j.setLastDebitOn(TODAY);
-        assertThat(service.debit(j, TODAY)).as("already tried today").isNull();
-    }
-
-    @Test
-    void aFailedDebitKeepsTheInvoiceOpenWithTheReasonAndNothingIsTriedWithTheDebitOff() {
-        DeviceInvoice i = invoice(DeviceInvoice.DUE, TODAY);
-        when(collections.findByHotelId(HOTEL)).thenReturn(Optional.of(FeeCollection.builder().hotelId(HOTEL).provider("OPAY").debitEnabled(true).build()));
-        when(debits.debit(eq(HOTEL), eq("OPAY"), any(), anyString(), anyString())).thenReturn(new FeeDebitDtos.DebitResult("FAILED", BigDecimal.ZERO, null, "insufficient balance"));
-        assertThat(service.debit(i, TODAY)).isEqualTo("FAILED");
-        assertThat(i.getStatus()).isEqualTo(DeviceInvoice.DUE);
-        assertThat(i.getLastError()).isEqualTo("insufficient balance");
-
-        when(collections.findByHotelId(HOTEL)).thenReturn(Optional.of(FeeCollection.builder().hotelId(HOTEL).provider("OPAY").debitEnabled(false).build()));
-        assertThat(service.debit(invoice(DeviceInvoice.DUE, TODAY), TODAY)).isNull();
-    }
-
-    @Test
     void overdueStepsComeAtThreeSevenAndFourteenDays() {
         DeviceInvoice at2 = invoice(DeviceInvoice.DUE, TODAY.minusDays(2));
         when(invoices.findByStatusInAndDueOnLessThanEqualOrderByDueOnAsc(any(), any())).thenReturn(List.of(at2));
@@ -192,7 +160,7 @@ class DeviceInvoiceServiceTest {
         when(collections.findByHotelId(HOTEL)).thenReturn(Optional.of(c));
         assertThat(service.overdue(TODAY)).containsExactly(0, 1, 1, 1);
         verify(alerts).raise(eq(DeviceInvoiceService.ALERT), eq("b1"), eq(HOTEL), anyString(), anyString(), eq("danger"));
-        verify(debits).pausePos("b1", HOTEL, true);
+        verify(pos).pausePos("b1", HOTEL, true);
         assertThat(c.isDevicePosPaused()).isTrue();
         // Each step happens once.
         assertThat(service.overdue(TODAY)).containsExactly(0, 0, 0, 0);
@@ -213,7 +181,7 @@ class DeviceInvoiceServiceTest {
         assertThat(i.getStatus()).isEqualTo(DeviceInvoice.PAID);
         assertThat(i.getPaidVia()).isEqualTo("MANUAL");
         assertThat(c.isDevicePosPaused()).isFalse();
-        verify(debits, never()).pausePos("b1", HOTEL, false);
+        verify(pos, never()).pausePos("b1", HOTEL, false);
         verify(alerts).clear(DeviceInvoiceService.ALERT, "b1");
         assertThatThrownBy(() -> service.markPaid("inv0", "TRF-9", null)).hasMessageContaining("nothing is owed");
         assertThatThrownBy(() -> service.markPaid("inv0", " ", null)).hasMessageContaining("reference");

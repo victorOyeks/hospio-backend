@@ -93,7 +93,7 @@ class IntegrationSettingsServiceTest {
         List<IntegrationView> all = service.list();
 
         assertThat(all).extracting(IntegrationView::provider).containsExactly("BREVO", "SMTP", "INFOBIP", "TERMII", "PAYSTACK", "MONIEPOINT",
-                "OPAY", "FEE_DEBIT_OPAY", "FEE_DEBIT_MONIEPOINT");
+                "OPAY");
         IntegrationView brevo = all.get(0);
         assertThat(brevo.group()).isEqualTo("EMAIL");
         assertThat(brevo.testable()).isTrue();
@@ -104,7 +104,7 @@ class IntegrationSettingsServiceTest {
         });
         assertThat(field(brevo, "apiKey").type()).isEqualTo("SECRET");
         assertThat(field(brevo, "apiKey").hint()).endsWith("Empty: the server's BREVO_API_KEY applies.");
-        assertThat(all.get(7).testable()).as("the fee debit would move money").isFalse();
+        assertThat(all).as("every provider left has a Test connection").allSatisfy(v -> assertThat(v.testable()).isTrue());
     }
 
     @Test
@@ -203,8 +203,8 @@ class IntegrationSettingsServiceTest {
                 .hasMessage("Port (SMTP (email fallback)) must be a whole number from 1 to 65535");
         assertThatThrownBy(() -> service.update("MONIEPOINT", fields(Map.of("baseUrl", "moniepoint"))))
                 .hasMessageContaining("isn't a web address");
-        assertThatThrownBy(() -> service.update("FEE_DEBIT_OPAY", fields(Map.of("payoutType", "CASH"))))
-                .hasMessage("Payout type (Daily fee debit: OPay) must be one of: OPAY_WALLET, BANK_TRANSFER");
+        assertThatThrownBy(() -> service.update("FEE_DEBIT_OPAY", fields(Map.of("enabled", "true"))))
+                .as("the fee debit was removed").isInstanceOf(com.hospio.common.exception.ResourceNotFoundException.class);
         assertThatThrownBy(() -> service.update("PAYSTACK", new IntegrationUpdate(Map.of("secretKey", "sk_1"), List.of("secretKey"))))
                 .hasMessage("Secret key can't be saved and cleared at once. Send it in one or the other");
         assertThat(table).isEmpty();
@@ -215,7 +215,7 @@ class IntegrationSettingsServiceTest {
         IntegrationSettingsService noKey = new IntegrationSettingsService(rows, new SecretBox(""), new ObjectMapper(), activity, tx);
         assertThatThrownBy(() -> noKey.update("PAYSTACK", fields(Map.of("secretKey", "sk_live_1"))))
                 .isInstanceOf(BadRequestException.class).hasMessageStartingWith("SECRETS_KEY isn't set on the server");
-        assertThat(noKey.list()).hasSize(9);
+        assertThat(noKey.list()).hasSize(7);
     }
 
     @Test

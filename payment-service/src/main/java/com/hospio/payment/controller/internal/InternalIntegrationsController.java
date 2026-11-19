@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Settings · Integrations → Test for the POS providers (platform-service asks, internal API key). Every call to Moniepoint or OPay needs
  * a hotel's own keys and would start a payment, so the test only checks that the address in force answers at all; it never sends a
- * payment, a payout or a hotel's keys. The fee debit has no test (it would move money).
+ * payment or a hotel's keys.
  */
 @Hidden
 @RestController

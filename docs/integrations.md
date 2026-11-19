@@ -1,6 +1,6 @@
 # Integrations managed from the admin portal
 
-Third-party keys and addresses (email, SMS, WhatsApp, Paystack, the POS providers' addresses and the daily fee debit) are edited by a
+Third-party keys and addresses (email, SMS, WhatsApp, Paystack and the POS providers' addresses) are edited by a
 SUPER_ADMIN in the admin portal, **Settings · Integrations**, instead of the server's environment. They are stored encrypted in
 `platform.integration_settings` (one row per provider, platform-only RLS) and shown masked.
 
@@ -41,11 +41,9 @@ all and type them again.
 | | | smsEnabled | BOOLEAN | `SMS_ENABLED` | messaging |
 | | | whatsappEnabled | BOOLEAN | `WHATSAPP_ENABLED` | messaging |
 | TERMII | MESSAGING | enabled, baseUrl, apiKey (SECRET), senderId, secretKey (SECRET) | | `TERMII_ENABLED`, `TERMII_BASE_URL`, `TERMII_API_KEY`, `TERMII_SENDER_ID`, `TERMII_SECRET_KEY` | messaging (secretKey: delivery-report webhook) |
-| PAYSTACK | PAYMENTS | secretKey | SECRET | `PAYSTACK_SECRET_KEY` | messaging (guest-message invoices and their webhook) |
+| PAYSTACK | PAYMENTS | secretKey | SECRET | `PAYSTACK_SECRET_KEY` | platform (owners paying the monthly invoice, and older device invoices) and messaging (Paystack's webhook, older guest-message invoices). Label "Paystack (monthly invoice payments)" |
 | MONIEPOINT | POS | baseUrl | URL | `MONIEPOINT_BASE_URL` | payment |
 | OPAY | POS | baseUrl | URL | `OPAY_BASE_URL` | payment |
-| FEE_DEBIT_OPAY | FEE_DEBIT | enabled, recipientAccount, recipientName, recipientBankCode, payoutType (`OPAY_WALLET`/`BANK_TRANSFER`) | | `FEE_DEBIT_OPAY_*` | payment |
-| FEE_DEBIT_MONIEPOINT | FEE_DEBIT | url | URL | `FEE_DEBIT_MONIEPOINT_URL` | payment |
 
 Once a provider's values are saved in the portal, its env variables can be removed from `.env.staging` (keep them until the portal
 values are confirmed working: the env is the fallback if a field is cleared). `MAIL_ENABLED`, `SMS_ENABLED` and `WHATSAPP_ENABLED`
@@ -56,7 +54,7 @@ are also read by every service's `MailPolicy` for the `DELIVERIES_ECHO` text; th
 - `GET /platform/admin/integrations` → `IntegrationView[]`, every provider in the order above.
 - `PUT /platform/admin/integrations/{provider}` body `{"fields": {key: value}, "clear": [keys]}` → `IntegrationView`. A blank or absent
   value keeps what is saved; `clear` removes saved values so the env applies again (a key can't be in both). URL needs http(s) and a
-  host (a trailing `/` is dropped), NUMBER is 1–65535, BOOLEAN is `true`/`false`, payoutType one of its two values; anything else is a
+  host (a trailing `/` is dropped), NUMBER is 1–65535, BOOLEAN is `true`/`false`; anything else is a
   400 with a sentence. Clearing every field deletes the row.
 - `POST /platform/admin/integrations/brevo/send-test` body `{"to": "name@domain"}` → `{ok, message}` (the Brevo card's **Send a
   test email**). The one action here that sends: messaging-service sends one short plain email, subject "Hospio360 test email —
@@ -68,14 +66,19 @@ are also read by every service's `MailPolicy` for the `DELIVERIES_ECHO` text; th
   `POST /messaging/internal/integrations/brevo/send-test`.
 - `POST /platform/admin/integrations/{provider}/test` → `{ok, message}`. Runs in the service that uses the provider, with the settings
   in force there (read fresh): Brevo `GET /v3/account`; SMTP signs in and leaves; Infobip lists the WhatsApp sender's templates (or
-  reads the balance without a sender); Termii and Paystack read the balance; Moniepoint/OPay only check the address answers. The fee
-  debit is not testable (it would move money). Nothing is ever sent or charged.
+  reads the balance without a sender); Termii and Paystack read the balance; Moniepoint/OPay only check the address answers. Every
+  provider has a test. Nothing is ever sent or charged.
 
 ```
-IntegrationView = { provider, label, group: "EMAIL"|"MESSAGING"|"PAYMENTS"|"POS"|"FEE_DEBIT", testable, updatedByName|null,
+IntegrationView = { provider, label, group: "EMAIL"|"MESSAGING"|"PAYMENTS"|"POS", testable, updatedByName|null,
                     updatedAt (ISO)|null, fields: [ { key, label, type: "TEXT"|"SECRET"|"URL"|"NUMBER"|"BOOLEAN", hint|null,
                     value|null (SECRET masked "••••••3456"), saved } ] }
 ```
+
+**Fee debit removed (19 Nov 2026).** The `FEE_DEBIT_OPAY` and `FEE_DEBIT_MONIEPOINT` providers (group `FEE_DEBIT`) are gone with the
+daily debit: Hospio360 bills one monthly invoice (docs/plan-monthly-invoices.md). platform-023 deleted any values saved for them; `PUT`
+or `test` on those names answers 404. The admin page shows each provider as a short card (status, last change, Test connection,
+Edit) with rarely changed fields under "Advanced".
 
 The connection-status list that used to be `GET /platform/admin/integrations` is now `GET /platform/admin/integrations/status`: live checks made by the service that owns each row (docs/admin-portal.md); the messaging and POS rows reuse the same read-only provider calls as the Test buttons here, with a ~3.5 s limit, and never send or charge anything.
 

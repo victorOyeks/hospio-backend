@@ -12,8 +12,9 @@ import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
 /**
- * How a hotel's daily fee is collected: the provider it is debited from (MONIEPOINT or OPAY) and whether the debit is on. Only a
- * SUPER_ADMIN switches it on, and only when that provider's debit is configured on the server. While off the hotel is in shadow mode.
+ * A hotel's POS pause for unpaid Hospio360 bills: the monthly invoice's restriction ({@code posPaused}) and an older device invoice's
+ * ({@code devicePosPaused}); both must clear before POS payments resume. The debit provider and switch kept here until 19 Nov 2026
+ * were removed with the fee debit (platform-023).
  */
 @Getter
 @Setter
@@ -23,13 +24,6 @@ import lombok.experimental.SuperBuilder;
 @Entity
 @Table(name = "fee_collections")
 public class FeeCollection extends TenantEntity {
-
-    @Column(length = 20)
-    private String provider;
-
-    @Column(name = "debit_enabled", nullable = false)
-    @lombok.Builder.Default
-    private boolean debitEnabled = false;
 
     @Column(name = "changed_by", length = 36)
     private String changedBy;

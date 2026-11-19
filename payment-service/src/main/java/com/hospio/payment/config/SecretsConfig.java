@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * The master key for the hotels' POS keys (SECRETS_KEY, else POS_SECRETS_KEY: the same key and format as before, so keys saved
- * earlier still open), and the integration settings saved in the admin portal (Moniepoint and OPay addresses, the fee debit), read from
+ * earlier still open), and the integration settings saved in the admin portal (the Moniepoint and OPay addresses), read from
  * platform-service and cached a minute.
  */
 @Configuration

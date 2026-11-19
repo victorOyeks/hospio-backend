@@ -56,7 +56,7 @@ Decisions taken while building (tell the owner):
 | POST | `/internal/billing/paystack-confirm?reference=` | internal | from messaging's webhook |
 | POST | `/admin/qa/billing/issue {businessId, month, issuedOn}` · `/admin/qa/billing/run-day {businessId, date}` · GET `/admin/qa/billing/invoices/{id}/notice?kind=` | SUPER_ADMIN, `QA_FEE_SIMULATION=true` only | any issue date / a chosen day's 06:00 + 08:00 steps / a notice's email text |
 
-Removed: `FeeDebitRunner` and the 06:00/09:00/13:00/18:00 debit runs, `POST /admin/fees/daily/debit`, the QA simulated debit (`/admin/qa/hotels/{id}/simulated-debit`, `/admin/qa/fees/daily/{id}/debit`). `PUT …/fee-collection` refuses `debitEnabled: true`. Device invoice `pay` and guest-message invoice `pay` refuse (billed on the monthly invoice). Messaging `hospio.billing.monthly-invoice` (default true): `MSG-` invoices are made silently and never suspend guest messages on their own.
+Removed: `FeeDebitRunner` and the 06:00/09:00/13:00/18:00 debit runs, `POST /admin/fees/daily/debit`, the QA simulated debit (`/admin/qa/hotels/{id}/simulated-debit`, `/admin/qa/fees/daily/{id}/debit`). `PUT …/fee-collection` is gone too (19 Nov 2026, with the rest of the debit code: docs/plan-daily-fees.md). Device invoice `pay` and guest-message invoice `pay` refuse (billed on the monthly invoice). Messaging `hospio.billing.monthly-invoice` (default true): `MSG-` invoices are made silently and never suspend guest messages on their own.
 
 ## Data (platform 019, messaging 010)
 

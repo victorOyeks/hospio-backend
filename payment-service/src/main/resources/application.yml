@@ -79,16 +79,6 @@ hospio:
       base-url: ${OPAY_BASE_URL:https://payapi.opayweb.com/openApi}
     moniepoint:
       base-url: ${MONIEPOINT_BASE_URL:}
-  # Hospio's daily fee debit (docs/plan-daily-fees.md). OPay: payout from the hotel's OPay account into Hospio's account.
-  fee-debit:
-    opay:
-      enabled: ${FEE_DEBIT_OPAY_ENABLED:false}
-      recipient-account: ${FEE_DEBIT_OPAY_RECIPIENT_ACCOUNT:}
-      recipient-name: ${FEE_DEBIT_OPAY_RECIPIENT_NAME:}
-      recipient-bank-code: ${FEE_DEBIT_OPAY_RECIPIENT_BANK_CODE:}
-      payout-type: ${FEE_DEBIT_OPAY_PAYOUT_TYPE:OPAY_WALLET}
-    moniepoint:
-      url: ${FEE_DEBIT_MONIEPOINT_URL:}
   channels:
     provider: ${CHANNELS_PROVIDER:logging}
   approvals:

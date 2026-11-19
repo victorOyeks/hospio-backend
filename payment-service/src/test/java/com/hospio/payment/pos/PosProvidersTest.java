@@ -119,18 +119,6 @@ class PosProvidersTest {
     }
 
     @Test
-    void opayPayoutAnswersMapToDebitResults() {
-        var ok = FeeDebitService.payout(new OpayApi.Answer<>("00000", "OK",
-                new ProviderDtos.OpayPayoutData("m", "HF-1", "OP9", 1314750L, 0L, "SUCCESS", null)), new BigDecimal("13147.50"));
-        assertThat(ok.status()).isEqualTo("APPROVED");
-        assertThat(ok.collected()).isEqualByComparingTo("13147.50");
-        assertThat(FeeDebitService.payout(new OpayApi.Answer<>("11099", "exists", null), BigDecimal.ONE).status()).isEqualTo("PENDING");
-        assertThat(FeeDebitService.payout(new OpayApi.Answer<>("C1001", "insufficient balance", null), BigDecimal.ONE).status()).isEqualTo("FAILED");
-        assertThat(FeeDebitService.payout(new OpayApi.Answer<>("00000", "OK",
-                new ProviderDtos.OpayPayoutData("m", "HF-1", "OP9", 1L, 0L, "FAILED", "limit")), BigDecimal.ONE).status()).isEqualTo("FAILED");
-    }
-
-    @Test
     void declineReasonsUseTheProvidersWordsElseTheCodeElseTheStatus() {
         assertThat(HotelPosRouter.declineReason("insufficient funds", "51", "PROCESSED")).isEqualTo("Insufficient funds");
         assertThat(HotelPosRouter.declineReason(null, "51", "PROCESSED")).isEqualTo("Insufficient funds");

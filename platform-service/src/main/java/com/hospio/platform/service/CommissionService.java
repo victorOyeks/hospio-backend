@@ -39,7 +39,6 @@ import java.util.Set;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -49,10 +48,10 @@ import org.springframework.util.StringUtils;
  * Marketer commission on collected daily fees (docs/plan-marketers.md).
  *
  * <ul>
- *   <li><b>Accrual</b>: each time a daily fee debit collects money, the platform part it collected (never the device share; data
+ *   <li><b>Accrual</b>: each time a monthly invoice payment pays a day's fee, the platform part it paid (never the device share; data
  *   plans and message charges are not on the daily fee at all) earns the business's agreement {@code sharePct} % (20), less
  *   {@code whtPct} % WHT (5), when the fee day is covered by the agreement and inside its window: 12 months from the business's first
- *   collected fee. One line per debit reference and running total, so a debit never earns twice and reruns are safe.</li>
+ *   collected fee. One line per invoice and running total, so a payment never earns twice and reruns are safe.</li>
  *   <li><b>Clawback</b>: a refund or reversal of a collected fee is a negative line on the next statement.</li>
  *   <li><b>Statements</b>: on the 5th, one per marketer for the month before, with every line not on a statement yet and what earlier
  *   statements under the minimum (NGN 5,000) carried in. 7 days to query; finance approves, pays by bank transfer outside Hospio360
@@ -82,23 +81,6 @@ public class CommissionService {
     private final TransactionTemplate tx;
 
     // ---- accrual -------------------------------------------------------------------------------------
-
-    /**
-     * After a debit answered: accrue on what the day's platform fee collection grew by. Never throws (the debit is already done);
-     * a failure is logged and the next run for the same day ({@link #accrue}) picks the difference up.
-     */
-    public void onCollected(DailyFee f, String reference) {
-        try {
-            TenantContext.runWith(Tenant.system("commission"), () -> {
-                tx.executeWithoutResult(st -> accrue(fees.findById(f.getId()).orElse(f), reference, LocalDate.now(LAGOS)));
-                return null;
-            });
-        } catch (DataIntegrityViolationException dup) {
-            log.info("Commission for daily fee {} ({}) already accrued", f.getId(), reference);
-        } catch (RuntimeException e) {
-            log.error("Commission for daily fee {} ({}) not accrued: {}", f.getId(), reference, e.getMessage(), e);
-        }
-    }
 
     /** The line for what {@code f} collected of its platform fee beyond what already earned; null when nothing (more) earns. */
     Commission accrue(DailyFee f, String reference, LocalDate on) {

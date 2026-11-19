@@ -1,8 +1,5 @@
 package com.hospio.payment.pos;
 
-import com.hospio.common.billing.FeeDebitDtos.DebitRequest;
-import com.hospio.common.billing.FeeDebitDtos.DebitResult;
-import com.hospio.common.billing.FeeDebitDtos.ProviderState;
 import com.hospio.common.response.ApiResponse;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.payment.repository.PaymentRequestRepository;
@@ -25,7 +22,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Hotel POS keys (docs/pos-providers.md): Hospio admins set them, the hotel's managers and owner see them masked. The hotel-keyed
- * OPay and Moniepoint webhooks. And the internal routes platform-service uses for the daily fee debit and the POS pause.
+ * OPay and Moniepoint webhooks. And the internal route platform-service uses for the POS pause
+ * (an unpaid monthly invoice).
  */
 @RestController
 @RequiredArgsConstructor
@@ -35,7 +33,6 @@ public class PosConfigController {
     private final HotelPosRouter router;
     private final PaymentService payments;
     private final PaymentRequestRepository paymentRows;
-    private final FeeDebitService feeDebits;
 
     public record PosConfigRequest(String businessId, String provider, Map<String, String> fields) {
     }
@@ -101,24 +98,6 @@ public class PosConfigController {
     }
 
     // ---- internal: platform-service --------------------------------------------------------------------
-
-    @Hidden
-    @GetMapping("/internal/fee-debit/providers")
-    public ApiResponse<List<ProviderState>> debitProviders(@RequestParam String hotelId) {
-        return ApiResponse.ok(feeDebits.providers(hotelId));
-    }
-
-    @Hidden
-    @PostMapping("/internal/fee-debit")
-    public ApiResponse<DebitResult> debit(@RequestBody DebitRequest request) {
-        return ApiResponse.ok(feeDebits.debit(request));
-    }
-
-    @Hidden
-    @GetMapping("/internal/fee-debit/{reference}")
-    public ApiResponse<DebitResult> debitStatus(@PathVariable String reference, @RequestParam String hotelId) {
-        return ApiResponse.ok(feeDebits.status(hotelId, reference));
-    }
 
     @Hidden
     @PostMapping("/internal/pos/pause")

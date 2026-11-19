@@ -11,12 +11,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hospio.common.billing.FeeDebitDtos;
 import com.hospio.common.enums.Role;
 import com.hospio.common.exception.BadRequestException;
 import com.hospio.common.security.HospioUserDetails;
 import com.hospio.common.security.JwtUtil;
-import com.hospio.platform.client.FeeDebitClient;
 import com.hospio.platform.client.TenantClient;
 import com.hospio.platform.entity.DailyFee;
 import com.hospio.platform.entity.DeviceInvoice;
