@@ -64,25 +64,23 @@ Removed: `FeeDebitRunner` and the 06:00/09:00/13:00/18:00 debit runs, `POST /adm
 
 ## Legal (`docs/legal-acceptance.md`)
 
-New versions TOS-2026-11B, FEES-2026-11B ("Fees and monthly invoice"), DEV-2026-11B, SUP-2026-11B, RPA-2026-11B, effective 18 Nov 2026 on staging (published with `LEGAL_MATERIAL_NOTICE_DAYS=0` there; production keeps 30 days' notice). Box 2: "I agree to pay Hospio360's monthly invoice — 1.5% of my business's daily sales — within 7 days of issue." Record title "Monthly invoice agreement (1.5%)". Word templates rebuilt; 03 Direct Debit Mandate replaced by "03 - Billing & invoice terms (summary)". Terms 7.3 / Fees 5.5 "unpaid 30 days after its due date → full suspension after 7 days' notice": **confirmed by the owner (18 Nov), kept**; done by hand, see "Full suspension" below. Terms 5.7 and Fees 5.2/5.3 name what pauses one by one, so "new guest laundry orders" (paused) and "laundry already taken" (still allowed) were added to the web text of TOS-2026-11B / FEES-2026-11B the day they were published, **without a new version** (nobody is asked again). The Word templates (01 Terms, 03 Billing & invoice terms summary) need the same two lines at their next rebuild; **owner to say** if a new version (re-acceptance) is wanted instead.
+New versions TOS-2026-11B, FEES-2026-11B ("Fees and monthly invoice"), DEV-2026-11B, SUP-2026-11B, RPA-2026-11B, effective 18 Nov 2026 on staging (published with `LEGAL_MATERIAL_NOTICE_DAYS=0` there; production keeps 30 days' notice). Box 2: "I agree to pay Hospio360's monthly invoice — 1.5% of my business's daily sales — within 7 days of issue." Record title "Monthly invoice agreement (1.5%)". Word templates rebuilt; 03 Direct Debit Mandate replaced by "03 - Billing & invoice terms (summary)". Terms 7.3 / Fees 5.5 "unpaid 30 days after its due date → full suspension after 7 days' notice": **confirmed by the owner (18 Nov), kept**; built 19 Nov (`docs/suspension.md`), and both clauses now say what a full suspension is (web text only, no new version). Terms 5.7 and Fees 5.2/5.3 name what pauses one by one, so "new guest laundry orders" (paused) and "laundry already taken" (still allowed) were added to the web text of TOS-2026-11B / FEES-2026-11B the day they were published, **without a new version** (nobody is asked again). The Word templates (01 Terms, 03 Billing & invoice terms summary) need the same two lines at their next rebuild; **owner to say** if a new version (re-acceptance) is wanted instead.
 
 ## Full suspension (Terms 7.3 / Fees 5.5): what admins do at 30 days overdue
 
-Nothing does this automatically, and none is to be built: the 06:00 step only starts the soft restriction above. An invoice due on the
-8th reaches 30 days overdue around the 8th of the next month; by then the business has been paused since the 12th.
+Since 19 Nov 2026 the Suspended stage **locks the business out** (`docs/suspension.md`). Nothing suspends automatically: the 06:00
+step only starts the soft restriction above. An invoice due on the 8th reaches 30 days overdue around the 8th of the next month; by
+then the business has been paused since the 12th.
 
-1. **Find them** (Finance admin, weekly): Fees & billing → Invoices → status Overdue; any invoice whose due date is 30 or more days ago.
+1. **Find them** (Finance admin, weekly): Fees & billing → Invoices → **Suspension candidates** (an invoice 30 or more days past its
+   due date). The business page shows the same as an amber card.
 2. **Check** the invoice panel: no part payment or extension pending, the reminder log shows the notices went, no open ticket disputing it.
-3. **Give 7 days' notice in writing**: email the owner from hello@oyeksglobal.com (invoice number, amount, the date the Services will be
-   suspended in full = today + 7 days, how to pay: Billing & invoices → Pay now, or a bank transfer we record). Record it on a support ticket
-   for the business (the email, the date sent, the suspension date), so the date is on record.
-4. **After 7 days, still unpaid**: Super admin opens the business → **Change stage → Suspended**, reason "Invoice HIN-… unpaid 30+ days,
-   notice sent <date>" (tenant `PUT /businesses/{id}/stage`; the reason and time are kept on the business). A suspended
-   business gets no new daily fees or invoices (billing covers LIVE and AT_RISK only); the unpaid invoice and its restriction stay.
-5. **When it is paid**: record the payment (or the owner pays by Paystack), then Change stage → Live. The restriction lifts on payment.
-
-Known limit (not built, by decision): the Suspended stage is a record. It does not sign anyone out or block the app by itself, so
-"suspended in full" today means the soft restriction plus the stage; if a hard lock is wanted it is a separate piece of work.
+3. **Send suspension notice** (on the row or the card): pick the suspension date, at least 7 days ahead. The owner is emailed and
+   owners and managers get a bell notice; the notice date is recorded.
+4. **After that date, still unpaid**: **Suspend business** → Unpaid invoices, tick "7 days' notice was sent on …" (filled in), a
+   note, and whether the business sees the note. A finance admin can only do this by the Terms; a super admin is warned and can go ahead.
+5. **When it is paid** the business comes back by itself (the owner's Paystack payment, or a payment you record). A suspension for
+   another reason is lifted with **Reactivate** by a super admin.
 
 ## Phases
 
@@ -93,6 +91,7 @@ Known limit (not built, by decision): the Suspended stage is a record. It does n
 | 3 | Legal: web text, box text, new versions, Word templates | Done (18 Nov) |
 | 4 | Staging end to end (QA businesses only), QA 63, screenshots | See the log below |
 | 5 | Owner follow-ups (18 Nov): no daily statement email; new laundry orders pause too; full suspension kept as a manual admin step; a QA invoice left unpaid for the owner's own Paystack test | See "Follow-ups" in the log |
+| 6 | Real suspension (19 Nov): the Suspended stage locks the business out; candidates, notice, suspend, reactivate, automatic lift on payment | `docs/suspension.md` |
 
 ## Staging log
 

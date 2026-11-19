@@ -104,6 +104,21 @@ Today `Marketer` is one row per referred business. Rename it conceptually to an 
 
 Security: a MARKETER token has scope `marketer` (see onboarding contract); `@access.marketer()` added to `AccessChecker`. `tenant POST /businesses` accepts `marketerId` (profile id) and `referralId`.
 
+## Suspension (platform, tenant)
+
+Full contract and rules: `docs/suspension.md`. A suspended business is refused by every service (403, code `BUSINESS_SUSPENDED`);
+admins and "View as owner" still see it.
+
+| Method | Path | Who | Body → response |
+|---|---|---|---|
+| GET | `/platform/admin/suspension/candidates` | platform | `Candidate[]`: `{businessId, businessName, stage, ownerName, ownerEmail, overdue: OverdueInvoice[], overdueTotal, oldestDaysOverdue, lastNotice, noticeElapsed}` (an invoice 30+ days past due, not suspended) |
+| GET | `/platform/admin/businesses/{id}/suspension` | platform | `State`: `{businessId, businessName, stage, suspended, suspendedAt, reasonType, reason, showReason, noticeSentOn, previousStage, suspendedByName, overdue, overdueTotal, oldestDaysOverdue, candidate, lastNotice, warnings}` |
+| POST | `/platform/admin/businesses/{id}/suspension/notice` | money | `{suspendOn?}` → `State`; emails the owner, bell to owners and managers, records the notice |
+| POST | `/platform/admin/businesses/{id}/suspend` | money (`OTHER`: SUPER_ADMIN) | `{reasonType: UNPAID_INVOICE\|OTHER, note, showNote, noticeSent, noticeSentOn}` → `State` with `warnings` |
+| POST | `/platform/admin/businesses/{id}/reactivate` | money (`OTHER`: SUPER_ADMIN) | `{note}` → `State`; back to the previous stage |
+| GET | `/tenant/businesses/suspension` | signed in | `{suspended, since, reasonType, reason}` for the caller's business (`reason` only when shown) |
+| PUT | `/tenant/businesses/{id}/stage` | platform | no longer moves a business into or out of SUSPENDED (400) |
+
 ## Changes by Hospio360 (platform)
 
 | Method | Path | Who | Body → response |
