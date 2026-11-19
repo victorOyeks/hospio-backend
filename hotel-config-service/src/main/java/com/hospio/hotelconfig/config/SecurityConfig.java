@@ -13,6 +13,10 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 
+/**
+ * The standard chain (JWT, internal key on /internal/**). No path of this service is open to a suspended business: common's
+ * SuspensionFilter refuses every hotel-setup call with 403 BUSINESS_SUSPENDED (docs/suspension.md).
+ */
 @Configuration
 @EnableMethodSecurity
 @RequiredArgsConstructor
