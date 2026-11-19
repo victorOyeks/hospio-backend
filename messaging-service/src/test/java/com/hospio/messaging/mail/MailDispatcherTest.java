@@ -169,6 +169,29 @@ class MailDispatcherTest {
     }
 
     @Test
+    void aSuspendedBusinessSendsNothingToGuestsButHospioMailToItsOwnerStillGoes() {
+        // docs/suspension.md: guest-facing kinds are recorded SKIPPED with the reason; an invoice or a notice to the owner is sent.
+        when(smtp.send(any())).thenReturn(new SmtpGateway.Accepted("<m>", "250 OK"));
+        com.hospio.common.suspension.BusinessSuspension suspension = mock(com.hospio.common.suspension.BusinessSuspension.class);
+        when(suspension.isSuspended("b-b")).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(dispatcher, "suspension", suspension);
+        for (String kind : java.util.List.of("BOOKING_CONFIRMATION", "ARRIVAL_REMINDER", "RECEIPT", "FOLIO", "MESSAGE", "STAY_SUMMARY")) {
+            DeliveryRecord r = dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-sus-" + kind).businessId("b-b").hotelId("h-b1")
+                    .channel("EMAIL").to("guest@guestmail.ng").subject("Your booking").text("Hello").kind(kind).build());
+            assertThat(r.getStatus()).as(kind).isEqualTo(DeliveryRecord.Status.SKIPPED);
+            assertThat(r.getError()).isEqualTo("Not sent: the business's Hospio360 account is suspended");
+            assertThat(r.isBillable()).isFalse();
+        }
+        verify(smtp, never()).send(any());
+        DeliveryRecord notice = dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-sus-notice").businessId("b-b").channel("EMAIL")
+                .to("owner-b@hotels.ng").subject("Your Hospio360 account is suspended").text("Hello").kind("NOTICE").build());
+        assertThat(notice.getStatus()).isEqualTo(DeliveryRecord.Status.SENT);
+        // Another business's guests are unaffected.
+        assertThat(dispatcher.accept(DeliveryRequestedEvent.builder().eventId("e-sus-other").businessId("b-royal").hotelId("h-royal").channel("EMAIL")
+                .to("guest@guestmail.ng").subject("Your booking").text("Hello").kind("BOOKING_CONFIRMATION").build()).getStatus()).isEqualTo(DeliveryRecord.Status.SENT);
+    }
+
+    @Test
     void aTestAddressQueuedBeforeTheRuleIsSkippedNotSent() {
         DeliveryRecord queued = DeliveryRecord.builder().channel("EMAIL").toAddress("ada@guest.test").subject("Your receipt").kind("RECEIPT")
                 .status(DeliveryRecord.Status.QUEUED).bodyText("Thank you").nextAttemptAt(java.time.Instant.now().minusSeconds(1)).build();
