@@ -102,7 +102,17 @@ public class DevicePackageService {
     public record CatalogueRequest(String name, String kind, BigDecimal unitPrice, Boolean active, Integer sortOrder) {
     }
 
-    /** Adds ({@code id} null) or changes a catalogue item. A package already put together keeps the prices it copied. */
+    /** The words for a receipt printer: Hospio360 doesn't supply them (the owner, 19 Nov 2026; receipts go on WhatsApp). */
+    static final String NO_PRINTERS = "Hospio360 doesn't supply receipt printers: receipts go to guests on WhatsApp";
+
+    static boolean printer(String name) {
+        return name != null && name.toLowerCase(Locale.ROOT).contains("printer");
+    }
+
+    /**
+     * Adds ({@code id} null) or changes a catalogue item. A package already put together keeps the prices it copied. A receipt
+     * printer can't be offered again: it stays switched off.
+     */
     public CatalogueView saveCatalogueItem(String id, CatalogueRequest r) {
         if (r == null || !StringUtils.hasText(r.name())) {
             throw new BadRequestException("Name the item");
@@ -111,6 +121,9 @@ public class DevicePackageService {
         BigDecimal price = price(r.unitPrice(), r.name());
         DeviceCatalogueItem item = id == null ? DeviceCatalogueItem.builder().build()
                 : catalogue.findById(id).orElseThrow(() -> new ResourceNotFoundException("Catalogue item not found"));
+        if (printer(r.name()) && (r.active() != null ? r.active() : item.isActive())) {
+            throw new BadRequestException(NO_PRINTERS);
+        }
         item.setName(r.name().trim());
         item.setKind(kind);
         item.setUnitPrice(price);
@@ -125,6 +138,22 @@ public class DevicePackageService {
     }
 
     // ---- a hotel's package -----------------------------------------------------------------------------
+
+    /** A new line must be offered: not a switched-off catalogue item and not a receipt printer, unless the draft already lists it. */
+    private void checkOffered(ItemRequest i, java.util.Set<String> had) {
+        String cid = blank(i.catalogueId());
+        if (cid != null ? had.contains(cid) : had.contains("name:" + i.name().trim().toLowerCase(Locale.ROOT))) {
+            return;
+        }
+        if (printer(i.name())) {
+            throw new BadRequestException(NO_PRINTERS);
+        }
+        if (cid != null) {
+            catalogue.findById(cid).filter(c -> !c.isActive()).ifPresent(c -> {
+                throw new BadRequestException(printer(c.getName()) ? NO_PRINTERS : c.getName() + " is no longer offered: choose another item");
+            });
+        }
+    }
 
     public record ItemRequest(String catalogueId, String name, String kind, Integer quantity, BigDecimal unitPrice) {
     }
@@ -162,6 +191,17 @@ public class DevicePackageService {
             throw new BadRequestException("Choose how the devices are paid for: own devices, from transactions, monthly or one time");
         }
         TenantClient.Hotel hotel = hotelOf(businessId, hotelId);
+        // What the draft already lists may stay (an item switched off later, a receipt printer agreed before 19 Nov 2026); nothing
+        // switched off, and no receipt printer, may be added.
+        java.util.Set<String> had = new java.util.HashSet<>();
+        packages.findFirstByHotelIdAndStatusNotOrderByCreatedAtDesc(hotelId, DevicePackage.CANCELLED).ifPresent(cur -> {
+            for (DevicePackageItem i : items.findByPackageIdOrderByCreatedAtAsc(cur.getId())) {
+                if (i.getCatalogueId() != null) {
+                    had.add(i.getCatalogueId());
+                }
+                had.add("name:" + i.getName().trim().toLowerCase(Locale.ROOT));
+            }
+        });
         List<DevicePackageItem> lines = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
         BigDecimal monthly = BigDecimal.ZERO;
@@ -169,6 +209,7 @@ public class DevicePackageService {
             if (i == null || !StringUtils.hasText(i.name())) {
                 throw new BadRequestException("Every item needs a name");
             }
+            checkOffered(i, had);
             String kind = kind(i.kind());
             int qty = i.quantity() == null ? 0 : i.quantity();
             if (qty < 1 || qty > 1000) {

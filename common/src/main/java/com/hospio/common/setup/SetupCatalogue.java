@@ -116,7 +116,7 @@ public final class SetupCatalogue {
             new SetupSection.Basics(null, null, "Africa/Lagos", "Thank you for coming. See you again soon.", "10:00", "02:00"),
             SetupSection.Brand.DEFAULTS,
             null,
-            new SetupSection.Payments(true, true, true, "PRINT", BigDecimal.ZERO, BigDecimal.valueOf(10000), "", ""),
+            new SetupSection.Payments(true, true, true, "WHATSAPP", BigDecimal.ZERO, BigDecimal.valueOf(10000), "", ""),
             SetupSection.TaxesCurrency.DEFAULTS,
             SetupSection.ApprovalLimits.DEFAULTS,
             null,

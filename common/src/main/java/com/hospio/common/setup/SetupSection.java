@@ -136,6 +136,6 @@ public sealed interface SetupSection {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Pos(String provider, Boolean offlineCash, String receiptChannel) implements SetupSection {
-        public static final Pos DEFAULTS = new Pos("logging", true, "PRINT");
+        public static final Pos DEFAULTS = new Pos("logging", true, "WHATSAPP");
     }
 }

@@ -87,7 +87,7 @@ in tenant-service: one source for a new location and for re-applying.
   from hotel-config `createDefaults`; a hotel keeps the catalogue ("Standard hotel") defaults.
 - What it sets: tabs on, tab limit ₦100,000, a tab flagged when open over 4 hours (`OUTLETS.tabMaxHours`, read by `GET /fnb/sales/today`
   when `staleHours` is left out), a tab needs the guest's name or a table (`tabNameRequired`), waiters don't take payment
-  (`waitersTakePayment`, `waiterCash` off); cash, card and transfer, till float ₦10,000, receipts printed; VAT as the catalogue
+  (`waitersTakePayment`, `waiterCash` off); cash, card and transfer, till float ₦10,000, receipts on WhatsApp (printed until 19 Nov 2026, docs/whatsapp-receipts.md); VAT as the catalogue
   (7.5 % included), service charge 0; guest messages receipts only; opening hours 10:00 to 02:00 (`BASICS.openingTime`,
   `closingTime`), receipt footer, day closes 04:00; reasons for sales (void, cancel, discount/complimentary), Day and Evening shifts,
   Service, Cashier, Kitchen, Bar, Inventory, Finance departments.

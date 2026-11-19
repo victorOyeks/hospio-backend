@@ -151,15 +151,13 @@ cancellation, each by email when the guest has one and as a WhatsApp copy (not s
 
 ## Receipts
 
-- On an approved payment (`PaymentApproved`), messaging-service sends the receipt by email when the payment carries a guest
-  email, else on WhatsApp as `hospio_payment_receipt_v2` when it carries a phone. `receiptPreference` NONE (the screen's "Don't
-  send" / Print) or NEVER sends nothing.
-- "Send receipt again" (`POST /payment/payments/{id}/receipt/resend`) goes the way the automatic one does: email when the
-  payment has one, else WhatsApp as `hospio_payment_receipt_v2` when it has a phone (18 Nov 2026); neither is 400 "This
-  payment has no guest email or phone · …". The take-payment screen's **WhatsApp** receipt choice (a guest with a phone and no
-  email, while `RECEIPT` is in `whatsappKinds`) uses it.
-- `POST /payment/receipts/email` sends a payment's, a sale's or a folio's receipts to the address given (the take-payment
-  screen uses it after the payment is approved).
+- Since 19 Nov 2026 payment receipts go on WhatsApp only (docs/whatsapp-receipts.md): on an approved payment
+  (`PaymentApproved`) messaging-service sends `hospio_payment_receipt_v2` to the guest's phone, and nothing when there is none;
+  it no longer emails the receipt. `receiptPreference` NONE, NEVER or PRINT sends nothing.
+- "Send receipt again" (`POST /payment/payments/{id}/receipt/resend`) and `POST /payment/receipts/send` send it on WhatsApp;
+  PRINT or EMAIL as the channel is refused in words.
+- `POST /payment/receipts/email` still sends a payment's, a sale's or a folio's receipts to the address given, for other
+  callers; the web apps no longer offer it for a payment receipt.
 
 ## Per-user email preferences
 

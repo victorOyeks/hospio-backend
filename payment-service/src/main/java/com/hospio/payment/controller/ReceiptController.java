@@ -15,8 +15,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Receipts to print and email (docs/manager-leftovers.md): one payment's, a sale's or a folio's. The people who take or look after
- * payments read them: front office, bar, kitchen, laundry, finance, managers and the owner.
+ * Receipts (docs/manager-leftovers.md, docs/whatsapp-receipts.md): one payment's, a sale's or a folio's, to view; a payment's receipt
+ * sent to the guest on WhatsApp (the only way a payment receipt goes out: no printing, no email). The people who take or look after
+ * payments read them: front office, bar, kitchen, laundry, finance, managers and the owner. Emailing a receipt or folio stays for
+ * other callers.
  */
 @RestController
 @RequestMapping("/receipts")
@@ -41,6 +43,14 @@ public class ReceiptController {
     public ApiResponse<List<ReceiptViews.ReceiptView>> of(@RequestParam(required = false) String orderId,
                                                           @RequestParam(required = false) String folioId) {
         return ApiResponse.ok(receipts.forRef(orderId, folioId));
+    }
+
+    /** Send on WhatsApp: {@code channel} WHATSAPP or left out; PRINT or EMAIL (older screens) is refused in words. */
+    @PostMapping("/send")
+    @PreAuthorize(SENDERS)
+    public ApiResponse<ReceiptService.Resent> send(@RequestBody ReceiptViews.SendRequest request) {
+        ReceiptService.Resent r = receipts.send(request);
+        return ApiResponse.ok("Receipt " + r.receiptNumber() + " sent on WhatsApp to " + r.sentTo(), r);
     }
 
     @PostMapping("/email")

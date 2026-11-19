@@ -176,7 +176,7 @@ public class PaymentService {
                 .guestPhone(dto.guestPhone()).guestEmail(dto.guestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
                 .role(role).method(dto.method()).amount(Money.of(tip == null ? dto.amount() : dto.amount().add(tip))).partId(partId).tipAmount(tip)
                 .description(describe(dto.description(), order == null ? null : order.partLabel(), tip))
-                .receiptPreference(dto.receiptPreference() == null ? settings.receipts() : dto.receiptPreference()).build();
+                .receiptPreference(receiptChoice(dto.receiptPreference() == null ? settings.receipts() : dto.receiptPreference())).build();
         if (dto.method() == PaymentMethod.CASH) {
             requireOpenTill(hotelId, role);
             // Cash is counted at the desk and approved on the spot.
@@ -292,6 +292,22 @@ public class PaymentService {
 
     /** What the order check gives the payment: the income desk and, for a split bill, the part's label ("Part 2 of 3"). */
     record OrderCheck(String desk, String partLabel) {
+    }
+
+    /**
+     * The receipt choice a payment keeps (docs/whatsapp-receipts.md): WHATSAPP (to the guest's phone, when there is one) or NONE.
+     * Older screens and older Hotel setup values are mapped, never refused, so a payment is never lost over its receipt: PRINT
+     * (nothing is printed any more) is NONE, EMAIL is WHATSAPP, NEVER is NONE. ASK and blank stay for messaging-service's default.
+     */
+    static String receiptChoice(String preference) {
+        if (preference == null || preference.isBlank()) {
+            return preference;
+        }
+        return switch (preference.trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "PRINT", "NONE", "NEVER" -> "NONE";
+            case "EMAIL", "WHATSAPP" -> "WHATSAPP";
+            default -> preference.trim().toUpperCase(java.util.Locale.ROOT);
+        };
     }
 
     /** The receipt's line: what was asked, the part of a split bill it paid, and the tip inside it. */

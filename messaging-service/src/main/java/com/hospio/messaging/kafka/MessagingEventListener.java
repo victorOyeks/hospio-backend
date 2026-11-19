@@ -119,9 +119,9 @@ public class MessagingEventListener {
     @KafkaListener(topics = KafkaTopics.PAYMENT_APPROVED)
     public void onPaymentApproved(PaymentApprovedEvent e) {
         bound(e, () -> {
-            // "Don't send" (NONE, or NEVER from older screens) sends nothing, and neither does a hotel that switched automatic
-            // receipts off (the desk can still resend one from the payment); otherwise email when the guest has one, else the
-            // WhatsApp receipt template (never SMS: SMS is only for sign-in codes).
+            // "Don't send" (NONE, or PRINT/NEVER from older screens) sends nothing, and neither does a hotel that switched automatic
+            // receipts off (the desk can still send one from the payment); otherwise the WhatsApp receipt template to the guest's
+            // phone. Payment receipts are never emailed or printed (docs/whatsapp-receipts.md) and never go by SMS.
             if (!sendsReceipt(e.getReceiptPreference())) {
                 return null;
             }
@@ -133,9 +133,9 @@ public class MessagingEventListener {
                     "Thank you, {guest}. We have received your payment.\n\nAmount: {amount}\nMethod: {method}\nReference: {ref}",
                     Map.of("guest", nz(e.getGuestName()), "amount", naira(e.getAmount()), "method", cap(nz(e.getMethod()).toLowerCase()),
                             "ref", nz(e.getProviderRef()).isBlank() ? "-" : e.getProviderRef()));
-            if (e.getGuestEmail() != null && !e.getGuestEmail().isBlank()) {
-                outbound.queue(NotificationChannel.EMAIL, e.getGuestEmail().trim(), "Your receipt", body, "RECEIPT", "RECEIPT-E-" + e.getPaymentId());
-            } else if (e.getGuestPhone() != null && !e.getGuestPhone().isBlank()) {
+            if (e.getGuestPhone() == null || e.getGuestPhone().isBlank()) {
+                log.info("Receipt for payment {} not sent: the guest has no phone for WhatsApp", e.getPaymentId());
+            } else {
                 // WhatsApp as the approved hospio_payment_receipt_v2 template, with the banner (not sent until it is approved).
                 String first = nz(e.getGuestName()).trim().split("\\s+")[0];
                 mail.accept(com.hospio.common.kafka.events.DeliveryRequestedEvent.builder()
@@ -457,7 +457,8 @@ public class MessagingEventListener {
 
     /** A receipt goes out unless the desk chose "Don't send" (NONE; NEVER from older screens). */
     static boolean sendsReceipt(String preference) {
-        return preference == null || !(preference.equalsIgnoreCase("NONE") || preference.equalsIgnoreCase("NEVER"));
+        return preference == null || !(preference.equalsIgnoreCase("NONE") || preference.equalsIgnoreCase("NEVER")
+                || preference.equalsIgnoreCase("PRINT"));
     }
 
 
