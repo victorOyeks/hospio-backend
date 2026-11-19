@@ -84,7 +84,10 @@ Terms such as fraud, misuse of the Platform or of guests' data, or attempts to a
 or data; or at the customer's request), with "where it is safe and lawful to do so, we will tell you why and how to have the
 suspension lifted". The owner approved the last one as a wording change because there are no live customers yet and production
 gives 30 days' notice at go-live. The Word templates (01 Terms, 02 Order Form, 03 Billing summary, 10 Referral partner, 00 guide)
-were rebuilt with the same wording.
+were rebuilt with the same wording. Also on 19 Nov 2026, wording only (owner decision, `docs/data-retention.md`): audit logs are kept
+7 days, not six months: Privacy Policy 7.1, Data Processing Terms 12.2 and the Schedule's "Audit logs" bullet, and Staff terms 4.1
+("The activity log is kept for 7 days, then deleted automatically"). The Word templates were not touched for this (none of them
+states an activity-log period).
 A **material** change needs 30 days' notice (`hospio.legal.material-notice-days`): its effective date must be at least 30 days ahead,
 and until then it shows as "Coming" in My profile → Terms & acceptances. Put the new text on hospio360.com/legal first.
 
