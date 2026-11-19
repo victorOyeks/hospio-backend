@@ -63,7 +63,8 @@ from hotel"; owned by Roles & permissions).
 **identity · staff accounts (`StaffAccountService`).** Nobody acts on themselves ("You can't suspend your own account
 here…"), on the owner ("Only Hospio360 can change the owner's account") or outside the business ("That person is not in
 your business"). A manager acts only on people of their hotels ("That person does not work at one of your hotels") and
-never on a manager ("Only the owner can pause a manager"). Suspending needs a reason ("Say why X is suspended") and
+never on a manager ("Only the owner can pause a manager"). Suspending needs a reason of at least 3 characters (400 "Enter a reason to suspend X (at least 3
+characters). They have not been suspended"; the web keeps Suspend off until one is typed) and
 happens once; a suspended person is reinstated before being paused; a pause is not stacked ("X is already paused until
 Tue 17 Nov"). Suspend and pause revoke refresh tokens and publish `ACCESS_CHANGED` (SUSPENDED, PAUSED_UNTIL), so live
 tokens are refused at once. `AccountPauseJob` (hourly at :10 Lagos) ends pauses whose last day has passed (RESUMED, the
