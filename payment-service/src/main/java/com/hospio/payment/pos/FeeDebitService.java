@@ -103,7 +103,7 @@ public class FeeDebitService {
         FeeDebit d = tx.execute(st -> debits.save(FeeDebit.builder().businessId(c == null ? "unknown" : c.businessId()).hotelId(r.hotelId())
                 .reference(r.reference()).provider(provider).amount(r.amount()).status("PENDING").build()));
         if (c == null) {
-            return finish(d, DebitResult.failed("The hotel has no " + provider.toLowerCase(Locale.ROOT) + " keys"));
+            return finish(d, DebitResult.failed("The " + com.hospio.common.venue.VenuePlaces.at(r.hotelId()).place() + " has no " + provider.toLowerCase(Locale.ROOT) + " keys"));
         }
         if (HotelPosService.MONIEPOINT.equals(provider)) {
             return finish(d, DebitResult.failed(moniepointUrl().isEmpty() ? "Moniepoint debit isn't configured"

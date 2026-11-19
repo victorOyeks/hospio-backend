@@ -64,7 +64,8 @@ public class JwtFilter extends OncePerRequestFilter {
                 String hotelHeader = request.getHeader(HOTEL_HEADER);
                 if (StringUtils.hasText(hotelHeader) && !user.isPlatform() && !user.getHotelIds().contains(hotelHeader)) {
                     FilterErrors.write(response, HttpServletResponse.SC_FORBIDDEN,
-                            "You don't have access to that hotel. Pick one of your hotels or sign in again");
+                            "You don't have access to that " + com.hospio.common.venue.VenuePlaces.ofBusiness(user.getBusinessId()).place() + ". Pick one of your "
+                                    + com.hospio.common.venue.VenuePlaces.ofBusiness(user.getBusinessId()).places() + " or sign in again");
                     return;
                 }
                 UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());

@@ -55,7 +55,7 @@ public class HotelPosRouter {
     /** Pushes the amount to the terminal; answers the provider reference to keep on the payment. */
     public String requestPayment(String hotelId, String terminalProvider, String terminalSerial, String paymentId, BigDecimal naira) {
         HotelPosService.Credentials c = hotels.credentials(hotelId, terminalProvider)
-                .orElseThrow(() -> new IllegalStateException("This hotel has no keys for the terminal's provider"));
+                .orElseThrow(() -> new IllegalStateException("This " + com.hospio.common.venue.VenuePlaces.here().place() + " has no keys for the terminal's provider"));
         String ref = ourRef(paymentId);
         if (HotelPosService.OPAY.equals(c.provider())) {
             OpayApi.Answer<ProviderDtos.OpayCreateOrderData> a = opay.createOrder(c.opay(), ref, naira, terminalSerial);

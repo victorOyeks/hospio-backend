@@ -370,7 +370,7 @@ public class LegalService {
     /** The same records as CSV (admin export). */
     @Transactional(readOnly = true)
     public String csv(String businessId) {
-        StringBuilder sb = new StringBuilder("When (Lagos),Event,How,Document,Version,Person,Email,Role,Business,Hotel,Reference,Channel,Shared on,Note,IP,Browser,Recorded by,Record id\n");
+        StringBuilder sb = new StringBuilder("When (Lagos),Event,How,Document,Version,Person,Email,Role,Business,Location,Reference,Channel,Shared on,Note,IP,Browser,Recorded by,Record id\n");
         DateTimeFormatter f = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(LAGOS);
         for (RecordView r : forBusiness(businessId)) {
             sb.append(String.join(",", List.of(f.format(r.at()), r.event(), r.method(), cell(r.title()), r.version(), cell(r.userName()), cell(r.userEmail()),

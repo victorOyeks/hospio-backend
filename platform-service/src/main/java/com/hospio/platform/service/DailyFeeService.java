@@ -196,7 +196,7 @@ public class DailyFeeService {
                     .orElseThrow(() -> new ResourceNotFoundException("Hotel not found"));
             DailyFee f = workOut(b, h, date, feeRules.valueFor(b));
             if (f == null) {
-                throw new BadRequestException("That day is already worked out for this hotel");
+                throw new BadRequestException("That day is already worked out for this " + com.hospio.common.venue.VenuePlaces.at(hotelId).place());
             }
             return view(f);
         });
@@ -269,7 +269,7 @@ public class DailyFeeService {
                 throw new BadRequestException(label(p) + " debit isn't configured on the server yet" + (s == null || s.reason() == null ? "" : ": " + s.reason()));
             }
             if (!s.hotelKeys()) {
-                throw new BadRequestException("Enter the hotel's " + label(p) + " keys first (POS provider)");
+                throw new BadRequestException("Enter the " + com.hospio.common.venue.VenuePlaces.at(hotelId).possessive() + " " + label(p) + " keys first (POS provider)");
             }
         }
         HospioUserDetails user = CurrentUser.require();

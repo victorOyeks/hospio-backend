@@ -283,7 +283,7 @@ public class DeviceInvoiceService {
             if (days >= REMIND_AFTER && i.getRemindedAt() == null) {
                 notifyOwner(i, "Hospio360 · device invoice " + i.getNumber() + " is overdue", describe(i) + " for " + nz(i.getHotelName())
                         + " (NGN " + naira(i.getAmount().subtract(i.getPaidAmount())) + ") was due on " + DAY.format(i.getDueOn())
-                        + ". Pay it online under Hospio fees → Devices, or make sure the hotel's Moniepoint/OPay account can be debited. POS payments pause "
+                        + ". Pay it online under Hospio fees → Devices, or make sure the " + com.hospio.common.venue.VenuePlaces.at(i.getHotelId()).possessive() + " Moniepoint/OPay account can be debited. POS payments pause "
                         + PAUSE_AFTER + " days after the due date.");
                 save(i, x -> x.setRemindedAt(Instant.now()));
                 reminded++;

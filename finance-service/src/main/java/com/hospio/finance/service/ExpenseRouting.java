@@ -21,7 +21,7 @@ public final class ExpenseRouting {
 
     public static Route route(BigDecimal amount, BigDecimal managerLimit, BigDecimal ownerLimit, Caller caller) {
         if (ownerLimit != null && ownerLimit.signum() > 0 && amount.compareTo(ownerLimit) > 0) {
-            throw new BadRequestException("That is over the " + ownerLimit.stripTrailingZeros().toPlainString() + " ceiling this hotel has set for a single expense");
+            throw new BadRequestException("That is over the " + ownerLimit.stripTrailingZeros().toPlainString() + " ceiling this " + com.hospio.common.venue.VenuePlaces.here().place() + " has set for a single expense");
         }
         if (amount.compareTo(managerLimit) > 0) {
             return caller == Caller.OWNER ? new Route(false, null) : new Route(true, "OWNER");

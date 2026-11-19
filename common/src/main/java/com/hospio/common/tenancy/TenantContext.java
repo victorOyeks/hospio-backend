@@ -32,7 +32,7 @@ public final class TenantContext {
     public static String requireHotel() {
         Tenant t = require();
         if (t.hotelId() == null) {
-            throw new BadRequestException("Choose a hotel first (X-Hotel-Id header)");
+            throw new BadRequestException("Choose " + com.hospio.common.venue.VenuePlaces.business().a() + " first (X-Hotel-Id header)");
         }
         return t.hotelId();
     }

@@ -24,7 +24,7 @@ public enum IntegrationProvider {
     BREVO("Brevo (email API)", "EMAIL", Owner.MESSAGING, true, IntegrationSettings.Brevo.class, List.of(
             entry("apiKey", "API key", SECRET, "BREVO_API_KEY", "Brevo → SMTP & API → API keys. When set, email goes through Brevo's API instead of SMTP."),
             entry("fromAddress", "From address", TEXT, "MAIL_FROM_ADDRESS", "A verified Brevo sender, e.g. no-reply@hospio360.com."),
-            entry("fromName", "Default From name", TEXT, "MAIL_FROM_NAME_DEFAULT", "Used when the hotel or business has no name of its own."),
+            entry("fromName", "Default From name", TEXT, "MAIL_FROM_NAME_DEFAULT", "Used when the location or business has no name of its own."),
             entry("webhookKey", "Webhook key", SECRET, "BREVO_WEBHOOK_KEY", "Any long random text. Brevo sends it with each email event "
                     + "(delivered, bounced) to https://<api>/messaging/webhooks/brevo as a Bearer token; without it every event is refused."))),
 
@@ -56,13 +56,13 @@ public enum IntegrationProvider {
             entry("secretKey", "Secret key", SECRET, "PAYSTACK_SECRET_KEY", "sk_live_… (or sk_test_… on staging). Also checks Paystack's webhooks."))),
 
     MONIEPOINT("Moniepoint POS", "POS", Owner.PAYMENT, true, IntegrationSettings.Moniepoint.class, List.of(
-            entry("baseUrl", "API address", URL, "MONIEPOINT_BASE_URL", "Moniepoint's POS API. Each hotel's own keys are set on the hotel."))),
+            entry("baseUrl", "API address", URL, "MONIEPOINT_BASE_URL", "Moniepoint's POS API. Each location's own keys are set on the location."))),
 
     OPAY("OPay POS", "POS", Owner.PAYMENT, true, IntegrationSettings.Opay.class, List.of(
-            entry("baseUrl", "API address", URL, "OPAY_BASE_URL", "https://payapi.opayweb.com/openApi. Each hotel's own keys are set on the hotel."))),
+            entry("baseUrl", "API address", URL, "OPAY_BASE_URL", "https://payapi.opayweb.com/openApi. Each location's own keys are set on the location."))),
 
     FEE_DEBIT_OPAY("Daily fee debit: OPay", "FEE_DEBIT", Owner.PAYMENT, false, IntegrationSettings.FeeDebitOpay.class, List.of(
-            entry("enabled", "Debit on", BOOLEAN, "FEE_DEBIT_OPAY_ENABLED", "On: the daily fee is paid out of the hotel's OPay account into Hospio360's."),
+            entry("enabled", "Debit on", BOOLEAN, "FEE_DEBIT_OPAY_ENABLED", "On: the daily fee is paid out of the business's OPay account into Hospio360's."),
             entry("recipientAccount", "Hospio360 account", TEXT, "FEE_DEBIT_OPAY_RECIPIENT_ACCOUNT", "The OPay wallet or bank account the fee goes to."),
             entry("recipientName", "Account name", TEXT, "FEE_DEBIT_OPAY_RECIPIENT_NAME", null),
             entry("recipientBankCode", "Bank code", TEXT, "FEE_DEBIT_OPAY_RECIPIENT_BANK_CODE", "Needed only for BANK_TRANSFER."),

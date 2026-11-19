@@ -67,7 +67,7 @@ public class PosConnectionCheck {
         if (withMoniepoint == 0 && withOpay == 0) {
             return new ConnectionCheck("payment-provider", test ? "TEST_MODE" : "NOT_CONFIGURED",
                     (test ? "Test provider: nothing is charged." : "No real provider: " + others + ".")
-                            + " No hotel has Moniepoint or OPay keys saved." + pausedNote);
+                            + " No location has Moniepoint or OPay keys saved." + pausedNote);
         }
         if (!hotels.keyStoreReady()) {
             return new ConnectionCheck("payment-provider", "ERROR", hotelsText(withMoniepoint + withOpay - both(statuses))
@@ -87,8 +87,8 @@ public class PosConnectionCheck {
             ok &= r.ok();
             parts.add("OPay: " + hotelsText(withOpay) + " keys; " + lower(r.message()));
         }
-        String detail = String.join(". ", parts) + ". Hotels without keys: " + others + "." + pausedNote
-                + " Checked without any hotel's keys; nothing is pushed to a terminal.";
+        String detail = String.join(". ", parts) + ". Locations without keys: " + others + "." + pausedNote
+                + " Checked without any location's keys; nothing is pushed to a terminal.";
         return new ConnectionCheck("payment-provider", ok ? "CONNECTED" : "ERROR", detail);
     }
 
@@ -109,7 +109,7 @@ public class PosConnectionCheck {
     }
 
     private static String hotelsText(long n) {
-        return n + (n == 1 ? " hotel has" : " hotels have");
+        return n + (n == 1 ? " location has" : " locations have");
     }
 
     /** The test message mid-sentence: "Moniepoint answered at …" stays, the payments note is said once at the end. */

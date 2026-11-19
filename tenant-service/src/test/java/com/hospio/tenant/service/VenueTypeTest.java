@@ -88,6 +88,25 @@ class VenueTypeTest {
     }
 
     @Test
+    void messagesNameThePlaceByItsType() {
+        business(Business.Kind.LOUNGE);
+        when(hotels.otherWithName(any(), any(), any())).thenReturn(Optional.of("QA Lounge Wuse"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.addHotel(
+                        new CreateHotelRequest("QA Lounge Wuse", "Abuja", null, null, null, null, null, null, null, null, "b1")))
+                .hasMessage("This business already has a location called QA Lounge Wuse. Give this one a different name");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.addHotel(
+                        new CreateHotelRequest(" ", "Abuja", null, null, null, null, null, null, null, null, "b1")))
+                .hasMessageContaining("lounge name").hasMessageNotContaining("hotel");
+        // A hotel reads what it always read.
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.addHotel(
+                        new CreateHotelRequest("QA Lounge Wuse", "Abuja", null, null, null, null, null, null, null, null, "b1", VenueType.HOTEL)))
+                .hasMessage("This business already has a hotel called QA Lounge Wuse. Give this one a different name");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.addHotel(
+                        new CreateHotelRequest(" ", "Abuja", null, null, null, null, null, null, null, null, "b1", VenueType.HOTEL)))
+                .hasMessageContaining("hotel name");
+    }
+
+    @Test
     void anOlderBusinessStartsLocationsAsHotels() {
         business(Business.Kind.HOTEL);
         HotelResponse h = service.addHotel(new CreateHotelRequest("QA Hotel Ikeja", "Lagos", null, null, null, null, null, null, null, null, "b1"));

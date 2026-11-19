@@ -200,7 +200,7 @@ public class LostFoundService {
     private LostFoundItem find(String id) {
         String hotel = TenantContext.requireHotel();
         return items.findById(id).filter(i -> hotel.equals(i.getHotelId()))
-                .orElseThrow(() -> new ResourceNotFoundException("That item is not in this hotel's lost & found"));
+                .orElseThrow(() -> new ResourceNotFoundException("That item is not in this " + com.hospio.common.venue.VenuePlaces.here().possessive() + " lost & found"));
     }
 
     private static void requireHeld(LostFoundItem item) {

@@ -635,7 +635,7 @@ public class MaintenanceService {
         String assetId = blank(request.assetId());
         String roomId = blank(request.roomId());
         if (assetId != null) {
-            Asset a = assets.findById(assetId).orElseThrow(() -> new BadRequestException("That asset isn't in this hotel"));
+            Asset a = assets.findById(assetId).orElseThrow(() -> new BadRequestException("That asset isn't in this " + com.hospio.common.venue.VenuePlaces.here().place()));
             j.setAssetId(a.getId());
             j.setRoomId(a.getRoomId());
             j.setRoomNumber(a.getRoomNumber());

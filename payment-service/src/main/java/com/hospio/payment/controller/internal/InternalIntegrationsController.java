@@ -73,7 +73,7 @@ public class InternalIntegrationsController {
             HttpRequest req = HttpRequest.newBuilder(URI.create(url.trim())).timeout(timeout).GET().build();
             HttpResponse<Void> res = HTTP.send(req, HttpResponse.BodyHandlers.discarding());
             return IntegrationTestResult.ok(label + " answered at " + url.trim() + " (HTTP " + res.statusCode()
-                    + "). Payments still need each hotel's own keys");
+                    + "). Payments still need each location's own keys");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return IntegrationTestResult.failed("Interrupted");

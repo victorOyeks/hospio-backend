@@ -235,7 +235,7 @@ public class OrderService {
         }
         OutletSettings.Settings s = settings.get(hotelId);
         if (kind == Order.Kind.TAB && !s.tabs()) {
-            throw new BadRequestException("Tabs are switched off for this hotel");
+            throw new BadRequestException("Tabs are switched off for this " + com.hospio.common.venue.VenuePlaces.here().place());
         }
         if (kind == Order.Kind.ROOM_SERVICE && request.roomId() == null) {
             throw new BadRequestException("Choose the room");

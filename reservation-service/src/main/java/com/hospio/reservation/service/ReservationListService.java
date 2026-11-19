@@ -112,7 +112,7 @@ public class ReservationListService {
             return hotel;
         }
         if (!user.has(Role.OWNER)) {
-            throw new BadRequestException("Choose a hotel first (X-Hotel-Id header)");
+            throw new BadRequestException("Choose " + com.hospio.common.venue.VenuePlaces.business().a() + " first (X-Hotel-Id header)");
         }
         return blank(hotelId);
     }

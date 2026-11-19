@@ -54,7 +54,7 @@ public class TenantClient {
             return Optional.empty();
         } catch (Exception e) {
             log.warn("Could not read hotel {} from tenant-service: {}", hotelId, e.getMessage());
-            throw new com.hospio.common.exception.ExternalServiceException("Could not check the hotel right now. Try again in a minute");
+            throw new com.hospio.common.exception.ExternalServiceException("Could not check the " + com.hospio.common.venue.VenuePlaces.here().place() + " right now. Try again in a minute");
         }
     }
 

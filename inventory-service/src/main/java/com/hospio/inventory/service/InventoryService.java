@@ -278,7 +278,7 @@ public class InventoryService {
             throw new BadRequestException("The unit cost can't be negative");
         }
         if (StringUtils.hasText(request.supplierId())) {
-            suppliers.findById(request.supplierId()).orElseThrow(() -> new BadRequestException("That supplier isn't in this hotel's list"));
+            suppliers.findById(request.supplierId()).orElseThrow(() -> new BadRequestException("That supplier isn't in this " + com.hospio.common.venue.VenuePlaces.here().possessive() + " list"));
         }
         Store opening = StringUtils.hasText(request.storeId()) ? store(request.storeId()) : null;
         BigDecimal openingQty = request.openingQuantity() == null ? BigDecimal.ZERO : request.openingQuantity();
@@ -488,7 +488,7 @@ public class InventoryService {
             }
             StockItem i = im.get(l.itemId());
             if (i == null) {
-                throw new BadRequestException("That item isn't in this hotel's stock");
+                throw new BadRequestException("That item isn't in this " + com.hospio.common.venue.VenuePlaces.here().possessive() + " stock");
             }
             if (r.category() != null && !r.category().equalsIgnoreCase(i.getCategory() == null ? "" : i.getCategory())) {
                 throw new BadRequestException(i.getName() + " isn't " + r.category().toLowerCase(Locale.ROOT));
@@ -856,7 +856,7 @@ public class InventoryService {
         if (request.itemIds() != null) {
             Set<String> wanted = new HashSet<>(request.itemIds());
             for (String itemId : wanted) {
-                StockItem i = items.findById(itemId).orElseThrow(() -> new BadRequestException("One of those items isn't in this hotel's list"));
+                StockItem i = items.findById(itemId).orElseThrow(() -> new BadRequestException("One of those items isn't in this " + com.hospio.common.venue.VenuePlaces.here().possessive() + " list"));
                 i.setSupplierId(saved.getId());
                 items.save(i);
             }
@@ -962,7 +962,7 @@ public class InventoryService {
     }
 
     private void fillOrder(PurchaseOrder po, InventoryRequests.PurchaseOrderRequest request) {
-        Supplier s = suppliers.findById(request.supplierId()).orElseThrow(() -> new BadRequestException("That supplier isn't in this hotel's list"));
+        Supplier s = suppliers.findById(request.supplierId()).orElseThrow(() -> new BadRequestException("That supplier isn't in this " + com.hospio.common.venue.VenuePlaces.here().possessive() + " list"));
         if (!s.isActive()) {
             throw new BadRequestException(s.getName() + " is no longer an active supplier");
         }

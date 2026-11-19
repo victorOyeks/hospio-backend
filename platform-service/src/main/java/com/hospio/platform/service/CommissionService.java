@@ -226,7 +226,7 @@ public class CommissionService {
     }
 
     /**
-     * Records that Hospio360 gave back {@code amount} of what a day collected (a provider reversal or a refund to the hotel). The
+     * Records that Hospio360 gave back {@code amount} of what a day collected (a provider reversal or a refund to the business). The
      * commission earned on it is clawed back with a negative line on the marketer's next statement.
      */
     public RefundResult refund(String dailyFeeId, BigDecimal amount, String reason) {
@@ -234,7 +234,7 @@ public class CommissionService {
             throw new BadRequestException("Enter the amount given back");
         }
         if (!StringUtils.hasText(reason)) {
-            throw new BadRequestException("Say why (provider reversal, refund to the hotel, ...)");
+            throw new BadRequestException("Say why (provider reversal, refund to the business, ...)");
         }
         BigDecimal amt = Money.of(amount);
         return TenantContext.runWith(Tenant.system("commission"), () -> tx.execute(st -> {

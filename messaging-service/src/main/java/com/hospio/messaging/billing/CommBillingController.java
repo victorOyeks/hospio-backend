@@ -164,7 +164,7 @@ public class CommBillingController {
     @PreAuthorize("@access.platform()")
     public ApiResponse<CommBilling.PlanView> setPlan(@PathVariable String hotelId, @RequestBody PlanRequest r) {
         if (r.businessId() == null || r.businessId().isBlank()) {
-            throw new BadRequestException("Say which business the hotel belongs to (businessId)");
+            throw new BadRequestException("Say which business the location belongs to (businessId)");
         }
         return ApiResponse.ok("Guest messages saved", billing.setPlan(r.businessId(), hotelId, r.enabled(), r.email(), r.sms(), r.whatsapp(),
                 Boolean.TRUE.equals(r.useDefaults())));

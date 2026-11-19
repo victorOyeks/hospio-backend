@@ -210,7 +210,7 @@ public class MenuService {
             return null;
         }
         Outlet other = outlets.findById(id).filter(o -> outlet.getHotelId() == null || outlet.getHotelId().equals(o.getHotelId()))
-                .orElseThrow(() -> new ResourceNotFoundException("The outlet that makes it isn't one of this hotel's"));
+                .orElseThrow(() -> new ResourceNotFoundException("The outlet that makes it isn't one of this " + com.hospio.common.venue.VenuePlaces.here().possessive()));
         return other.getId();
     }
 

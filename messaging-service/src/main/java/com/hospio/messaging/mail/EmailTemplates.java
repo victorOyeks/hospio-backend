@@ -1,5 +1,6 @@
 package com.hospio.messaging.mail;
 
+import com.hospio.common.venue.VenueWording;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -74,7 +75,14 @@ public class EmailTemplates {
     private static final String LINE = "#e9ecf1";
     private static final String PAGE = "#f6f4f5";
     private static final String SUBTLE = "#f8f8f9";
-    private static final String FOOTER = "Hospio360 · hotel management by Oyeks Global";
+    /**
+     * "Hospio360 · hotel management by Oyeks Global" for a hotel (as always), "lounge management" for a lounge, "hospitality
+     * management" for a business with more than hotels (docs/plan-venue-type.md, phase 5).
+     */
+    private static String footer(VenueWording words) {
+        return "Hospio360 · " + ("location".equals(words.place()) ? "hospitality" : words.place()) + " management by Oyeks Global";
+    }
+
     private static final String FONT = "'DM Sans',-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
     private enum Tone {
@@ -146,6 +154,13 @@ public class EmailTemplates {
     }
 
     public Rendered render(String kind, String fromName, String subject, String text, Brand brand) {
+        return render(kind, fromName, subject, text, brand, VenueWording.HOTEL);
+    }
+
+    /** {@code words}: the place the mail is about or from (its location, else its business); a hotel's when null. */
+    public Rendered render(String kind, String fromName, String subject, String text, Brand brand, VenueWording words) {
+        VenueWording w = words == null ? VenueWording.HOTEL : words;
+        String footer = footer(w);
         Brand b = brand == null ? Brand.HOSPIO : brand;
         String from = blank(fromName) ? "Hospio360" : fromName.trim();
         String body = text == null ? "" : text.replace("\r\n", "\n").trim();
@@ -154,6 +169,9 @@ public class EmailTemplates {
         Look look = LOOKS.getOrDefault(k, new Look("Message", Tone.BRAND, null, null));
         Tone tone = "DECISION".equals(k) ? decisionTone(subj) : look.tone();
         String heading = look.heading() != null ? look.heading() : subj;
+        if ("HANDOVER_PACK".equals(k) && !w.isHotel()) {
+            heading = "Your " + ("location".equals(w.place()) ? "business" : w.place()) + " is ready on Hospio360";
+        }
 
         // The button: the first link, when this kind has a button (its address also stays visible underneath).
         String link = null;
@@ -209,10 +227,10 @@ public class EmailTemplates {
 
         // Footer, outside the card: the same line on every email.
         h.append("<tr><td style=\"padding:18px 32px 0 32px;text-align:center;font-size:12px;line-height:1.6;color:").append(INK_3).append(";\">")
-                .append(FOOTER).append("</td></tr></table></td></tr></table></body></html>");
+                .append(footer).append("</td></tr></table></td></tr></table></body></html>");
 
         StringBuilder plain = new StringBuilder();
-        plain.append(from).append("\n\n").append(heading).append("\n\n").append(body).append("\n\n-- \n").append(FOOTER).append("\n");
+        plain.append(from).append("\n\n").append(heading).append("\n\n").append(body).append("\n\n-- \n").append(footer).append("\n");
         return new Rendered(subj, h.toString(), plain.toString());
     }
 

@@ -65,4 +65,17 @@ class EmailTemplatesTest {
                 .doesNotContain("Sent by");
         assertThat(templates.render("RECEIPT", "Royal Suites Ikeja", "s", "x").text()).endsWith("Hospio360 · hotel management by Oyeks Global\n");
     }
+
+    @Test
+    void aLoungeNeverReadsHotelInTheFooterOrTheHandoverHeading() {
+        var lounge = com.hospio.common.venue.VenueWording.of("LOUNGE");
+        var r = templates.render("HANDOVER_PACK", "Hospio360", "s", "x", EmailTemplates.Brand.HOSPIO, lounge);
+        assertThat(r.html()).contains("Your lounge is ready on Hospio360", "Hospio360 · lounge management by Oyeks Global").doesNotContainIgnoringCase("hotel");
+        assertThat(r.text()).endsWith("Hospio360 · lounge management by Oyeks Global\n");
+        var mixed = templates.render("HANDOVER_PACK", "Hospio360", "s", "x", EmailTemplates.Brand.HOSPIO, com.hospio.common.venue.VenueWording.LOCATION);
+        assertThat(mixed.html()).contains("Your business is ready on Hospio360", "Hospio360 · hospitality management by Oyeks Global");
+        // A hotel, and a mail with no place, read as always.
+        assertThat(templates.render("HANDOVER_PACK", "Hospio360", "s", "x", EmailTemplates.Brand.HOSPIO, null).html())
+                .contains("Your hotel is ready on Hospio360", "Hospio360 · hotel management by Oyeks Global");
+    }
 }

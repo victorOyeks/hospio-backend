@@ -337,7 +337,7 @@ public class MoneyService {
         }
         String code = categories.find(hotel, request.category()).filter(c -> c.isActive())
                 .map(com.hospio.finance.entity.ExpenseCategory::getCode)
-                .orElseThrow(() -> new BadRequestException("That category isn't in this hotel's list"));
+                .orElseThrow(() -> new BadRequestException("That category isn't in this " + com.hospio.common.venue.VenuePlaces.here().possessive() + " list"));
         Budget b = budgets.findByHotelIdAndMonth(hotel, month).stream()
                 .filter(x -> ExpenseCategories.codeOf(x.getCategory()).equals(code)).findFirst()
                 .orElseGet(() -> Budget.builder().category(code).month(month).build());

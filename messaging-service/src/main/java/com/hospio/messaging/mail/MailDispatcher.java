@@ -377,7 +377,9 @@ public class MailDispatcher {
         try {
             sender = senderFor(r.getBusinessId(), r.getHotelId(), r.getFromName(), r.getReplyTo());
             EmailTemplates.Rendered rendered = templates.render(r.getKind(), sender.name(), r.getSubject(), r.getBodyText(),
-                    brands == null ? EmailTemplates.Brand.HOSPIO : brands.brand(r.getHotelId()));
+                    brands == null ? EmailTemplates.Brand.HOSPIO : brands.brand(r.getHotelId()),
+                    r.getHotelId() != null ? com.hospio.common.venue.VenuePlaces.at(r.getHotelId())
+                            : com.hospio.common.venue.VenuePlaces.ofBusiness(r.getBusinessId()));
             String html = notBlank(r.getBodyHtml()) ? r.getBodyHtml() : rendered.html();
             mail = new SmtpGateway.Email(sender().fromAddress(), sender.name(), r.getToAddress(), sender.replyTo(), rendered.subject(), html, rendered.text());
         } catch (RuntimeException ex) {

@@ -312,7 +312,7 @@ public class LaundryService {
         for (Map.Entry<String, BigDecimal> w : wanted.entrySet()) {
             String[] i = items.get(w.getKey());
             if (i == null) {
-                throw new BadRequestException("That item isn't in this hotel's stock");
+                throw new BadRequestException("That item isn't in this " + com.hospio.common.venue.VenuePlaces.here().possessive() + " stock");
             }
             if (!LINEN.equalsIgnoreCase(i[2])) {
                 throw new BadRequestException(i[0] + " isn't linen");
