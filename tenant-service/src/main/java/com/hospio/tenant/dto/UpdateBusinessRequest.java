@@ -7,14 +7,27 @@ import java.time.LocalDate;
 /**
  * Platform edit of a business: profile, owner contacts, fee model and value, contract. A field left
  * null is left as it is, so the wizard can save one step at a time. {@code feeAddendumRef} goes with a fee other than the
- * platform default (fee lock).
+ * platform default (fee lock). {@code clearContractStartsOn} true empties the contract start date (the mirror of platform's
+ * "Charges start on", cleared when that date is cleared); null leaves it to {@code contractStartsOn}.
  */
 public record UpdateBusinessRequest(String name, String legalName, String registrationNumber, String businessType,
                                     String email, String phone, String address, String city, String logoUrl, String brandColour,
                                     String ownerName, String ownerEmail, String ownerPhone,
                                     Business.FeeModel feeModel, BigDecimal feeValue, String currency, String country, String timezone,
                                     LocalDate contractStartsOn, String contractNotes, String marketerId, String accountManagerId,
-                                    Business.Source source, String feeAddendumRef, Business.Kind venueKind) {
+                                    Business.Source source, String feeAddendumRef, Business.Kind venueKind,
+                                    Boolean clearContractStartsOn) {
+
+    public UpdateBusinessRequest(String name, String legalName, String registrationNumber, String businessType,
+                                 String email, String phone, String address, String city, String logoUrl, String brandColour,
+                                 String ownerName, String ownerEmail, String ownerPhone,
+                                 Business.FeeModel feeModel, BigDecimal feeValue, String currency, String country, String timezone,
+                                 LocalDate contractStartsOn, String contractNotes, String marketerId, String accountManagerId,
+                                 Business.Source source, String feeAddendumRef, Business.Kind venueKind) {
+        this(name, legalName, registrationNumber, businessType, email, phone, address, city, logoUrl, brandColour, ownerName, ownerEmail,
+                ownerPhone, feeModel, feeValue, currency, country, timezone, contractStartsOn, contractNotes, marketerId, accountManagerId,
+                source, feeAddendumRef, venueKind, null);
+    }
 
     public UpdateBusinessRequest(String name, String legalName, String registrationNumber, String businessType,
                                  String email, String phone, String address, String city, String logoUrl, String brandColour,
