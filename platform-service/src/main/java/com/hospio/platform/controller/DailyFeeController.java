@@ -11,12 +11,10 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Hospio's daily fee (docs/plan-daily-fees.md): the owner's Hospio fees screen, and the admin portal's view and switches. */
+/** Hospio's daily fee (docs/plan-daily-fees.md): the owner's Hospio fees screen, and the admin portal's view. Nothing is debited: each day is billed on the monthly invoice. */
 @RestController
 @RequiredArgsConstructor
 public class DailyFeeController {
@@ -48,7 +46,7 @@ public class DailyFeeController {
         return ApiResponse.ok(fees.forAdmin(businessId, hotelId, from, to));
     }
 
-    @Operation(summary = "Admin: every hotel's fee state (provider, debit on, POS paused, latest day) in one call")
+    @Operation(summary = "Admin: every hotel's fee state (POS paused, latest day) in one call")
     @GetMapping("/admin/fees/hotels")
     @PreAuthorize(AdminFeesController.MONEY)
     public ApiResponse<List<DailyFeeService.HotelFeeState>> hotelStates() {
@@ -69,21 +67,10 @@ public class DailyFeeController {
         return ApiResponse.ok("Worked out again", fees.redo(id));
     }
 
-    public record CollectionRequest(String provider, boolean debitEnabled) {
-    }
-
-    @Operation(summary = "Admin: how a hotel's fee is collected (provider, debit on or off, POS paused) and which providers can debit")
+    @Operation(summary = "Admin: whether a hotel's POS payments are paused for an unpaid invoice")
     @GetMapping("/admin/businesses/{businessId}/hotels/{hotelId}/fee-collection")
     @PreAuthorize(AdminFeesController.MONEY)
     public ApiResponse<DailyFeeService.CollectionView> collection(@PathVariable String businessId, @PathVariable String hotelId) {
         return ApiResponse.ok(fees.collection(businessId, hotelId));
-    }
-
-    @Operation(summary = "SUPER_ADMIN: set the hotel's debit provider and switch the debit on or off (on needs the provider configured and the hotel's keys)")
-    @PutMapping("/admin/businesses/{businessId}/hotels/{hotelId}/fee-collection")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ApiResponse<DailyFeeService.CollectionView> setCollection(@PathVariable String businessId, @PathVariable String hotelId,
-                                                                    @RequestBody CollectionRequest request) {
-        return ApiResponse.ok(request.debitEnabled() ? "Debit switched on" : "Saved", fees.setCollection(businessId, hotelId, request.provider(), request.debitEnabled()));
     }
 }

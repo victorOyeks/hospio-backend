@@ -11,7 +11,6 @@ import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.common.util.Money;
 import com.hospio.platform.client.DailySalesClient;
-import com.hospio.platform.client.FeeDebitClient;
 import com.hospio.platform.client.TenantClient;
 import com.hospio.platform.entity.DailyFee;
 import com.hospio.platform.entity.FeeCollection;
@@ -24,7 +23,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -46,13 +44,11 @@ import org.springframework.util.StringUtils;
 public class DailyFeeService {
 
     static final ZoneId LAGOS = ZoneId.of("Africa/Lagos");
-    static final int PAUSE_AFTER_UNPAID_DAYS = 3;
     static final Set<String> STAGES = Set.of("LIVE", "AT_RISK");
 
     private final DailyFeeRepository fees;
     private final FeeCollectionRepository collections;
     private final DailySalesClient sales;
-    private final FeeDebitClient debits;
     private final TenantClient tenant;
     private final FeeService feeRules;
     private final TransactionTemplate tx;
@@ -216,8 +212,8 @@ public class DailyFeeService {
         return view(again);
     }
 
-    /** Every hotel's fee state in one call (the admin portal's Hotels page): provider, debit, POS pause, latest day. */
-    public record HotelFeeState(String hotelId, String provider, boolean debitEnabled, boolean posPaused, DailyFeeView lastFee) {
+    /** Every hotel's fee state in one call (the admin portal's Hotels page): POS pause and latest day. */
+    public record HotelFeeState(String hotelId, boolean posPaused, DailyFeeView lastFee) {
     }
 
     public List<HotelFeeState> hotelStates() {
@@ -230,70 +226,20 @@ public class DailyFeeService {
         return ids.stream().map(id -> {
             FeeCollection c = byHotel.get(id);
             DailyFee f = last.get(id);
-            return new HotelFeeState(id, c == null ? null : c.getProvider(), c != null && c.isDebitEnabled(), c != null && c.isPosPaused(),
+            return new HotelFeeState(id, c != null && c.isPosPaused(),
                     f == null ? null : view(f));
         }).toList();
     }
 
-    // ---- collection settings (SUPER_ADMIN) ------------------------------------------------------------
+    // ---- POS pause (money roles) -------------------------------------------------------------------------
 
-    public record CollectionView(String hotelId, String provider, boolean debitEnabled, boolean posPaused, String changedByName, Instant changedAt,
-                                 List<com.hospio.common.billing.FeeDebitDtos.ProviderState> providers) {
+    /** Whether the hotel's POS payments are paused for an unpaid invoice, and who last changed its fee record (older records). */
+    public record CollectionView(String hotelId, boolean posPaused, String changedByName, Instant changedAt) {
     }
 
     public CollectionView collection(String businessId, String hotelId) {
         FeeCollection c = collections.findByHotelId(hotelId).orElse(null);
-        List<com.hospio.common.billing.FeeDebitDtos.ProviderState> states = debits.providers(hotelId);
-        return new CollectionView(hotelId, c == null ? null : c.getProvider(), c != null && c.isDebitEnabled(), c != null && c.isPosPaused(),
-                c == null ? null : c.getChangedByName(), c == null ? null : c.getChangedAt(), states);
-    }
-
-    /**
-     * Sets the hotel's debit provider and switches the debit on or off. Switching on needs the provider's debit configured on the
-     * server and the hotel's keys for it in payment-service; switching off returns the hotel to shadow mode and lifts a POS pause.
-     */
-    public CollectionView setCollection(String businessId, String hotelId, String provider, boolean debitEnabled) {
-        String p = StringUtils.hasText(provider) ? provider.trim().toUpperCase(Locale.ROOT) : null;
-        if (p != null && !Set.of("MONIEPOINT", "OPAY").contains(p)) {
-            throw new BadRequestException("The provider is MONIEPOINT or OPAY");
-        }
-        if (debitEnabled) {
-            throw new BadRequestException("Hospio360 no longer debits accounts: every business pays one monthly invoice (docs/plan-monthly-invoices.md)");
-        }
-        if (debitEnabled) {
-            if (p == null) {
-                throw new BadRequestException("Choose the provider the fee is debited from");
-            }
-            com.hospio.common.billing.FeeDebitDtos.ProviderState s = debits.providers(hotelId).stream().filter(x -> x.provider().equals(p)).findFirst().orElse(null);
-            if (s == null || !s.debitConfigured()) {
-                throw new BadRequestException(label(p) + " debit isn't configured on the server yet" + (s == null || s.reason() == null ? "" : ": " + s.reason()));
-            }
-            if (!s.hotelKeys()) {
-                throw new BadRequestException("Enter the " + com.hospio.common.venue.VenuePlaces.at(hotelId).possessive() + " " + label(p) + " keys first (POS provider)");
-            }
-        }
-        HospioUserDetails user = CurrentUser.require();
-        tx.executeWithoutResult(st -> {
-            FeeCollection c = collections.findByHotelId(hotelId)
-                    .orElseGet(() -> FeeCollection.builder().businessId(businessId).hotelId(hotelId).build());
-            c.setProvider(p);
-            c.setDebitEnabled(debitEnabled);
-            c.setChangedBy(user.getUserId());
-            c.setChangedByName(user.getFullName());
-            c.setChangedAt(Instant.now());
-            if (!debitEnabled && c.isPosPaused()) {
-                c.setPosPaused(false);
-                if (!c.isDevicePosPaused()) {
-                    debits.pausePos(businessId, hotelId, false);
-                }
-            }
-            collections.save(c);
-        });
-        return collection(businessId, hotelId);
-    }
-
-    static String label(String provider) {
-        return "OPAY".equals(provider) ? "OPay" : "Moniepoint";
+        return new CollectionView(hotelId, c != null && c.isPosPaused(), c == null ? null : c.getChangedByName(), c == null ? null : c.getChangedAt());
     }
 
     // ---- json ----------------------------------------------------------------------------------------

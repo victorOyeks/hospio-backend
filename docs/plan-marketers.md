@@ -10,8 +10,8 @@ Debits are gone (`docs/plan-monthly-invoices.md`). Commission now accrues on the
 monthly invoice is paid (Paystack or recorded by finance, part payments pro rata) each of its days' `collected` becomes fee × the share of
 the invoice received (after credit notes), and `CommissionService.syncReceived` adds a `DAILY_FEE` line for what more was received (same
 agreement, 12-month window anchored on the first paid fee day, 20 %, 5 % WHT) or a `CLAWBACK` line when a credit note on a paid invoice
-lowers it. Device shares, guest messages, data plans and VAT never earn. `FeeDebitRunner` / `onCollected` and the QA simulated debit
-below are history; QA uses `POST /admin/qa/billing/issue` and a Paystack test payment (or a recorded transfer) instead.
+lowers it. Device shares, guest messages, data plans and VAT never earn. `FeeDebitRunner` / `onCollected` (removed 19 Nov 2026) and the QA
+simulated debit below are history; QA uses `POST /admin/qa/billing/issue` and a Paystack test payment (or a recorded transfer) instead.
 
 ## Decisions (owner, 18 Nov 2026)
 

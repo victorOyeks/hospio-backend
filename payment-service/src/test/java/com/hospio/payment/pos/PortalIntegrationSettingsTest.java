@@ -5,11 +5,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hospio.common.billing.FeeDebitDtos.ProviderState;
 import com.hospio.common.integrations.settings.IntegrationSettings;
 import com.hospio.common.integrations.settings.IntegrationSettingsReader;
 import com.hospio.common.security.SecretBox;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,11 +16,10 @@ import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestClient;
 
 /**
- * Settings · Integrations in payment-service: the POS addresses and the fee debit use the environment until something is saved in
+ * Settings · Integrations in payment-service: the POS addresses use the environment until something is saved in
  * the portal, then the portal's value; a POS key sealed before SecretBox moved to common still opens with POS_SECRETS_KEY.
  */
 class PortalIntegrationSettingsTest {
@@ -94,24 +91,5 @@ class PortalIntegrationSettingsTest {
         assertThat(moniepoint.configured()).isTrue();
         assertThat(moniepoint.baseUrl()).isEqualTo("https://api.moniepoint.example");
         assertThat(opay.baseUrl()).isEqualTo("https://sandbox.opay.example/openApi");
-    }
-
-    @Test
-    void theFeeDebitUsesTheEnvironmentUntilThePortalSwitchesItOn() {
-        HotelPosService hotels = mock(HotelPosService.class);
-        when(hotels.providersWithKeys("h1")).thenReturn(List.of());
-        FeeDebitService fees = new FeeDebitService(mock(FeeDebitRepository.class), hotels, mock(OpayApi.class), mock(TransactionTemplate.class),
-                false, "", "", "", "OPAY_WALLET", "");
-        Portal portal = new Portal();
-        fees.setIntegrations(portal);
-        assertThat(fees.providers("h1")).extracting(ProviderState::reason)
-                .containsExactly("Moniepoint hasn't given a debit API yet (FEE_DEBIT_MONIEPOINT_URL isn't set)", "FEE_DEBIT_OPAY_ENABLED isn't on");
-
-        portal.save(new IntegrationSettings.FeeDebitOpay(true, "1234567890", "Hospio360 Ltd", null, "BANK_TRANSFER"));
-        List<ProviderState> states = fees.providers("h1");
-        assertThat(states.get(1).reason()).isEqualTo("FEE_DEBIT_OPAY_RECIPIENT_BANK_CODE isn't set");
-
-        portal.save(new IntegrationSettings.FeeDebitOpay(true, "1234567890", "Hospio360 Ltd", "100004", "BANK_TRANSFER"));
-        assertThat(fees.providers("h1").get(1).debitConfigured()).isTrue();
     }
 }

@@ -13,7 +13,7 @@ import static org.mockito.Mockito.when;
 import com.hospio.common.billing.BillingHold;
 import com.hospio.common.billing.MessageBillingDtos;
 import com.hospio.common.delivery.DeliveryService;
-import com.hospio.platform.client.FeeDebitClient;
+import com.hospio.platform.client.PosPauseClient;
 import com.hospio.platform.client.MessageBillingClient;
 import com.hospio.platform.client.PlatformPaystackClient;
 import com.hospio.platform.client.TenantClient;
@@ -63,7 +63,7 @@ class MonthlyInvoiceServiceTest {
     @SuppressWarnings("unchecked")
     MonthlyInvoiceService service(boolean qaOnly) {
         return new MonthlyInvoiceService(invoices, lines, mock(MonthlyInvoicePaymentRepository.class), events, fees, deviceItems,
-                mock(DeviceInvoiceService.class), mock(DevicePackageService.class), mock(FeeCollectionRepository.class), mock(FeeDebitClient.class), messages,
+                mock(DeviceInvoiceService.class), mock(DevicePackageService.class), mock(FeeCollectionRepository.class), mock(PosPauseClient.class), messages,
                 tenant, settings, mock(PlatformPaystackClient.class), deliveries, mock(ObjectProvider.class), mock(CommissionService.class),
                 mock(BillingHold.class), new TransactionTemplate(mock(PlatformTransactionManager.class)), "https://web-staging.hospio360.com", qaOnly, "");
     }

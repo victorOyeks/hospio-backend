@@ -16,7 +16,7 @@ import org.springframework.web.client.RestClient;
 
 /**
  * Settings · Integrations → Test: the check runs in the service that uses the provider (messaging-service for email, SMS, WhatsApp and
- * Paystack; payment-service for POS and the fee debit), with the settings in force there. A provider's own timeouts are up to 20
+ * Paystack; payment-service for POS), with the settings in force there. A provider's own timeouts are up to 20
  * seconds, so this waits longer than the usual internal call.
  */
 @Slf4j

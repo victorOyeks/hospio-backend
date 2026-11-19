@@ -10,7 +10,7 @@ public final class IntegrationDtos {
     }
 
     /**
-     * One provider's card. {@code group}: EMAIL, MESSAGING, PAYMENTS, POS or FEE_DEBIT. {@code updatedAt} is ISO-8601 (null while
+     * One provider's card. {@code group}: EMAIL, MESSAGING, PAYMENTS or POS. {@code updatedAt} is ISO-8601 (null while
      * nothing is saved).
      */
     public record IntegrationView(String provider, String label, String group, boolean testable, String updatedByName, String updatedAt,

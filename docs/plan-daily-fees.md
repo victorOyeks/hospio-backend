@@ -1,6 +1,8 @@
 # Daily Hospio fee, debited at source · build tracker
 
 > **18 Nov 2026: no more debits.** The daily fee is still worked out every day, but nothing is debited: each day is billed on the business's **monthly invoice** (`docs/plan-monthly-invoices.md`). The debit, carry-over, 3-day POS pause, `FeeDebitRunner` and the QA simulated debit described below are removed; the rest of this page is history.
+>
+> **19 Nov 2026: the debit code is removed too.** Gone: payment-service `FeeDebitService` and `/internal/fee-debit*` (and OPay's payout calls), platform `FeeDebitClient` (now `PosPauseClient`, the POS pause only), the device invoices' own debit step, `CommissionService.onCollected`, `PUT …/fee-collection` (the GET answers `{hotelId, posPaused, changedByName, changedAt}`), the admin portal's "Daily fee debit: OPay / Moniepoint" integration cards and the `FEE_DEBIT_*` variables. Migrations: platform-023 deletes any saved `FEE_DEBIT_*` integration rows and drops `fee_collections.provider` / `debit_enabled`; payment-012 drops the never-used `payment.fee_debits`. Kept: the daily fee worked out each day (`DailyFeeService`, `DailyFeeJob`), the monthly invoice, `BillingHold`, device items, and the POS providers for guest card payments.
 
 Started 16 Nov 2026. Hospio takes **1.5 % of everything a hotel sells** (rate set per business in the admin portal, no cap).
 The fee is worked out each day and debited from the hotel's own Moniepoint or OPay account at 6am. There are no invoices

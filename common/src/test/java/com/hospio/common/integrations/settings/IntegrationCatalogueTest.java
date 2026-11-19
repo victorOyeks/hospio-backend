@@ -25,9 +25,10 @@ class IntegrationCatalogueTest {
                 assertThat(f.env()).as(p + "." + f.key() + " names its environment variable").isNotBlank();
             }
             assertThat(IntegrationProvider.of(p.type())).isEqualTo(p);
-            assertThat(p.group()).isIn("EMAIL", "MESSAGING", "PAYMENTS", "POS", "FEE_DEBIT");
+            assertThat(p.group()).isIn("EMAIL", "MESSAGING", "PAYMENTS", "POS");
         }
-        assertThat(IntegrationProvider.parse("fee-debit-opay")).contains(IntegrationProvider.FEE_DEBIT_OPAY);
+        assertThat(IntegrationProvider.parse("termii")).contains(IntegrationProvider.TERMII);
+        assertThat(IntegrationProvider.parse("fee-debit-opay")).as("the fee debit was removed on 19 Nov 2026").isEmpty();
         assertThat(IntegrationProvider.parse("nope")).isEmpty();
     }
 
@@ -38,8 +39,6 @@ class IntegrationCatalogueTest {
                 .isEqualTo("https://xyz.api.infobip.com");
         assertThat(IntegrationCatalogue.normalize(infobip, infobip.field("smsEnabled").orElseThrow(), "TRUE")).isEqualTo("true");
         assertThat(IntegrationCatalogue.normalize(IntegrationProvider.SMTP, IntegrationProvider.SMTP.field("port").orElseThrow(), " 587 ")).isEqualTo("587");
-        IntegrationField payout = IntegrationProvider.FEE_DEBIT_OPAY.field("payoutType").orElseThrow();
-        assertThat(IntegrationCatalogue.normalize(IntegrationProvider.FEE_DEBIT_OPAY, payout, "bank_transfer")).isEqualTo("BANK_TRANSFER");
 
         assertThatThrownBy(() -> IntegrationCatalogue.normalize(infobip, infobip.field("baseUrl").orElseThrow(), "xyz.api.infobip.com"))
                 .isInstanceOf(BadRequestException.class).hasMessage("Base URL (Infobip (SMS and WhatsApp)) isn't a web address. Write it in full, e.g. https://api.example.com");
@@ -51,8 +50,6 @@ class IntegrationCatalogueTest {
                 .isInstanceOf(BadRequestException.class);
         assertThatThrownBy(() -> IntegrationCatalogue.normalize(infobip, infobip.field("smsEnabled").orElseThrow(), "yes"))
                 .hasMessage("SMS on (Infobip (SMS and WhatsApp)) is on or off: send true or false");
-        assertThatThrownBy(() -> IntegrationCatalogue.normalize(IntegrationProvider.FEE_DEBIT_OPAY, payout, "CASH"))
-                .hasMessage("Payout type (Daily fee debit: OPay) must be one of: OPAY_WALLET, BANK_TRANSFER");
     }
 
     @Test

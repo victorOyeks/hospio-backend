@@ -1,6 +1,5 @@
 package com.hospio.platform.service;
 
-import com.hospio.common.billing.FeeDebitDtos;
 import com.hospio.common.delivery.Delivery;
 import com.hospio.common.delivery.DeliveryService;
 import com.hospio.common.exception.BadRequestException;
@@ -10,7 +9,7 @@ import com.hospio.common.security.HospioUserDetails;
 import com.hospio.common.tenancy.Tenant;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.common.util.Money;
-import com.hospio.platform.client.FeeDebitClient;
+import com.hospio.platform.client.PosPauseClient;
 import com.hospio.platform.client.PlatformPaystackClient;
 import com.hospio.platform.client.TenantClient;
 import com.hospio.platform.entity.DeviceInvoice;
@@ -65,7 +64,7 @@ public class DeviceInvoiceService {
     private final DevicePaymentRepository payments;
     private final DevicePackageService devices;
     private final FeeCollectionRepository collections;
-    private final FeeDebitClient debits;
+    private final PosPauseClient pos;
     private final PlatformPaystackClient paystack;
     private final TenantClient tenant;
     private final DeliveryService deliveries;
@@ -209,65 +208,6 @@ public class DeviceInvoiceService {
         return n;
     }
 
-    /** [paid, failed]: each open invoice due by today is debited once a day (a pending debit is asked about instead). */
-    int[] collect(LocalDate today) {
-        int paid = 0;
-        int failed = 0;
-        for (DeviceInvoice i : invoices.findByStatusInAndDueOnLessThanEqualOrderByDueOnAsc(OPEN, today)) {
-            try {
-                String after = debit(i, today);
-                if ("PAID".equals(after)) {
-                    paid++;
-                } else if ("FAILED".equals(after)) {
-                    failed++;
-                }
-            } catch (RuntimeException e) {
-                failed++;
-                log.warn("Device invoice {} not debited: {}", i.getNumber(), e.getMessage());
-            }
-        }
-        return new int[] {paid, failed};
-    }
-
-    /** One invoice's debit step; PAID, FAILED, PENDING or null when nothing was tried (debit off, already tried today). */
-    String debit(DeviceInvoice i, LocalDate today) {
-        FeeCollection c = collections.findByHotelId(i.getHotelId()).orElse(null);
-        if (c == null || !c.isDebitEnabled() || c.getProvider() == null) {
-            return null;
-        }
-        FeeDebitDtos.DebitResult r;
-        if (i.getDebitRef() != null && WAITING.equals(i.getLastError())) {
-            r = debits.status(i.getHotelId(), c.getProvider(), i.getDebitRef());
-        } else {
-            if (today.equals(i.getLastDebitOn())) {
-                return null;
-            }
-            String ref = "DV-" + i.getNumber().replace("DEV-", "") + "-" + (i.getDebitAttempts() + 1);
-            BigDecimal amount = Money.of(i.getAmount().subtract(i.getPaidAmount()));
-            save(i, x -> {
-                x.setDebitAttempts(x.getDebitAttempts() + 1);
-                x.setLastDebitOn(today);
-                x.setDebitRef(ref);
-            });
-            r = debits.debit(i.getHotelId(), c.getProvider(), amount, ref, "Hospio360 " + describe(i));
-        }
-        switch (r.status()) {
-            case "APPROVED" -> {
-                BigDecimal got = r.collected() == null || r.collected().signum() <= 0 ? i.getAmount().subtract(i.getPaidAmount()) : r.collected();
-                pay(i.getId(), "DEBIT", i.getDebitRef(), got, null);
-                return "PAID";
-            }
-            case "FAILED" -> {
-                save(i, x -> x.setLastError(r.message() == null ? "The debit didn't go through" : r.message()));
-                return "FAILED";
-            }
-            default -> {
-                save(i, x -> x.setLastError(WAITING));
-                return "PENDING";
-            }
-        }
-    }
-
     /** [overdue, reminded, flagged, paused]. */
     int[] overdue(LocalDate today) {
         int overdue = 0;
@@ -381,7 +321,7 @@ public class DeviceInvoiceService {
             return;
         }
         if (paused || !c.isPosPaused()) {
-            debits.pausePos(businessId, hotelId, paused);
+            pos.pausePos(businessId, hotelId, paused);
         }
         log.info("POS payments {} for hotel {} (device invoice)", paused ? "paused" : "resumed", hotelId);
     }

@@ -102,17 +102,6 @@ public class OpayApi {
                 orderNo == null ? outOrderNo : null), ProviderDtos.OpayOrderData.class);
     }
 
-    /** Pays out of the merchant's own OPay account (amount in kobo); {@code requestOrderNumber} is the idempotency key. */
-    public Answer<ProviderDtos.OpayPayoutData> payout(Keys k, String requestOrderNumber, long kobo, String payOutType, String recipientAccount,
-                                                      String recipientName, String recipientBankCode, String description) {
-        return call(k, "/merchant/createMerchantPayOut", new ProviderDtos.OpayPayout(k.merchantId(), requestOrderNumber, payOutType, kobo, "NGN",
-                recipientAccount, recipientName, "BANK_TRANSFER".equals(payOutType) ? recipientBankCode : null, description), ProviderDtos.OpayPayoutData.class);
-    }
-
-    public Answer<ProviderDtos.OpayPayoutData> queryPayout(Keys k, String requestOrderNumber) {
-        return call(k, "/merchant/queryMerchantPayOut", new ProviderDtos.OpayQueryPayout(k.merchantId(), requestOrderNumber), ProviderDtos.OpayPayoutData.class);
-    }
-
     <T> Answer<T> call(Keys k, String path, Object payload, Class<T> type) {
         long timestamp = System.currentTimeMillis();
         String paramContent = encryptJson(payload, publicKey(k.opayPublicKey()));

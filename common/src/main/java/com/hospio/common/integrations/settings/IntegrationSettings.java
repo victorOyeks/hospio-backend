@@ -5,8 +5,7 @@ package com.hospio.common.integrations.settings;
  * and the consumer then uses its server environment value for that field ({@link IntegrationCatalogue#overlay}).
  */
 public sealed interface IntegrationSettings permits IntegrationSettings.Brevo, IntegrationSettings.Smtp, IntegrationSettings.Infobip,
-        IntegrationSettings.Termii, IntegrationSettings.Paystack, IntegrationSettings.Moniepoint, IntegrationSettings.Opay,
-        IntegrationSettings.FeeDebitOpay, IntegrationSettings.FeeDebitMoniepoint {
+        IntegrationSettings.Termii, IntegrationSettings.Paystack, IntegrationSettings.Moniepoint, IntegrationSettings.Opay {
 
     /** Email through Brevo's API (messaging-service); {@code webhookKey} proves an email event (delivered, bounce) comes from Brevo. */
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
@@ -33,7 +32,7 @@ public sealed interface IntegrationSettings permits IntegrationSettings.Brevo, I
     record Termii(Boolean enabled, String baseUrl, String apiKey, String senderId, String secretKey) implements IntegrationSettings {
     }
 
-    /** Paystack, for paying guest-message invoices. */
+    /** Paystack, for owners paying the monthly Hospio360 invoice (and older device and guest-message invoices). */
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     record Paystack(String secretKey) implements IntegrationSettings {
     }
@@ -46,16 +45,5 @@ public sealed interface IntegrationSettings permits IntegrationSettings.Brevo, I
     /** OPay's open API address (each hotel's own keys stay with the hotel). */
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     record Opay(String baseUrl) implements IntegrationSettings {
-    }
-
-    /** Hospio's daily fee taken from a hotel's OPay account into Hospio360's account. */
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
-    record FeeDebitOpay(Boolean enabled, String recipientAccount, String recipientName, String recipientBankCode, String payoutType)
-            implements IntegrationSettings {
-    }
-
-    /** Moniepoint's debit API, once Moniepoint provides one. */
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
-    record FeeDebitMoniepoint(String url) implements IntegrationSettings {
     }
 }

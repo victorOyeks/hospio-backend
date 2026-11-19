@@ -71,12 +71,11 @@ The protocols below are ported from StationMagBackend (`service/PaymentService.j
   - webhook secret
   - (base URL is server-wide)
 
-## Debit for the daily fee
+## No debit for the daily fee
 
-- **Neither provider has given us a merchant-authorised debit API yet.**
-- OPay's payout API moves money **out of the merchant's own account** using the merchant's keys. With the hotel's consent, that could serve as the debit, sending the fee to Hospio's account, but it isn't confirmed for this use.
-- Each provider's debit is configured on the server: `FEE_DEBIT_OPAY_URL`, `FEE_DEBIT_MONIEPOINT_URL`, and the account Hospio is paid into.
-- An admin can switch debit on for a hotel only when its provider is configured. Until then the hotel runs in shadow mode: statements every day, no debit.
+Moniepoint and OPay are used only for guest card payments. The daily fee debit through them (OPay's payout API, a Moniepoint debit
+address, `FEE_DEBIT_*`) was dropped on 18 Nov 2026 and its code removed on 19 Nov 2026: Hospio360 bills one monthly invoice, paid
+through Paystack (docs/plan-monthly-invoices.md).
 
 ## Decline reasons and logs
 

@@ -22,16 +22,6 @@ public final class ProviderDtos {
     public record OpayQueryOrder(String headMerchantId, String merchantId, String orderNo, String outOrderNo) {
     }
 
-    /** Payout out of the merchant's own account; amount in kobo. */
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record OpayPayout(String opayMerchantId, String requestOrderNumber, String payOutType, Long amount, String currency,
-                             String recipientAccount, String recipientAccountName, String recipientBankCode, String descriptions) {
-    }
-
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record OpayQueryPayout(String opayMerchantId, String requestOrderNumber) {
-    }
-
     /** The body every OPay call sends. */
     public record OpayRequest(String paramContent, String sign) {
     }
@@ -49,12 +39,6 @@ public final class ProviderDtos {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record OpayOrderData(String outOrderNo, String orderNo, String status, BigDecimal amount, String sn, String payType,
                                 String senderName, String senderAccount, String transactionTime, String completedTime) {
-    }
-
-    /** Payout and payout query: amount and fee in kobo. */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record OpayPayoutData(String opayMerchantId, String requestOrderNumber, String opayOrderNumber, Long amount, Long fee, String status,
-                                 String failureReason) {
     }
 
     /** What OPay posts to the webhook: the payload is encrypted in {@code paramContent}, signed with {@code sign}. */

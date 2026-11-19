@@ -5,7 +5,6 @@ import static com.hospio.common.integrations.settings.FieldType.NUMBER;
 import static com.hospio.common.integrations.settings.FieldType.SECRET;
 import static com.hospio.common.integrations.settings.FieldType.TEXT;
 import static com.hospio.common.integrations.settings.FieldType.URL;
-import static com.hospio.common.integrations.settings.IntegrationField.choice;
 import static com.hospio.common.integrations.settings.IntegrationField.entry;
 
 import java.util.Arrays;
@@ -52,24 +51,15 @@ public enum IntegrationProvider {
             entry("senderId", "Sender ID", TEXT, "TERMII_SENDER_ID", "The approved sender ID, e.g. Hospio360."),
             entry("secretKey", "Secret key", SECRET, "TERMII_SECRET_KEY", "Checks Termii's delivery reports; without it every report is refused."))),
 
-    PAYSTACK("Paystack (guest-message invoices)", "PAYMENTS", Owner.MESSAGING, true, IntegrationSettings.Paystack.class, List.of(
-            entry("secretKey", "Secret key", SECRET, "PAYSTACK_SECRET_KEY", "sk_live_… (or sk_test_… on staging). Also checks Paystack's webhooks."))),
+    PAYSTACK("Paystack (monthly invoice payments)", "PAYMENTS", Owner.MESSAGING, true, IntegrationSettings.Paystack.class, List.of(
+            entry("secretKey", "Secret key", SECRET, "PAYSTACK_SECRET_KEY", "sk_live_… (or sk_test_… on staging). Owners pay their monthly Hospio360 invoice (and older device and "
+                    + "guest-message invoices) through it. Also checks Paystack's webhooks."))),
 
     MONIEPOINT("Moniepoint POS", "POS", Owner.PAYMENT, true, IntegrationSettings.Moniepoint.class, List.of(
             entry("baseUrl", "API address", URL, "MONIEPOINT_BASE_URL", "Moniepoint's POS API. Each location's own keys are set on the location."))),
 
     OPAY("OPay POS", "POS", Owner.PAYMENT, true, IntegrationSettings.Opay.class, List.of(
-            entry("baseUrl", "API address", URL, "OPAY_BASE_URL", "https://payapi.opayweb.com/openApi. Each location's own keys are set on the location."))),
-
-    FEE_DEBIT_OPAY("Daily fee debit: OPay", "FEE_DEBIT", Owner.PAYMENT, false, IntegrationSettings.FeeDebitOpay.class, List.of(
-            entry("enabled", "Debit on", BOOLEAN, "FEE_DEBIT_OPAY_ENABLED", "On: the daily fee is paid out of the business's OPay account into Hospio360's."),
-            entry("recipientAccount", "Hospio360 account", TEXT, "FEE_DEBIT_OPAY_RECIPIENT_ACCOUNT", "The OPay wallet or bank account the fee goes to."),
-            entry("recipientName", "Account name", TEXT, "FEE_DEBIT_OPAY_RECIPIENT_NAME", null),
-            entry("recipientBankCode", "Bank code", TEXT, "FEE_DEBIT_OPAY_RECIPIENT_BANK_CODE", "Needed only for BANK_TRANSFER."),
-            choice("payoutType", "Payout type", "FEE_DEBIT_OPAY_PAYOUT_TYPE", "OPAY_WALLET or BANK_TRANSFER.", "OPAY_WALLET", "BANK_TRANSFER"))),
-
-    FEE_DEBIT_MONIEPOINT("Daily fee debit: Moniepoint", "FEE_DEBIT", Owner.PAYMENT, false, IntegrationSettings.FeeDebitMoniepoint.class, List.of(
-            entry("url", "Debit API address", URL, "FEE_DEBIT_MONIEPOINT_URL", "Moniepoint hasn't given a debit API yet; leave empty until it does.")));
+            entry("baseUrl", "API address", URL, "OPAY_BASE_URL", "https://payapi.opayweb.com/openApi. Each location's own keys are set on the location.")));
 
     /** The service that uses these settings and runs the test. */
     public enum Owner {
@@ -97,7 +87,7 @@ public enum IntegrationProvider {
         return label;
     }
 
-    /** EMAIL, MESSAGING, PAYMENTS, POS or FEE_DEBIT. */
+    /** EMAIL, MESSAGING, PAYMENTS or POS. */
     public String group() {
         return group;
     }
@@ -122,7 +112,7 @@ public enum IntegrationProvider {
         return fields.stream().filter(f -> f.key().equals(key)).findFirst();
     }
 
-    /** "brevo", "BREVO", "fee-debit-opay" → the provider; empty when there is none by that name. */
+    /** "brevo", "BREVO", "termii" → the provider; empty when there is none by that name. */
     public static Optional<IntegrationProvider> parse(String name) {
         if (name == null) {
             return Optional.empty();

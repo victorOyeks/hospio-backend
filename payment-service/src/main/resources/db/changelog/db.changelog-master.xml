@@ -21,5 +21,6 @@
     <include file="db/changelog/009-hotel-pos-configs.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/010-hotel-pos-keys-per-provider.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/011-payment-part-tip.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/012-no-fee-debit.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>
