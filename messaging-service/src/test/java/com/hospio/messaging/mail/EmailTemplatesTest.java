@@ -53,6 +53,18 @@ class EmailTemplatesTest {
     }
 
     @Test
+    void hospiosOwnMailCarriesTheWordmarkAndAHotelsKeepsItsInitialsOrLogo() {
+        String own = templates.render("INVITE", "Hospio360", "s", "x").html();
+        assertThat(own).contains("src=\"https://hospio360.com/brand/hospio360-wordmark-white@2x.png\"").contains("alt=\"Hospio360\"")
+                .doesNotContain(">H3</div>").doesNotContain(">Hospio360</td>");
+        assertThat(templates.render("INVITE", null, "s", "x").html()).contains("hospio360-wordmark-white@2x.png");
+        String hotel = templates.render("RECEIPT", "Royal Suites Ikeja", "s", "x").html();
+        assertThat(hotel).doesNotContain("hospio360-wordmark").contains(">RS</div>").contains(">Royal Suites Ikeja</td>");
+        String withLogo = templates.render("RECEIPT", "Royal Suites Ikeja", "s", "x", EmailTemplates.Brand.of("#1d4ed8", "https://cdn.example/logo.png")).html();
+        assertThat(withLogo).contains("src=\"https://cdn.example/logo.png\"").doesNotContain("hospio360-wordmark");
+    }
+
+    @Test
     void textIsEscaped() {
         String html = templates.render("MESSAGE", "Tom & Jerry's <Inn>", "s", "<script>alert(1)</script> & co").html();
         assertThat(html).doesNotContain("<script>").contains("&lt;script&gt;").contains("Tom &amp; Jerry&#39;s &lt;Inn&gt;");

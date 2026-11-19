@@ -5,6 +5,7 @@ import com.lowagie.text.Chunk;
 import com.lowagie.text.Document;
 import com.lowagie.text.Element;
 import com.lowagie.text.Font;
+import com.lowagie.text.Image;
 import com.lowagie.text.PageSize;
 import com.lowagie.text.Paragraph;
 import com.lowagie.text.Phrase;
@@ -15,6 +16,7 @@ import com.lowagie.text.pdf.PdfPageEventHelper;
 import com.lowagie.text.pdf.PdfWriter;
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -38,6 +40,9 @@ public class InvoicePdf {
     static final Color SHADE = new Color(0xF8, 0xF4, 0xF5);
     static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.UK);
     static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale.UK).withZone(ZoneId.of("Africa/Lagos"));
+
+    /** The Hospio360 wordmark, maroon, 3x of 161 × 32 (rendered from the outlined master; hotel-internal-system-admin-FE packages/ui/src/brand). */
+    private static final byte[] WORDMARK = wordmark();
 
     private static final Font H1 = new Font(Font.HELVETICA, 20, Font.BOLD, MAROON);
     private static final Font BRAND = new Font(Font.HELVETICA, 15, Font.BOLD, MAROON);
@@ -200,12 +205,28 @@ public class InvoicePdf {
     }
 
     private static void letterhead(Document doc) throws Exception {
+        // As the contract templates' letterhead: Oyeks Global in the middle, the Hospio360 wordmark (logo Option C) on the right.
+        PdfPTable top = new PdfPTable(new float[] {1.3f, 3f, 1.3f});
+        top.setWidthPercentage(100);
+        top.addCell(cell(null, false));
+        PdfPCell mid = cell(null, false);
+        mid.setVerticalAlignment(Element.ALIGN_MIDDLE);
         Paragraph brand = new Paragraph("OYEKS GLOBAL LIMITED", BRAND);
         brand.setAlignment(Element.ALIGN_CENTER);
-        doc.add(brand);
+        mid.addElement(brand);
         Paragraph sub = new Paragraph("Hospio360 is a product of Oyeks Global Limited", SMALL_I);
         sub.setAlignment(Element.ALIGN_CENTER);
-        doc.add(sub);
+        mid.addElement(sub);
+        top.addCell(mid);
+        PdfPCell mark = cell(null, false);
+        mark.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        mark.setHorizontalAlignment(Element.ALIGN_RIGHT);
+        Image wordmark = Image.getInstance(WORDMARK);
+        wordmark.scaleToFit(92, 20);
+        wordmark.setAlignment(Element.ALIGN_RIGHT);
+        mark.addElement(wordmark);
+        top.addCell(mark);
+        doc.add(top);
         PdfPTable rule = new PdfPTable(1);
         rule.setWidthPercentage(100);
         PdfPCell c = new PdfPCell(new Phrase(""));
@@ -216,6 +237,17 @@ public class InvoicePdf {
         rule.addCell(c);
         doc.add(rule);
         doc.add(space(10));
+    }
+
+    private static byte[] wordmark() {
+        try (InputStream in = InvoicePdf.class.getResourceAsStream("/brand/hospio360-wordmark-maroon.png")) {
+            if (in == null) {
+                throw new IllegalStateException("brand/hospio360-wordmark-maroon.png is missing from the classpath");
+            }
+            return in.readAllBytes();
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("The Hospio360 wordmark could not be read", e);
+        }
     }
 
     private static final class Footer extends PdfPageEventHelper {
