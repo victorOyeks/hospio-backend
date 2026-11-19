@@ -58,6 +58,11 @@ public class SystemHealthService {
 
     static final Duration CACHE = Duration.ofSeconds(15);
     static final Duration MIN_FRESH = Duration.ofSeconds(5);
+    /** A kept look this young is answered straight away (the job gathers one every minute), never waited for. */
+    static final Duration STALE_OK = Duration.ofSeconds(150);
+    private final java.util.concurrent.atomic.AtomicBoolean refreshing = new java.util.concurrent.atomic.AtomicBoolean();
+    /** Each unit's health at the previous look: one slow answer after a healthy one is not yet a warning. */
+    private final Map<String, String> lastHealth = new java.util.concurrent.ConcurrentHashMap<>();
     /** Page colours for a disk (the alert levels are in the settings). */
     public static final int DISK_WARN_PCT = 80;
     public static final int DISK_PROBLEM_PCT = 90;
@@ -98,8 +103,23 @@ public class SystemHealthService {
     /** The page's answer: the kept one when under 15 s old (5 s when {@code fresh}), otherwise a new collection. */
     public Report report(boolean fresh) {
         Report r = cached;
-        Duration limit = fresh ? MIN_FRESH : CACHE;
-        if (r != null && r.at().plus(limit).isAfter(Instant.now())) {
+        Instant now = Instant.now();
+        if (fresh) {
+            return r != null && r.at().plus(MIN_FRESH).isAfter(now) ? r : collect();
+        }
+        if (r != null && r.at().plus(STALE_OK).isAfter(now)) {
+            // Answer at once with the kept look; when it is over 15 s old, a new one is gathered in the background for the next call.
+            if (!r.at().plus(CACHE).isAfter(now) && refreshing.compareAndSet(false, true)) {
+                PARTS.execute(() -> {
+                    try {
+                        collect();
+                    } catch (RuntimeException e) {
+                        log.warn("System health: background collection failed: {}", e.toString());
+                    } finally {
+                        refreshing.set(false);
+                    }
+                });
+            }
             return r;
         }
         return collect();
@@ -171,13 +191,13 @@ public class SystemHealthService {
                 host.cores(), load == null ? null : load[0], load == null ? null : load[1], load == null ? null : load[2], host.cpuPct().orElse(null),
                 mem == null ? null : mem.total(), mem == null ? null : mem.used(), mem == null ? null : mem.available(),
                 mem == null ? null : mem.swapTotal(), mem == null ? null : mem.swapUsed(), host.memoryStallPct().orElse(null), mounts,
-                dirs.sizes(config.dirs()), null, level, host.hasProc() ? null : "This machine has no /proc: only what Java can see is shown");
+                dirs.sizes(config.dirs()), dirs.measuredAt(), null, level, host.hasProc() ? null : "This machine has no /proc: only what Java can see is shown");
     }
 
     private static Server withHospioMemory(Server s, Long hospio) {
         return new Server(s.hostname(), s.os(), s.kernel(), s.uptimeSeconds(), s.serverTime(), s.timezone(), s.cores(), s.load1(), s.load5(),
                 s.load15(), s.cpuPct(), s.memTotal(), s.memUsed(), s.memAvailable(), s.swapTotal(), s.swapUsed(), s.memoryStallPct(), s.mounts(),
-                s.largest(), hospio, s.level(), s.error());
+                s.largest(), s.largestMeasuredAt(), hospio, s.level(), s.error());
     }
 
     static String diskLevel(double usedPct) {
@@ -194,7 +214,7 @@ public class SystemHealthService {
         for (Target tg : targets) {
             UnitProbe.UnitView v = seen.get(tg.unit());
             rows.add(CompletableFuture.supplyAsync(() -> row(tg, v, systemd), PARTS)
-                    .completeOnTimeout(row(tg, v, systemd, "UNKNOWN", "No answer within 5 s"), 5500, TimeUnit.MILLISECONDS));
+                    .completeOnTimeout(row(tg, v, systemd, "UNKNOWN", "No answer within 7 s"), 7000, TimeUnit.MILLISECONDS));
         }
         List<ServiceRow> out = new ArrayList<>(rows.stream().map(CompletableFuture::join).toList());
         List<String> order = targets.stream().map(Target::key).toList();
@@ -204,14 +224,20 @@ public class SystemHealthService {
 
     private ServiceRow row(Target tg, UnitProbe.UnitView v, boolean systemd) {
         String[] health = health(tg);
-        return row(tg, v, systemd, health[0], health[1]);
+        String previous = lastHealth.put(tg.key(), health[0]);
+        return row(tg, v, systemd, health[0], health[1], "UNKNOWN".equals(health[0]) && "UP".equals(previous));
     }
 
     ServiceRow row(Target tg, UnitProbe.UnitView v, boolean systemd, String health, String detail) {
+        return row(tg, v, systemd, health, detail, false);
+    }
+
+    /** {@code once}: the first slow answer after a healthy one, shown but not yet counted as a warning. */
+    ServiceRow row(Target tg, UnitProbe.UnitView v, boolean systemd, String health, String detail, boolean once) {
         String state = v == null ? (systemd ? "not-found" : null) : v.unit().activeState();
         String sub = v == null ? null : v.unit().subState();
         Integer restarts = v == null ? null : v.unit().restarts();
-        String level = level(state, health, restarts);
+        String level = once && (state == null || "active".equals(state)) ? SystemHealthDtos.OK : level(state, health, restarts);
         Instant started = v == null ? null : v.startedAt();
         Long uptime = started == null ? null : Math.max(0, Duration.between(started, Instant.now()).getSeconds());
         String[] commit = commit(tg.commitFile());
@@ -240,7 +266,8 @@ public class SystemHealthService {
             return new String[]{"UNKNOWN", "No address configured"};
         }
         try {
-            HttpRequest req = HttpRequest.newBuilder(URI.create(tg.healthUrl())).timeout(Duration.ofSeconds(4)).GET().build();
+            // A web app renders a page (slower under load than a service's health check): 6 s; a service: 4 s.
+            HttpRequest req = HttpRequest.newBuilder(URI.create(tg.healthUrl())).timeout(Duration.ofSeconds("WEB".equals(tg.kind()) ? 6 : 4)).GET().build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
             int code = res.statusCode();
             if ("WEB".equals(tg.kind())) {
@@ -255,7 +282,7 @@ public class SystemHealthService {
         } catch (java.net.ConnectException e) {
             return new String[]{"DOWN", "Not answering on port " + tg.port()};
         } catch (java.net.http.HttpTimeoutException e) {
-            return new String[]{"UNKNOWN", "Health check didn't answer in 4 s"};
+            return new String[]{"UNKNOWN", "Health check didn't answer in " + ("WEB".equals(tg.kind()) ? 6 : 4) + " s"};
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new String[]{"UNKNOWN", "Interrupted"};

@@ -52,7 +52,8 @@ public class CertProbe {
                 cache.put(h, c);
                 checkedAt.put(h, now);
             }
-            return withLevel(c, warnDays, now);
+            Cert l = withLevel(c, warnDays, now);
+            return new Cert(l.host(), l.daysLeft(), l.expiresAt(), l.issuer(), l.error(), l.level(), checkedAt.get(h));
         }).toList();
     }
 

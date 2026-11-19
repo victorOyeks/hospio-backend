@@ -42,6 +42,11 @@ public class DirSizes {
     private volatile Instant measuredAt;
     private final AtomicBoolean running = new AtomicBoolean();
 
+    /** When the sizes shown were measured (null until the first measurement ends). */
+    public Instant measuredAt() {
+        return measuredAt;
+    }
+
     /** The last sizes (label → path); starts a new measurement in the background when they are older than 15 minutes. */
     public List<DirSize> sizes(Map<String, String> dirs) {
         Instant at = measuredAt;

@@ -7,8 +7,12 @@ to the Super admins when something goes wrong. Built 19 Nov 2026.
   **Refresh now** asks the server for a new look.
 - **Who:** Super admin and Support (Support takes the calls when something is down). Finance admins, marketers and every
   business role are refused (the menu hides it; the API answers 403).
-- **API:** `GET /platform/admin/system-health[?fresh=true]` (platform-service, `AdminSystemHealthController`). The answer is
-  kept 15 s, so several people with the page open cost one collection; `fresh=true` gets a new one at most every 5 s.
+- **API:** `GET /platform/admin/system-health[?fresh=true]` (platform-service, `AdminSystemHealthController`). The alert job
+  gathers a look every minute; the page is answered at once from the newest one (up to 150 s old), and when it is over 15 s old
+  a new one is gathered in the background for the next call, so an open page never waits for a slow part and several people
+  with the page open cost nothing extra. `fresh=true` (Refresh now) waits for a new look, at most one every 5 s; each part has
+  its own 8 s limit (a slow part shows its own error, never the whole page). Folder sizes are measured every 15 minutes and
+  certificates read once an hour, both in the background (the page shows when).
 - **Alert limits:** Settings → **System health** (`PUT /platform/admin/settings/system`, Super admin).
 - **Code:** `platform-service/src/main/java/com/hospio/platform/system/`. QA script: hospio-frontend `docs/qa/75-system-health.md`.
 
@@ -44,7 +48,8 @@ Every Hospio unit on the server: the 14 services, the API gateway and the three 
 
 - **Status** from systemd: running, failed (stopped after an error), stopped, restarting, not installed.
 - **Health:** a service's own `/actuator/health` on its local port (4 s limit); a web app is healthy when its page answers
-  (any HTTP status under 400, e.g. 307 to the sign-in page).
+  on its local port (6 s limit, HTTP/1.1, redirects not followed: any status under 400, e.g. 307 to the sign-in page). One slow
+  answer right after a healthy one shows "unknown" without turning the row amber; a second one in a row does.
 - **Version:** the commit CI deployed (`/opt/hospio-staging/<svc>/app.sha`; `~/apps/<unit>/current/.sha` for the web apps,
   written by the web deploys since 19 Nov 2026); hover shows when.
 - **Up for**, **Restarts** (automatic restarts since the unit was last started; 3 or more turn the row amber),

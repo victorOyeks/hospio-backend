@@ -38,7 +38,7 @@ public final class SystemHealthDtos {
     public record Server(String hostname, String os, String kernel, Long uptimeSeconds, Instant serverTime, String timezone, int cores,
                          Double load1, Double load5, Double load15, Double cpuPct, Long memTotal, Long memUsed, Long memAvailable,
                          Long swapTotal, Long swapUsed, Double memoryStallPct, List<Mount> mounts, List<DirSize> largest,
-                         Long hospioMemory, String level, String error) {
+                         Instant largestMeasuredAt, Long hospioMemory, String level, String error) {
     }
 
     /** One disk (df): total, used, free for ordinary programs, % used the way df counts it. */
@@ -84,7 +84,11 @@ public final class SystemHealthDtos {
                         String level) {
     }
 
-    public record Cert(String host, Long daysLeft, Instant expiresAt, String issuer, String error, String level) {
+    /** checkedAt: when the certificate was last read (once an hour). */
+    public record Cert(String host, Long daysLeft, Instant expiresAt, String issuer, String error, String level, Instant checkedAt) {
+        public Cert(String host, Long daysLeft, Instant expiresAt, String issuer, String error, String level) {
+            this(host, daysLeft, expiresAt, issuer, error, level, null);
+        }
     }
 
     public record Point(Instant at, Double cpuPct, Double memPct, Double swapPct, Double diskPct, Long diskUsed, Long dbBytes,
