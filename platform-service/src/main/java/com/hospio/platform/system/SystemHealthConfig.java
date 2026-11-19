@@ -46,6 +46,7 @@ public class SystemHealthConfig {
     private final List<String> certHosts;
     private final Map<String, String> dirs;
     private final String backupNote;
+    private final String environment;
 
     public SystemHealthConfig(Environment env,
                               @Value("${hospio.system-health.enabled:true}") boolean enabled,
@@ -56,7 +57,10 @@ public class SystemHealthConfig {
                               @Value("${hospio.system-health.frontends:}") String frontends,
                               @Value("${hospio.system-health.cert-hosts:}") String certHosts,
                               @Value("${hospio.system-health.dirs:}") String dirs,
-                              @Value("${hospio.system-health.backups:}") String backupNote) {
+                              @Value("${hospio.system-health.backups:}") String backupNote,
+                              @Value("${hospio.system-health.environment:}") String environment,
+                              @Value("${spring.profiles.active:}") String profiles,
+                              @Value("${hospio.apps.admin-url:}") String adminUrl) {
         this.enabled = enabled;
         List<Target> t = new ArrayList<>();
         SERVICES.forEach((key, what) -> {
@@ -87,6 +91,44 @@ public class SystemHealthConfig {
         }
         this.dirs = d;
         this.backupNote = backupNote == null ? "" : backupNote.trim();
+        this.environment = environment(environment, profiles, adminUrl);
+    }
+
+    /**
+     * dev, staging or production: HOSPIO_ENV when set, else an active Spring profile named dev/local/staging, else the admin portal's
+     * address (one with "staging", "localhost" or "dev" in it is not production). Production unless something says otherwise.
+     */
+    static String environment(String explicit, String profiles, String adminUrl) {
+        String e = explicit == null ? "" : explicit.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!e.isEmpty()) {
+            return e.startsWith("prod") ? "production" : e.contains("stag") ? "staging" : "dev";
+        }
+        for (String p : split(profiles)) {
+            String q = p.toLowerCase(java.util.Locale.ROOT);
+            if (q.contains("stag")) {
+                return "staging";
+            }
+            if (q.equals("dev") || q.equals("local") || q.equals("test")) {
+                return "dev";
+            }
+        }
+        String a = adminUrl == null ? "" : adminUrl.toLowerCase(java.util.Locale.ROOT);
+        if (a.contains("staging")) {
+            return "staging";
+        }
+        if (a.contains("localhost") || a.contains("-dev") || a.contains("dev.")) {
+            return "dev";
+        }
+        return "production";
+    }
+
+    public String environment() {
+        return environment;
+    }
+
+    /** Alerts are on by default only in production; the switch saved in Settings overrides this. */
+    public boolean alertsDefault() {
+        return "production".equals(environment);
     }
 
     public boolean enabled() {

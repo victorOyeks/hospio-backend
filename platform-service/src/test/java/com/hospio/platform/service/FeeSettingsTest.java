@@ -110,7 +110,8 @@ class FeeSettingsTest {
     @Test
     void seedingWritesEveryDefaultOnce() {
         when(repo.findByGroupNameAndSettingKey(anyString(), anyString())).thenReturn(Optional.empty());
-        assertThat(service.seedDefaults()).isEqualTo(5 + 14 + 4 + 11);
+        // System health's alertsOn has no default to store (the environment decides until someone saves it).
+        assertThat(service.seedDefaults()).isEqualTo(5 + 14 + 4 + 12);
     }
 
     @Test

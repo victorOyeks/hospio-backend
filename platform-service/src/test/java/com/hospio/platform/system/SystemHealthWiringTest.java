@@ -30,6 +30,7 @@ class SystemHealthWiringTest {
             ctx.registerBean(IdentityClient.class, () -> mock(IdentityClient.class));
             ctx.registerBean(EventPublisher.class, () -> mock(EventPublisher.class));
             ctx.registerBean(DeliveryService.class, () -> mock(DeliveryService.class));
+            ctx.registerBean(com.hospio.platform.service.ActivityLogService.class, () -> mock(com.hospio.platform.service.ActivityLogService.class));
             ctx.scan("com.hospio.platform.system");
             ctx.refresh();
             assertThat(ctx.getBean(SystemHealthService.class)).isNotNull();

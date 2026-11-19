@@ -170,7 +170,13 @@ class SystemHealthRulesTest {
             @Override
             public void update(String key, String level, String title, String detail) {
                 State s = stored.get(key);
-                stored.put(key, new State(key, level, title, detail, s.raisedAt(), s.alertId()));
+                stored.put(key, new State(key, level, title, detail, s.raisedAt(), s.alertId(), s.notified()));
+            }
+
+            @Override
+            public void markNotified(String key) {
+                State s = stored.get(key);
+                stored.put(key, new State(key, s.level(), s.title(), s.detail(), s.raisedAt(), s.alertId(), true));
             }
 
             @Override
@@ -237,13 +243,78 @@ class SystemHealthRulesTest {
         // 84.5% is within a point of 85: still raised; 83% clears.
         assertThat(service.evaluate(report(server(84.5, 50, 10), List.of(), db(true, 10)), t0.plusSeconds(180)).recovered()).isEmpty();
         assertThat(service.evaluate(report(server(83, 50, 10), List.of(), db(true, 10)), t0.plusSeconds(240)).recovered()).containsExactly("DISK:/");
+        // Three bells, but one email at once and the rest held for the hourly digest.
+        verify(events, times(3)).publish(any(), any(NoticeEvent.class));
         ArgumentCaptor<List<Delivery>> mails = ArgumentCaptor.forClass(List.class);
-        verify(deliveries, times(3)).send(mails.capture());
-        assertThat(mails.getAllValues().get(0).get(0).subject()).isEqualTo("Hospio360 server warning: Disk / is 86% full");
-        assertThat(mails.getAllValues().get(0).get(0).to()).isEqualTo("amoria@hospio360.com");
-        assertThat(mails.getAllValues().get(0).get(0).channel()).isEqualTo(Delivery.Channel.EMAIL);
-        assertThat(mails.getAllValues().get(1).get(0).subject()).startsWith("Hospio360 server now critical");
-        assertThat(mails.getAllValues().get(2).get(0).subject()).startsWith("Hospio360 server recovered");
+        verify(deliveries, times(1)).send(mails.capture());
+        assertThat(mails.getValue().get(0).subject()).isEqualTo("Hospio360 server warning: Disk / is 86% full");
+        assertThat(mails.getValue().get(0).to()).isEqualTo("amoria@hospio360.com");
+        assertThat(mails.getValue().get(0).channel()).isEqualTo(Delivery.Channel.EMAIL);
+        // An hour after the first email the rest go as one digest.
+        service.evaluate(report(server(20, 50, 10), List.of(), db(true, 10)), t0.plus(Duration.ofMinutes(61)));
+        verify(deliveries, times(2)).send(mails.capture());
+        Delivery digest = mails.getAllValues().get(mails.getAllValues().size() - 1).get(0);
+        assertThat(digest.subject()).isEqualTo("Hospio360 server: 2 updates (1 problem, 1 recovered)");
+        assertThat(digest.text()).contains("Now critical: Disk / is 96% full", "Recovered: Disk / is 85% full");
+    }
+
+    static Report withThresholds(Report r, Thresholds t) {
+        return new Report(r.at(), r.overall(), r.reasons(), r.notes(), r.server(), r.services(), r.database(), r.kafka(), r.redis(), r.certs(),
+                r.history(), t, r.otherApps(), 0.1);
+    }
+
+    static final Thresholds OFF = new Thresholds(85, 95, 90, 75, 15, 2, 14, 500, 10, 80, true, false, true, false, false, "staging");
+
+    @Test
+    void withAlertsOffNobodyIsToldButTheDashboardStillShowsIt() {
+        Instant t0 = Instant.parse("2026-11-19T12:00:00Z");
+        Report full = withThresholds(report(server(90, 50, 10), List.of(), db(true, 10)), OFF);
+        assertThat(service.evaluate(full, t0).raised()).containsExactly("DISK:/");
+        assertThat(saved.get("alert-1").isOpen()).isTrue();
+        assertThat(stored.get("DISK:/").notified()).isFalse();
+        // Clears while off: no "recovered" either.
+        service.evaluate(withThresholds(report(server(20, 50, 10), List.of(), db(true, 10)), OFF), t0.plusSeconds(60));
+        verify(events, never()).publish(any(), any());
+        verify(deliveries, never()).send(anyList());
+    }
+
+    @Test
+    void switchingAlertsOnTellsOnlyWhatIsStillThereTwoMinutesLaterAndNoBurst() {
+        Instant t0 = Instant.parse("2026-11-19T12:00:00Z");
+        service.evaluate(withThresholds(report(server(90, 50, 10), List.of(), db(true, 10)), OFF), t0);
+        Report on = report(server(90, 50, 10), List.of(), db(true, 10));
+        assertThat(service.evaluate(on, t0.plusSeconds(600)).raised()).isEmpty();
+        verify(events, never()).publish(any(), any());
+        assertThat(service.evaluate(on, t0.plusSeconds(721)).raised()).containsExactly("DISK:/");
+        assertThat(stored.get("DISK:/").notified()).isTrue();
+        verify(events, times(1)).publish(any(), any(NoticeEvent.class));
+        assertThat(service.evaluate(on, t0.plusSeconds(800)).raised()).isEmpty();
+    }
+
+    @Test
+    void bellOffMeansEmailOnly() {
+        Thresholds noBell = new Thresholds(85, 95, 90, 75, 15, 2, 14, 500, 10, 80, true, true, false, true, false, "staging");
+        service.evaluate(withThresholds(report(server(90, 50, 10), List.of(), db(true, 10)), noBell), Instant.now());
+        verify(events, never()).publish(any(), any());
+        verify(deliveries, times(1)).send(anyList());
+    }
+
+    @Test
+    void alertsAreOnByDefaultOnlyInProduction() {
+        assertThat(SystemHealthConfig.environment("", "", "https://admin-staging.hospio360.com")).isEqualTo("staging");
+        assertThat(SystemHealthConfig.environment("", "", "https://admin.hospio360.com")).isEqualTo("production");
+        assertThat(SystemHealthConfig.environment("", "dev", "https://admin.hospio360.com")).isEqualTo("dev");
+        assertThat(SystemHealthConfig.environment("production", "", "https://admin-staging.hospio360.com")).isEqualTo("production");
+        assertThat(SystemHealthConfig.environment("staging", "", "")).isEqualTo("staging");
+        assertThat(SystemHealthConfig.environment("", "", "http://localhost:3002")).isEqualTo("dev");
+        // Nothing saved: the environment decides; saved: the switch wins.
+        SystemHealthSettings none = SystemHealthSettings.DEFAULTS;
+        assertThat(SystemHealthService.thresholds(none, false, "staging").alertsOn()).isFalse();
+        assertThat(SystemHealthService.thresholds(none, true, "production").alertsOn()).isTrue();
+        SystemHealthSettings savedOn = new SystemHealthSettings(null, null, null, null, null, null, null, null, null, null, null, true, null);
+        assertThat(SystemHealthService.thresholds(savedOn, false, "staging").alertsOn()).isTrue();
+        assertThat(SystemHealthService.thresholds(savedOn, false, "staging").alertsSaved()).isTrue();
+        assertThat(SystemHealthSettings.DEFAULTS.memoryMinutes()).isEqualTo(15);
     }
 
     @Test
@@ -255,12 +326,12 @@ class SystemHealthRulesTest {
     }
 
     @Test
-    void memoryHasToStayHighForTenMinutes() {
+    void memoryHasToStayHighForFifteenMinutes() {
         Instant t0 = Instant.parse("2026-11-19T12:00:00Z");
         Report high = report(server(20, 93, 80), List.of(), db(true, 10));
         assertThat(service.evaluate(high, t0).waiting()).containsExactly("MEMORY");
-        assertThat(service.evaluate(high, t0.plus(Duration.ofMinutes(9))).raised()).isEmpty();
-        assertThat(service.evaluate(high, t0.plus(Duration.ofMinutes(10))).raised()).containsExactly("MEMORY");
+        assertThat(service.evaluate(high, t0.plus(Duration.ofMinutes(14))).raised()).isEmpty();
+        assertThat(service.evaluate(high, t0.plus(Duration.ofMinutes(15))).raised()).containsExactly("MEMORY");
     }
 
     @Test
@@ -341,7 +412,7 @@ class SystemHealthRulesTest {
                 .withProperty("services.identity.url", "http://localhost:9201/identity");
         SystemHealthConfig c = new SystemHealthConfig(env, true, "hospio-", "http://localhost:9200", "/opt/hospio-staging", "/home/devoyeks/apps",
                 "his-fe-staging=3001=Hotel app,bad unit;rm=3002=X,hospio-admin-staging=notaport=Admin", "hospio360.com,bad host!,api-staging.hospio360.com",
-                "All logs=/var/log,relative=var", "");
+                "All logs=/var/log,relative=var", "", "", "", "https://admin-staging.hospio360.com");
         assertThat(c.targets()).hasSize(16);
         SystemHealthConfig.Target hc = c.targets().stream().filter(t -> t.key().equals("hotel-config-service")).findFirst().orElseThrow();
         assertThat(hc.unit()).isEqualTo("hospio-hotel-config-service");
@@ -355,6 +426,8 @@ class SystemHealthRulesTest {
         assertThat(c.certHosts()).containsExactly("hospio360.com", "api-staging.hospio360.com");
         assertThat(c.dirs()).containsOnlyKeys("All logs");
         assertThat(c.backupNote()).isEmpty();
+        assertThat(c.environment()).isEqualTo("staging");
+        assertThat(c.alertsDefault()).isFalse();
     }
 
     @Test
