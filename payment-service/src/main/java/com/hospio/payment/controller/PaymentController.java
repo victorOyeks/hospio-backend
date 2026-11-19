@@ -98,6 +98,8 @@ public class PaymentController {
     @PostMapping
     public ApiResponse<PaymentResponse> request(@Valid @RequestBody PaymentRequestDto request) {
         PaymentResponse p = payments.request(request);
+        // The automatic WhatsApp receipt's outlook (null for Don't send), so the desk is told whether it will really go.
+        p = p.withReceipt(receipts.automatic(p.id()));
         return ApiResponse.ok(p.status().name().equals("APPROVED") ? "Approved" : "Sent to the POS", p);
     }
 
@@ -116,7 +118,7 @@ public class PaymentController {
     @PreAuthorize("@access.manager() or @access.atLeast('FINANCE','EDIT')")
     public ApiResponse<ReceiptService.Resent> resendReceipt(@PathVariable String id) {
         ReceiptService.Resent r = receipts.resend(id);
-        return ApiResponse.ok("Receipt " + r.receiptNumber() + " sent on WhatsApp to " + r.sentTo(), r);
+        return ApiResponse.ok(r.message(), r);
     }
 
     @PostMapping("/{id}/cancel")

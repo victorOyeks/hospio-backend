@@ -85,6 +85,11 @@ public class TextSender {
         return allowOnly.size();
     }
 
+    /** Whether this number would get past TEXTS_ALLOW_ONLY (always, when there is no allow-list). */
+    public boolean allowListed(String to) {
+        return allowOnly.isEmpty() || allowOnly.contains(number(to));
+    }
+
     /** Whether this channel goes out at all for this kind of message (switched on and the account configured). */
     public boolean live(String channel, String kind) {
         boolean codes = com.hospio.common.delivery.Delivery.smsAllowed(kind);

@@ -53,6 +53,11 @@ public class HotelConfigClient {
         return settings.section(hotelId, SetupSection.Outlets.class).map(o -> Boolean.TRUE.equals(o.recordTips())).orElse(false);
     }
 
+    /** Hotel setup → Guest messaging "Send receipts automatically" (cached 60 s; on when unreadable, as the catalogue's default). */
+    public boolean sendsReceipts(String hotelId) {
+        return com.hospio.common.setup.GuestMessaging.of(settings.section(hotelId, SetupSection.Messaging.class)).sendReceipts();
+    }
+
     public record PaymentSettings(boolean allowCash, boolean allowCard, boolean allowTransfer, String receipts) {
         public static PaymentSettings defaults() {
             return new PaymentSettings(true, true, true, "ASK");

@@ -30,9 +30,10 @@ statements.
 
 | Call | Who | What |
 |---|---|---|
-| `POST /payment/receipts/send` `{paymentId, channel?, phone?}` | front office, bar, kitchen, cashier, laundry, finance at EDIT; managers | The approved payment's receipt on WhatsApp to `phone` (kept on the payment when it had none) or the payment's phone. `channel` WHATSAPP or left out. **PRINT / EMAIL** (an older screen) → 400 "Receipts go to the guest on WhatsApp only: pick WhatsApp or Don't send"; NONE → 400 "Nothing to send: …". No phone at all → 400 "This payment has no guest phone · type the guest's WhatsApp number to send the receipt". A bad number → 400 "The guest's WhatsApp number must be a real phone number, like +234 803 555 0192". Answer `{receiptNumber, sentTo, sentVia: "WHATSAPP", deliveries}` |
+| `POST /payment/receipts/send` `{paymentId, channel?, phone?}` | front office, bar, kitchen, cashier, laundry, finance at EDIT; managers | The approved payment's receipt on WhatsApp to `phone` (kept on the payment when it had none) or the payment's phone. `channel` WHATSAPP or left out. **PRINT / EMAIL** (an older screen) → 400 "Receipts go to the guest on WhatsApp only: pick WhatsApp or Don't send"; NONE → 400 "Nothing to send: …". No phone at all → 400 "Receipt not sent: no phone number · type the guest's WhatsApp number to send it". A bad number → 400 "The guest's WhatsApp number must be a real phone number, like +234 803 555 0192". Answer `{receiptNumber, sentTo, sentVia: "WHATSAPP", deliveries, outcome, reason, guestMessagesOn, message}` (below) and the same `message` |
+| `GET /payment/receipts/outlook?phone=` | anyone who sees receipts | Before sending: `{outcome, reason, guestMessagesOn}` for a WhatsApp receipt at the caller's hotel (no `phone`: only whether guest messages are on). The receipt step's note "WhatsApp receipts won't go: guest messages are off…" |
 | `POST /payment/payments/{id}/receipt/resend` | managers, finance EDIT | Send receipt again: the same, to the payment's phone (it used to prefer email) |
-| `POST /payment/payments` `receiptPreference` | as before | **Mapped, never refused** (a payment must not be lost over its receipt choice, and the money may already be on the POS): PRINT, NEVER → NONE; EMAIL → WHATSAPP. Without one, the Hotel setup default (mapped the same way). The web apps send NONE from take payment (the receipt step sends it afterwards) and WHATSAPP/NONE from the manager's record payment |
+| `POST /payment/payments` `receiptPreference` | as before | **Mapped, never refused** (a payment must not be lost over its receipt choice, and the money may already be on the POS): PRINT, NEVER → NONE; EMAIL → WHATSAPP. Without one, the Hotel setup default (mapped the same way). The web apps send NONE from take payment (the receipt step sends it afterwards) and WHATSAPP/NONE from the manager's record payment. The answer carries `receipt`: the automatic receipt's outlook (null for NONE; SKIPPED "Automatic receipts are off (Hotel setup → Guest messaging)" when that switch is off; NO_PHONE without a phone) |
 | `GET /payment/payments…` | as before | each payment now carries `guestPhone` (for Send receipt on WhatsApp) |
 
 messaging-service, on `PaymentApproved`: NONE / NEVER / PRINT sends nothing; Hotel setup → Guest messaging "Send receipts
@@ -40,6 +41,27 @@ automatically" off sends nothing; otherwise the WhatsApp template to the guest's
 longer emails the receipt). On staging the WhatsApp allow-list holds back every number not on it ("Held back: not on this
 environment's allow-list"): that is expected. While Infobip answers "Account issue (7011)" the delivery is still queued and
 recorded with that failure; nothing on our side changes.
+
+## What the desk is told (19 Nov 2026)
+
+The apps used to say "Receipt sent on WhatsApp to …" whatever happened. The delivery itself is asynchronous (Kafka, then
+messaging-service's worker), so payment-service now asks messaging-service first (`GET /internal/deliveries/outlook?hotelId&businessId
+&kind=RECEIPT&channel=WHATSAPP&to=`, `DeliveryOutlook`), with the same rules and order the dispatcher applies, then hands the receipt over
+as before (a skipped one is still recorded, SKIPPED with the reason). messaging-service unreachable → UNKNOWN (treated as sent).
+
+| `outcome` | When | Staff see |
+|---|---|---|
+| QUEUED | guest messages on, WhatsApp connected, the number allowed | "Receipt sent on WhatsApp to 0803…" |
+| SKIPPED | the hotel's guest messages off (CommBilling plan not enabled) or suspended, or the business suspended | "Receipt not sent: guest messages are off for this hotel. Turn them on in Hotel setup → Guest messages." (manager, owner) / "… Ask your manager to turn them on." (everyone else); suspended: "Receipt not sent: guest messages are on hold (…)" |
+| HELD_BACK | staging's allow-list (`TEXTS_ALLOW_ONLY`) doesn't have the number | "Receipt held back (test server): +234… is not on this server's allow-list" |
+| NOT_CONNECTED | WhatsApp switched off or not configured on this server | "Receipt not sent: WhatsApp is not connected" |
+| NO_PHONE | not a phone number (send refuses an empty one with 400 "Receipt not sent: no phone number · …") | "Receipt not sent: no phone number" |
+| UNKNOWN | messaging-service couldn't be asked | "Receipt sent on WhatsApp to …" |
+
+Anything but QUEUED/UNKNOWN is a warning toast, not a success, and the receipt keeps no "sent to" (held back keeps it: it is queued
+like a real one). `guestMessagesOn` (plan enabled and not suspended) is in every answer: the receipt step, the manager's Record a payment,
+a folio's Record payment and the Send receipt on WhatsApp window show a note under the WhatsApp choice while it is false, so staff know
+before paying. The words are in the apps' `receiptOutcomeText` (packages/ui `receipt-channels.ts`), "Hotel setup" reworded per venue.
 
 ## Devices: no receipt printers
 
