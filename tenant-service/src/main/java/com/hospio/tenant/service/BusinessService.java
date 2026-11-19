@@ -306,7 +306,8 @@ public class BusinessService {
         if (r.currency() != null) b.setCurrency(r.currency());
         if (r.country() != null) b.setCountry(r.country());
         if (r.timezone() != null) b.setTimezone(r.timezone());
-        if (r.contractStartsOn() != null) b.setContractStartsOn(r.contractStartsOn());
+        if (Boolean.TRUE.equals(r.clearContractStartsOn())) b.setContractStartsOn(null);
+        else if (r.contractStartsOn() != null) b.setContractStartsOn(r.contractStartsOn());
         if (r.contractNotes() != null) b.setContractNotes(r.contractNotes());
         // Who referred the business changes only through platform-service, so the marketer's agreements follow (docs/plan-marketers.md).
         if (r.marketerId() != null && !r.marketerId().equals(b.getMarketerId() == null ? "" : b.getMarketerId())) {

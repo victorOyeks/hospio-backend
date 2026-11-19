@@ -250,6 +250,20 @@ class BusinessRulesTest {
     }
 
     @Test
+    void theContractStartDateIsKeptUnlessItIsExplicitlyCleared() {
+        Business mine = Business.builder().name("Smiles fc").ownerEmail("m@hospio-qa.test").city("Abuja")
+                .contractStartsOn(java.time.LocalDate.of(2027, 4, 1)).build();
+        mine.setId("b1");
+        when(businesses.findById("b1")).thenReturn(Optional.of(mine));
+        UpdateBusinessRequest keep = new UpdateBusinessRequest(null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null);
+        assertThat(service.update("b1", keep).contractStartsOn()).isEqualTo(java.time.LocalDate.of(2027, 4, 1));
+        UpdateBusinessRequest clear = new UpdateBusinessRequest(null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, true);
+        assertThat(service.update("b1", clear).contractStartsOn()).isNull();
+    }
+
+    @Test
     void aHotelNeedsANameAndCityAndOneNamePerBusiness() {
         Business b = Business.builder().name("Abuja Palms").timezone("Africa/Lagos").build();
         b.setId("b1");
