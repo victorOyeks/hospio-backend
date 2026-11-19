@@ -22,5 +22,6 @@
     <include file="db/changelog/010-monthly-invoice-link.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/011-platform-notifications.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/012-no-guest-sms-price.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/013-channel-switches-free-period.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

@@ -88,6 +88,11 @@ public class MonthlyInvoiceService {
     static final Set<String> STAGES = Set.of("LIVE", "AT_RISK");
     static final List<String> OPEN = List.of(MonthlyInvoice.DUE, MonthlyInvoice.OVERDUE);
     static final List<String> BILLED_DAY_STATUSES = List.of(DailyFee.ACCRUED, DailyFee.SHADOW, DailyFee.NO_FEE, DailyFee.SCHEDULED);
+    /**
+     * What an invoice reads: the billed days, and FREE days (before the charges start) only for their device share: their platform fee is
+     * never billed, and a FREE day with no device share stays off every invoice (a later charges-start change may still work it out again).
+     */
+    static final List<String> INVOICE_READS = List.of(DailyFee.ACCRUED, DailyFee.SHADOW, DailyFee.NO_FEE, DailyFee.SCHEDULED, DailyFee.FREE);
     static final List<String> OFFLINE_VIA = List.of("BANK_TRANSFER", "CASH", "CHEQUE", "OTHER");
     static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.UK);
     static final DateTimeFormatter SHORT = DateTimeFormatter.ofPattern("d MMMM", Locale.UK);
@@ -303,24 +308,29 @@ public class MonthlyInvoiceService {
             List<MonthlyInvoiceLine> out = new ArrayList<>();
             int[] order = {0};
             // Platform fee and the from-sales device share, per location.
-            List<DailyFee> days = fees.findByBusinessIdAndMonthlyInvoiceIdIsNullAndStatusInAndFeeDateLessThanEqualOrderByHotelNameAscFeeDateAsc(b.id(),
-                    BILLED_DAY_STATUSES, monthEnd);
+            List<DailyFee> days = new ArrayList<>(fees.findByBusinessIdAndMonthlyInvoiceIdIsNullAndStatusInAndFeeDateLessThanEqualOrderByHotelNameAscFeeDateAsc(
+                    b.id(), INVOICE_READS, monthEnd));
+            days.removeIf(d -> DailyFee.FREE.equals(d.getStatus()) && d.getDeviceFee().signum() <= 0);
             Map<String, List<DailyFee>> byHotel = new LinkedHashMap<>();
             days.forEach(d -> byHotel.computeIfAbsent(d.getHotelId(), k -> new ArrayList<>()).add(d));
             List<MonthlyInvoiceLine> deviceShare = new ArrayList<>();
             for (Map.Entry<String, List<DailyFee>> e : byHotel.entrySet()) {
                 List<DailyFee> ds = e.getValue();
                 String hotelName = Objects.requireNonNullElse(ds.get(0).getHotelName(), hotelNames.getOrDefault(e.getKey(), "Location"));
-                BigDecimal sales = Money.of(ds.stream().map(DailyFee::getSalesTotal).reduce(BigDecimal.ZERO, BigDecimal::add));
-                BigDecimal fee = Money.of(ds.stream().map(DailyFee::getFee).reduce(BigDecimal.ZERO, BigDecimal::add));
-                Set<BigDecimal> rates = ds.stream().map(d -> d.getRate().stripTrailingZeros()).collect(Collectors.toSet());
-                BigDecimal rate = rates.size() == 1 ? rates.iterator().next() : null;
-                LocalDate first = ds.get(0).getFeeDate();
-                LocalDate last = ds.get(ds.size() - 1).getFeeDate();
-                out.add(line(b.id(), e.getKey(), MonthlyInvoiceLine.PLATFORM, hotelName, "Platform fee · " + hotelName,
-                        ds.size() + " sale day" + (ds.size() == 1 ? "" : "s") + ", " + SHORT.format(first) + " to " + SHORT.format(last) + " · NGN "
-                                + naira(sales) + (rate == null ? " at the rates of each day" : " × " + pct(rate) + "%"),
-                        sales, rate, fee, MonthlyInvoiceLine.DAILY_FEES, null, order[0]++));
+                // The platform fee covers the billed days only (on or after the charges start): a month that starts mid-way is a partial one.
+                List<DailyFee> billed = ds.stream().filter(d -> !DailyFee.FREE.equals(d.getStatus())).toList();
+                if (!billed.isEmpty()) {
+                    BigDecimal sales = Money.of(billed.stream().map(DailyFee::getSalesTotal).reduce(BigDecimal.ZERO, BigDecimal::add));
+                    BigDecimal fee = Money.of(billed.stream().map(DailyFee::getFee).reduce(BigDecimal.ZERO, BigDecimal::add));
+                    Set<BigDecimal> rates = billed.stream().map(d -> d.getRate().stripTrailingZeros()).collect(Collectors.toSet());
+                    BigDecimal rate = rates.size() == 1 ? rates.iterator().next() : null;
+                    LocalDate first = billed.get(0).getFeeDate();
+                    LocalDate last = billed.get(billed.size() - 1).getFeeDate();
+                    out.add(line(b.id(), e.getKey(), MonthlyInvoiceLine.PLATFORM, hotelName, "Platform fee · " + hotelName,
+                            billed.size() + " sale day" + (billed.size() == 1 ? "" : "s") + ", " + SHORT.format(first) + " to " + SHORT.format(last) + " · NGN "
+                                    + naira(sales) + (rate == null ? " at the rates of each day" : " × " + pct(rate) + "%"),
+                            sales, rate, fee, MonthlyInvoiceLine.DAILY_FEES, null, order[0]++));
+                }
                 BigDecimal share = Money.of(ds.stream().map(DailyFee::getDeviceFee).reduce(BigDecimal.ZERO, BigDecimal::add));
                 if (share.signum() > 0) {
                     BigDecimal shareSales = Money.of(ds.stream().filter(d -> d.getDeviceFee().signum() > 0).map(DailyFee::getSalesTotal)
@@ -396,7 +406,8 @@ public class MonthlyInvoiceService {
             }
             for (DailyFee d : days) {
                 d.setMonthlyInvoiceId(inv.getId());
-                if (d.getDue().signum() > 0) {
+                // A FREE day billed for its device share stays FREE: its platform fee was never charged.
+                if (d.getDue().signum() > 0 && !DailyFee.FREE.equals(d.getStatus())) {
                     d.setStatus(DailyFee.INVOICED);
                 }
                 fees.save(d);

@@ -25,9 +25,36 @@ import lombok.experimental.SuperBuilder;
 @Table(name = "comm_plans")
 public class CommPlan extends TenantEntity {
 
+    /** Either channel is on (kept for older readers): always {@code emailOn || whatsappOn}, set through {@link #setChannels}. */
     @Column(nullable = false)
     @lombok.Builder.Default
     private boolean enabled = false;
+
+    /** Guest emails go (and are charged) only while this is on. */
+    @Column(name = "email_on", nullable = false)
+    @lombok.Builder.Default
+    private boolean emailOn = false;
+
+    /** Guest WhatsApp messages go (and are charged) only while this is on. */
+    @Column(name = "whatsapp_on", nullable = false)
+    @lombok.Builder.Default
+    private boolean whatsappOn = false;
+
+    /** Switches either channel (null leaves it) and keeps {@code enabled} as "either is on". */
+    public void setChannels(Boolean email, Boolean whatsapp) {
+        if (email != null) {
+            this.emailOn = email;
+        }
+        if (whatsapp != null) {
+            this.whatsappOn = whatsapp;
+        }
+        this.enabled = this.emailOn || this.whatsappOn;
+    }
+
+    /** Whether messages on {@code channel} may go: EMAIL by the email switch, anything else (WhatsApp) by the WhatsApp switch. */
+    public boolean on(String channel) {
+        return "EMAIL".equalsIgnoreCase(channel == null ? "" : channel) ? emailOn : whatsappOn;
+    }
 
     @Column(name = "email_price")
     private BigDecimal emailPrice;

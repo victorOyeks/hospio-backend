@@ -36,5 +36,12 @@ public interface DailyFeeRepository extends JpaRepository<DailyFee, String> {
     List<DailyFee> findByBusinessIdAndMonthlyInvoiceIdIsNullAndStatusInAndFeeDateLessThanEqualOrderByHotelNameAscFeeDateAsc(String businessId,
             List<String> statuses, LocalDate to);
 
+    /** The same advisory lock as the monthly invoice's ("monthly-invoice:" + business id), so a charges-start change never races an issue. */
+    @org.springframework.data.jpa.repository.Query(value = "SELECT pg_advisory_xact_lock(hashtext(:key))", nativeQuery = true)
+    Object lock(@org.springframework.data.repository.query.Param("key") String key);
+
+    /** A business's days not on an invoice yet, in these statuses (a charges-start change works them out again). */
+    List<DailyFee> findByBusinessIdAndMonthlyInvoiceIdIsNullAndStatusInOrderByFeeDateAsc(String businessId, List<String> statuses);
+
     List<DailyFee> findByMonthlyInvoiceIdOrderByHotelNameAscFeeDateAsc(String monthlyInvoiceId);
 }

@@ -45,7 +45,7 @@ public class DeliveryOutlook {
     public Outlook of(String hotelId, String businessId, String kind, String channel, String to) {
         String k = kind == null || kind.isBlank() ? "RECEIPT" : kind.trim().toUpperCase(Locale.ROOT);
         String c = channel == null || channel.isBlank() ? "WHATSAPP" : channel.trim().toUpperCase(Locale.ROOT);
-        CommBilling.Gate gate = billing.gate(hotelId, k);
+        CommBilling.Gate gate = billing.gate(hotelId, k, c);
         com.hospio.common.suspension.BusinessSuspension s = suspension.getIfAvailable();
         boolean businessSuspended = s != null && businessId != null && !businessId.isBlank() && CommBilling.BILLABLE_KINDS.contains(k) && s.isSuspended(businessId);
         TextSender t = texts.getIfAvailable();

@@ -30,6 +30,7 @@ public class QaBillingController {
 
     private final MonthlyInvoiceService invoices;
     private final com.hospio.platform.service.SuspensionService suspensions;
+    private final com.hospio.platform.service.ChargesStartService chargesStart;
 
     public record IssueRequest(String businessId, String month, LocalDate issuedOn) {
     }
@@ -69,5 +70,12 @@ public class QaBillingController {
     public ApiResponse<Map<String, String>> suspensionEmail(@PathVariable String businessId, @RequestParam String kind) {
         var m = suspensions.preview(businessId, kind);
         return ApiResponse.ok(Map.of("subject", m.subject(), "text", m.text(), "bellTitle", m.bellTitle(), "bellBody", m.bellBody()));
+    }
+
+    @Operation(summary = "QA: the 7-day charges-start reminder as on a chosen day (bell and email to Super and Finance admins, QA businesses only on staging)")
+    @PostMapping("/admin/qa/billing/charges-start-reminders")
+    public ApiResponse<com.hospio.platform.service.ChargesStartService.ReminderRun> chargesStartReminders(
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate today) {
+        return ApiResponse.ok(chargesStart.remind(today));
     }
 }

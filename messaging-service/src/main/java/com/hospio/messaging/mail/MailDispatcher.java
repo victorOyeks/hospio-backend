@@ -228,7 +228,7 @@ public class MailDispatcher {
                     : !enabled() ? DeliveryRecord.Status.DISABLED : DeliveryRecord.Status.QUEUED;
             // A message the hotel pays for goes only while its guest-message service is on and not suspended.
             com.hospio.messaging.billing.CommBilling.Gate planGate = billing == null ? com.hospio.messaging.billing.CommBilling.Gate.FREE
-                    : billing.gate(e.getHotelId(), e.getKind());
+                    : billing.gate(e.getHotelId(), e.getKind(), channel);
             // A reserved test domain (.test, .example, example.com…) can never receive mail: recorded SKIPPED, never sent, on
             // every server (docs/email.md, "Test addresses are never sent"). Screens that say "sent to …" treat SKIPPED as normal.
             boolean testAddress = email && TestAddresses.reserved(e.getTo());
@@ -659,7 +659,10 @@ public class MailDispatcher {
     private void priced(DeliveryRecord r, String via) {
         r.setSentVia(via);
         if (r.isBillable() && billing != null && r.getHotelId() != null) {
-            r.setUnitPrice(billing.price(r.getHotelId(), via));
+            // Before the business's charges start (docs/plan-monthly-invoices.md) a message is recorded at NGN 0 and never invoiced.
+            boolean free = billing.freePeriod(r.getBusinessId(), r.getHotelId());
+            r.setFreePeriod(free);
+            r.setUnitPrice(free ? java.math.BigDecimal.ZERO.setScale(2) : billing.price(r.getHotelId(), via));
         }
     }
 

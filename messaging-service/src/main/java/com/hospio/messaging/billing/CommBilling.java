@@ -82,9 +82,14 @@ public class CommBilling {
     }
 
     /** A hotel's service as the screens show it. */
+    /**
+     * {@code enabled} = either channel on (older screens); {@code emailOn} / {@code whatsappOn} the two switches. {@code freePeriod}: the
+     * business's charges haven't started (docs/plan-monthly-invoices.md), so messages that go are recorded at NGN 0.
+     */
     public record PlanView(String hotelId, String hotelName, boolean enabled, Prices prices, boolean customPrices, Prices defaults,
                            boolean suspended, String suspendedReason, Instant suspendedAt, String changedBy, Instant changedAt,
-                           String month, Usage thisMonth, BigDecimal outstanding, int openInvoices, boolean onlinePayment) {
+                           String month, Usage thisMonth, BigDecimal outstanding, int openInvoices, boolean onlinePayment,
+                           boolean emailOn, boolean whatsappOn, boolean freePeriod, LocalDate chargesStartOn) {
     }
 
     /** One line of an invoice: a kind of message by channel. */
@@ -105,6 +110,13 @@ public class CommBilling {
     private final com.hospio.messaging.mail.MailDispatcher mail;
     private final String hotelAppUrl;
     private com.hospio.messaging.client.IdentityClient identity;
+    private com.hospio.messaging.client.ChargesStartClient chargesStart;
+
+    /** The business's free period (before its charges start): messages then are priced at NGN 0. Absent in unit tests. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setChargesStart(com.hospio.messaging.client.ChargesStartClient chargesStart) {
+        this.chargesStart = chargesStart;
+    }
 
     /**
      * On (the default since 18 Nov 2026): the month's MSG- invoices are billed on Hospio360's monthly invoice (platform-service,
@@ -138,19 +150,50 @@ public class CommBilling {
 
     // ---- gating and pricing (called by the sender, as the system) -------------------------------------------------
 
-    /** Is this message billable, and may the hotel send it? Codes, sign-in and staff messages are free and always go. */
+    /** Is this message billable, and may the hotel send it on any channel? Codes, sign-in and staff messages are free and always go. */
     public Gate gate(String hotelId, String kind) {
+        return gate(hotelId, kind, null);
+    }
+
+    /**
+     * Is this message billable, and may the hotel send it on {@code channel} (EMAIL, WHATSAPP; null = either)? Each channel has its own
+     * switch: one that is off is never sent and never charged, recorded SKIPPED with "WhatsApp is switched off for this hotel (…)".
+     */
+    public Gate gate(String hotelId, String kind, String channel) {
         if (hotelId == null || kind == null || !BILLABLE_KINDS.contains(kind.toUpperCase(Locale.ROOT))) {
             return Gate.FREE;
         }
         Optional<CommPlan> plan = asSystem(() -> plans.findByHotelId(hotelId));
+        com.hospio.common.venue.VenueWording where = com.hospio.common.venue.VenuePlaces.at(hotelId);
+        if (channel != null && !channel.isBlank() && (plan.isEmpty() || !plan.get().on(channel))) {
+            return new Gate(true, false, channelName(channel) + " is switched off for this " + where.place() + " (" + where.setup() + " → Guest messages)");
+        }
         if (plan.isEmpty() || !plan.get().isEnabled()) {
-            return new Gate(true, false, "Guest messages are off for this " + com.hospio.common.venue.VenuePlaces.at(hotelId).place() + " (" + com.hospio.common.venue.VenuePlaces.at(hotelId).setup() + " → Guest messages)");
+            return new Gate(true, false, "Guest messages are off for this " + where.place() + " (" + where.setup() + " → Guest messages)");
         }
         if (plan.get().getSuspendedAt() != null) {
             return new Gate(true, false, "Guest messages are suspended: " + nz(plan.get().getSuspendedReason()));
         }
         return new Gate(true, true, null);
+    }
+
+    static String channelName(String channel) {
+        return "EMAIL".equalsIgnoreCase(channel.trim()) ? "Email" : "SMS".equalsIgnoreCase(channel.trim()) ? "SMS" : "WhatsApp";
+    }
+
+    /**
+     * Whether a message of this business (or, with no business on it, of the hotel's plan's business) goes out in the free period, before
+     * the business's charges start: priced at NGN 0 and never invoiced. False when it can't be told.
+     */
+    public boolean freePeriod(String businessId, String hotelId) {
+        if (chargesStart == null) {
+            return false;
+        }
+        String business = businessId;
+        if (business == null && hotelId != null) {
+            business = asSystem(() -> plans.findByHotelId(hotelId)).map(CommPlan::getBusinessId).orElse(null);
+        }
+        return business != null && chargesStart.freeToday(business);
     }
 
     /** The price of one message at this hotel by the channel it went on. */
@@ -190,21 +233,34 @@ public class CommBilling {
     private PlanView view(String hotelId, CommPlan plan, YearMonth month, Usage usage, List<CommInvoice> open, Prices defaults) {
         BigDecimal outstanding = open.stream().map(CommInvoice::getTotalAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         boolean custom = plan != null && (plan.getEmailPrice() != null || plan.getWhatsappPrice() != null);
+        String businessId = plan != null && plan.getBusinessId() != null ? plan.getBusinessId()
+                : TenantContext.current().map(t -> t.businessId()).orElse(null);
+        com.hospio.messaging.client.ChargesStartClient.Start start = chargesStart == null ? null : chargesStart.of(businessId);
         return new PlanView(hotelId, tenants.hotel(hotelId).map(TenantClient.Sender::name).orElse(null), plan != null && plan.isEnabled(),
                 effective(plan, defaults), custom, defaults, plan != null && plan.getSuspendedAt() != null, plan == null ? null : plan.getSuspendedReason(),
                 plan == null ? null : plan.getSuspendedAt(), plan == null ? null : plan.getChangedBy(), plan == null ? null : plan.getChangedAt(),
-                month.toString(), usage, outstanding, open.size(), paystack.configured());
+                month.toString(), usage, outstanding, open.size(), paystack.configured(), plan != null && plan.isEmailOn(),
+                plan != null && plan.isWhatsappOn(), start != null && start.freeToday(), start == null ? null : start.chargesStartOn());
     }
 
-    /** Owner or manager switches the service on or off for their hotel. */
+    /** Owner or manager switches the service on or off for their hotel: both channels. */
     public PlanView setEnabled(String businessId, String hotelId, boolean enabled) {
+        return setChannels(businessId, hotelId, enabled, enabled);
+    }
+
+    /** Owner or manager switches email and / or WhatsApp on or off for their hotel (null leaves a channel as it is). */
+    public PlanView setChannels(String businessId, String hotelId, Boolean email, Boolean whatsapp) {
         HospioUserDetails me = CurrentUser.require();
         CommPlan plan = plans.findByHotelId(hotelId).orElseGet(() -> CommPlan.builder().businessId(businessId).hotelId(hotelId).build());
-        plan.setEnabled(enabled);
+        if (plan.getBusinessId() == null) {
+            plan.setBusinessId(businessId);
+        }
+        plan.setChannels(email, whatsapp);
         plan.setChangedBy(me.getFullName());
         plan.setChangedAt(Instant.now());
         plans.save(plan);
-        log.info("Guest messages {} for hotel {} by {}", enabled ? "on" : "off", hotelId, me.getFullName());
+        log.info("Guest messages for hotel {} by {}: email {}, WhatsApp {}", hotelId, me.getFullName(), plan.isEmailOn() ? "on" : "off",
+                plan.isWhatsappOn() ? "on" : "off");
         return plan(hotelId);
     }
 
@@ -602,14 +658,21 @@ public class CommBilling {
 
     /** Hospio360 sets a hotel's service: on or off and its own prices (null = the default). */
     public PlanView setPlan(String businessId, String hotelId, Boolean enabled, BigDecimal email, BigDecimal whatsapp, boolean clearPrices) {
+        return setPlan(businessId, hotelId, enabled, null, null, email, whatsapp, clearPrices);
+    }
+
+    /** As above with the two switches ({@code emailOn}, {@code whatsappOn}; null leaves one; {@code enabled} sets both). */
+    public PlanView setPlan(String businessId, String hotelId, Boolean enabled, Boolean emailOn, Boolean whatsappOn, BigDecimal email, BigDecimal whatsapp,
+                            boolean clearPrices) {
         HospioUserDetails me = CurrentUser.require();
         CommPlan plan = asSystem(() -> plans.findByHotelId(hotelId)).orElseGet(() -> CommPlan.builder().businessId(businessId).hotelId(hotelId).build());
         if (plan.getBusinessId() == null) {
             plan.setBusinessId(businessId);
         }
         if (enabled != null) {
-            plan.setEnabled(enabled);
+            plan.setChannels(enabled, enabled);
         }
+        plan.setChannels(emailOn, whatsappOn);
         if (clearPrices) {
             plan.setEmailPrice(null);
             plan.setWhatsappPrice(null);

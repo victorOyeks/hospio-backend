@@ -190,6 +190,45 @@ class MonthlyInvoiceServiceTest {
     }
 
     @Test
+    void freeDaysAreNeverBilledButTheirDeviceShareIsAndAPartialMonthBillsFromTheStart() {
+        // 1–14 Nov free (charges start 15 Nov), 15 and 16 Nov billed; the 3rd carries a from-sales device share.
+        DailyFee f1 = day("h1", "Ikeja", 1, "1000000", "15000");
+        DailyFee f3 = day("h1", "Ikeja", 3, "400000", "6000");
+        f3.setDeviceFee(new BigDecimal("10000"));
+        f3.setDeviceRate(new BigDecimal("2.5"));
+        f3.setDue(new BigDecimal("16000"));
+        DailyFee f9 = day("h1", "Ikeja", 9, "300000", "4500");
+        DailyFee b15 = day("h1", "Ikeja", 15, "500000", "7500");
+        DailyFee b16 = day("h1", "Ikeja", 16, "100000", "1500");
+        LocalDate start = LocalDate.of(2026, 11, 15);
+        for (DailyFee d : List.of(f1, f3, f9, b15, b16)) {
+            ChargesStartService.apply(d, start);
+        }
+        when(fees.findByBusinessIdAndMonthlyInvoiceIdIsNullAndStatusInAndFeeDateLessThanEqualOrderByHotelNameAscFeeDateAsc(eq("b1"), any(), any()))
+                .thenReturn(List.of(f1, f3, f9, b15, b16));
+
+        MonthlyInvoice inv = service.issue(business("QA Lagos", "ada@hospio-qa.test"), YearMonth.of(2026, 11), ISSUED, null);
+
+        assertThat(inv.getPlatformTotal()).as("15 and 16 Nov only").isEqualByComparingTo("9000");
+        assertThat(inv.getDevicesTotal()).isEqualByComparingTo("10000");
+        assertThat(savedLines.get(0).getDetail()).startsWith("2 sale days, 15 November to 16 November · NGN 600,000");
+        assertThat(f1.getMonthlyInvoiceId()).as("a free day without devices stays off the invoice").isNull();
+        assertThat(f3.getMonthlyInvoiceId()).as("billed for its device share").isEqualTo("inv1");
+        assertThat(f3.getStatus()).isEqualTo(DailyFee.FREE);
+        assertThat(b15.getStatus()).isEqualTo(DailyFee.INVOICED);
+    }
+
+    @Test
+    void aBusinessWithNoDateAndNoDevicesGetsNoInvoice() {
+        DailyFee f1 = day("h1", "Ikeja", 1, "1000000", "15000");
+        ChargesStartService.apply(f1, null);
+        when(fees.findByBusinessIdAndMonthlyInvoiceIdIsNullAndStatusInAndFeeDateLessThanEqualOrderByHotelNameAscFeeDateAsc(eq("b1"), any(), any()))
+                .thenReturn(List.of(f1));
+        assertThat(service.issue(business("QA Lagos", "ada@hospio-qa.test"), YearMonth.of(2026, 11), ISSUED, null)).isNull();
+        assertThat(f1.getMonthlyInvoiceId()).isNull();
+    }
+
+    @Test
     void underOneThousandNairaIsCarriedForwardAndTheNextInvoiceTakesIt() {
         when(fees.findByBusinessIdAndMonthlyInvoiceIdIsNullAndStatusInAndFeeDateLessThanEqualOrderByHotelNameAscFeeDateAsc(eq("b1"), any(), any()))
                 .thenReturn(List.of(day("h1", "Ikeja", 3, "42000", "630")));

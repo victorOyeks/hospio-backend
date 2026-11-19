@@ -69,7 +69,7 @@ public interface DeliveryRecordRepository extends JpaRepository<DeliveryRecord, 
      */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update DeliveryRecord d set d.invoiceId = :invoice where d.hotelId = :hotel and d.billable = true and d.invoiceId is null "
-            + "and d.status in :statuses and d.createdAt < :to")
+            + "and d.freePeriod = false and d.status in :statuses and d.createdAt < :to")
     int attachToInvoice(@Param("invoice") String invoiceId, @Param("hotel") String hotelId, @Param("statuses") List<DeliveryRecord.Status> statuses,
                         @Param("to") Instant to);
 
@@ -98,6 +98,6 @@ public interface DeliveryRecordRepository extends JpaRepository<DeliveryRecord, 
 
     /** Hotels with billable messages before {@code to} not yet invoiced (stragglers of earlier months included): [hotelId, businessId]. */
     @Query("select distinct d.hotelId, d.businessId from DeliveryRecord d where d.billable = true and d.invoiceId is null "
-            + "and d.status in :statuses and d.createdAt < :to and d.hotelId is not null")
+            + "and d.freePeriod = false and d.status in :statuses and d.createdAt < :to and d.hotelId is not null")
     List<Object[]> hotelsToBill(@Param("statuses") List<DeliveryRecord.Status> statuses, @Param("to") Instant to);
 }

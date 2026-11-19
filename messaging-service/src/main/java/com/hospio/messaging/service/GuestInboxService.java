@@ -328,7 +328,8 @@ public class GuestInboxService {
     private GuestInbox.Sent send(Conversation c, HospioUserDetails me, NotificationChannel channel, String text, String subject) {
         checkGuestChannel(channel);
         if (billing != null) {
-            com.hospio.messaging.billing.CommBilling.Gate gate = billing.gate(TenantContext.requireHotel(), Delivery.Kind.MESSAGE.name());
+            com.hospio.messaging.billing.CommBilling.Gate gate = billing.gate(TenantContext.requireHotel(), Delivery.Kind.MESSAGE.name(),
+                    channel == null ? null : channel.name());
             if (!gate.allowed()) {
                 throw new BadRequestException(gate.reason());
             }
