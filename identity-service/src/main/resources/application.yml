@@ -79,12 +79,10 @@ hospio:
     pin-lock-minutes: 15
     # Invite links (/accept-invite?token=) stay valid this long.
     invite-days: 7
-    # Phone confirmation codes stay valid this long; the code is logged, no SMS goes out yet.
+    # Phone confirmation codes stay valid this long (sent by SMS through messaging; never logged).
     phone-code-minutes: 10
     # No new phone code within this many seconds of the last one; the page shows the code already sent and a countdown.
     phone-code-cooldown-seconds: 60
-    # When set (staging: 123456) this code is always accepted as a phone confirmation code.
-    otp-dev-code: ${OTP_DEV_CODE:}
     # A support-access token ("view as owner") never lives longer than this, whatever the grant says.
     support-token-max-minutes: 60
     # 2-step secrets are AES-GCM encrypted with this key (env TWO_STEP_KEY); derived from JWT_SECRET when unset.
@@ -92,6 +90,10 @@ hospio:
     two-step:
       # Roles that will have to use 2-step (e.g. OWNER,MANAGER). Reported on GET /users/me/two-step, not enforced yet.
       required-roles: ${TWO_STEP_REQUIRED_ROLES:}
+  otp:
+    # Dev and staging only (FixedOtp): every one-time code is this one and it is always accepted. Empty here on purpose;
+    # set in application-dev.yml / application-staging.yml. Start-up fails if it is set on a prod profile.
+    fixed-code: ${OTP_FIXED_CODE:}
   storage:
     # Profile photos, as maintenance work-order photos (STORAGE_TYPE / STORAGE_DIR).
     type: ${STORAGE_TYPE:local}

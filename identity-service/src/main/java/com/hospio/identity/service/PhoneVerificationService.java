@@ -23,8 +23,8 @@ import org.springframework.util.StringUtils;
 
 /**
  * Phone confirmation with a 6-digit code. The code is never logged; it is handed to {@link DeliveryService}
- * as a PHONE_CODE SMS (echoed in the response on staging, where {@code hospio.auth.otp-dev-code} 123456
- * is also always accepted). Sign-in never depends on it; the sign-up wizard just shows the step.
+ * as a PHONE_CODE SMS. On dev and staging {@link FixedOtp} ({@code hospio.otp.fixed-code}, 159753) makes every code that
+ * fixed one, still sent, and always accepted. Sign-in never depends on it; the sign-up wizard just shows the step.
  */
 @Slf4j
 @Service
@@ -38,8 +38,12 @@ public class PhoneVerificationService {
     private final DeliveryComposer composer;
     private final DeliveryService deliveryService;
 
-    @Value("${hospio.auth.otp-dev-code:}")
-    private String devCode;
+    private FixedOtp fixedOtp = FixedOtp.OFF;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setFixedOtp(FixedOtp fixedOtp) {
+        this.fixedOtp = fixedOtp;
+    }
 
     @Value("${hospio.auth.phone-code-minutes:10}")
     private long codeMinutes;
@@ -106,7 +110,7 @@ public class PhoneVerificationService {
             log.info("Phone code for user {} not sent: the last one went out less than {}s ago", user.getId(), cooldownSeconds);
             return new PhoneCodeResponse(validExpiry(user, now), List.of(), false, wait);
         }
-        String code = String.format("%06d", RANDOM.nextInt(1_000_000));
+        String code = fixedOtp.on() ? fixedOtp.code() : String.format("%06d", RANDOM.nextInt(1_000_000));
         Instant expires = now.plus(codeMinutes, ChronoUnit.MINUTES);
         user.setPhoneCodeHash(Hashing.sha256(code));
         user.setPhoneCodeExpiresAt(expires);
@@ -153,8 +157,7 @@ public class PhoneVerificationService {
             if (user.getPhoneCodeExpiresAt().isBefore(Instant.now())) {
                 throw new BadRequestException("That code has expired. Send a new one");
             }
-            boolean devMatch = StringUtils.hasText(devCode) && devCode.equals(code);
-            if (!devMatch && !user.getPhoneCodeHash().equals(Hashing.sha256(code))) {
+            if (!fixedOtp.matches(code) && !user.getPhoneCodeHash().equals(Hashing.sha256(code))) {
                 int attempts = user.getPhoneCodeAttempts() + 1;
                 user.setPhoneCodeAttempts(attempts);
                 if (attempts >= maxAttempts) {

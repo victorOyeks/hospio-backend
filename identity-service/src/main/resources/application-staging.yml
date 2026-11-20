@@ -1,0 +1,6 @@
+# Staging only (SPRING_PROFILES_ACTIVE=staging on the VPS). Everything else comes from application.yml and the env file.
+hospio:
+  otp:
+    # Every one-time code is 159753 on staging (FixedOtp): still sent by SMS / WhatsApp, and always accepted.
+    # OTP_FIXED_CODE= (empty) in the env file turns it off. Start-up fails if this is ever set on a prod profile.
+    fixed-code: ${OTP_FIXED_CODE:159753}

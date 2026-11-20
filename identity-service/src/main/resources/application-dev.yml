@@ -16,3 +16,6 @@ springdoc:
 hospio:
   seed:
     enabled: true
+  otp:
+    # Every one-time code is 159753 on dev (FixedOtp; never on production).
+    fixed-code: ${OTP_FIXED_CODE:159753}

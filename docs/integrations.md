@@ -9,7 +9,7 @@ server with nothing saved behaves byte for byte as it did. A value saved in the 
 field back to the env. Changes are in force within about a minute (each service caches the settings 60 s), no restart.
 
 Infrastructure stays in the environment: `DB_*`, `JWT_*`, `INTERNAL_API_KEY`, Kafka/Redis, the `*_SERVICE_URL`s, `ALLOWED_ORIGINS`,
-`JAVA_OPTS`, `STORAGE_*`, the master key, and the environment guards (`TEXTS_ALLOW_ONLY`, `OTP_DEV_CODE`, `DELIVERIES_ECHO`,
+`JAVA_OPTS`, `STORAGE_*`, the master key, and the environment guards (`TEXTS_ALLOW_ONLY`, `OTP_FIXED_CODE`, `DELIVERIES_ECHO`,
 `SEED_DEMO_DATA`, `HOSPIO_LOG_BODIES`).
 
 ## Master key
