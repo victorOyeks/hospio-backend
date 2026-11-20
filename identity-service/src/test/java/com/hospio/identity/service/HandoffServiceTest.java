@@ -73,6 +73,10 @@ class HandoffServiceTest {
             UserAccount u = i.getArgument(0);
             return new AuthResponse("access-" + u.getId(), "refresh-" + u.getId(), 3600, List.of("X"), false, false);
         });
+        when(tokenIssuer.issueInFamily(any(UserAccount.class), anyString())).thenAnswer(i -> {
+            UserAccount u = i.getArgument(0);
+            return new AuthResponse("access-" + u.getId(), "refresh-" + u.getId(), 3600, List.of("X"), false, false);
+        });
         when(refreshTokens.findBySessionIdAndRevokedAtIsNull(anyString())).thenReturn(sessionTokens);
         when(codes.save(any(HandoffCode.class))).thenAnswer(i -> {
             HandoffCode c = i.getArgument(0);
@@ -86,7 +90,7 @@ class HandoffServiceTest {
                 .filter(c -> c.getCodeHash().equals(i.getArgument(0))).findFirst()
                 // a copy, as a fresh read from the database would be
                 .map(c -> HandoffCode.builder().id(c.getId()).codeHash(c.getCodeHash()).userId(c.getUserId()).target(c.getTarget())
-                        .nextPath(c.getNextPath()).sessionId(c.getSessionId()).expiresAt(c.getExpiresAt()).usedAt(c.getUsedAt()).build()));
+                        .nextPath(c.getNextPath()).sessionId(c.getSessionId()).familyId(c.getFamilyId()).expiresAt(c.getExpiresAt()).usedAt(c.getUsedAt()).build()));
         when(codes.markUsed(anyString(), any(Instant.class))).thenAnswer(i -> {
             HandoffCode c = rows.get(i.getArgument(0, String.class));
             if (c == null || c.getUsedAt() != null) {
@@ -139,7 +143,19 @@ class HandoffServiceTest {
         assertThat(out.accessToken()).isEqualTo("access-kola");
         assertThat(out.refreshToken()).isEqualTo("refresh-kola");
         assertThat(out.next()).isEqualTo("/dashboard/support?tab=open");
-        verify(tokenIssuer).issue(kola);
+        verify(tokenIssuer).issueInFamily(kola, "sid-kola");
+    }
+
+    @Test
+    void theSessionOpenedByTheCodeJoinsTheAskingBrowsersFamily() {
+        sessionTokens.add(RefreshToken.builder().id("t1").userId("kola").sessionId("sid-kola").familyId("fam-1").tokenHash("h")
+                .expiresAt(now.plusSeconds(999)).build());
+        when(tokenIssuer.issueInFamily(any(UserAccount.class), anyString()))
+                .thenReturn(new AuthResponse("access-fam", "refresh-fam", 3600, List.of("SUPPORT"), false, false));
+        String code = codeOf(service.issue("kola", "sid-kola", null, new HandoffDtos.Issue("admin", null, true)));
+
+        assertThat(service.exchange(new HandoffDtos.Exchange(code, "admin")).accessToken()).isEqualTo("access-fam");
+        verify(tokenIssuer).issueInFamily(kola, "fam-1");
     }
 
     @Test
@@ -161,7 +177,7 @@ class HandoffServiceTest {
 
         assertThatThrownBy(() -> service.exchange(new HandoffDtos.Exchange(code, "admin")))
                 .isInstanceOf(UnauthorizedException.class).hasMessageContaining("already used");
-        verify(tokenIssuer, org.mockito.Mockito.times(1)).issue(any(UserAccount.class));
+        verify(tokenIssuer, org.mockito.Mockito.times(1)).issueInFamily(any(UserAccount.class), anyString());
     }
 
     @Test
@@ -171,7 +187,7 @@ class HandoffServiceTest {
 
         assertThatThrownBy(() -> service.exchange(new HandoffDtos.Exchange(code, "admin")))
                 .isInstanceOf(UnauthorizedException.class).hasMessageContaining("expired");
-        verify(tokenIssuer, never()).issue(any(UserAccount.class));
+        verify(tokenIssuer, never()).issueInFamily(any(UserAccount.class), anyString());
         assertThat(rows.values().iterator().next().getUsedAt()).isNotNull();
     }
 
@@ -191,7 +207,7 @@ class HandoffServiceTest {
         // ... and can't then be used on the right app
         assertThatThrownBy(() -> service.exchange(new HandoffDtos.Exchange(code, "admin")))
                 .isInstanceOf(UnauthorizedException.class);
-        verify(tokenIssuer, never()).issue(any(UserAccount.class));
+        verify(tokenIssuer, never()).issueInFamily(any(UserAccount.class), anyString());
     }
 
     @Test

@@ -53,6 +53,18 @@ public class RefreshToken extends BaseEntity {
     @Column(name = "ended_at")
     private Instant endedAt;
 
+    /**
+     * The browser's session family (docs/sign-in.md): set by the sign-in, kept by every refresh and carried by a hand-over to
+     * the session opened on the other web app. "Sign out" ends the family. Null on older rows: then the session id is the family.
+     */
+    @Column(name = "family_id", length = 36)
+    private String familyId;
+
+    /** The family this token belongs to: its own, or (older rows) its session, or itself. */
+    public String family() {
+        return familyId != null ? familyId : sessionId != null ? sessionId : getId();
+    }
+
     public boolean isUsable() {
         return revokedAt == null && expiresAt.isAfter(Instant.now());
     }

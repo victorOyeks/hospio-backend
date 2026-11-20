@@ -43,6 +43,10 @@ public class HandoffCode extends BaseEntity {
     @Column(name = "session_id", length = 36)
     private String sessionId;
 
+    /** The session family of the browser that asked: the session opened with the code joins it, so "Sign out" ends both. */
+    @Column(name = "family_id", length = 36)
+    private String familyId;
+
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 

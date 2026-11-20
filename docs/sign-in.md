@@ -42,7 +42,9 @@ person lands on the dashboard. No redirect target is ever taken from user input.
 | Method | Path | Who | Contract |
 |---|---|---|---|
 | POST | `/identity/auth/handoff` | signed in | `{target: "hotel"\|"admin", next?: string, endSession?: boolean}` → `{url, target, expiresIn}`. 400 unknown target; 403 an app the account has no role on, a support "view as owner" token, a PIN session on a shared device, an account not active; 401 a token without a session |
-| POST | `/identity/auth/handoff/exchange` | public (the code is the credential); counted with sign-in by the per-address limit | `{code, target}` → `{accessToken, refreshToken, expiresIn, roles, mustChangePassword, next}`. 401 unknown, expired, already used, other app's code, source session signed out; 403 account paused or lost the role meanwhile |
+| POST | `/identity/auth/logout` | signed in | ends this browser's session family (both apps), not other devices |
+| POST | `/identity/auth/logout-everywhere` | signed in, not a support view | ends every session of the person, `SESSIONS_ENDED` |
+| POST | `/identity/auth/handoff/exchange` | public (the code is the credential); counted with sign-in by the per-address limit | `{code, target}` → `{accessToken, refreshToken, expiresIn, roles, mustChangePassword, next}`; the new session joins the asking browser's session family. 401 unknown, expired, already used, other app's code, source session signed out; 403 account paused or lost the role meanwhile |
 
 Configuration: `hospio.apps.hotel-url` (`HOTEL_APP_URL`), `hospio.apps.admin-url` (`ADMIN_APP_URL`) are the allow-list of
 target origins per environment (only scheme, host and port are used); `hospio.auth.handoff-seconds` (default 30, capped at 60).
@@ -62,12 +64,26 @@ target origins per environment (only scheme, host and port are used); `hospio.au
 - Expired codes are deleted nightly (03:25 Lagos). The code does appear once in nginx's access log line for `/auth/handoff`;
   it is single-use and expires in 30 s.
 
-## Sign-out
+## Sign-out (owner decision, 20 Nov 2026)
 
-Sign out on either app ends every session of the person (as before: all refresh tokens revoked) and now also publishes
-`access-changed` (`SESSIONS_ENDED`), so every service refuses the person's access tokens issued before that second. The other
-app, still holding a live access token, gets 401 on its next page, its refresh is refused, and it shows sign-in. A shared
-device signs out by locking, unchanged.
+**Session family.** A sign-in starts a family (`refresh_tokens.family_id`, = the first session id); every refresh keeps it; a
+hand-over code records the asking session's family (`handoff_codes.family_id`) and the session the target app opens with it joins
+that family. So one browser's sessions in both apps are one family, even after the wrong-app sign-in's own session ended. Older
+rows have no family: their session id is their family.
+
+- **Sign out** (`POST /identity/auth/logout`, the existing button in both apps): ends **this browser's family only**: its refresh
+  tokens are revoked and marked ended, and an access-changed event with `change: SESSION_FAMILY_ENDED` and `sessionIds` (the
+  family's sessions) makes every service refuse the access tokens of exactly those sessions (`AccessRevocations` keeps ended
+  sids; `JwtFilter` checks the token's `sid`), whenever they were issued. The other app in the same browser drops to sign-in on
+  its next page; the person's other devices and shared-device PIN sessions keep working. A token without a `sid` (from before
+  sessions) can't be placed in a family and signs out everywhere. A support "view as owner" token ends with its tab and signs
+  nobody out.
+- **Sign out everywhere** (`POST /identity/auth/logout-everywhere`, profile menu → "Sign out everywhere" behind a confirm, in the
+  hotel app and the admin/marketer console): every session of the person ends on every device and both apps, plus
+  `SESSIONS_ENDED` (every access token issued before that second is refused). Shared devices go back to their lock screen.
+  Refused (403) for a support view token.
+- Forced sign-outs are unchanged: a role change, pause or removal, a password change (other sessions end) and "End session" in
+  My profile work as before.
 
 ## Wrong-app sessions and loops (the two bugs of 20 Nov 2026)
 

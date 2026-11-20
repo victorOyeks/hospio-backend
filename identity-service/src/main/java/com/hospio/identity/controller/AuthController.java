@@ -110,10 +110,28 @@ public class AuthController {
         return ApiResponse.ok("Signed in", handoffs.exchange(request));
     }
 
+    @Operation(summary = "Sign out of this browser: ends this session and the ones paired with it by a hand-over (both web apps), "
+            + "not the person's other devices (docs/sign-in.md)")
     @PostMapping("/logout")
     public ApiResponse<Void> logout() {
-        authService.signOut(CurrentUser.require().getUserId());
+        var me = CurrentUser.require();
+        // A support "view as owner" token ends with its tab: it has no refresh token, and must not sign the admin out.
+        if (me.getActedBy() != null) {
+            return ApiResponse.ok("Signed out", null);
+        }
+        authService.signOut(me.getUserId(), sessions.currentSessionId().orElse(null));
         return ApiResponse.ok("Signed out", null);
+    }
+
+    @Operation(summary = "Sign out everywhere: ends every session of the person on every device and both web apps")
+    @PostMapping("/logout-everywhere")
+    public ApiResponse<Void> logoutEverywhere() {
+        var me = CurrentUser.require();
+        if (me.getActedBy() != null) {
+            throw new com.hospio.common.exception.ForbiddenException("A support view can't sign anyone out");
+        }
+        authService.signOutEverywhere(me.getUserId());
+        return ApiResponse.ok("Signed out everywhere", null);
     }
 
     /**
