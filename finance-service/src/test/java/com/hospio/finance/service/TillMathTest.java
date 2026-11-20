@@ -32,5 +32,9 @@ class TillMathTest {
         assertThat(TillMath.variance(new BigDecimal("27000"), new BigDecimal("27500"))).isEqualByComparingTo("-500");
         assertThat(TillMath.variance(new BigDecimal("27500"), new BigDecimal("27500"))).isEqualByComparingTo("0");
         assertThat(TillMath.variance(new BigDecimal("28000"), new BigDecimal("27500"))).isEqualByComparingTo("500");
+        // Kobo from split bills: no coins to count, so under NGN 1 is a match.
+        assertThat(TillMath.variance(new BigDecimal("37915"), new BigDecimal("37915.47"))).isEqualByComparingTo("0");
+        assertThat(TillMath.variance(new BigDecimal("37916"), new BigDecimal("37915.47"))).isEqualByComparingTo("0");
+        assertThat(TillMath.variance(new BigDecimal("37914"), new BigDecimal("37915.47"))).isEqualByComparingTo("-1.47");
     }
 }

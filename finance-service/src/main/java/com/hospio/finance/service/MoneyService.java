@@ -386,14 +386,24 @@ public class MoneyService {
         return list;
     }
 
-    /** The open till of the caller's paying role, or null. */
+    /**
+     * The open till of one desk, for that desk's Till page (docs/operating-day.md "Which till a page shows"): {@code role} is the desk
+     * (BAR, KITCHEN, CASHIER, FRONT_OFFICE...; WAITER reads the cashier's). The caller must work that desk, or be a manager, owner or
+     * finance. Without {@code role}, the first of the caller's desks that has a till open (older callers). Null when it is closed.
+     */
     @Transactional(readOnly = true)
-    public Till myTill() {
+    public Till myTill(String role) {
         HospioUserDetails user = CurrentUser.require();
         String hotelId = TenantContext.requireHotel();
-        for (Role role : PAYING_ROLES) {
-            if (user.has(role)) {
-                Optional<Till> t = tills.findFirstByHotelIdAndRoleAndStatus(hotelId, role.name(), Till.Status.OPEN);
+        if (role != null && !role.isBlank()) {
+            Role desk = deskOf(user, role);
+            Optional<Till> t = tills.findFirstByHotelIdAndRoleAndStatus(hotelId, desk.name(), Till.Status.OPEN);
+            t.ifPresent(x -> fillEntryCounts(List.of(x)));
+            return t.orElse(null);
+        }
+        for (Role r : PAYING_ROLES) {
+            if (user.has(r)) {
+                Optional<Till> t = tills.findFirstByHotelIdAndRoleAndStatus(hotelId, r.name(), Till.Status.OPEN);
                 if (t.isPresent()) {
                     fillEntryCounts(List.of(t.get()));
                     return t.get();
@@ -403,25 +413,60 @@ public class MoneyService {
         return null;
     }
 
-    /** Whether {@code role}'s till is open at {@code hotelId}, and which one. */
-    public record OpenTill(boolean open, String tillId) {
+    /** The open till of the caller's paying role, or null (no desk named). */
+    @Transactional(readOnly = true)
+    public Till myTill() {
+        return myTill(null);
+    }
+
+    /** The desk whose till {@code role} names (a waiter's is the cashier's), when the caller may read it; 403 otherwise. */
+    private static Role deskOf(HospioUserDetails user, String role) {
+        Role asked;
+        try {
+            asked = Role.valueOf(role.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("A till belongs to one of: " + PAYING_ROLES.stream().map(Role::name).toList());
+        }
+        Role desk = Role.valueOf(tillRole(asked.name()));
+        if (!PAYING_ROLES.contains(desk)) {
+            throw new BadRequestException("A till belongs to one of: " + PAYING_ROLES.stream().map(Role::name).toList());
+        }
+        if (!(user.has(asked) || TillAccess.canSee(user, desk))) {
+            throw new ForbiddenException("You don't work the " + label(desk) + " till");
+        }
+        return desk;
+    }
+
+    /** Whether {@code role}'s till is open at {@code hotelId}, which one, who opened it, when, and whether it was left open from an earlier day. */
+    public record OpenTill(boolean open, String tillId, boolean stale, Instant openedAt, String openedBy, String openedByName) {
+        static OpenTill closed() {
+            return new OpenTill(false, null, false, null, null, null);
+        }
     }
 
     /** payment-service, before it takes cash: is this desk's till open at the hotel? Read for the hotel named, whoever asks. */
     @Transactional(readOnly = true)
     public OpenTill openTillOf(String hotelId, String role) {
-        String r = role == null ? "" : role.trim().toUpperCase(java.util.Locale.ROOT);
-        return openTill(hotelId, r).map(t -> new OpenTill(true, t.getId())).orElse(new OpenTill(false, null));
+        String r = role == null ? "" : tillRole(role.trim().toUpperCase(java.util.Locale.ROOT));
+        return openTill(hotelId, r).map(t -> new OpenTill(true, t.getId(), t.isStale(), t.getOpenedAt(), t.getOpenedBy(), t.getOpenedByName()))
+                .orElse(OpenTill.closed());
     }
 
     /** The tills of the caller's paying role(s) closed in the last 7 days, newest first (the desk's "Past tills"). */
     @Transactional(readOnly = true)
     public List<Till> myClosedTills() {
+        return myClosedTills(null);
+    }
+
+    /** As above for one desk ({@code role}) when named: the Till page of that desk lists only its own past tills. */
+    @Transactional(readOnly = true)
+    public List<Till> myClosedTills(String role) {
         HospioUserDetails user = CurrentUser.require();
         String hotelId = TenantContext.requireHotel();
+        Role desk = role == null || role.isBlank() ? null : deskOf(user, role);
         Instant since = LocalDate.now(LAGOS).minusDays(7).atStartOfDay(LAGOS).toInstant();
         List<Till> list = tills.findByHotelIdAndClosedAtBetween(hotelId, since, Instant.now().plusSeconds(60)).stream()
-                .filter(t -> PAYING_ROLES.stream().anyMatch(r -> user.has(r) && r.name().equals(t.getRole())))
+                .filter(t -> desk != null ? desk.name().equals(t.getRole()) : PAYING_ROLES.stream().anyMatch(r -> user.has(r) && r.name().equals(t.getRole())))
                 .sorted((a, b) -> b.getClosedAt().compareTo(a.getClosedAt()))
                 .toList();
         fillEntryCounts(list);
@@ -437,8 +482,13 @@ public class MoneyService {
             throw new ForbiddenException("Only a manager, finance or the " + label(role) + " can open this till");
         }
         openTill(hotelId, role.name()).ifPresent(t -> {
-            throw new BadRequestException("The " + label(role) + " till is already open");
+            throw new BadRequestException("The " + label(role) + " till is already open (opened by " + nameOf(t) + ", " + since(t) + "). Cash at the "
+                    + label(role) + " goes into it" + (t.isStale() ? ": it was left open from an earlier day, so count and close it first" : ""));
         });
+        // One person, one till: someone who works two desks (front office and bar) doesn't end up holding two drawers.
+        if (user.has(role, AccessLevel.EDIT)) {
+            requireNoOtherTill(hotelId, user.getUserId(), role.name(), "You");
+        }
         BigDecimal opening = request.openingFloat() == null ? settings.tillFloat(hotelId) : Money.of(request.openingFloat());
         if (opening.signum() < 0) {
             throw new BadRequestException("The opening float can't be negative");
@@ -471,6 +521,9 @@ public class MoneyService {
         if (kind != TillEntry.Kind.PAY_IN && kind != TillEntry.Kind.PAY_OUT) {
             throw new BadRequestException("The movement is either PAY_IN or PAY_OUT");
         }
+        if (kind == TillEntry.Kind.PAY_IN && t.isStale()) {
+            throw new BadRequestException("This till has been open " + since(t) + ". Count and close it, then open today's till before putting cash in");
+        }
         BigDecimal amount = Money.of(request.amount());
         // DEF-070: a reason has to say what the cash was for, not "1234567-0-=-".
         if (!com.hospio.common.util.Words.meaningful(request.reason())) {
@@ -499,6 +552,8 @@ public class MoneyService {
         if (!TillAccess.canMove(user, roleOf(t))) {
             throw new ForbiddenException("Only a manager or the " + label(roleOf(t)) + " can hand this till over");
         }
+        requireNoOtherTill(t.getHotelId() == null ? TenantContext.requireHotel() : t.getHotelId(), request.toUserId(), t.getRole(),
+                request.toUserName() == null || request.toUserName().isBlank() ? "They" : request.toUserName());
         Till closed = close(t, request.countedCash(), request.note(), user, request);
         tills.flush(); // the close is written before the new till: only one till of the role may be OPEN at a time
         Till opened = tills.save(Till.builder().role(t.getRole()).openedBy(request.toUserId()).openedByName(request.toUserName())
@@ -563,6 +618,28 @@ public class MoneyService {
     }
 
     // ---- helpers -------------------------------------------------------------------------------------
+
+    /** 400 when {@code userId} opened (or was handed) another desk's till that is still open: one person holds one drawer. */
+    private void requireNoOtherTill(String hotelId, String userId, String role, String who) {
+        if (userId == null) {
+            return;
+        }
+        tills.findByHotelIdAndStatusOrderByOpenedAt(hotelId, Till.Status.OPEN).stream()
+                .filter(o -> userId.equals(o.getOpenedBy()) && !role.equals(o.getRole())).findFirst().ifPresent(o -> {
+                    String has = "You".equals(who) ? "You already have" : who + " already has";
+                    throw new BadRequestException(has + " the " + label(roleOf(o)) + " till open (" + since(o) + "). One person holds one till: count and close it or hand it over first");
+                });
+    }
+
+    private static String nameOf(Till t) {
+        return t.getOpenedByName() == null || t.getOpenedByName().isBlank() ? "someone" : t.getOpenedByName();
+    }
+
+    /** "since Wed 18 Nov, 4:06pm" in Lagos time. */
+    static String since(Till t) {
+        return "since " + java.time.format.DateTimeFormatter.ofPattern("EEE d MMM, h:mma", java.util.Locale.UK)
+                .format(t.getOpenedAt().atZone(LAGOS)).replace("AM", "am").replace("PM", "pm");
+    }
 
     private Optional<Till> openTill(String hotelId, String role) {
         return tills.findFirstByHotelIdAndRoleAndStatus(hotelId, role, Till.Status.OPEN);
@@ -683,11 +760,12 @@ public class MoneyService {
         }
 
         static boolean canOpenOrClose(HospioUserDetails u, Role role) {
-            return !u.isReadOnly() && (u.isPlatform() || u.isManagerOrOwner() || u.has(Role.FINANCE, AccessLevel.EDIT) || (role != null && u.has(role)));
+            // A desk's till is opened, counted and closed by someone who can work that desk: view-only on it is not enough.
+            return !u.isReadOnly() && (u.isPlatform() || u.isManagerOrOwner() || u.has(Role.FINANCE, AccessLevel.EDIT) || (role != null && u.has(role, AccessLevel.EDIT)));
         }
 
         static boolean canMove(HospioUserDetails u, Role role) {
-            return !u.isReadOnly() && (u.isPlatform() || u.isManagerOrOwner() || (role != null && u.has(role)));
+            return !u.isReadOnly() && (u.isPlatform() || u.isManagerOrOwner() || (role != null && u.has(role, AccessLevel.EDIT)));
         }
 
         static boolean canSee(HospioUserDetails u, Role role) {
