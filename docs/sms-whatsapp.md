@@ -167,7 +167,7 @@ Every Infobip and Termii value below, and `SMS_ENABLED` / `WHATSAPP_ENABLED`, ca
 | `INFOBIP_NOTIFY_URL`, `INFOBIP_WEBHOOK_KEY` | Where Infobip posts delivery reports, and the key it must quote. Both empty: no reports. |
 | `WHATSAPP_HEADER_IMAGE_URL` | The banner sent with image-header templates (default the landing site's). |
 | `STAY_LINK_SECRET` | Signs the booking page links (default the internal API key). Changing it breaks every link already sent. |
-| `TEXTS_ALLOW_ONLY` | Comma-separated numbers. When set only these receive SMS/WhatsApp; others are recorded as held back. **Staging sets it** (test data holds real-looking numbers); production leaves it empty. A phone code to any other number on staging is never texted ("SMS is not going through" on staging is this): type the fixed code 159753 instead (docs/onboarding.md). |
+| `TEXTS_ALLOW_ONLY` | Comma-separated numbers. When set only these receive SMS/WhatsApp; others are recorded as held back. **Staging sets it** (test data holds real-looking numbers); production leaves it empty. A phone code to any other number on staging is never texted ("SMS is not going through" on staging is this): type the backup code 159753 instead (accepted on staging, never sent; docs/onboarding.md). |
 
 While the Infobip account is on its free trial it only delivers to the numbers verified in Infobip.
 

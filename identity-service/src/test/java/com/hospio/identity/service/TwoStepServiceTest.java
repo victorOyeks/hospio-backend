@@ -203,7 +203,7 @@ class TwoStepServiceTest {
     }
 
     @Test
-    void theFixedCodeStandsInForTheAppOnStaging() {
+    void theBackupCodeIsAcceptedBesidesTheAppOnStaging() {
         org.springframework.mock.env.MockEnvironment env = new org.springframework.mock.env.MockEnvironment();
         env.setActiveProfiles("staging");
         twoStep.setFixedOtp(new FixedOtp("159753", env));

@@ -91,7 +91,7 @@ hospio:
       # Roles that will have to use 2-step (e.g. OWNER,MANAGER). Reported on GET /users/me/two-step, not enforced yet.
       required-roles: ${TWO_STEP_REQUIRED_ROLES:}
   otp:
-    # Dev and staging only (FixedOtp): every one-time code is this one and it is always accepted. Empty here on purpose;
+    # Dev and staging only (FixedOtp): also accepted as a backup one-time code, never sent. Empty here on purpose;
     # set in application-dev.yml / application-staging.yml. Start-up fails if it is set on a prod profile.
     fixed-code: ${OTP_FIXED_CODE:}
   storage:

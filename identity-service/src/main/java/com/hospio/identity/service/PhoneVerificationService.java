@@ -23,8 +23,8 @@ import org.springframework.util.StringUtils;
 
 /**
  * Phone confirmation with a 6-digit code. The code is never logged; it is handed to {@link DeliveryService}
- * as a PHONE_CODE SMS. On dev and staging {@link FixedOtp} ({@code hospio.otp.fixed-code}, 159753) makes every code that
- * fixed one, still sent, and always accepted. Sign-in never depends on it; the sign-up wizard just shows the step.
+ * as a PHONE_CODE SMS. On dev and staging {@link FixedOtp} ({@code hospio.otp.fixed-code}, 159753) is also accepted as a
+ * backup code; it is never sent, the code sent is always random. Sign-in never depends on it; the sign-up wizard just shows the step.
  */
 @Slf4j
 @Service
@@ -110,7 +110,9 @@ public class PhoneVerificationService {
             log.info("Phone code for user {} not sent: the last one went out less than {}s ago", user.getId(), cooldownSeconds);
             return new PhoneCodeResponse(validExpiry(user, now), List.of(), false, wait);
         }
-        String code = fixedOtp.on() ? fixedOtp.code() : String.format("%06d", RANDOM.nextInt(1_000_000));
+        // Always a random code, and only that code is ever sent: the fixed dev/staging code is accepted as a backup in verify(),
+        // never put in a message.
+        String code = String.format("%06d", RANDOM.nextInt(1_000_000));
         Instant expires = now.plus(codeMinutes, ChronoUnit.MINUTES);
         user.setPhoneCodeHash(Hashing.sha256(code));
         user.setPhoneCodeExpiresAt(expires);

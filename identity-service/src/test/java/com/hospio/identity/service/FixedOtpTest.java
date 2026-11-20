@@ -20,8 +20,8 @@ import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * The dev/staging fixed one-time code (hospio.otp.fixed-code): the start-up guard that keeps it off production, and the
- * phone code being that code, still sent, and accepted. The 2-step side is in TwoStepServiceTest.
+ * The dev/staging backup one-time code (hospio.otp.fixed-code): the start-up guard that keeps it off production, real
+ * codes staying random and sent (the backup code is never sent), and both the real code and the backup code accepted. The 2-step side is in TwoStepServiceTest.
  */
 class FixedOtpTest {
 
@@ -73,32 +73,77 @@ class FixedOtpTest {
         assertThatThrownBy(() -> build("abcdef", "dev")).isInstanceOf(IllegalStateException.class);
     }
 
-    @Test
-    void thePhoneCodeIsTheFixedCodeIsStillSentAndIsAccepted() {
-        UserAccountRepository users = mock(UserAccountRepository.class);
-        DeliveryService deliveries = mock(DeliveryService.class);
+    private static PhoneVerificationService phoneService(UserAccountRepository users, DeliveryService deliveries, FixedOtp fixed) {
         when(users.save(any())).thenAnswer(i -> i.getArgument(0));
         when(deliveries.send(any(Delivery.class))).thenReturn(List.of());
-        UserService userService = mock(UserService.class);
-        PhoneVerificationService service = new PhoneVerificationService(users, userService,
+        PhoneVerificationService service = new PhoneVerificationService(users, mock(UserService.class),
                 new DeliveryComposer("https://web.example", "https://admin.example"), deliveries);
         ReflectionTestUtils.setField(service, "codeMinutes", 10L);
         ReflectionTestUtils.setField(service, "cooldownSeconds", 60L);
         ReflectionTestUtils.setField(service, "maxAttempts", 5);
-        service.setFixedOtp(build("159753", "staging"));
+        service.setFixedOtp(fixed);
+        return service;
+    }
+
+    private static String sentCode(DeliveryService deliveries) {
+        ArgumentCaptor<Delivery> sent = ArgumentCaptor.forClass(Delivery.class);
+        verify(deliveries, org.mockito.Mockito.atLeastOnce()).send(sent.capture());
+        Delivery d = sent.getValue();
+        assertThat(d.channel()).isEqualTo(Delivery.Channel.SMS);
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("code is (\\d{6})").matcher(d.text());
+        assertThat(m.find()).isTrue();
+        return m.group(1);
+    }
+
+    @Test
+    void theRealCodeIsStillRandomAndSentAndTheBackupCodeIsNeverSent() {
+        UserAccountRepository users = mock(UserAccountRepository.class);
+        DeliveryService deliveries = mock(DeliveryService.class);
+        PhoneVerificationService service = phoneService(users, deliveries, build("159753", "staging"));
         UserAccount user = UserAccount.builder().email("ada@hospio-qa.test").phone("+2349035911994").build();
         user.setId("u-1");
         when(users.findById("u-1")).thenReturn(Optional.of(user));
 
-        service.sendCode("u-1", false);
+        // Many codes: none is the backup code (a random 159753 would be a one-in-a-million coincidence, not the fixed code).
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (int i = 0; i < 20; i++) {
+            user.setPhoneCodeSentAt(null);
+            service.sendCode("u-1", false);
+            String code = sentCode(deliveries);
+            assertThat(user.getPhoneCodeHash()).isEqualTo(Hashing.sha256(code));
+            seen.add(code);
+        }
+        assertThat(seen).hasSizeGreaterThan(1).doesNotContain("159753");
+    }
 
-        ArgumentCaptor<Delivery> sent = ArgumentCaptor.forClass(Delivery.class);
-        verify(deliveries).send(sent.capture());
-        assertThat(sent.getValue().channel()).isEqualTo(Delivery.Channel.SMS);
-        assertThat(sent.getValue().text()).contains("159753");
-        assertThat(user.getPhoneCodeHash()).isEqualTo(Hashing.sha256("159753"));
+    @Test
+    void theRealCodeWorksOnStaging() {
+        UserAccountRepository users = mock(UserAccountRepository.class);
+        DeliveryService deliveries = mock(DeliveryService.class);
+        PhoneVerificationService service = phoneService(users, deliveries, build("159753", "staging"));
+        UserAccount user = UserAccount.builder().email("ada@hospio-qa.test").phone("+2349035911994").build();
+        user.setId("u-1");
+        when(users.findById("u-1")).thenReturn(Optional.of(user));
+        service.sendCode("u-1", false);
+        String real = sentCode(deliveries);
+        org.junit.jupiter.api.Assumptions.assumeFalse("111111".equals(real));
 
         assertThatThrownBy(() -> service.verify("u-1", "111111")).isInstanceOf(BadRequestException.class);
+        service.verify("u-1", real);
+        assertThat(user.isPhoneVerified()).isTrue();
+    }
+
+    @Test
+    void theBackupCodeAlsoWorksOnStaging() {
+        UserAccountRepository users = mock(UserAccountRepository.class);
+        DeliveryService deliveries = mock(DeliveryService.class);
+        PhoneVerificationService service = phoneService(users, deliveries, build("159753", "staging"));
+        UserAccount user = UserAccount.builder().email("ada@hospio-qa.test").phone("+2349035911994").build();
+        user.setId("u-1");
+        when(users.findById("u-1")).thenReturn(Optional.of(user));
+        service.sendCode("u-1", false);
+        assertThat(sentCode(deliveries)).isNotEqualTo("159753");
+
         service.verify("u-1", "159753");
         assertThat(user.isPhoneVerified()).isTrue();
     }

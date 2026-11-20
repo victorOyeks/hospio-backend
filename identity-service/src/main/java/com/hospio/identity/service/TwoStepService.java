@@ -60,7 +60,7 @@ public class TwoStepService {
 
     private FixedOtp fixedOtp = FixedOtp.OFF;
 
-    /** Dev and staging only: the fixed code ({@link FixedOtp}) stands in for the authenticator app's code. */
+    /** Dev and staging only: the backup code ({@link FixedOtp}) is accepted besides the authenticator app's code. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     void setFixedOtp(FixedOtp fixedOtp) {
         this.fixedOtp = fixedOtp;
