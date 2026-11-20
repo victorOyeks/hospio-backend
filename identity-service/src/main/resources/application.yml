@@ -60,6 +60,10 @@ jwt:
 hospio:
   deliveries:
     echo: ${DELIVERIES_ECHO:false}
+  signup:
+    # Self-serve sign-up (POST /auth/sign-up). Off in every profile: businesses book a demo on the landing site and the team onboards
+    # them (docs/onboarding.md, "Applications"); off answers 410. Invites (owner at handover, staff, marketers) never depend on it.
+    self-serve-enabled: ${SELF_SIGNUP_ENABLED:false}
   apps:
     # Where invite links point: platform staff and marketers open the admin portal, everyone else the hotel app.
     hotel-url: ${HOTEL_APP_URL:https://web-staging.hospio360.com}

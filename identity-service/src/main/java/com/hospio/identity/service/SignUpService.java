@@ -46,9 +46,12 @@ public class SignUpService {
     private final TokenIssuer tokenIssuer;
     private final EventPublisher events;
     private final PhoneVerificationService phoneVerification;
+    private final SelfSignUpSwitch selfSignUp;
 
     @Transactional
     public AuthResponse signUp(SignUpRequest request) {
+        // Off unless SELF_SIGNUP_ENABLED=true: businesses book a demo and the team onboards them (docs/onboarding.md, "Applications").
+        selfSignUp.require();
         return TenantContext.runWith(Tenant.system("sign-up"), () -> {
             String email = request.email().trim().toLowerCase();
             if (!Phones.meaningfulName(request.fullName())) {

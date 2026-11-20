@@ -83,7 +83,8 @@ public class AuthController {
         return ApiResponse.ok("Locked", null);
     }
 
-    @Operation(summary = "Self-serve sign-up: creates the business and its owner, then signs the owner in")
+    @Operation(summary = "Self-serve sign-up: creates the business and its owner, then signs the owner in. Off unless SELF_SIGNUP_ENABLED=true: "
+            + "410 \"Hospio360 accounts are set up by our team — book a demo at hospio360.com/book-a-demo\"")
     @PostMapping("/sign-up")
     public ApiResponse<AuthResponse> signUp(@Valid @RequestBody SignUpRequest request) {
         return ApiResponse.ok("Welcome to Hospio360", signUpService.signUp(request));
