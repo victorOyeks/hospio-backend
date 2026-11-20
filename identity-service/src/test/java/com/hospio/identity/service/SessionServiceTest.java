@@ -179,6 +179,24 @@ class SessionServiceTest {
     }
 
     @Test
+    void signOutEndsEverySessionAndRefusesTheOtherAppsLiveAccessToken() {
+        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(4);
+        AuthService auth = new AuthService(users, refreshTokens, encoder, tokenIssuer, events, grants, devices, mock(TwoStepService.class), sessions);
+        RefreshToken hotelApp = token("ada", "s-hotel", null, "Chrome", 5);
+        RefreshToken adminApp = token("ada", "s-admin", null, "Chrome", 3);
+        when(refreshTokens.findByUserIdAndRevokedAtIsNull("ada")).thenReturn(List.of(hotelApp, adminApp));
+
+        auth.signOut("ada");
+
+        assertThat(hotelApp.getRevokedAt()).isNotNull();
+        assertThat(adminApp.getEndedAt()).isNotNull();
+        ArgumentCaptor<com.hospio.common.kafka.events.HospioEvent> event = ArgumentCaptor.forClass(com.hospio.common.kafka.events.HospioEvent.class);
+        verify(events).publish(eq(KafkaTopics.ACCESS_CHANGED), event.capture());
+        assertThat(((AccessChangedEvent) event.getValue()).getChange()).isEqualTo("SESSIONS_ENDED");
+        assertThat(((AccessChangedEvent) event.getValue()).getUserId()).isEqualTo("ada");
+    }
+
+    @Test
     void browsersAreNamedFromTheUserAgent() {
         assertThat(ClientInfo.describe(null)).isEqualTo("Unknown browser");
         assertThat(ClientInfo.describe("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36 Edg/131.0"))

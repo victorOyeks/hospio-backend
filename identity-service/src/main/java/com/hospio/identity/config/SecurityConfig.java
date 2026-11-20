@@ -41,6 +41,6 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http, InternalApiKeyFilter internalApiKeyFilter) throws Exception {
         return SecurityChains.standard(http, jwtFilter, internalApiKeyFilter, authenticationEntryPoint, accessDeniedHandler,
                 "/auth/sign-in", "/auth/sign-in/two-step", "/auth/pin-sign-in", "/auth/device", "/auth/device/lock", "/auth/refresh", "/auth/forgot-password", "/auth/reset-password",
-                "/auth/sign-up", "/auth/invites/**", "/auth/accept-invite");
+                "/auth/sign-up", "/auth/invites/**", "/auth/accept-invite", "/auth/handoff/exchange");
     }
 }

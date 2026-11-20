@@ -362,16 +362,24 @@ public class AuthService {
         });
     }
 
+    /**
+     * Sign out: every session of the person ends, in both web apps (docs/sign-in.md). Their refresh tokens are revoked and an
+     * access-changed event (SESSIONS_ENDED) makes every service refuse the access tokens issued before now, so the other app,
+     * still holding a live access token, drops to sign-in on its next page instead of working on for up to an hour.
+     */
     @Transactional
     public void signOut(String userId) {
         TenantContext.runWith(Tenant.system("sign-out"), () -> {
             Instant now = Instant.now();
-            users.lockById(userId);
+            UserAccount user = users.lockById(userId).orElse(null);
             refreshTokens.findByUserIdAndRevokedAtIsNull(userId).forEach(t -> {
                 t.setRevokedAt(now);
                 t.setEndedAt(now);
                 refreshTokens.save(t);
             });
+            if (user != null) {
+                sessions.signedOut(user);
+            }
         });
     }
 
