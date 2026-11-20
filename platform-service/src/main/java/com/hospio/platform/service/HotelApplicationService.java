@@ -27,6 +27,7 @@ import com.hospio.platform.dto.HotelApplicationDtos.StatusRequest;
 import com.hospio.platform.dto.HotelApplicationDtos.Submission;
 import com.hospio.platform.entity.HotelApplication;
 import com.hospio.platform.entity.HotelApplicationNote;
+import com.hospio.platform.entity.MonthlySales;
 import com.hospio.platform.repository.HotelApplicationNoteRepository;
 import com.hospio.platform.repository.HotelApplicationRepository;
 import jakarta.persistence.criteria.Predicate;
@@ -166,6 +167,10 @@ public class HotelApplicationService {
         if (rooms != null && (rooms < 1 || rooms > MAX_ROOMS)) {
             errors.put("rooms", "Enter the number of rooms (1 to " + MAX_ROOMS + "), or leave it empty");
         }
+        MonthlySales sales = MonthlySales.parse(r.monthlySales()).orElse(null);
+        if (sales == null) {
+            errors.put("monthlySales", "Choose your average monthly sales (an estimate is fine)");
+        }
         String heard = r.heardFrom() == null ? null : r.heardFrom().trim().toUpperCase(Locale.ROOT);
         if (heard == null || !HEARD.containsKey(heard)) {
             errors.put("heardFrom", "Tell us how you heard about Hospio360");
@@ -193,14 +198,14 @@ public class HotelApplicationService {
                     List.of(HotelApplication.ONBOARDED, HotelApplication.DECLINED));
             if (open.isPresent()) {
                 // Same answer as a new request (the form never says an email is known here); the team sees it on the open one.
-                repeatNote(open.get(), businessName, type, phone, message);
+                repeatNote(open.get(), businessName, type, phone, sales, message);
                 log.info("Hotel application from {} added to the open request {} as a note", address, open.get().getId());
                 return Submission.received();
             }
             HotelApplication a;
             try {
                 a = applications.saveAndFlush(HotelApplication.builder().ownerName(ownerName).email(email).phone(phone)
-                        .businessName(businessName).businessType(type).city(city).state(state).rooms(rooms).heardFrom(heard)
+                        .businessName(businessName).businessType(type).city(city).state(state).rooms(rooms).monthlySales(sales.name()).heardFrom(heard)
                         .preferredTime(time).message(message).referralCode(code)
                         .marketerProfileId(marketer.map(MarketerService.ReferralCodeInfo::profileId).orElse(null))
                         .marketerName(marketer.map(MarketerService.ReferralCodeInfo::fullName).orElse(null))
@@ -221,7 +226,7 @@ public class HotelApplicationService {
         });
     }
 
-    private void repeatNote(HotelApplication a, String businessName, String type, String phone, String message) {
+    private void repeatNote(HotelApplication a, String businessName, String type, String phone, MonthlySales sales, String message) {
         try {
             StringBuilder b = new StringBuilder("Sent the Book a demo form again");
             if (!businessName.equalsIgnoreCase(a.getBusinessName())) {
@@ -232,6 +237,9 @@ public class HotelApplicationService {
             }
             if (!phone.equals(a.getPhone())) {
                 b.append(" · phone: ").append(phone);
+            }
+            if (!sales.name().equals(a.getMonthlySales())) {
+                b.append(" · monthly sales: ").append(sales.label());
             }
             if (message != null) {
                 b.append("\n").append(message);
@@ -288,20 +296,37 @@ public class HotelApplicationService {
 
     // ---- the admin screen ----------------------------------------------------------------------------
 
+    /** The list's orders: newest first (the default), or by monthly sales band, highest first, Prefer not / Not asked last. */
+    public static final String SORT_NEWEST = "NEWEST";
+    public static final String SORT_SALES = "SALES";
+    static final Sort NEWEST = Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by("id"));
+    static final Sort BY_SALES = Sort.by(Sort.Direction.ASC, "monthlySalesRank").and(NEWEST);
+
     @Transactional(readOnly = true)
     public PageWithCounts<ApplicationView> list(String status, String q, String assigneeId, Integer page, Integer size) {
+        return list(status, q, assigneeId, null, null, page, size);
+    }
+
+    /**
+     * {@code monthlySales}: a band (UNDER_1M, FROM_1M_TO_5M, FROM_5M_TO_20M, ABOVE_20M, PREFER_NOT) or NOT_ASKED (sent before the
+     * question); the counts follow it like the search. {@code sort}: NEWEST (default) or SALES.
+     */
+    @Transactional(readOnly = true)
+    public PageWithCounts<ApplicationView> list(String status, String q, String assigneeId, String monthlySales, String sort, Integer page,
+                                                Integer size) {
         String st = StringUtils.hasText(status) ? status.trim().toUpperCase(Locale.ROOT) : null;
         if (st != null && !"OPEN".equals(st) && !HotelApplication.STATUSES.contains(st)) {
             throw new BadRequestException("Unknown status " + st + ". Pick one of: OPEN, " + String.join(", ", HotelApplication.STATUSES));
         }
+        String band = salesFilter(monthlySales);
+        Sort order = order(sort);
         String who = StringUtils.hasText(assigneeId) ? assigneeId.trim() : null;
-        Page<HotelApplication> result = applications.findAll(spec(st, q, who),
-                Paging.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by("id"))));
+        Page<HotelApplication> result = applications.findAll(spec(st, q, who, band), Paging.of(page, size, order));
         Map<String, Long> counts = new LinkedHashMap<>();
-        counts.put("all", applications.count(spec(null, q, who)));
-        counts.put("OPEN", applications.count(spec("OPEN", q, who)));
+        counts.put("all", applications.count(spec(null, q, who, band)));
+        counts.put("OPEN", applications.count(spec("OPEN", q, who, band)));
         for (String s : HotelApplication.STATUSES) {
-            counts.put(s, applications.count(spec(s, q, who)));
+            counts.put(s, applications.count(spec(s, q, who, band)));
         }
         // The sidebar's badge: every NEW request, whatever the search says.
         counts.put("newTotal", applications.countByStatus(HotelApplication.NEW));
@@ -314,9 +339,41 @@ public class HotelApplicationService {
         return applications.countByStatus(HotelApplication.NEW);
     }
 
+    /** The band filter as a code, NOT_ASKED, or null for every band; anything else is refused. */
+    static String salesFilter(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return null;
+        }
+        String c = raw.trim().toUpperCase(Locale.ROOT);
+        if (MonthlySales.NOT_ASKED.equals(c)) {
+            return c;
+        }
+        return MonthlySales.parse(c).map(Enum::name).orElseThrow(() -> new BadRequestException("Unknown monthly sales " + c
+                + ". Pick one of: " + String.join(", ", java.util.Arrays.stream(MonthlySales.values()).map(Enum::name).toList()) + ", "
+                + MonthlySales.NOT_ASKED));
+    }
+
+    static Sort order(String raw) {
+        String c = StringUtils.hasText(raw) ? raw.trim().toUpperCase(Locale.ROOT) : SORT_NEWEST;
+        return switch (c) {
+            case SORT_NEWEST -> NEWEST;
+            case SORT_SALES -> BY_SALES;
+            default -> throw new BadRequestException("Unknown sort " + c + ". Pick one of: " + SORT_NEWEST + ", " + SORT_SALES);
+        };
+    }
+
     static Specification<HotelApplication> spec(String status, String q, String assigneeId) {
+        return spec(status, q, assigneeId, null);
+    }
+
+    static Specification<HotelApplication> spec(String status, String q, String assigneeId, String monthlySales) {
         return (root, query, cb) -> {
             List<Predicate> ps = new ArrayList<>();
+            if (MonthlySales.NOT_ASKED.equals(monthlySales)) {
+                ps.add(cb.isNull(root.get("monthlySales")));
+            } else if (monthlySales != null) {
+                ps.add(cb.equal(root.get("monthlySales"), monthlySales));
+            }
             if ("OPEN".equals(status)) {
                 ps.add(cb.not(root.get("status").in(HotelApplication.ONBOARDED, HotelApplication.DECLINED)));
             } else if (status != null) {
@@ -602,6 +659,7 @@ public class HotelApplicationService {
                 + "Business: " + a.getBusinessName() + " (" + TYPE_WORDS.get(a.getBusinessType()) + ")\n"
                 + "Where: " + a.getCity() + ", " + a.getState() + "\n"
                 + (a.getRooms() == null ? "" : "Rooms: " + a.getRooms() + "\n")
+                + "Monthly sales (all outlets): " + MonthlySales.labelOf(a.getMonthlySales()) + "\n"
                 + "Heard about us: " + HEARD.get(a.getHeardFrom()) + "\n"
                 + (a.getPreferredTime() == null ? "" : "Best time to call: " + TIMES.get(a.getPreferredTime()) + "\n")
                 + (a.getMarketerName() == null ? (a.getReferralCode() == null ? "" : "Referral code: " + a.getReferralCode() + " (not an active partner)\n")

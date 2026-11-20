@@ -59,14 +59,16 @@ public class HotelApplicationController {
     }
 
     @Operation(summary = "Hotel applications, newest first, paged (page from 0, size 1 to 100, 25 by default), by status (OPEN = not onboarded "
-            + "or declined, NEW, CONTACTED, MEETING_BOOKED, APPROVED, ONBOARDED, DECLINED), assignee and search; counts per status for the search, "
-            + "and newTotal for the sidebar badge")
+            + "or declined, NEW, CONTACTED, MEETING_BOOKED, APPROVED, ONBOARDED, DECLINED), assignee, monthly sales band (UNDER_1M, FROM_1M_TO_5M, "
+            + "FROM_5M_TO_20M, ABOVE_20M, PREFER_NOT, or NOT_ASKED for requests sent before the question) and search; sort NEWEST (default) or "
+            + "SALES (highest band first, Prefer not to say then Not asked last); counts per status for the search and band, and newTotal for the sidebar badge")
     @GetMapping("/admin/hotel-applications")
     @PreAuthorize("@access.platform()")
     public ApiResponse<PageWithCounts<ApplicationView>> list(@RequestParam(required = false) String status, @RequestParam(required = false) String q,
                                                              @RequestParam(required = false) String assigneeId,
+                                                             @RequestParam(required = false) String monthlySales, @RequestParam(required = false) String sort,
                                                              @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
-        return ApiResponse.ok(applications.list(status, q, assigneeId, page, size));
+        return ApiResponse.ok(applications.list(status, q, assigneeId, monthlySales, sort, page, size));
     }
 
     @Operation(summary = "How many requests are NEW (the sidebar badge)")

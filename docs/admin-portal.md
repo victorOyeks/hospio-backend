@@ -120,6 +120,8 @@ Self sign-up is off; businesses send **Book a demo** on the landing site and the
 applications** (sidebar badge: NEW requests): NEW → CONTACTED → MEETING_BOOKED → APPROVED → ONBOARDED, or DECLINED, with an
 assignee, a meeting time, append-only notes and the referring marketer. **Start onboarding** opens "Set up a business for them"
 prefilled from the request and links the created business back (ONBOARDED). Super admin and Support change; Finance admin reads.
+Each request shows the applicant's **monthly sales** band (list column, band filter, sort highest first; "Not asked" for requests
+sent before 21 Nov 2026) — information for the call only, never scored.
 Contract, rules and endpoints (`/platform/public/hotel-applications`, `/platform/admin/hotel-applications/**`): `docs/onboarding.md`,
 "Applications".
 

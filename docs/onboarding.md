@@ -56,6 +56,7 @@ visitor's address in `X-Client-Address`, believed only from our own servers, as 
 | `businessType` | `HOTEL`, `LOUNGE`, `BAR`, `RESTAURANT` or `MIXED` |
 | `city`, `state` | required; the state is one of the 36 states or FCT |
 | `rooms` | optional, 1–5000, kept only for `HOTEL` and `MIXED` (the form hides it otherwise) |
+| `monthlySales` | **required** (from 21 Nov 2026), "Average monthly sales (all outlets combined)": `UNDER_1M` "Under ₦1 million", `FROM_1M_TO_5M` "₦1 million – ₦5 million", `FROM_5M_TO_20M` "₦5 million – ₦20 million", `ABOVE_20M` "Above ₦20 million", `PREFER_NOT` "Prefer not to say"; missing or anything else → 400 "Choose your average monthly sales (an estimate is fine)" |
 | `heardFrom` | `SEARCH`, `SOCIAL`, `FRIEND`, `MARKETER`, `EVENT` or `OTHER` |
 | `preferredTime` | optional: `MORNING`, `AFTERNOON`, `EVENING`, `ANYTIME` |
 | `message` | optional, up to 1000 characters, plain text |
@@ -67,12 +68,17 @@ request, a repeat and a filled honeypot, so the form never tells anyone whose em
 under `data`; **429** (`Retry-After: 3600`) after 5 requests from one address or 3 for one email in an hour
 (`HOTEL_APPLICATIONS_PER_ADDRESS`, `HOTEL_APPLICATIONS_PER_EMAIL`; Redis, in memory when Redis is down). A repeat from an email
 that already has an open request is not a second row: it becomes a SYSTEM note on the open one ("Sent the Book a demo form
-again", with any new phone, business or message).
+again", with any new phone, business, monthly sales band or message).
 
 On a new request: an acknowledgement email to the applicant ("We received your Hospio360 demo request"), a notice to the
-platform support email (Settings · General `supportEmail`, `hello@oyeksglobal.com` by default) with everything they sent, and a
+platform support email (Settings · General `supportEmail`, `hello@oyeksglobal.com` by default) with everything they sent
+(including "Monthly sales (all outlets): <band>"; the applicant's acknowledgement never repeats the band), and a
 bell to every super admin and support admin (kind `HOTEL_APPLICATION`, link `/dashboard/hotel-applications?app=<id>`). Emails go
 through the usual delivery path, so test addresses (`.test`, `example.com` …) are recorded SKIPPED "Not sent: test address".
+
+**Monthly sales is information only** (owner decision, 21 Nov 2026): it helps the team prepare for the call. Nothing is scored,
+ranked automatically or declined on it. Requests sent before the question existed keep no band (`monthly_sales` null, changeset
+`platform-029`) and read **Not asked** everywhere; they are never back-filled.
 
 ### Statuses and the admin side
 
@@ -87,10 +93,10 @@ assignee, meeting, link) and decline (the partner-application DECIDE rule); fina
 
 | Method | Path | Who | Body → response |
 |---|---|---|---|
-| GET | `/platform/admin/hotel-applications?status=&q=&assigneeId=&page=&size=` | platform | paged, newest first; `status` also `OPEN` (not onboarded or declined); `counts` per status + `OPEN`, `all`, `newTotal` (the sidebar badge) |
+| GET | `/platform/admin/hotel-applications?status=&q=&assigneeId=&monthlySales=&sort=&page=&size=` | platform | paged, newest first; `status` also `OPEN` (not onboarded or declined); `monthlySales` one band or `NOT_ASKED` (no band); `sort` `NEWEST` (default) or `SALES` (Above ₦20 million first, down to Under ₦1 million, then Prefer not to say, then Not asked; newest first within a band); `counts` per status + `OPEN`, `all` follow the search and band; `newTotal` (the sidebar badge) |
 | GET | `/platform/admin/hotel-applications/new-count` | platform | `{count}` of NEW |
 | GET | `/platform/admin/hotel-applications/permissions` | platform | `{canUpdate, canDecline}` |
-| GET | `/platform/admin/hotel-applications/{id}` | platform | the application with `notes[]` (kind NOTE, STATUS or SYSTEM, body, authorName, createdAt) |
+| GET | `/platform/admin/hotel-applications/{id}` | platform | the application with `notes[]` (kind NOTE, STATUS or SYSTEM, body, authorName, createdAt); every view carries `monthlySales` (code or null) and `monthlySalesLabel` ("Not asked" when null) |
 | PUT | `…/{id}/status` | SUPER_ADMIN, SUPPORT | `{status, meetingAt?, reason?, note?}` |
 | POST | `…/{id}/notes` | SUPER_ADMIN, SUPPORT | `{text}` (up to 2000) |
 | PUT | `…/{id}/assignee` | SUPER_ADMIN, SUPPORT | `{assigneeId}` an active super admin or support admin; blank unassigns |
@@ -98,11 +104,13 @@ assignee, meeting, link) and decline (the partner-application DECIDE rule); fina
 | POST | `…/{id}/link` | SUPER_ADMIN, SUPPORT | `{businessId}`: the business must exist (tenant) and not be linked to another application; a declined application must be reopened first → `ONBOARDED`, `businessId`, `linkedBusinessName`, `onboardedAt` |
 
 Tables: `platform.hotel_applications` and `platform.hotel_application_notes` (changeset `platform-028`, platform-only RLS like
-`partner_applications`; one open request per email by a partial unique index).
+`partner_applications`; one open request per email by a partial unique index). `platform-029` adds `monthly_sales` (nullable,
+indexed); the sort uses a computed rank, nothing extra is stored.
 
 **Admin portal (apps/admin), Growth · Hotel applications** (badge: NEW count). Tabs Open (default), New, Contacted, Meeting
 booked, Approved, Onboarded, Declined, All, with counts; search on business, owner, email, phone, city, referral code or
-marketer. The detail panel shows the business, owner, best time to call, how they heard, the message, the referral marketer,
+marketer; a **Monthly sales** column, a band filter (every band, each band, Not asked) and a sort (Newest first, or Monthly sales
+highest first), all done by the server. The detail panel shows the business, owner, monthly sales, best time to call, how they heard, the message, the referral marketer,
 and lets Support/Super admin set the assignee, status (with meeting time or decline reason) and add notes. **Start onboarding**
 opens "Set up a business for them" filled from the request (business name, kind, owner name, email, phone, city and the
 referring marketer); Create business links the new business to the request (`ONBOARDED`) and opens the 10-step wizard with
