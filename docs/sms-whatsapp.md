@@ -18,7 +18,7 @@ guest messages) goes by **WhatsApp or email only**:
 
 Codes go through **Termii**, as CoRyd's notification-service does: `POST {TERMII_BASE_URL}/api/sms/send` on the **`dnd`**
 route (the `generic` route is promotional and never reaches a number on Nigeria's DND list, while Termii still says
-"sent") from the approved sender ID `Hospio360`. Until `TERMII_ENABLED` is on, codes go by Infobip SMS as before.
+"sent") from the approved sender ID in force (Settings · Integrations · Termii; `OE Alert` since 18 Nov 2026, Termii's "OTP and transactional alerts" sender; env default `Hospio360`). Until `TERMII_ENABLED` is on, codes go by Infobip SMS as before.
 Termii's delivery reports post to `POST /messaging/webhooks/termii/reports`, believed only with a valid
 `X-Termii-Signature` (HMAC-SHA512 of the raw body under the secret key: Settings · Integrations · Termii → Secret key, else
 `TERMII_SECRET_KEY`); records are `termii:<message_id>` (the report's `message_id`, `message_id_str` or `id` is tried in turn).
@@ -167,7 +167,7 @@ Every Infobip and Termii value below, and `SMS_ENABLED` / `WHATSAPP_ENABLED`, ca
 | `INFOBIP_NOTIFY_URL`, `INFOBIP_WEBHOOK_KEY` | Where Infobip posts delivery reports, and the key it must quote. Both empty: no reports. |
 | `WHATSAPP_HEADER_IMAGE_URL` | The banner sent with image-header templates (default the landing site's). |
 | `STAY_LINK_SECRET` | Signs the booking page links (default the internal API key). Changing it breaks every link already sent. |
-| `TEXTS_ALLOW_ONLY` | Comma-separated numbers. When set only these receive SMS/WhatsApp; others are recorded as held back. **Staging sets it** (test data holds real-looking numbers); production leaves it empty. |
+| `TEXTS_ALLOW_ONLY` | Comma-separated numbers. When set only these receive SMS/WhatsApp; others are recorded as held back. **Staging sets it** (test data holds real-looking numbers); production leaves it empty. A phone code to any other number on staging is never texted ("SMS is not going through" on staging is this): type the fixed code 159753 instead (docs/onboarding.md). |
 
 While the Infobip account is on its free trial it only delivers to the numbers verified in Infobip.
 

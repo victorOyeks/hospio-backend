@@ -201,4 +201,31 @@ class TwoStepServiceTest {
         assertThat(secrets.open(sealed)).isEqualTo(secret);
         assertThatThrownBy(() -> new TwoStepSecrets("other-key", "x").open(sealed)).isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    void theFixedCodeStandsInForTheAppOnStaging() {
+        org.springframework.mock.env.MockEnvironment env = new org.springframework.mock.env.MockEnvironment();
+        env.setActiveProfiles("staging");
+        twoStep.setFixedOtp(new FixedOtp("159753", env));
+        twoStep.setup("ada");
+        twoStep.enable("ada", "159753");
+        assertThat(ada.isTwoStepEnabled()).isTrue();
+
+        String token = auth.signIn(new LoginRequest("ada@x.ng", "Secret123!")).twoStepToken();
+        assertThatThrownBy(() -> auth.signInWithCode(token, "000000")).isInstanceOf(UnauthorizedException.class);
+        AuthResponse done = auth.signInWithCode(token, "159753");
+        assertThat(done.accessToken()).isEqualTo("access");
+        // Again on the next sign-in: unlike an app code it is not used up.
+        String again = auth.signIn(new LoginRequest("ada@x.ng", "Secret123!")).twoStepToken();
+        assertThat(auth.signInWithCode(again, "159753").accessToken()).isEqualTo("access");
+    }
+
+    @Test
+    void withoutTheFixedCodeItIsJustAWrongCode() {
+        turnOn();
+        String token = auth.signIn(new LoginRequest("ada@x.ng", "Secret123!")).twoStepToken();
+        String app = freshCode();
+        org.junit.jupiter.api.Assumptions.assumeFalse("159753".equals(app));
+        assertThatThrownBy(() -> auth.signInWithCode(token, "159753")).isInstanceOf(UnauthorizedException.class);
+    }
 }

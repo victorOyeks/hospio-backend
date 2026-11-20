@@ -58,6 +58,14 @@ public class TwoStepService {
     private final TwoStepSecrets secrets;
     private final PasswordEncoder passwordEncoder;
 
+    private FixedOtp fixedOtp = FixedOtp.OFF;
+
+    /** Dev and staging only: the fixed code ({@link FixedOtp}) stands in for the authenticator app's code. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setFixedOtp(FixedOtp fixedOtp) {
+        this.fixedOtp = fixedOtp;
+    }
+
     @Value("${hospio.auth.sign-in-max-attempts:5}")
     int maxAttempts = 5;
 
@@ -116,7 +124,8 @@ public class TwoStepService {
                 throw new BadRequestException("Start again: scan the QR code first");
             }
             byte[] secret = secrets.open(user.getTwoStepPendingSecret());
-            OptionalLong step = Totp.matchingStep(secret, code, Instant.now().getEpochSecond(), null);
+            OptionalLong step = fixedOtp.matches(code) ? OptionalLong.of(Instant.now().getEpochSecond() / 30)
+                    : Totp.matchingStep(secret, code, Instant.now().getEpochSecond(), null);
             if (step.isEmpty()) {
                 throw new BadRequestException("That code is wrong. Type the 6 digits your app shows now (check the phone's clock is right)");
             }
@@ -187,6 +196,9 @@ public class TwoStepService {
             return false;
         }
         String c = code.replaceAll("\\s", "");
+        if (fixedOtp.matches(c)) {
+            return true;
+        }
         if (c.matches("\\d{6}")) {
             OptionalLong step = Totp.matchingStep(secrets.open(user.getTwoStepSecret()), c, Instant.now().getEpochSecond(),
                     user.getTwoStepLastStep());
