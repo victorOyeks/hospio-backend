@@ -19,9 +19,99 @@ kind of business?" first. What differs for a location without rooms:
   already has a location called X…", the owner's **Locations** page with **Add a location**). A hotel reads what this document
   quotes. Rule and tables: `docs/plan-venue-type.md`, "Phase 5: wording"; the helper is `common/venue/VenueWording`.
 
+## Applications: "Book a demo" replaces self sign-up (21 Nov 2026)
+
+**Owner decision.** Hotels, lounges, bars and restaurants no longer sign up by themselves. Instead:
+
+1. They send the **Book a demo** form on the landing site (`hospio360.com/book-a-demo`).
+2. The Hospio360 team calls them (promised within 1 working day), meets them and agrees terms.
+3. The team onboards them in the admin portal with the back-office wizard below (Hotel applications → **Start onboarding**).
+4. The owner gets the usual handover invite and signs in. Nobody signs up.
+
+**Self sign-up is off on the server.** identity-service `hospio.signup.self-serve-enabled` (env `SELF_SIGNUP_ENABLED`) is
+`false` in every profile. While it is off, `POST /identity/auth/sign-up` answers **410** with "Hospio360 accounts are set up by
+our team — book a demo at hospio360.com/book-a-demo", before the body is read (`SelfSignUpConfig` interceptor; `SignUpService`
+checks again). The sign-up code is kept, not deleted: `SELF_SIGNUP_ENABLED=true` turns it back on. Not affected, because none of
+them is self sign-up: the owner invite at handover, staff invites (`POST /identity/users`, `/auth/accept-invite`), marketer
+invites and partner approvals. An owner who signed up before 21 Nov 2026 and is part-way through the 4-step wizard still signs in
+and finishes it (`/onboarding/mine/**` is untouched).
+
+**The web apps.** Every "Get started" / "Create an account" on the landing site is now **Book a demo** (header, hero, video
+section, pricing, closing call to action, features page, footer, FAQ); the landing copy says laptops and tablets, never phones.
+The hotel app's sign-in page has no sign-up link (it offers "New to Hospio360? Book a demo"); `/sign-up` redirects to
+`NEXT_PUBLIC_SITE_URL/book-a-demo`, keeping `?ref=`. A marketer's referral link is now `hospio360.com/book-a-demo?ref=<code>`
+(old `/sign-up?ref=` links redirect there with the code).
+
+### The form (platform-service, public)
+
+`POST /platform/public/hotel-applications` (no session; the landing site posts through its own server action and passes the
+visitor's address in `X-Client-Address`, believed only from our own servers, as for partner applications):
+
+| Field | Rule |
+|---|---|
+| `ownerName` | required, letters, 2–150 |
+| `phone` | required, a Nigerian mobile (0803…, +234803…), stored `+234…` |
+| `email` | required, a real address |
+| `businessName` | required, 2–150, must contain letters |
+| `businessType` | `HOTEL`, `LOUNGE`, `BAR`, `RESTAURANT` or `MIXED` |
+| `city`, `state` | required; the state is one of the 36 states or FCT |
+| `rooms` | optional, 1–5000, kept only for `HOTEL` and `MIXED` (the form hides it otherwise) |
+| `heardFrom` | `SEARCH`, `SOCIAL`, `FRIEND`, `MARKETER`, `EVENT` or `OTHER` |
+| `preferredTime` | optional: `MORNING`, `AFTERNOON`, `EVENING`, `ANYTIME` |
+| `message` | optional, up to 1000 characters, plain text |
+| `referralCode` | optional, the marketer's code from `?ref=`; recorded with the marketer when that marketer can refer (active, agreement accepted), else kept as the code only |
+| `website` | the honeypot: filled → "received", nothing stored or sent |
+
+Answers: **200** "Thanks — we've received your request. Our team will call you within 1 working day." (the same for a new
+request, a repeat and a filled honeypot, so the form never tells anyone whose email is known); **400** with a message per field
+under `data`; **429** (`Retry-After: 3600`) after 5 requests from one address or 3 for one email in an hour
+(`HOTEL_APPLICATIONS_PER_ADDRESS`, `HOTEL_APPLICATIONS_PER_EMAIL`; Redis, in memory when Redis is down). A repeat from an email
+that already has an open request is not a second row: it becomes a SYSTEM note on the open one ("Sent the Book a demo form
+again", with any new phone, business or message).
+
+On a new request: an acknowledgement email to the applicant ("We received your Hospio360 demo request"), a notice to the
+platform support email (Settings · General `supportEmail`, `hello@oyeksglobal.com` by default) with everything they sent, and a
+bell to every super admin and support admin (kind `HOTEL_APPLICATION`, link `/dashboard/hotel-applications?app=<id>`). Emails go
+through the usual delivery path, so test addresses (`.test`, `example.com` …) are recorded SKIPPED "Not sent: test address".
+
+### Statuses and the admin side
+
+`NEW → CONTACTED → MEETING_BOOKED → APPROVED → ONBOARDED`, or `DECLINED`. Any open status may move to any other (back too, to
+fix a slip); `MEETING_BOOKED` needs a meeting time; `DECLINED` needs a reason (kept, never emailed: the team tells them on the
+phone) and can be reopened; `ONBOARDED` is set only by linking the business and is final. Every change, note, assignment and
+meeting goes on the application's append-only timeline (author and time) and in the activity log (topic
+`hospio-hotel-application`, Changes by Hospio360 · Admin activity).
+
+Permissions follow partner applications: every platform role reads; **super admin and support** change (status, notes,
+assignee, meeting, link) and decline (the partner-application DECIDE rule); finance admin reads only.
+
+| Method | Path | Who | Body → response |
+|---|---|---|---|
+| GET | `/platform/admin/hotel-applications?status=&q=&assigneeId=&page=&size=` | platform | paged, newest first; `status` also `OPEN` (not onboarded or declined); `counts` per status + `OPEN`, `all`, `newTotal` (the sidebar badge) |
+| GET | `/platform/admin/hotel-applications/new-count` | platform | `{count}` of NEW |
+| GET | `/platform/admin/hotel-applications/permissions` | platform | `{canUpdate, canDecline}` |
+| GET | `/platform/admin/hotel-applications/{id}` | platform | the application with `notes[]` (kind NOTE, STATUS or SYSTEM, body, authorName, createdAt) |
+| PUT | `…/{id}/status` | SUPER_ADMIN, SUPPORT | `{status, meetingAt?, reason?, note?}` |
+| POST | `…/{id}/notes` | SUPER_ADMIN, SUPPORT | `{text}` (up to 2000) |
+| PUT | `…/{id}/assignee` | SUPER_ADMIN, SUPPORT | `{assigneeId}` an active super admin or support admin; blank unassigns |
+| PUT | `…/{id}/meeting` | SUPER_ADMIN, SUPPORT | `{meetingAt}` ISO instant, null clears (refused while MEETING_BOOKED) |
+| POST | `…/{id}/link` | SUPER_ADMIN, SUPPORT | `{businessId}`: the business must exist (tenant) and not be linked to another application; a declined application must be reopened first → `ONBOARDED`, `businessId`, `linkedBusinessName`, `onboardedAt` |
+
+Tables: `platform.hotel_applications` and `platform.hotel_application_notes` (changeset `platform-028`, platform-only RLS like
+`partner_applications`; one open request per email by a partial unique index).
+
+**Admin portal (apps/admin), Growth · Hotel applications** (badge: NEW count). Tabs Open (default), New, Contacted, Meeting
+booked, Approved, Onboarded, Declined, All, with counts; search on business, owner, email, phone, city, referral code or
+marketer. The detail panel shows the business, owner, best time to call, how they heard, the message, the referral marketer,
+and lets Support/Super admin set the assignee, status (with meeting time or decline reason) and add notes. **Start onboarding**
+opens "Set up a business for them" filled from the request (business name, kind, owner name, email, phone, city and the
+referring marketer); Create business links the new business to the request (`ONBOARDED`) and opens the 10-step wizard with
+`?application=<id>`, which shows the request's rooms, place and message above the wizard. The rest is the back-office path:
+handover → the owner's invite → sign-in.
+
 ## The two paths
 
-**Self-serve (the hotel signs up).** The owner creates an account on the hotel app (`/sign-up`), confirms their phone, and walks a 4-step wizard: business, first hotel, rooms and prices, first manager. Each step writes to the real services as it is saved; the wizard's progress is kept in the business's onboarding draft (`source = SELF_SERVE`). Finishing the wizard sets the business `LIVE`. The manager gets a temporary password and an invite link the owner can send; the manager sets a password on `/accept-invite` and lands on their first day.
+**Self-serve (the hotel signs up) — off since 21 Nov 2026, see "Applications" above; kept for owners already part-way through it.** The owner creates an account on the hotel app (`/sign-up`), confirms their phone, and walks a 4-step wizard: business, first hotel, rooms and prices, first manager. Each step writes to the real services as it is saved; the wizard's progress is kept in the business's onboarding draft (`source = SELF_SERVE`). Finishing the wizard sets the business `LIVE`. The manager gets a temporary password and an invite link the owner can send; the manager sets a password on `/accept-invite` and lands on their first day.
 
 **Back office (Hospio360 onboards the hotel).** A platform admin creates the business (`source = BACK_OFFICE`, stage `ONBOARDING`) and walks the 10-step wizard: business and legal, owner and contacts, fee and contract, hotels, rooms, setup template, people, connections, go-live checklist, logins and handover. Steps that create things call the real services; the draft keeps progress and the list of logins created. Handover creates the owner login (temporary password, shown once, plus an invite link), sets the stage `HANDED_OVER`, and the owner's first sign-in is: choose a password → review and accept the handover (`/handover`) → `LIVE`.
 
@@ -119,7 +209,7 @@ browser history entry. Hotel setup (step 6) saves which hotels were ticked and w
 
 | Method | Path | Who | Body → response |
 |---|---|---|---|
-| POST | `/auth/sign-up` | public | `{fullName, email, phone, password (8..72), businessName, city?}` → `AuthResponse` (the owner is signed in). Creates the business through tenant internal (`source SELF_SERVE`, stage `ONBOARDING`, owner fields set) with a preset id, then the owner account (`mustChangePassword=false`, `phoneVerified=false`) and an `OWNER` grant. 409 if the email exists. |
+| POST | `/auth/sign-up` | public | **410 while `SELF_SIGNUP_ENABLED` is off (the default since 21 Nov 2026, see "Applications").** When on: `{fullName, email, phone, password (8..72), businessName, city?}` → `AuthResponse` (the owner is signed in). Creates the business through tenant internal (`source SELF_SERVE`, stage `ONBOARDING`, owner fields set) with a preset id, then the owner account (`mustChangePassword=false`, `phoneVerified=false`) and an `OWNER` grant. 409 if the email exists. |
 | POST | `/auth/phone/send-code` | authenticated | `{channel?: "SMS"\|"WHATSAPP", ifNone?: boolean}` → `{expiresAt, deliveries, sent, retryInSeconds}`; stores the code hash and `phone_code_sent_at` on the user and sends it. **Cooldown** (`hospio.auth.phone-code-cooldown-seconds`, 60): within 60 s of the last code nothing is sent, 200 with message "A code was already sent", `sent:false`, the waiting code's `expiresAt` (null if none is valid) and `retryInSeconds` to wait. `ifNone:true` (the Check your phone page on open) sends only when no code is still valid, else returns that code's `expiresAt` with `sent:false`. Sign-up's code obeys the same cooldown. Changing the phone on My profile drops the waiting code (not the cooldown). |
 | GET | `/auth/phone/code` | authenticated | sends nothing: `{expiresAt (null when none is valid), deliveries: [], sent: false, retryInSeconds}` |
 | POST | `/auth/phone/verify` | authenticated | `{code}` → `MeResponse`; sets `phoneVerified=true`. 400 on a wrong or expired code. |
@@ -241,7 +331,7 @@ signed in (hotel accounts to the hotel app, Hospio360 staff and marketers to the
 
 ### apps/hotel
 
-- `/sign-up` (Figma 3163:16114) → `signUp` → session → `/verify-phone` (3163:16180; "Skip for now" allowed) → `/onboarding`.
+- `/sign-up` redirects to `NEXT_PUBLIC_SITE_URL/book-a-demo` (keeping `?ref=`) since 21 Nov 2026; the sign-in page has no sign-up link. Before that: `/sign-up` (Figma 3163:16114) → `signUp` → session → `/verify-phone` (3163:16180; "Skip for now" allowed) → `/onboarding`, which owners who signed up earlier still finish after signing in.
 - `/onboarding` (own layout: logo, step bar, "Save and finish later"): Welcome checklist (3163:16235), Step 1 Your business (3164:16113; `PUT /tenant/businesses/mine`), Step 2 Your first hotel (3164:16239; `POST /tenant/hotels` then `refreshSession`), Step 3 Rooms & prices (3164:16373; room types `POST /property/room-types`, rooms `POST /property/rooms/bulk`, with `X-Hotel-Id` of the hotel just created), Step 4 Your first manager (3165:16113; `POST /identity/users` role MANAGER for that hotel; shows the temporary password and the invite link with copy and WhatsApp buttons), All set (3165:16555) → `POST /tenant/onboarding/mine/complete` → `/dashboard`. Progress is saved per step (`PUT /tenant/onboarding/mine/step`) so the owner can leave and return; the dashboard shell sends an owner whose business is `ONBOARDING` + `SELF_SERVE` back to `/onboarding`.
 - `/handover` (K1–K3): an owner whose business is `HANDED_OVER` is sent here after the password change; it shows the hotels, logins and settings Hospio360 set up, and "Accept and continue" calls `POST /tenant/handover/accept`.
 - `/accept-invite?token=` (3167:16201): `GET /identity/auth/invites/{token}` → form (name read-only, email read-only, password, confirm) → `POST /identity/auth/accept-invite` → session → `/dashboard` (manager's first day, 3165:17210, is the normal manager dashboard).
@@ -251,6 +341,7 @@ signed in (hotel accounts to the hotel app, Hospio360 staff and marketers to the
 ### apps/admin
 
 - Businesses: list live (`GET /tenant/businesses`), New business → `POST /tenant/businesses` → onboarding step 1.
+- Hotel applications (since 21 Nov 2026): the Book a demo requests; Start onboarding → the same New business panel, prefilled, then the wizard; see "Applications".
 - Onboarding board live (`GET /tenant/onboarding`); each card opens `/dashboard/onboarding/[businessId]`, the 10-step wizard (J2–J14): business & legal and owner & contacts (`PUT /tenant/businesses/{id}`), fee & contract (same), hotels (`POST /tenant/hotels` with `businessId`, list), rooms (room types + `rooms/bulk` per hotel with `X-Hotel-Id`), setup template (`GET /tenant/setup-templates`, `POST /hotel-config/setup/apply-template` per hotel), people (`POST /identity/users` with `businessId` + `hotelId`; the created logins with temporary passwords and invite links are kept in the draft data for the handover step), connections (POS terminals `POST /payment/terminals` per hotel, WhatsApp number in `MESSAGING`), go-live checklist (computed from the draft and live counts), logins & handover (`POST /tenant/onboarding/{id}/handover`; the owner's temporary password and invite link shown once with copy buttons; the handover pack lists every login).
 - Business detail: overview, Hotels and People tabs live; Change stage, Change account manager, Edit business live; Reset password and Resend invite on people rows live.
 

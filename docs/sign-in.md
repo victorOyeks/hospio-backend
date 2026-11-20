@@ -14,6 +14,16 @@ one-time code carried in one redirect.
 The marketer console lives inside the admin app, so "hand over to the marketer console" means "hand over to the admin app";
 the role sends the marketer to `/marketer` there.
 
+## No self sign-up (21 Nov 2026)
+
+Business accounts are set up by the Hospio360 team after a demo (`docs/onboarding.md`, "Applications"). The hotel app's sign-in
+page has no "Create your account" link; it offers "New to Hospio360? Book a demo", which opens the landing site's
+`/book-a-demo`. The hotel app's `/sign-up` redirects there (keeping a marketer's `?ref=`), and `POST /identity/auth/sign-up`
+answers 410 "Hospio360 accounts are set up by our team — book a demo at hospio360.com/book-a-demo" while
+`SELF_SIGNUP_ENABLED` is off (the default everywhere). Everyone else arrives by invite exactly as before: the owner's handover
+invite, staff invites and marketer invites (`/accept-invite?token=`), then signs in here. Owners who signed up before the switch
+sign in as usual and finish their own setup wizard.
+
 ## The flow
 
 1. The person signs in on either app (`AuthForm`, `packages/ui/src/screens/auth-form.tsx` in hospio-frontend, the same

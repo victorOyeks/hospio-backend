@@ -114,6 +114,15 @@ Entities (new, in payment-service): `Settlement` (businessId, businessName, hote
 | POST | `/platform/admin/support/tickets/{id}/reopen` | platform | → OPEN |
 | GET/POST | `/platform/support/tickets` | hotel users | unchanged (owner/manager open and list their own) |
 
+## Hotel applications (platform, 21 Nov 2026)
+
+Self sign-up is off; businesses send **Book a demo** on the landing site and the team works each request in **Growth · Hotel
+applications** (sidebar badge: NEW requests): NEW → CONTACTED → MEETING_BOOKED → APPROVED → ONBOARDED, or DECLINED, with an
+assignee, a meeting time, append-only notes and the referring marketer. **Start onboarding** opens "Set up a business for them"
+prefilled from the request and links the created business back (ONBOARDED). Super admin and Support change; Finance admin reads.
+Contract, rules and endpoints (`/platform/public/hotel-applications`, `/platform/admin/hotel-applications/**`): `docs/onboarding.md`,
+"Applications".
+
 ## Marketers (platform) and the marketer portal
 
 > **Since 18 Nov 2026 commission is on collected daily fees, paid by monthly statement: see `docs/plan-marketers.md`** (20 % of the platform fee collected, 12 months from the first collected fee, 5 % WHT, clawback, statements on the 5th, ₦5,000 minimum, agreement RPA-2026-11, checked bank details, Referred by changes through platform). The rows below are the original phase-3 contract; where they differ, plan-marketers.md wins.
