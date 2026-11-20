@@ -63,7 +63,7 @@ under the field.
 |---|---|
 | Owner's full name, business (trading) name, registered name, hotel name | 2–120 characters with at least two letters (not `0000`, not `@#$%`). Registered name optional. |
 | City | Required (business and hotel); letters only, 2–80 characters, no digits. |
-| Address (head office, hotel) | Optional; 5–200 characters with at least three letters. |
+| Address (head office, hotel) | 5–200 characters with at least three letters. Required to complete wizard steps 1 and 4 (below); optional elsewhere. |
 | Email (owner, business, hotel, second contact) | `name@domain.tld`; owner email required, the rest optional. |
 | Phone (owner, business, hotel, second contact) | Optional; 10–15 digits, optional `+`, spaces, brackets, dashes; the last ten digits not all one digit. `+234 803…` and `0803…` are the same number. |
 | CAC / registration number | Optional; `RC`, `BN` or `IT` and 1–8 digits (`RC 1873402`, `rc-1873402`; plain digits mean RC), not all zeros. Stored as `RC 1873402`. |
@@ -84,6 +84,21 @@ blocks saving another step):
 - **Hotel name**: one per business, any case or spacing (409 "This business already has a hotel called X…"; "…a location called X…" in a business that is not hotels only); also for owners.
 
 The wizard's step 2 second contact (kept in the draft only) is checked by `PUT /tenant/onboarding/{id}/step` when filled.
+
+**Back-office required fields (21 Nov 2026, tester report).** `PUT /tenant/onboarding/{businessId}/step` completes a step only
+when the saved business (and its hotels) has what the step needs; otherwise a 400 names the first missing field. The same set is
+checked by `POST /tenant/onboarding/{businessId}/handover` (400 "Before the handover: …") before the owner's login is made.
+Existing businesses are not changed; they are asked for the missing details the next time a step completes or the handover is sent.
+
+| Step | Required to complete | Optional (checked when typed) |
+|---|---|---|
+| 1 Business | Registered name (the trading name if not registered yet), business type, head office address, city, and the business email **or** phone (at least one) | CAC number (RC/BN/IT + digits; many lounges and bars are not registered yet) |
+| 2 Owner | Owner's phone (sign-in checks and WhatsApp), with name and email as before | Second contact: all blank, or a name plus a phone or an email |
+| 3 Fee | Fee as before | **Charges start on stays optional by design**: empty = free (no platform fee until a date is set; devices are still billed) |
+| 4 Locations | At least one, and an address on every location | Location email and phone |
+
+`draft: true` on the same endpoint ("Save and finish later" in the admin wizard; the board's next action) keeps the step's form
+without completing it: required fields are not asked for, typed values are still checked, a completed step stays completed.
 
 **Rooms** (property): a room type name has 2–60 characters with letters and is **unique among the hotel's active types**
 (409 "There is already a room type called X in this hotel. One type has one price…"); guests 1–20 when given; price above
@@ -163,7 +178,7 @@ Hotel gains `status` values `ACTIVE | PAUSED | CLOSED`, `checkInTime`, `checkOut
 |---|---|---|---|
 | GET | `/onboarding?status=` | platform | `OnboardingResponse[]` (`businessId, businessName, source, step, totalSteps, completedSteps[], assignedTo, assignedToName?, status, nextAction?, startedAt, updatedAt, data`) |
 | GET | `/onboarding/{businessId}` | platform | `OnboardingResponse` |
-| PUT | `/onboarding/{businessId}/step` | platform | `{step, data, nextAction?}`; `data` is the step's saved form JSON, merged into the draft's `data` under the step key; marks the step completed. Step 10 → `READY_FOR_HANDOVER`. |
+| PUT | `/onboarding/{businessId}/step` | platform | `{step, data, nextAction?, draft?}`; `data` is the step's saved form JSON, merged into the draft's `data` under the step key; marks the step completed (steps 1, 2 and 4 only with their required fields, see "Back-office required fields"). `draft: true` saves without completing. Step 10 → `READY_FOR_HANDOVER`. |
 | PUT | `/onboarding/{businessId}/assign?adminId=` | platform | unchanged |
 | POST | `/onboarding/{businessId}/handover` | platform | creates the owner login (fixed: with the business), stores the handover, stage `HANDED_OVER` → `HandoverResponse(owner login with temporary password + inviteToken, hotels, logins created during onboarding)` |
 | GET | `/onboarding/mine` | owner | the owner's own draft (self-serve wizard progress) |

@@ -201,6 +201,58 @@ public final class Fields {
         return value;
     }
 
+    /**
+     * Back-office step 1 (and the handover): what the business must have before the step completes (docs/onboarding.md,
+     * "Back-office required fields", 21 Nov 2026). The CAC number stays optional: many lounges and bars are not registered yet.
+     */
+    public static void requireBusinessDetails(Business b) {
+        if (!StringUtils.hasText(b.getLegalName())) {
+            throw new BadRequestException("Enter the registered name (as on the certificate, or the trading name if not registered yet)");
+        }
+        if (!StringUtils.hasText(b.getBusinessType())) {
+            throw new BadRequestException("Choose the business type");
+        }
+        if (!StringUtils.hasText(b.getAddress())) {
+            throw new BadRequestException("Enter the head office address");
+        }
+        if (!StringUtils.hasText(b.getCity())) {
+            throw new BadRequestException("Enter the city");
+        }
+        if (!StringUtils.hasText(b.getEmail()) && !StringUtils.hasText(b.getPhone())) {
+            throw new BadRequestException("Enter the business email or phone (at least one) so statements and notices reach them");
+        }
+    }
+
+    /** Back-office step 2 (and the handover): the owner's phone is needed for sign-in checks and WhatsApp. */
+    public static void requireOwnerPhone(Business b) {
+        if (!StringUtils.hasText(b.getOwnerPhone())) {
+            throw new BadRequestException("Enter the owner's phone: it is used for sign-in checks and WhatsApp");
+        }
+        if (!validPhone(b.getOwnerPhone())) {
+            throw new BadRequestException("The owner's phone must be a real phone number, like +234 803 555 0192");
+        }
+    }
+
+    /**
+     * The optional second contact: blank is fine; anything typed must be real, and a contact needs a name plus a phone or an
+     * email to be any use.
+     */
+    public static void secondContact(String name, String email, String phone) {
+        name(name, "the second contact's name", false);
+        email(email, "the second contact's email", false);
+        phone(phone, "the second contact's phone", false);
+        boolean any = StringUtils.hasText(name) || StringUtils.hasText(email) || StringUtils.hasText(phone);
+        if (!any) {
+            return;
+        }
+        if (!StringUtils.hasText(name)) {
+            throw new BadRequestException("Enter the second contact's name, or clear their phone and email");
+        }
+        if (!StringUtils.hasText(email) && !StringUtils.hasText(phone)) {
+            throw new BadRequestException("Enter the second contact's phone or email, or clear their name");
+        }
+    }
+
     /** "14:00": hours 00-23 and minutes 00-59. */
     public static String time(String v, String what, String fallback) {
         if (v == null) {
