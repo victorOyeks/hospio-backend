@@ -54,6 +54,28 @@ public class PaymentService {
     /** The Hospio360 invoice restriction (docs/plan-monthly-invoices.md); absent in unit tests. */
     private com.hospio.common.billing.BillingHold billingHold;
 
+    /** Whether a location has accommodation (absent in unit tests: every location is then a hotel). */
+    private com.hospio.payment.client.TenantClient tenantClient;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setTenantClient(com.hospio.payment.client.TenantClient tenantClient) {
+        this.tenantClient = tenantClient;
+    }
+
+    /**
+     * A manager's or owner's walk-in cash (no sale, folio or booking) at a location with no accommodation (a lounge, bar or restaurant
+     * without rooms) has no desk: there is no front office there. It is refused: the cash is taken on the outlet's sale screen, into
+     * that outlet's till. Null where walk-in cash is taken (hotels, any location with rooms).
+     */
+    String walkInCashRefusal(String hotelId, String orderId, String folioId, String bookingId) {
+        if (orderId != null || folioId != null || bookingId != null || tenantClient == null || tenantClient.hasAccommodation(hotelId)) {
+            return null;
+        }
+        String place = com.hospio.common.venue.VenuePlaces.at(hotelId).place();
+        return "Cash at a" + (place.matches("^[aeiou].*") ? "n " : " ") + place + " is taken on the bar or kitchen sale screen, where it goes into that "
+                + "outlet's till. Open the sale there and take the cash. Card and transfer still work here";
+    }
+
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setBillingHold(com.hospio.common.billing.BillingHold billingHold) {
         this.billingHold = billingHold;
@@ -195,6 +217,10 @@ public class PaymentService {
         // and its close, and a refund of it comes out of the same drawer. Card and transfer stay under their own role.
         boolean managerCash = false;
         if (dto.method() == PaymentMethod.CASH && noDrawerOfTheirOwn(role)) {
+            String noDesk = walkInCashRefusal(hotelId, blankToNull(dto.orderId()), blankToNull(dto.folioId()), bookingId);
+            if (noDesk != null) {
+                throw new BadRequestException(noDesk);
+            }
             Role till = managerTill(blankToNull(dto.orderId()), desk);
             if (till != null) {
                 role = till;
@@ -286,9 +312,9 @@ public class PaymentService {
      * {@code openedAt} say which drawer the cash goes into, so the payment step can name it.
      */
     public record CashTill(String role, boolean needed, boolean open, String message, String tillRole, String tillId, String openedByName,
-                           Instant openedAt, boolean stale, boolean manager, String takenAs) {
+                           Instant openedAt, boolean stale, boolean manager, String takenAs, boolean noWalkInCash) {
         CashTill(String role, boolean needed, boolean open, String message) {
-            this(role, needed, open, message, null, null, null, null, false, false, null);
+            this(role, needed, open, message, null, null, null, null, false, false, null, false);
         }
     }
 
@@ -311,6 +337,10 @@ public class PaymentService {
         String takenAs = null;
         if (noDrawerOfTheirOwn(role)) {
             String oid = blankToNull(orderId);
+            String noDesk = walkInCashRefusal(hotelId, oid, null, null);
+            if (noDesk != null) {
+                return new CashTill(role.name(), true, false, noDesk, null, null, null, null, false, true, role.name(), true);
+            }
             String orderDesk = oid == null ? null : fnb.order(oid, null, null).map(com.hospio.payment.client.FnbClient.OrderDue::desk).orElse(null);
             Role till = managerTill(oid, orderDesk);
             if (till == null) {
@@ -329,12 +359,12 @@ public class PaymentService {
         com.hospio.payment.client.FinanceClient.TillState till = finance.till(hotelId, tillOf(role).name()).orElse(null);
         if (till == null) {
             // finance unreachable: the cash goes through, as on POST /payments
-            return new CashTill(role.name(), true, true, null, tillOf(role).name(), null, null, null, false, manager, takenAs);
+            return new CashTill(role.name(), true, true, null, tillOf(role).name(), null, null, null, false, manager, takenAs, false);
         }
         boolean ok = till.isOpen() && !till.isStale();
         String message = ok ? null : manager ? managerRefusal(role, till)
                 : role == Role.WAITER && !till.isStale() ? "The cashier's till isn't open: a waiter's cash goes into it" : refusal(role, till);
-        return new CashTill(role.name(), true, ok, message, tillOf(role).name(), till.tillId(), till.openedByName(), till.openedAt(), till.isStale(), manager, takenAs);
+        return new CashTill(role.name(), true, ok, message, tillOf(role).name(), till.tillId(), till.openedByName(), till.openedAt(), till.isStale(), manager, takenAs, false);
     }
 
     /** The outlet desk of an order's payment (BAR or KITCHEN): a cashier or waiter with no POS of their own uses that desk's. */
