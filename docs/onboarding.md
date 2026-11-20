@@ -221,6 +221,9 @@ Unchanged; the back-office "Connections" step and Hotel setup use the existing `
 
 ## Web apps
 
+Signing in: both apps run the same sign-in flow and hand an account of the other app over with a one-time code, already
+signed in (hotel accounts to the hotel app, Hospio360 staff and marketers to the admin console). See `docs/sign-in.md`.
+
 ### apps/hotel
 
 - `/sign-up` (Figma 3163:16114) → `signUp` → session → `/verify-phone` (3163:16180; "Skip for now" allowed) → `/onboarding`.

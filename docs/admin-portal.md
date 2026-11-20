@@ -182,6 +182,10 @@ Server alerts (kind `SYSTEM_HEALTH`, no business, business name "Server": disk, 
 | POST | `/identity/support-access/{grantId}/token` | platform | → `{accessToken, expiresIn, hotels}`: a token for the admin with `bid` = business, scope `business`, roles `OWNER:VIEW`, `act: adminId`, `sub` = admin, expiring with the grant (max 60 min). Every write made with such a token is refused by services (`AccessLevel.VIEW`), and `TenantContext` records `actedBy` so the activity log shows "Hospio360 · Name". |
 | GET | `/identity/support-access?businessId=` | platform | grants incl. expired, for the Contract & activity tab |
 
+Single sign-in (since 20 Nov 2026): staff and marketers may sign in at the hotel app too and are handed to this console with a
+one-time code; a hotel account signed in here is handed to the hotel app. A support-access token can't ask for such a code.
+See `docs/sign-in.md`.
+
 The hotel app accepts `/auth/support?token=…` (opened from the admin portal in a new tab): sets the session cookie from the token with a visible "Viewing as Hospio360 support · read only · ends at HH:MM" bar.
 
 ## Seed (staging)
