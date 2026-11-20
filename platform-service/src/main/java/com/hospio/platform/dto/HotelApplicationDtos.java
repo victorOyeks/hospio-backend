@@ -3,6 +3,7 @@ package com.hospio.platform.dto;
 import com.hospio.common.kafka.events.HospioEvent;
 import com.hospio.platform.entity.HotelApplication;
 import com.hospio.platform.entity.HotelApplicationNote;
+import com.hospio.platform.entity.MonthlySales;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -20,11 +21,12 @@ public final class HotelApplicationDtos {
 
     /**
      * The public form. {@code website} is the honeypot: people never see the field, so anything in it means a script filled the
-     * form. {@code referralCode}: the marketer's code from the link (?ref=), optional.
+     * form. {@code referralCode}: the marketer's code from the link (?ref=), optional. {@code monthlySales}: a
+     * {@link com.hospio.platform.entity.MonthlySales} band, required.
      */
     public record ApplyRequest(String ownerName, String phone, String email, String businessName, String businessType, String city,
                                String state, Integer rooms, String heardFrom, String preferredTime, String message, String referralCode,
-                               String website) {
+                               String website, String monthlySales) {
     }
 
     /** What the public form is told; the same for a new request, a repeat and a filled honeypot. */
@@ -49,16 +51,19 @@ public final class HotelApplicationDtos {
         }
     }
 
-    /** One application as the admin sees it; {@code notes} only on the detail (empty in the list). */
+    /**
+     * One application as the admin sees it; {@code notes} only on the detail (empty in the list). {@code monthlySales}: the band's
+     * code, null when not asked; {@code monthlySalesLabel}: its words ("Not asked" when null).
+     */
     public record ApplicationView(String id, String ownerName, String email, String phone, String businessName, String businessType,
-                                  String city, String state, Integer rooms, String heardFrom, String preferredTime, String message,
+                                  String city, String state, Integer rooms, String monthlySales, String monthlySalesLabel, String heardFrom, String preferredTime, String message,
                                   String referralCode, String marketerProfileId, String marketerName, String status, Instant statusChangedAt,
                                   String assigneeId, String assigneeName, Instant meetingAt, String declineReason, String businessId,
                                   String linkedBusinessName, Instant onboardedAt, Instant createdAt, String ip, String userAgent,
                                   List<NoteView> notes) {
         public static ApplicationView of(HotelApplication a, List<NoteView> notes) {
             return new ApplicationView(a.getId(), a.getOwnerName(), a.getEmail(), a.getPhone(), a.getBusinessName(), a.getBusinessType(),
-                    a.getCity(), a.getState(), a.getRooms(), a.getHeardFrom(), a.getPreferredTime(), a.getMessage(), a.getReferralCode(),
+                    a.getCity(), a.getState(), a.getRooms(), a.getMonthlySales(), MonthlySales.labelOf(a.getMonthlySales()), a.getHeardFrom(), a.getPreferredTime(), a.getMessage(), a.getReferralCode(),
                     a.getMarketerProfileId(), a.getMarketerName(), a.getStatus(), a.getStatusChangedAt(), a.getAssigneeId(),
                     a.getAssigneeName(), a.getMeetingAt(), a.getDeclineReason(), a.getBusinessId(), a.getLinkedBusinessName(),
                     a.getOnboardedAt(), a.getCreatedAt(), a.getIp(), a.getUserAgent(), notes == null ? List.of() : notes);

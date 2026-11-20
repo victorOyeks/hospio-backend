@@ -11,6 +11,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
+import org.hibernate.annotations.Formula;
 
 /**
  * A hotel, lounge, bar or restaurant asked for a demo on the landing site ("Book a demo", docs/onboarding.md). Self sign-up is off:
@@ -60,6 +61,15 @@ public class HotelApplication extends BaseEntity {
 
     /** Only for a hotel or a mixed business; null when not given. */
     private Integer rooms;
+
+    /** A {@link MonthlySales} band (required on the form since platform-029); null on requests sent before the question ("Not asked"). */
+    @Column(name = "monthly_sales", length = 20)
+    private String monthlySales;
+
+    /** Sort rank of the band, highest first, Prefer not to say then Not asked last (computed, never stored). */
+    @Formula(MonthlySales.RANK_SQL)
+    @Setter(lombok.AccessLevel.NONE)
+    private Integer monthlySalesRank;
 
     /** SEARCH, SOCIAL, FRIEND, MARKETER, EVENT or OTHER. */
     @Column(name = "heard_from", nullable = false, length = 30)

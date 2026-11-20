@@ -32,6 +32,7 @@ import com.hospio.platform.dto.HotelApplicationDtos.StatusRequest;
 import com.hospio.platform.dto.HotelApplicationDtos.Submission;
 import com.hospio.platform.entity.HotelApplication;
 import com.hospio.platform.entity.HotelApplicationNote;
+import com.hospio.platform.entity.MonthlySales;
 import com.hospio.platform.repository.HotelApplicationNoteRepository;
 import com.hospio.platform.repository.HotelApplicationRepository;
 import com.hospio.platform.settings.GeneralSettings;
@@ -111,13 +112,13 @@ class HotelApplicationServiceTest {
 
     private static ApplyRequest valid(String email) {
         return new ApplyRequest("  Bola   Ade ", "0803 555 0192", email, "QA Palm <b>Suites</b>", "hotel", "Ikeja", "Lagos", 24, "search",
-                "morning", "We have 24 rooms\r\n\r\n\r\nand a bar.", null, null);
+                "morning", "We have 24 rooms\r\n\r\n\r\nand a bar.", null, null, "from_5m_to_20m");
     }
 
     private static ApplyRequest withRef(String email, String ref) {
         ApplyRequest v = valid(email);
         return new ApplyRequest(v.ownerName(), v.phone(), v.email(), v.businessName(), v.businessType(), v.city(), v.state(), v.rooms(),
-                "marketer", v.preferredTime(), v.message(), ref, null);
+                "marketer", v.preferredTime(), v.message(), ref, null, v.monthlySales());
     }
 
     private void signIn(Role role) {
@@ -142,6 +143,7 @@ class HotelApplicationServiceTest {
         assertThat(a.getBusinessName()).isEqualTo("QA Palm bSuites/b");
         assertThat(a.getBusinessType()).isEqualTo("HOTEL");
         assertThat(a.getRooms()).isEqualTo(24);
+        assertThat(a.getMonthlySales()).isEqualTo("FROM_5M_TO_20M");
         assertThat(a.getHeardFrom()).isEqualTo("SEARCH");
         assertThat(a.getPreferredTime()).isEqualTo("MORNING");
         assertThat(a.getMessage()).isEqualTo("We have 24 rooms\n\nand a bar.");
@@ -154,7 +156,10 @@ class HotelApplicationServiceTest {
         assertThat(mail.getAllValues().get(0).text()).contains("Hello Bola,").contains("within 1 working day").contains("Rooms: 24");
         assertThat(mail.getAllValues().get(1).to()).isEqualTo("hello@oyeksglobal.com");
         assertThat(mail.getAllValues().get(1).subject()).isEqualTo("New demo request: QA Palm bSuites/b (Ikeja)");
-        assertThat(mail.getAllValues().get(1).text()).contains("Phone: +2348035550192").contains("Heard about us: Search (Google)");
+        assertThat(mail.getAllValues().get(1).text()).contains("Phone: +2348035550192").contains("Heard about us: Search (Google)")
+                .contains("Monthly sales (all outlets): ₦5 million – ₦20 million");
+        // The applicant's acknowledgement never repeats the band.
+        assertThat(mail.getAllValues().get(0).text()).doesNotContain("₦").doesNotContain("sales");
 
         ArgumentCaptor<NoticeEvent> notice = ArgumentCaptor.forClass(NoticeEvent.class);
         verify(events).publish(eq(KafkaTopics.NOTICE), notice.capture());
@@ -166,11 +171,11 @@ class HotelApplicationServiceTest {
     @Test
     void theFormSaysWhatIsWrongFieldByField() {
         Submission s = service.submit(new ApplyRequest("1", "12345", "not-an-email", "!!", "CASINO", "", "Atlantis", 0, null, "midnight",
-                "x".repeat(1001), null, null), "1.1.1.1", null);
+                "x".repeat(1001), null, null, null), "1.1.1.1", null);
 
         assertThat(s.outcome()).isEqualTo(Submission.INVALID);
         assertThat(s.errors()).containsOnlyKeys("ownerName", "phone", "email", "businessName", "businessType", "city", "state", "heardFrom",
-                "preferredTime", "message");
+                "preferredTime", "message", "monthlySales");
         assertThat(s.errors().get("phone")).contains("Nigerian phone number");
         assertThat(table).isEmpty();
         verify(deliveries, never()).send(any(Delivery.class));
@@ -180,11 +185,11 @@ class HotelApplicationServiceTest {
     void roomsAreCheckedForAHotelAndDroppedForALounge() {
         ApplyRequest v = valid("bola@hospio-qa.test");
         Submission bad = service.submit(new ApplyRequest(v.ownerName(), v.phone(), v.email(), v.businessName(), "MIXED", v.city(), v.state(),
-                9000, v.heardFrom(), null, null, null, null), "1.1.1.1", null);
+                9000, v.heardFrom(), null, null, null, null, v.monthlySales()), "1.1.1.1", null);
         assertThat(bad.errors()).containsOnlyKeys("rooms");
 
         service.submit(new ApplyRequest(v.ownerName(), v.phone(), "lounge@hospio-qa.test", "QA Blue Lounge", "LOUNGE", v.city(), v.state(), 30,
-                "social", null, null, null, null), "1.1.1.2", null);
+                "social", null, null, null, null, "UNDER_1M"), "1.1.1.2", null);
         assertThat(table.get(0).getRooms()).isNull();
         assertThat(table.get(0).getPreferredTime()).isNull();
     }
@@ -193,7 +198,7 @@ class HotelApplicationServiceTest {
     void aFilledHiddenFieldIsToldReceivedAndNothingIsKeptOrSent() {
         ApplyRequest v = valid("bot@hospio-qa.test");
         Submission s = service.submit(new ApplyRequest(v.ownerName(), v.phone(), v.email(), v.businessName(), v.businessType(), v.city(),
-                v.state(), v.rooms(), v.heardFrom(), null, null, null, "http://spam"), "1.1.1.1", null);
+                v.state(), v.rooms(), v.heardFrom(), null, null, null, "http://spam", v.monthlySales()), "1.1.1.1", null);
         assertThat(s.outcome()).isEqualTo(Submission.RECEIVED);
         assertThat(table).isEmpty();
         verify(deliveries, never()).send(any(Delivery.class));
@@ -204,7 +209,7 @@ class HotelApplicationServiceTest {
         HotelApplication a = submitted();
         ApplyRequest v = valid("BOLA@hospio-qa.test");
         Submission again = service.submit(new ApplyRequest(v.ownerName(), "0905 555 0192", v.email(), v.businessName(), v.businessType(),
-                v.city(), v.state(), v.rooms(), v.heardFrom(), null, "Please call today", null, null), "1.1.1.9", null);
+                v.city(), v.state(), v.rooms(), v.heardFrom(), null, "Please call today", null, null, "ABOVE_20M"), "1.1.1.9", null);
 
         assertThat(again.outcome()).isEqualTo(Submission.RECEIVED);
         assertThat(table).hasSize(1);
@@ -212,7 +217,8 @@ class HotelApplicationServiceTest {
             assertThat(n.getApplicationId()).isEqualTo(a.getId());
             assertThat(n.getKind()).isEqualTo("SYSTEM");
             assertThat(n.getAuthorName()).isEqualTo("Website");
-            assertThat(n.getBody()).contains("Sent the Book a demo form again").contains("phone: +2349055550192").contains("Please call today");
+            assertThat(n.getBody()).contains("Sent the Book a demo form again").contains("phone: +2349055550192").contains("monthly sales: Above ₦20 million")
+                    .contains("Please call today");
         });
         verify(deliveries, times(2)).send(any(Delivery.class));
     }
@@ -378,6 +384,102 @@ class HotelApplicationServiceTest {
     @Test
     void anUnknownStatusFilterIsRefused() {
         assertThatThrownBy(() -> service.list("LOST", null, null, 0, 25)).isInstanceOf(BadRequestException.class);
+    }
+
+    // ---- monthly sales -------------------------------------------------------------------------------
+
+    private ApplyRequest withSales(String email, String sales) {
+        ApplyRequest v = valid(email);
+        return new ApplyRequest(v.ownerName(), v.phone(), v.email(), v.businessName(), v.businessType(), v.city(), v.state(), v.rooms(),
+                v.heardFrom(), v.preferredTime(), v.message(), null, null, sales);
+    }
+
+    @Test
+    void monthlySalesIsRequiredAndMustBeOneOfTheFiveBands() {
+        for (String missing : new String[] {null, "", "  ", "LOTS", "5000000", "NOT_ASKED"}) {
+            Submission s = service.submit(withSales("none@hospio-qa.test", missing), "1.1.1.1", null);
+            assertThat(s.outcome()).isEqualTo(Submission.INVALID);
+            assertThat(s.errors()).containsOnlyKeys("monthlySales");
+            assertThat(s.errors().get("monthlySales")).isEqualTo("Choose your average monthly sales (an estimate is fine)");
+        }
+        assertThat(table).isEmpty();
+        verify(deliveries, never()).send(any(Delivery.class));
+
+        String[] codes = {"UNDER_1M", "from_1m_to_5m", " FROM_5M_TO_20M ", "ABOVE_20M", "Prefer_Not"};
+        for (int i = 0; i < codes.length; i++) {
+            assertThat(service.submit(withSales("band" + i + "@hospio-qa.test", codes[i]), "2.2.2." + i, null).outcome()).isEqualTo(Submission.RECEIVED);
+        }
+        assertThat(table).extracting(HotelApplication::getMonthlySales)
+                .containsExactly("UNDER_1M", "FROM_1M_TO_5M", "FROM_5M_TO_20M", "ABOVE_20M", "PREFER_NOT");
+    }
+
+    @Test
+    void theFiveBandsHaveTheirNairaWordsAndAnOldRequestReadsNotAsked() {
+        assertThat(java.util.Arrays.stream(MonthlySales.values()).map(Enum::name))
+                .containsExactly("UNDER_1M", "FROM_1M_TO_5M", "FROM_5M_TO_20M", "ABOVE_20M", "PREFER_NOT");
+        assertThat(MonthlySales.UNDER_1M.label()).isEqualTo("Under ₦1 million");
+        assertThat(MonthlySales.FROM_1M_TO_5M.label()).isEqualTo("₦1 million – ₦5 million");
+        assertThat(MonthlySales.FROM_5M_TO_20M.label()).isEqualTo("₦5 million – ₦20 million");
+        assertThat(MonthlySales.ABOVE_20M.label()).isEqualTo("Above ₦20 million");
+        assertThat(MonthlySales.PREFER_NOT.label()).isEqualTo("Prefer not to say");
+        assertThat(MonthlySales.labelOf(null)).isEqualTo("Not asked");
+
+        HotelApplication old = HotelApplication.builder().ownerName("Old Ade").email("old@hospio-qa.test").phone("+2348035550192")
+                .businessName("QA Old Inn").businessType("HOTEL").city("Ikeja").state("Lagos").heardFrom("SEARCH").build();
+        old.setId("app-old");
+        ApplicationView v = ApplicationView.of(old, List.of());
+        assertThat(v.monthlySales()).isNull();
+        assertThat(v.monthlySalesLabel()).isEqualTo("Not asked");
+        // The support email for a request without a band (never sent today, but the words are ready).
+        assertThat(service.teamEmail(old)).contains("Monthly sales (all outlets): Not asked");
+    }
+
+    @Test
+    void theRankInSqlFollowsTheBandsHighestFirstWithPreferNotThenNotAskedLast() {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("WHEN '([A-Z0-9_]+)' THEN (\\d+)").matcher(MonthlySales.RANK_SQL);
+        Map<String, Integer> sql = new java.util.LinkedHashMap<>();
+        while (m.find()) {
+            sql.put(m.group(1), Integer.parseInt(m.group(2)));
+        }
+        for (MonthlySales b : MonthlySales.values()) {
+            assertThat(sql.get(b.name())).as(b.name()).isEqualTo(b.rank());
+        }
+        assertThat(sql).hasSize(MonthlySales.values().length);
+        assertThat(MonthlySales.RANK_SQL).contains("ELSE " + MonthlySales.NOT_ASKED_RANK + " END");
+        assertThat(java.util.Arrays.stream(MonthlySales.values()).sorted(java.util.Comparator.comparingInt(MonthlySales::rank)).map(Enum::name))
+                .containsExactly("ABOVE_20M", "FROM_5M_TO_20M", "FROM_1M_TO_5M", "UNDER_1M", "PREFER_NOT");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void theListSortsByBandHighestFirstOnRequestAndNewestFirstByDefault() {
+        when(rows.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(org.springframework.data.domain.Page.empty());
+        ArgumentCaptor<org.springframework.data.domain.Pageable> paging = ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+
+        service.list(null, null, null, null, "sales", 0, 25);
+        service.list(null, null, null, null, null, 0, 25);
+        verify(rows, times(2)).findAll(any(org.springframework.data.jpa.domain.Specification.class), paging.capture());
+
+        org.springframework.data.domain.Sort bySales = paging.getAllValues().get(0).getSort();
+        assertThat(bySales.toList()).extracting(o -> o.getProperty() + " " + o.getDirection())
+                .containsExactly("monthlySalesRank ASC", "createdAt DESC", "id ASC");
+        assertThat(paging.getAllValues().get(1).getSort().toList()).extracting(o -> o.getProperty() + " " + o.getDirection())
+                .containsExactly("createdAt DESC", "id ASC");
+        assertThatThrownBy(() -> service.list(null, null, null, null, "BIGGEST", 0, 25)).isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("NEWEST, SALES");
+    }
+
+    @Test
+    void theBandFilterTakesTheFiveBandsAndNotAskedAndRefusesAnythingElse() {
+        assertThat(HotelApplicationService.salesFilter(null)).isNull();
+        assertThat(HotelApplicationService.salesFilter(" ")).isNull();
+        assertThat(HotelApplicationService.salesFilter("above_20m")).isEqualTo("ABOVE_20M");
+        assertThat(HotelApplicationService.salesFilter("PREFER_NOT")).isEqualTo("PREFER_NOT");
+        assertThat(HotelApplicationService.salesFilter("not_asked")).isEqualTo("NOT_ASKED");
+        assertThatThrownBy(() -> HotelApplicationService.salesFilter("RICH")).isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("NOT_ASKED");
+        assertThatThrownBy(() -> service.list(null, null, null, "RICH", null, 0, 25)).isInstanceOf(BadRequestException.class);
     }
 
     private static TenantClient.Business business(String id, String name) {

@@ -38,5 +38,6 @@
     <include file="db/changelog/026-audit-seven-days.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/027-charges-start.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/028-hotel-applications.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/029-hotel-applications-monthly-sales.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>
