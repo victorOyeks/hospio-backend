@@ -106,3 +106,12 @@ per-address sign-in limit (`hospio.auth.rate-limit-per-minute`, 30) had been cou
 app server's own address.
 
 QA: hospio-frontend `docs/qa/85-single-sign-in.md`.
+
+## The first super admin on a fresh environment
+
+A new environment has no one to sign in to the admin console. identity-service creates one platform super admin at start-up
+for `BOOTSTRAP_ADMIN_EMAIL` (default in application.yml) when no platform SUPER_ADMIN exists, and emails a random temporary
+password (TEMP_PASSWORD, through messaging-service) with a link to the admin console sign-in (`ADMIN_APP_URL`). The first
+sign-in is the ordinary temporary-password flow: change the password, then set up 2-step. Where a super admin already exists
+(staging) it does nothing and logs `Bootstrap super admin not needed`. Details, the re-issue rule and the internal endpoint:
+docs/admin-portal.md, "Bootstrap super admin".
