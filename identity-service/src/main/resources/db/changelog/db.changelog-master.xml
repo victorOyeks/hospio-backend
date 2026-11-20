@@ -22,5 +22,6 @@
     <include file="db/changelog/010-phone-code-sent-at.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/011-handoff-codes.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/012-session-families.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/013-bootstrap-admin.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

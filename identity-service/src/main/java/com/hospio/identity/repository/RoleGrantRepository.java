@@ -21,6 +21,12 @@ public interface RoleGrantRepository extends JpaRepository<RoleGrant, String> {
 
     List<RoleGrant> findByBusinessId(String businessId);
 
+    /** Whether anyone holds this platform role (no business), paused or running out included: the bootstrap super admin's check. */
+    boolean existsByRoleAndBusinessIdIsNull(Role role);
+
+    /** The same, leaving one person out. */
+    boolean existsByRoleAndBusinessIdIsNullAndUserIdNot(Role role, String userId);
+
     List<RoleGrant> findByHotelId(String hotelId);
 
     List<RoleGrant> findByExpiresAtBefore(java.time.Instant now);

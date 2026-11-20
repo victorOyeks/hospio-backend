@@ -25,6 +25,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "spring.kafka.admin.auto-create=false",
         "spring.kafka.admin.fail-fast=false",
         "services.internal.api-key=test-key",
+        "hospio.bootstrap.admin-email=",
         "jwt.secret=test-secret-test-secret-test-secret-test-secret-test"
 })
 class IdentityServiceSchemaIT {

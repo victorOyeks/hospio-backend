@@ -64,10 +64,7 @@ public class DeliveryService {
             out.add(d);
             try {
                 if (events != null) {
-                    events.publish(KafkaTopics.DELIVERY_REQUESTED, DeliveryRequestedEvent.builder()
-                            .businessId(d.businessId()).hotelId(d.hotelId())
-                            .channel(d.channel().name()).to(d.to()).subject(d.subject()).text(d.text())
-                            .kind(d.kind().name()).ref(d.ref()).template(d.template()).params(d.params()).build());
+                    events.publish(KafkaTopics.DELIVERY_REQUESTED, event(d));
                 }
                 log.info("Delivery {} to {} via {} ({}){}", d.kind(), d.to(), d.channel(), d.status(), echo ? " echoed in the response" : "");
             } catch (RuntimeException e) {
@@ -75,6 +72,35 @@ public class DeliveryService {
             }
         }
         return echo ? List.copyOf(out) : List.of();
+    }
+
+    /**
+     * Publishes one delivery now and waits for Kafka to take it, for a caller that retries on its own (the bootstrap super
+     * admin's temporary password, BootstrapAdminService in identity). True when the broker acknowledged it; false, with a
+     * warning naming the kind and the address (never the text), when it did not. Call it outside a transaction: it does not
+     * wait for a commit. Never throws.
+     */
+    public boolean sendConfirmed(Delivery raw, java.time.Duration timeout) {
+        EventPublisher events = publisher.getIfAvailable();
+        if (raw == null || events == null) {
+            return false;
+        }
+        Delivery d = marked(raw);
+        try {
+            events.publishAndWait(KafkaTopics.DELIVERY_REQUESTED, event(d), timeout);
+            log.info("Delivery {} to {} via {} ({}) acknowledged by Kafka", d.kind(), d.to(), d.channel(), d.status());
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("Delivery {} to {} not published: {}", d.kind(), d.to(), e.getMessage());
+            return false;
+        }
+    }
+
+    private static DeliveryRequestedEvent event(Delivery d) {
+        return DeliveryRequestedEvent.builder()
+                .businessId(d.businessId()).hotelId(d.hotelId())
+                .channel(d.channel().name()).to(d.to()).subject(d.subject()).text(d.text())
+                .kind(d.kind().name()).ref(d.ref()).template(d.template()).params(d.params()).build();
     }
 
     public List<Delivery> send(Delivery delivery) {

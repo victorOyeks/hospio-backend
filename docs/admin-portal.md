@@ -35,6 +35,39 @@ A `Delivery` is a message the platform would send: `{channel: "EMAIL" | "SMS" | 
 
 Names for `accountManagerId`, `assignedTo`, `madeBy` are resolved through `GET /identity/internal/users/contacts?userIds=` (exists).
 
+### Bootstrap super admin (fresh environments)
+
+A new environment (production's empty database) has nobody who can sign in to the admin console. identity-service fixes that by
+itself at start-up (`BootstrapAdminService`, run off the start-up thread after the service is ready):
+
+- **Setting:** `hospio.bootstrap.admin-email` (env `BOOTSTRAP_ADMIN_EMAIL`, default in application.yml). Empty switches it off.
+  There is no password setting: the password is random (16 characters), held only in memory and stored only as the usual hash.
+- **Only when needed:** if any platform `SUPER_ADMIN` grant exists (`identity.role_grants`, business null; paused or running out
+  counts), it does nothing. Staging already has super admins, so it is a no-op there. An existing account with that email that is
+  not a super admin is never promoted (WARN, nothing created).
+- **Same account as the console makes:** created through the same path as `POST /identity/users` for platform staff
+  (`UserService.newLogin`): `SUPER_ADMIN` at FULL, `must_change_password`, `temporary_password_expires_at` =
+  `hospio.auth.temporary-password-hours`, so the first sign-in asks for a new password and then the usual 2-step prompt for
+  platform staff. The email is the standard TEMP_PASSWORD delivery ("Your Hospio360 temporary password", sign-in link =
+  `hospio.apps.admin-url` / `ADMIN_APP_URL`), published on `hospio-delivery-requested` and sent by messaging-service (Brevo).
+  The activity log shows "Bootstrap super admin created (Hospio360 Admin)" (USER_CREATED with a note).
+- **Never twice:** one platform-scope transaction under `pg_advisory_xact_lock`; `identity.bootstrap_admin` holds one row at
+  most (id is always 1) and email is unique, so restarts and instances starting together create one account.
+- **Sending:** waits for Kafka to take the email; if it can't (Kafka down) it tries again, 8 times, waiting 10 s then twice as long
+  each time up to 5 minutes (`hospio.bootstrap.retry-delay-ms`, `max-attempts`). It never blocks start-up.
+- **Re-issue rule:** only for the bootstrap account, only while it has **never signed in** and still must change its password,
+  and only while no other super admin exists. On start-up a new temporary password replaces the old one (which stops working)
+  when the old one has expired, or when its email never reached Kafka and no instance is still trying to send it (a send lease,
+  `sending_until`). `POST /identity/internal/bootstrap-admin/reissue` (internal API key) does it on demand under the same
+  conditions, e.g. when the email reached Kafka but was lost later (messaging-service drops a temporary-password event older
+  than `MAIL_MAX_EVENT_AGE_MINUTES`, 30). It answers the outcome (`REISSUED`, `DONE`, `SUPER_ADMIN_EXISTS`…), never the
+  password. After the first sign-in nothing is ever re-issued; use the console's reset password like for anyone else.
+- **Logs:** INFO `Bootstrap super admin created for v***@oyeksglobal.com, temporary password emailed` (re-issue:
+  `Bootstrap super admin v***@…: new temporary password emailed`); WARN on each failed attempt and when it gives up. The password
+  is never logged; the delivery topic is kept out of the activity log.
+- **Production needs** messaging-service with `MAIL_ENABLED=true` and Brevo set up; the staging allow-list `TEXTS_ALLOW_ONLY` only
+  affects SMS/WhatsApp, and only reserved test domains (`.test`, `example.com`…) are never mailed.
+
 ## Fees and billing (platform)
 
 Entities: `FeeRule` (exists), `FeeStatement` (exists; gains `dueOn`, `businessName` snapshot, `lines` JSON `[{hotelId, hotelName, base, fee}]`, `sentAt`), `FeePayment` (new: statementId, amount, paidOn, reference, recordedBy). Status: `DUE`, `PART_PAID`, `PAID`, `OVERDUE` (computed: due and `dueOn` + grace days passed; a nightly job flips the stored status).

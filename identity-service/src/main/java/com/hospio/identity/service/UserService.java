@@ -211,24 +211,49 @@ public class UserService {
         assertPhoneFree(phone);
 
         String temporary = Hashing.temporaryPassword();
-        Instant expires = Instant.now().plus(temporaryPasswordHours, ChronoUnit.HOURS);
-        UserAccount user = users.save(UserAccount.builder()
-                .businessId(businessId)
-                .fullName(request.fullName().trim())
-                .email(email)
-                .phone(phone)
-                .passwordHash(passwordEncoder.encode(temporary))
-                .mustChangePassword(true)
-                .temporaryPasswordExpiresAt(expires)
-                .language(request.language())
-                .build());
-        grant(user, role, request.level() == null ? defaultLevel(role) : request.level(), hotelId, null, caller.getUserId());
+        UserAccount user = newLogin(businessId, hotelId, request.fullName().trim(), email, phone, request.language(), role,
+                request.level() == null ? defaultLevel(role) : request.level(), caller.getUserId(), temporary, null);
+        Instant expires = user.getTemporaryPasswordExpiresAt();
         InviteService.Issued invite = invites.issue(user, caller.getUserId());
-        events.publish(KafkaTopics.USER_CREATED, UserCreatedEvent.builder()
-                .businessId(user.getBusinessId()).hotelId(hotelId).userId(user.getId()).fullName(user.getFullName()).email(user.getEmail()).build());
         List<Delivery> sent = deliveryService.send(deliveries.forLogin(user, Set.of(role), temporary, expires, invite.token(), invite.expiresAt())
                 .stream().map(d -> d.from(businessId, hotelId)).toList());
         return new UserCreatedResponse(user.getId(), temporary, expires, invite.token(), invite.expiresAt(), sent);
+    }
+
+    /**
+     * What every new login gets, whoever makes it (a person through {@link #create}, or the system: the bootstrap super admin):
+     * the account with {@code temporaryPassword} to change on first sign-in, its first role and the USER_CREATED event
+     * ({@code note} replaces the activity log's "Login created for …" when set). The caller checks who may create whom, issues
+     * any invite and sends the deliveries.
+     */
+    UserAccount newLogin(String businessId, String hotelId, String fullName, String email, String phone, String language, Role role,
+                         AccessLevel level, String createdBy, String temporaryPassword, String note) {
+        UserAccount user = UserAccount.builder()
+                .businessId(businessId)
+                .fullName(fullName)
+                .email(email)
+                .phone(phone)
+                .language(language)
+                .build();
+        setTemporaryPassword(user, temporaryPassword);
+        user = users.save(user);
+        grant(user, role, level, hotelId, null, createdBy);
+        events.publish(KafkaTopics.USER_CREATED, UserCreatedEvent.builder()
+                .businessId(user.getBusinessId()).hotelId(hotelId).userId(user.getId()).fullName(user.getFullName()).email(user.getEmail())
+                .note(note).build());
+        return user;
+    }
+
+    /**
+     * Replaces the password with {@code temporary}, to be changed on first sign-in and refused after
+     * {@code hospio.auth.temporary-password-hours} (AuthService.signIn). Does not save. Returns when it stops working.
+     */
+    Instant setTemporaryPassword(UserAccount user, String temporary) {
+        Instant expires = Instant.now().plus(temporaryPasswordHours, ChronoUnit.HOURS);
+        user.setPasswordHash(passwordEncoder.encode(temporary));
+        user.setMustChangePassword(true);
+        user.setTemporaryPasswordExpiresAt(expires);
+        return expires;
     }
 
     /** A fresh temporary password and invite link for someone who lost or never got theirs. */
@@ -241,10 +266,7 @@ public class UserService {
         UserAccount user = find(userId);
         assertCanManage(caller, user);
         String temporary = Hashing.temporaryPassword();
-        Instant expires = Instant.now().plus(temporaryPasswordHours, ChronoUnit.HOURS);
-        user.setPasswordHash(passwordEncoder.encode(temporary));
-        user.setMustChangePassword(true);
-        user.setTemporaryPasswordExpiresAt(expires);
+        Instant expires = setTemporaryPassword(user, temporary);
         users.save(user);
         InviteService.Issued invite = invites.issue(user, caller.getUserId());
         List<Delivery> sent = deliveryService.send(fromTheirHotel(user, deliveries.forLogin(user, rolesOf(user), temporary, expires, invite.token(), invite.expiresAt())));
@@ -470,10 +492,7 @@ public class UserService {
         UserAccount user = find(userId);
         assertCanManage(caller, user);
         String temporary = Hashing.temporaryPassword();
-        Instant expires = Instant.now().plus(temporaryPasswordHours, ChronoUnit.HOURS);
-        user.setPasswordHash(passwordEncoder.encode(temporary));
-        user.setMustChangePassword(true);
-        user.setTemporaryPasswordExpiresAt(expires);
+        Instant expires = setTemporaryPassword(user, temporary);
         users.save(user);
         List<Delivery> sent = deliveryService.send(fromTheirHotel(user, deliveries.forPasswordReset(user, rolesOf(user), temporary, expires)));
         return new UserCreatedResponse(user.getId(), temporary, expires, null, null, sent);

@@ -23,8 +23,13 @@ final class Hashing {
 
     /** A temporary password a person can read over the phone: 10 unambiguous characters. */
     static String temporaryPassword() {
-        StringBuilder sb = new StringBuilder(10);
-        for (int i = 0; i < 10; i++) {
+        return temporaryPassword(10);
+    }
+
+    /** A temporary password of {@code length} characters from the same alphabet (about 5.8 bits each). */
+    static String temporaryPassword(int length) {
+        StringBuilder sb = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
             sb.append(PASSWORD_ALPHABET.charAt(RANDOM.nextInt(PASSWORD_ALPHABET.length())));
         }
         return sb.toString();

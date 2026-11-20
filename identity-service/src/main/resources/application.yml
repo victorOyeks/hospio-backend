@@ -67,6 +67,14 @@ hospio:
   logging:
     # Log request bodies and error responses (secrets masked). On for dev/staging via HOSPIO_LOG_BODIES.
     bodies: ${HOSPIO_LOG_BODIES:false}
+  bootstrap:
+    # On a fresh environment (no platform SUPER_ADMIN yet) creates one super admin for this address at start-up and emails it a
+    # random temporary password, to be changed on first sign-in (docs/admin-portal.md, "Bootstrap super admin"). There is no
+    # password setting. Empty switches it off. A no-op wherever a super admin already exists (staging).
+    admin-email: ${BOOTSTRAP_ADMIN_EMAIL:victor@oyeksglobal.com}
+    # Sending the email: tries this many times, waiting retry-delay-ms first and twice as long each time (at most 5 minutes).
+    retry-delay-ms: 10000
+    max-attempts: 8
   seed:
     # Creates the test accounts / example hotel on start-up when missing (env SEED_DEMO_DATA).
     enabled: ${SEED_DEMO_DATA:false}

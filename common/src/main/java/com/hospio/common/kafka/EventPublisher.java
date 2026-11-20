@@ -38,6 +38,33 @@ public class EventPublisher {
         }
     }
 
+    /**
+     * Sends now (no after-commit hook) and waits up to {@code timeout} for the broker's acknowledgement, for a caller that must
+     * know whether the event got out (a bounded retry loop, e.g. the bootstrap super admin's email). Throws
+     * {@link IllegalStateException} when it did not; the message names the event type and the cause, never the payload.
+     */
+    public void publishAndWait(String topic, HospioEvent event, java.time.Duration timeout) {
+        stamp(event);
+        String key = event.getHotelId() != null ? event.getHotelId() : event.getBusinessId();
+        try {
+            kafkaTemplate.send(topic, key, event).get(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(event.type() + " not published: interrupted");
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException | RuntimeException e) {
+            // No cause attached: a producer exception can carry the record, and the record can carry a temporary password.
+            throw new IllegalStateException(event.type() + " not published: " + reason(e));
+        }
+    }
+
+    private static String reason(Throwable e) {
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        return root.getClass().getSimpleName() + (root.getMessage() == null ? "" : " (" + root.getMessage() + ")");
+    }
+
     private void send(String topic, HospioEvent event) {
         String key = event.getHotelId() != null ? event.getHotelId() : event.getBusinessId();
         try {

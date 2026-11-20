@@ -15,9 +15,11 @@ public class UserCreatedEvent extends HospioEvent {
     private String userId;
     private String fullName;
     private String email;
+    /** What the activity log says instead of "Login created for …", e.g. "Bootstrap super admin created". Usually empty. */
+    private String note;
 
     @Override
     public String summary() {
-        return "Login created for " + fullName;
+        return note == null || note.isBlank() ? "Login created for " + fullName : note + " (" + fullName + ")";
     }
 }

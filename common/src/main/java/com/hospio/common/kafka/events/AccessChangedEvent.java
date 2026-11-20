@@ -42,6 +42,7 @@ public class AccessChangedEvent extends HospioEvent {
             case "DETAILS_CHANGED" -> "details changed";
             case "SESSIONS_ENDED" -> "signed out elsewhere";
             case "SESSION_FAMILY_ENDED" -> "signed out on one browser";
+            case "TEMPORARY_PASSWORD_REISSUED" -> "new temporary password emailed";
             default -> "access " + change;
         };
         return userName + ": " + (role == null ? "" : role + " ") + what + (detail == null || detail.isBlank() ? "" : " (" + detail + ")");
