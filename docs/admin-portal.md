@@ -114,6 +114,15 @@ Entities (new, in payment-service): `Settlement` (businessId, businessName, hote
 | POST | `/platform/admin/support/tickets/{id}/reopen` | platform | → OPEN |
 | GET/POST | `/platform/support/tickets` | hotel users | unchanged (owner/manager open and list their own) |
 
+## Hotel applications (platform, 21 Nov 2026)
+
+Self sign-up is off; businesses send **Book a demo** on the landing site and the team works each request in **Growth · Hotel
+applications** (sidebar badge: NEW requests): NEW → CONTACTED → MEETING_BOOKED → APPROVED → ONBOARDED, or DECLINED, with an
+assignee, a meeting time, append-only notes and the referring marketer. **Start onboarding** opens "Set up a business for them"
+prefilled from the request and links the created business back (ONBOARDED). Super admin and Support change; Finance admin reads.
+Contract, rules and endpoints (`/platform/public/hotel-applications`, `/platform/admin/hotel-applications/**`): `docs/onboarding.md`,
+"Applications".
+
 ## Marketers (platform) and the marketer portal
 
 > **Since 18 Nov 2026 commission is on collected daily fees, paid by monthly statement: see `docs/plan-marketers.md`** (20 % of the platform fee collected, 12 months from the first collected fee, 5 % WHT, clawback, statements on the 5th, ₦5,000 minimum, agreement RPA-2026-11, checked bank details, Referred by changes through platform). The rows below are the original phase-3 contract; where they differ, plan-marketers.md wins.
@@ -171,7 +180,7 @@ admins and "View as owner" still see it.
 
 ## Settings and integrations (platform, SUPER_ADMIN)
 
-`PlatformSetting` (new): group (`general`, `fees`, `security`), key, value JSON. Defaults: general `{company, supportEmail, supportWhatsApp, website, timezone}`; fees `{model, perRoom 1500, revenuePct 2, trialDays 30, dueDay 5, graceDays 10, marketerSharePct 20, marketerMonths 12 (was 24 until 18 Nov 2026), whtPct 5, marketerMinPayout 5000, providerFeePct 0.5, hmsSharePct 1.5}`; security `{require2Step false, sessionHours 12, adminIpAllowlist false, auditRetentionDays 7}` (audit logs kept 7 days since 19 Nov 2026, `docs/data-retention.md`).
+`PlatformSetting` (new): group (`general`, `fees`, `security`), key, value JSON. Defaults: general `{company, supportEmail, supportWhatsApp, website, timezone}`; fees `{model, perRoom 1500, revenuePct 2, trialDays 30, dueDay 5, graceDays 10, marketerSharePct 20, marketerMonths 12 (was 24 until 18 Nov 2026), whtPct 5, marketerMinPayout 5000, providerFeePct 0.5, hmsSharePct 1.5}`; security `{require2Step false, sessionHours 12, adminIpAllowlist false, auditRetentionDays 7}` (audit logs kept 7 days since 19 Nov 2026, `docs/data-retention.md`). Since 21 Nov 2026 identity-service enforces `require2Step` (Hospio360 staff without 2-step get a session limited to setting it up; every service refuses it elsewhere) and `sessionHours` (4, 12 or 24; a staff sign-in lasts that long) for SUPER_ADMIN, SUPPORT and FINANCE_ADMIN, never marketers or hotel accounts, reading them through `GET /internal/settings/security` with a 30 s cache that keeps the last value when platform can't answer (`docs/sign-in.md`, "Admin security settings"). `adminIpAllowlist` is **not implemented** (no IP list, nothing reads it); its switch is hidden in the console and the field is kept only so nothing breaks.
 
 | Method | Path | Who | Response |
 |---|---|---|---|

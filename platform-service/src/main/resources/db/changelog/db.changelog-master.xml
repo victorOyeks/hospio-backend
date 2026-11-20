@@ -37,5 +37,6 @@
     <include file="db/changelog/025-system-alert-notified.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/026-audit-seven-days.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/027-charges-start.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/028-hotel-applications.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

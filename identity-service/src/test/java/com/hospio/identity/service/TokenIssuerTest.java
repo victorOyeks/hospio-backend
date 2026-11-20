@@ -29,7 +29,8 @@ class TokenIssuerTest {
     private final RefreshTokenRepository refreshTokens = mock(RefreshTokenRepository.class);
     private final TenantClient tenant = mock(TenantClient.class);
     private final JwtUtil jwtUtil = new JwtUtil();
-    private final TokenIssuer issuer = new TokenIssuer(jwtUtil, grants, refreshTokens, tenant);
+    private final AdminSecurityPolicy policy = new AdminSecurityPolicy(mock(com.hospio.identity.client.PlatformClient.class), 30, 10);
+    private final TokenIssuer issuer = new TokenIssuer(jwtUtil, grants, refreshTokens, tenant, policy);
 
     TokenIssuerTest() {
         ReflectionTestUtils.setField(jwtUtil, "secret", "test-secret-test-secret-test-secret-test-secret");

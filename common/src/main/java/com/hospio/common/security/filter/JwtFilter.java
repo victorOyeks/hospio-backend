@@ -63,6 +63,12 @@ public class JwtFilter extends OncePerRequestFilter {
                     filterChain.doFilter(request, response);
                     return;
                 }
+                // "Require 2-step sign-in for every admin" (docs/sign-in.md): a session limited to setting up 2-step works only there.
+                if (JwtUtil.twoStepSetupOnly(claims) && !com.hospio.common.security.TwoStepSetupPaths.allows(request.getRequestURI())) {
+                    response.setHeader("X-Hospio-Two-Step-Setup", "required");
+                    FilterErrors.write(response, HttpServletResponse.SC_FORBIDDEN, com.hospio.common.security.TwoStepSetupPaths.MESSAGE);
+                    return;
+                }
                 String hotelHeader = request.getHeader(HOTEL_HEADER);
                 if (StringUtils.hasText(hotelHeader) && !user.isPlatform() && !user.getHotelIds().contains(hotelHeader)) {
                     FilterErrors.write(response, HttpServletResponse.SC_FORBIDDEN,

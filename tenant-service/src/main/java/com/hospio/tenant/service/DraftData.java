@@ -61,10 +61,17 @@ public class DraftData {
 
     /** Stores a step's form data under its key, marks the step completed and remembers what to do next. */
     public OnboardingDraftData saveStep(OnboardingDraftData data, int step, OnboardingStepData form, String nextAction) {
+        return saveStep(data, step, form, nextAction, true);
+    }
+
+    /** As above; {@code complete} false keeps the form without marking the step completed (a draft save). */
+    public OnboardingDraftData saveStep(OnboardingDraftData data, int step, OnboardingStepData form, String nextAction, boolean complete) {
         Map<String, OnboardingStepData> steps = new LinkedHashMap<>(data.steps() == null ? Map.of() : data.steps());
         steps.put(String.valueOf(step), form == null ? OnboardingStepData.EMPTY : form);
         TreeSet<Integer> completed = new TreeSet<>(completedSteps(data));
-        completed.add(step);
+        if (complete) {
+            completed.add(step);
+        }
         return new OnboardingDraftData(steps, new ArrayList<>(completed), nextAction != null ? nextAction : data.nextAction(), data.logins());
     }
 

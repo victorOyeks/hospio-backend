@@ -106,13 +106,20 @@ public class OnboardingService {
         requirePlatform();
         Business business = businessService.find(businessId);
         if (request.step() == 2 && request.data() != null) {
-            checkSecondContact(request.data());
+            if (request.isDraft()) {
+                checkSecondContactFormat(request.data());
+            } else {
+                checkSecondContact(request.data());
+            }
         }
         checkEmails(request.data());
+        if (!request.isDraft()) {
+            requireStep(business, request.step());
+        }
         OnboardingDraft draft = drafts.findByBusinessId(businessId).orElseGet(() -> OnboardingDraft.builder()
                 .businessId(businessId).assignedTo(CurrentUser.require().getUserId()).data(draftData.empty()).build());
         save(draft, business, request, BACK_OFFICE_STEPS);
-        if (request.step() >= BACK_OFFICE_STEPS && draft.getStatus() == OnboardingDraft.Status.IN_PROGRESS) {
+        if (!request.isDraft() && request.step() >= BACK_OFFICE_STEPS && draft.getStatus() == OnboardingDraft.Status.IN_PROGRESS) {
             draft.setStatus(OnboardingDraft.Status.READY_FOR_HANDOVER);
         }
         drafts.save(draft);
@@ -142,6 +149,15 @@ public class OnboardingService {
         OnboardingDraft draft = drafts.findByBusinessId(businessId).orElseThrow(() -> new BadRequestException("Finish onboarding first"));
         if (draft.getStatus() == OnboardingDraft.Status.IN_PROGRESS) {
             throw new BadRequestException("Finish the go-live checklist before sending the handover");
+        }
+        // The owner's login is made here: the details steps 1, 2 and 4 require must be in place (a business saved before
+        // the rules, or changed since, is told what is missing; nothing is changed for it).
+        try {
+            requireStep(business, 1);
+            requireStep(business, 2);
+            requireStep(business, 4);
+        } catch (BadRequestException e) {
+            throw new BadRequestException("Before the handover: " + e.getMessage());
         }
         // Once the owner has accepted (the business is live), sending again would reset the password they chose.
         boolean accepted = handovers.findByBusinessId(businessId).map(h -> h.getAcceptedAt() != null).orElse(false);
@@ -299,9 +315,35 @@ public class OnboardingService {
     // ---- shared --------------------------------------------------------------------------------------
 
     private void save(OnboardingDraft draft, Business business, OnboardingStepRequest request, int totalSteps) {
-        OnboardingDraftData data = draftData.saveStep(draftData.parse(draft.getData()), request.step(), request.data(), request.nextAction());
+        OnboardingDraftData data = draftData.saveStep(draftData.parse(draft.getData()), request.step(), request.data(), request.nextAction(),
+                !request.isDraft());
         draft.setData(draftData.write(data));
-        draft.setStep(Math.max(draft.getStep(), Math.min(request.step() + 1, totalSteps)));
+        if (!request.isDraft()) {
+            draft.setStep(Math.max(draft.getStep(), Math.min(request.step() + 1, totalSteps)));
+        }
+    }
+
+    /**
+     * What a back-office step needs before it completes (docs/onboarding.md, "Back-office required fields"): step 1 the
+     * business details, step 2 the owner's phone, step 4 an address on every location. Read from the saved business and
+     * hotels (the wizard writes them first), so a draft save never meets these.
+     */
+    void requireStep(Business business, int step) {
+        switch (step) {
+            case 1 -> Fields.requireBusinessDetails(business);
+            case 2 -> Fields.requireOwnerPhone(business);
+            case 4 -> {
+                List<String> missing = businessService.hotelsOf(business.getId()).stream()
+                        .filter(h -> !org.springframework.util.StringUtils.hasText(h.address()))
+                        .map(com.hospio.tenant.dto.HotelResponse::name).toList();
+                if (!missing.isEmpty()) {
+                    throw new BadRequestException("Enter the address of every location: " + String.join(", ", missing)
+                            + (missing.size() == 1 ? " has none" : " have none"));
+                }
+            }
+            default -> {
+            }
+        }
     }
 
     /**
@@ -317,8 +359,16 @@ public class OnboardingService {
         Fields.email(data.contactEmail(), "the second contact's email", false);
     }
 
-    /** Step 2's optional second contact: blank is fine, anything typed must be a real name, email or phone. */
+    /**
+     * Step 2's optional second contact: blank is fine; anything typed must be a real name, email or phone, and a contact
+     * needs a name plus a phone or an email.
+     */
     static void checkSecondContact(OnboardingStepData data) {
+        Fields.secondContact(data.contactName(), data.contactEmail(), data.contactPhone());
+    }
+
+    /** A draft save of step 2: only what is typed is checked. */
+    static void checkSecondContactFormat(OnboardingStepData data) {
         Fields.name(data.contactName(), "the second contact's name", false);
         Fields.email(data.contactEmail(), "the second contact's email", false);
         Fields.phone(data.contactPhone(), "the second contact's phone", false);

@@ -212,7 +212,7 @@ public class HandoffService {
             AuthResponse tokens = code.getFamilyId() != null ? tokenIssuer.issueInFamily(user, code.getFamilyId()) : tokenIssuer.issue(user);
             log.info("Handoff code exchanged for user {} on {}", user.getId(), target);
             return new HandoffDtos.Exchanged(tokens.accessToken(), tokens.refreshToken(), tokens.expiresIn(), tokens.roles(),
-                    tokens.mustChangePassword(), safeNext(code.getNextPath()));
+                    tokens.mustChangePassword(), safeNext(code.getNextPath()), tokens.twoStepSetupRequired());
         });
     }
 
