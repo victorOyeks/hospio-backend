@@ -64,10 +64,29 @@ public class PaymentService {
             Role.OWNER);
     /**
      * The desks whose cash goes into a till (each has a Till screen). Cash taken for one of them needs that desk's till open, so
-     * every naira counted at the close is in a drawer. Laundry hands its cash in (no till screen) and managers and owners have no
-     * till of their own: their cash is still recorded, and Today's money lists it as cash taken with no till.
+     * every naira counted at the close is in a drawer. Laundry hands its cash in (no till screen). Managers and owners have no
+     * till of their own: their cash goes into the till of the desk where it is taken ({@link #managerTill}), recorded under that desk.
      */
     static final Set<Role> TILL_DESKS = Set.of(Role.FRONT_OFFICE, Role.BAR, Role.KITCHEN, Role.CASHIER, Role.WAITER);
+
+    /** A manager or owner: no drawer of their own (docs/operating-day.md "Manager and owner cash"). */
+    static boolean noDrawerOfTheirOwn(Role role) {
+        return role == Role.MANAGER || role == Role.OWNER;
+    }
+
+    /**
+     * The desk whose till a manager's or owner's cash goes into (docs/operating-day.md "Manager and owner cash"): for an outlet sale,
+     * the outlet's desk (BAR for a bar, KITCHEN for a kitchen or restaurant), the till its attendants use; for anything else (a folio,
+     * a booking, a walk-in), the front office. Null when the sale's outlet can't be told (fnb-service unreachable): the cash is then
+     * taken with no till, as when finance-service can't be reached.
+     */
+    static Role managerTill(String orderId, String orderDesk) {
+        if (orderId == null) {
+            return Role.FRONT_OFFICE;
+        }
+        Role d = deskRole(orderDesk).orElse(null);
+        return d != null && TILL_DESKS.contains(d) ? d : null;
+    }
 
     /** The till a desk's cash goes into: its own, except a waiter's, which goes into the cashier's (a waiter has no drawer). */
     static Role tillOf(Role role) {
@@ -172,13 +191,23 @@ public class PaymentService {
         String partId = blankToNull(dto.orderId()) == null ? null : blankToNull(dto.partId());
         OrderCheck order = blankToNull(dto.orderId()) != null ? checkOrder(dto.orderId(), partId, hotelId, dto.amount(), user, role, dto.method()) : null;
         String desk = order == null ? null : order.desk();
+        // A manager's or owner's cash is recorded under the desk whose till it goes into, so it counts in that till, its cash list
+        // and its close, and a refund of it comes out of the same drawer. Card and transfer stay under their own role.
+        boolean managerCash = false;
+        if (dto.method() == PaymentMethod.CASH && noDrawerOfTheirOwn(role)) {
+            Role till = managerTill(blankToNull(dto.orderId()), desk);
+            if (till != null) {
+                role = till;
+                managerCash = true;
+            }
+        }
         PaymentRequest p = PaymentRequest.builder().folioId(dto.folioId()).bookingId(bookingId).orderId(blankToNull(dto.orderId())).desk(desk).guestName(dto.guestName())
                 .guestPhone(dto.guestPhone()).guestEmail(dto.guestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
                 .role(role).method(dto.method()).amount(Money.of(tip == null ? dto.amount() : dto.amount().add(tip))).partId(partId).tipAmount(tip)
                 .description(describe(dto.description(), order == null ? null : order.partLabel(), tip))
                 .receiptPreference(receiptChoice(dto.receiptPreference() == null ? settings.receipts() : dto.receiptPreference())).build();
         if (dto.method() == PaymentMethod.CASH) {
-            requireOpenTill(hotelId, role);
+            requireOpenTill(hotelId, role, managerCash);
             // Cash is counted at the desk and approved on the spot.
             payments.save(p);
             approve(p, null, "cash");
@@ -196,6 +225,11 @@ public class PaymentService {
      * outage never stops the desk.
      */
     void requireOpenTill(String hotelId, Role role) {
+        requireOpenTill(hotelId, role, false);
+    }
+
+    /** As above; {@code manager}: a manager or owner taking cash at the desk, told so in the refusal. */
+    void requireOpenTill(String hotelId, Role role, boolean manager) {
         if (!TILL_DESKS.contains(role)) {
             return;
         }
@@ -203,7 +237,23 @@ public class PaymentService {
         if (till == null || (till.isOpen() && !till.isStale())) {
             return;
         }
-        throw new BadRequestException(refusal(role, till));
+        throw new BadRequestException(manager ? managerRefusal(role, till) : refusal(role, till));
+    }
+
+    /**
+     * Why a manager or owner can't take cash at {@code desk} right now. They open the desk's till from the payment step (or the desk
+     * does); a till left from an earlier day is counted and closed first (Financials → Tills, or the desk's Till page).
+     */
+    static String managerRefusal(Role desk, com.hospio.payment.client.FinanceClient.TillState till) {
+        String name = deskName(desk);
+        String where = desk == Role.FRONT_OFFICE ? "the front office for a folio, booking or walk-in" : "the " + name + " for this sale";
+        if (till.isStale()) {
+            String who = till.openedByName() == null || till.openedByName().isBlank() ? "" : " by " + till.openedByName();
+            return "Open the " + name + " till first: it was opened" + who + " " + since(till.openedAt()) + " and never closed. Count and close it "
+                    + "(Financials → Tills, or the " + name + "'s Till page), then open today's till and take the cash. Card and transfer still work";
+        }
+        return "Open the " + name + " till first: your cash goes into the till of the desk where it is taken (" + where + "), and that till "
+                + "isn't open. Count the float and open it, then take the cash. Card and transfer still work";
     }
 
     /** Why cash can't be taken for {@code role} right now: its till is closed, or left open from an earlier day. */
@@ -236,17 +286,40 @@ public class PaymentService {
      * {@code openedAt} say which drawer the cash goes into, so the payment step can name it.
      */
     public record CashTill(String role, boolean needed, boolean open, String message, String tillRole, String tillId, String openedByName,
-                           Instant openedAt, boolean stale) {
+                           Instant openedAt, boolean stale, boolean manager, String takenAs) {
         CashTill(String role, boolean needed, boolean open, String message) {
-            this(role, needed, open, message, null, null, null, null, false);
+            this(role, needed, open, message, null, null, null, null, false, false, null);
         }
     }
 
     @Transactional(readOnly = true)
     public CashTill cashTill(Role requested) {
+        return cashTill(requested, null);
+    }
+
+    /**
+     * As above for the payment being taken: {@code orderId} is the outlet sale it pays, so a manager's or owner's cash is matched to
+     * that outlet's till (the front office's without one). {@code role} is then the desk, {@code manager} true and {@code takenAs}
+     * MANAGER or OWNER (the screen links a manager to Financials → Tills).
+     */
+    @Transactional(readOnly = true)
+    public CashTill cashTill(Role requested, String orderId) {
         HospioUserDetails user = CurrentUser.require();
         String hotelId = TenantContext.requireHotel();
         Role role = payingRole(user, requested);
+        boolean manager = false;
+        String takenAs = null;
+        if (noDrawerOfTheirOwn(role)) {
+            String oid = blankToNull(orderId);
+            String orderDesk = oid == null ? null : fnb.order(oid, null, null).map(com.hospio.payment.client.FnbClient.OrderDue::desk).orElse(null);
+            Role till = managerTill(oid, orderDesk);
+            if (till == null) {
+                return new CashTill(role.name(), false, true, null); // the outlet can't be told: the cash is taken with no till
+            }
+            takenAs = role.name();
+            role = till;
+            manager = true;
+        }
         if (!TILL_DESKS.contains(role)) {
             return new CashTill(role.name(), false, true, null);
         }
@@ -255,11 +328,13 @@ public class PaymentService {
         }
         com.hospio.payment.client.FinanceClient.TillState till = finance.till(hotelId, tillOf(role).name()).orElse(null);
         if (till == null) {
-            return new CashTill(role.name(), true, true, null); // finance unreachable: the cash goes through, as on POST /payments
+            // finance unreachable: the cash goes through, as on POST /payments
+            return new CashTill(role.name(), true, true, null, tillOf(role).name(), null, null, null, false, manager, takenAs);
         }
         boolean ok = till.isOpen() && !till.isStale();
-        String message = ok ? null : role == Role.WAITER && !till.isStale() ? "The cashier's till isn't open: a waiter's cash goes into it" : refusal(role, till);
-        return new CashTill(role.name(), true, ok, message, tillOf(role).name(), till.tillId(), till.openedByName(), till.openedAt(), till.isStale());
+        String message = ok ? null : manager ? managerRefusal(role, till)
+                : role == Role.WAITER && !till.isStale() ? "The cashier's till isn't open: a waiter's cash goes into it" : refusal(role, till);
+        return new CashTill(role.name(), true, ok, message, tillOf(role).name(), till.tillId(), till.openedByName(), till.openedAt(), till.isStale(), manager, takenAs);
     }
 
     /** The outlet desk of an order's payment (BAR or KITCHEN): a cashier or waiter with no POS of their own uses that desk's. */

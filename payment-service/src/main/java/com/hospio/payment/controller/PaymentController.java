@@ -83,11 +83,13 @@ public class PaymentController {
 
     /**
      * Before the desk picks cash: does cash here need a till ({@code needed}), and is it open? {@code role} is the desk the
-     * payment is taken for (as on POST /payments); without it, the caller's first paying desk.
+     * payment is taken for (as on POST /payments); without it, the caller's first paying desk. {@code orderId}: the outlet sale it pays,
+     * so a manager's or owner's cash is matched to that outlet's till (the front office's without one; {@code manager: true}).
      */
     @GetMapping("/cash-till")
-    public ApiResponse<PaymentService.CashTill> cashTill(@RequestParam(required = false) com.hospio.common.enums.Role role) {
-        return ApiResponse.ok(payments.cashTill(role));
+    public ApiResponse<PaymentService.CashTill> cashTill(@RequestParam(required = false) com.hospio.common.enums.Role role,
+                                                         @RequestParam(required = false) String orderId) {
+        return ApiResponse.ok(payments.cashTill(role, orderId));
     }
 
     @GetMapping("/{id}")
