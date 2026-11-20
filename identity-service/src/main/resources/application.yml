@@ -99,6 +99,11 @@ hospio:
     support-token-max-minutes: 60
     # 2-step secrets are AES-GCM encrypted with this key (env TWO_STEP_KEY); derived from JWT_SECRET when unset.
     two-step-key: ${TWO_STEP_KEY:}
+    admin-security:
+      # The admin portal's security settings are read from platform-service and kept this long; a failed read keeps the last
+      # value and is retried after retry-seconds (docs/sign-in.md, "Admin security settings").
+      cache-seconds: 30
+      retry-seconds: 10
     two-step:
       # Roles that will have to use 2-step (e.g. OWNER,MANAGER). Reported on GET /users/me/two-step, not enforced yet.
       required-roles: ${TWO_STEP_REQUIRED_ROLES:}
@@ -114,6 +119,9 @@ hospio:
 services:
   tenant:
     url: ${TENANT_SERVICE_URL:http://localhost:9202/tenant}
+  # The admin portal's security settings (2-step for every admin, session length): docs/sign-in.md.
+  platform:
+    url: ${PLATFORM_SERVICE_URL:http://localhost:9214/platform}
   internal:
     api-key: ${INTERNAL_API_KEY}
 

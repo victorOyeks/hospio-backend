@@ -78,6 +78,15 @@ public class InternalPlatformController {
                             java.math.BigDecimal defaultPct, String actorId, String actorName) {
     }
 
+    /**
+     * identity-service: the security group ("Require 2-step sign-in for every admin", session length), read with a short cache to
+     * enforce them on platform staff sign-ins (docs/sign-in.md).
+     */
+    @GetMapping("/settings/security")
+    public ApiResponse<com.hospio.platform.settings.SecuritySettings> security() {
+        return ApiResponse.ok(settings.securityGroup());
+    }
+
     /** payment-service settlements: provider fee % and Hospio360 share %, with the rest of the fees group. */
     @GetMapping("/settings/fees")
     public ApiResponse<FeeSettings> fees() {

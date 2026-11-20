@@ -26,6 +26,6 @@ public final class HandoffDtos {
 
     /** The target app's own session, as a sign-in returns it, and the page to open. */
     public record Exchanged(String accessToken, String refreshToken, long expiresIn, List<String> roles, boolean mustChangePassword,
-                            String next) {
+                            String next, boolean twoStepSetupRequired) {
     }
 }

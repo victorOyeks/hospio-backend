@@ -28,6 +28,11 @@ import org.springframework.stereotype.Service;
  * offer a role switcher without another round trip. An owner's token carries every hotel of the
  * business (asked of tenant-service; the grant hotels if it is down) so they can pick a branch.
  * Platform accounts are scope {@code platform}, except marketers, who get {@code marketer}.
+ * <p>
+ * Hospio360 staff (a platform role) follow the admin portal's security settings ({@link AdminSecurityPolicy}, docs/sign-in.md):
+ * the session lasts {@code sessionHours} from the sign-in (refresh token and access token never outlive it; a refresh past it is
+ * refused), and with "Require 2-step sign-in for every admin" on, someone without 2-step gets a token limited to setting it up
+ * (the {@code setup} claim), until 2-step is on and the session is renewed.
  */
 @Service
 @RequiredArgsConstructor
@@ -37,6 +42,7 @@ public class TokenIssuer {
     private final RoleGrantRepository roleGrants;
     private final RefreshTokenRepository refreshTokens;
     private final TenantClient tenantClient;
+    private final AdminSecurityPolicy adminSecurity;
 
     @Value("${hospio.auth.refresh-days:30}")
     private long refreshDays;
@@ -53,6 +59,9 @@ public class TokenIssuer {
     public AuthResponse issueInFamily(UserAccount user, String familyId) {
         return issue(user, null, null, null, familyId);
     }
+
+    /** "Your session has ended. Sign in again": a staff session past its session length. */
+    public static final String SESSION_ENDED = "Your session has ended. Sign in again";
 
     /**
      * The next tokens of an existing session (a refresh, or the caller's own session after a password change): the same
@@ -97,27 +106,56 @@ public class TokenIssuer {
             tenantClient.hotelIds(user.getBusinessId()).ifPresent(hotels::addAll);
         }
         String sessionId = previous != null && previous.getSessionId() != null ? previous.getSessionId() : UUID.randomUUID().toString();
+        Instant now = Instant.now();
+        Instant signedInAt = previous != null && previous.getSignedInAt() != null ? previous.getSignedInAt() : now;
+        Instant refreshUntil = now.plus(refreshDays, ChronoUnit.DAYS);
+        long accessMs = jwtUtil.getExpirationMs();
+        boolean setupOnly = false;
+        java.util.OptionalInt staffHours = deviceId == null ? adminSecurity.sessionHours(roles.keySet()) : java.util.OptionalInt.empty();
+        if (staffHours.isPresent()) {
+            // A staff session lasts sessionHours from its sign-in. A session opened by a hand-over keeps the start of the family it
+            // joins, so hopping between the apps never lengthens it.
+            if (previous == null && familyId != null) {
+                signedInAt = familyStart(user.getId(), familyId).orElse(now);
+            }
+            Instant sessionEnd = signedInAt.plus(staffHours.getAsInt(), ChronoUnit.HOURS);
+            if (!sessionEnd.isAfter(now)) {
+                throw new com.hospio.common.exception.UnauthorizedException(SESSION_ENDED);
+            }
+            if (sessionEnd.isBefore(refreshUntil)) {
+                refreshUntil = sessionEnd;
+            }
+            accessMs = Math.min(accessMs, java.time.Duration.between(now, sessionEnd).toMillis());
+            setupOnly = adminSecurity.twoStepSetupOnly(roles.keySet(), user.isTwoStepEnabled());
+        }
         String access = jwtUtil.generateSessionToken(user.getId(), user.getEmail(), user.getFullName(), user.getBusinessId(),
-                List.copyOf(hotels), roles, scope, sessionId);
+                List.copyOf(hotels), roles, scope, sessionId, accessMs, setupOnly);
 
         ClientInfo client = previous == null ? ClientInfo.current() : new ClientInfo(previous.getUserAgent(), previous.getLocation());
-        Instant now = Instant.now();
         String raw = Hashing.randomToken();
         refreshTokens.save(RefreshToken.builder()
                 .userId(user.getId())
                 .tokenHash(Hashing.sha256(raw))
-                .expiresAt(now.plus(refreshDays, ChronoUnit.DAYS))
+                .expiresAt(refreshUntil)
                 .deviceId(deviceId)
                 .sessionId(sessionId)
                 .familyId(familyId != null ? familyId : sessionId)
                 .userAgent(client.userAgent())
                 .location(client.location())
-                .signedInAt(previous != null && previous.getSignedInAt() != null ? previous.getSignedInAt() : now)
+                .signedInAt(signedInAt)
                 .build());
 
-        // Tokens are issued only once any 2-step code has been given, so nothing more is owed here.
-        return new AuthResponse(access, raw, jwtUtil.getExpirationMs() / 1000,
-                roles.keySet().stream().map(Enum::name).toList(), user.isMustChangePassword(), false);
+        // Tokens are issued only once any 2-step code has been given, so nothing more is owed here; setupOnly says the
+        // admin app must send the person to "Set up 2-step sign-in" first.
+        return new AuthResponse(access, raw, Math.max(1, accessMs / 1000),
+                roles.keySet().stream().map(Enum::name).toList(), user.isMustChangePassword(), false, List.of(), null, setupOnly);
+    }
+
+    /** When the browser family a hand-over joins was signed in: its earliest live session. */
+    private java.util.Optional<Instant> familyStart(String userId, String familyId) {
+        return refreshTokens.findByUserIdAndRevokedAtIsNull(userId).stream()
+                .filter(t -> familyId.equals(t.family()) && t.getSignedInAt() != null)
+                .map(RefreshToken::getSignedInAt).min(Instant::compareTo);
     }
 
     static String scopeFor(UserAccount user, Map<Role, AccessLevel> roles) {

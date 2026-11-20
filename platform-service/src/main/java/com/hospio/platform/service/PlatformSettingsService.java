@@ -57,6 +57,12 @@ public class PlatformSettingsService {
         return read(PlatformSettingsCatalogue.SECURITY, SecuritySettings.DEFAULTS);
     }
 
+    /** The security group; works from any thread, as the platform (identity-service's internal read). */
+    @Transactional(readOnly = true)
+    public SecuritySettings securityGroup() {
+        return TenantContext.runWith(Tenant.system("settings"), this::security);
+    }
+
     @Transactional(readOnly = true)
     public SystemHealthSettings systemGroup() {
         return read(PlatformSettingsCatalogue.SYSTEM, SystemHealthSettings.DEFAULTS);
@@ -88,6 +94,10 @@ public class PlatformSettingsService {
 
     @Transactional
     public SecuritySettings update(SecuritySettings values) {
+        // identity-service enforces the session length of platform staff sign-ins; the admin portal offers 4, 12 or 24 hours.
+        if (values != null && values.sessionHours() != null && !SecuritySettings.SESSION_HOURS.contains(values.sessionHours())) {
+            throw new BadRequestException("Session length must be 4, 12 or 24 hours");
+        }
         save(PlatformSettingsCatalogue.SECURITY, values);
         return security();
     }

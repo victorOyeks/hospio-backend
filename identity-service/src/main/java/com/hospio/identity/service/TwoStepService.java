@@ -85,8 +85,23 @@ public class TwoStepService {
         });
     }
 
-    /** Whether the person's roles are in {@code hospio.auth.two-step.required-roles}. Reported only; nothing is enforced. */
+    private AdminSecurityPolicy adminSecurity;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setAdminSecurity(AdminSecurityPolicy adminSecurity) {
+        this.adminSecurity = adminSecurity;
+    }
+
+    /**
+     * Whether the person must use 2-step: Hospio360 staff while "Require 2-step sign-in for every admin" is on (enforced at
+     * sign-in, docs/sign-in.md), or roles in {@code hospio.auth.two-step.required-roles} (reported only).
+     */
     boolean required(UserAccount user) {
+        if (adminSecurity != null && adminSecurity.settings().require2Step() && AdminSecurityPolicy.isPlatformStaff(
+                grants.findByUserId(user.getId()).stream().filter(com.hospio.identity.entity.RoleGrant::isActive)
+                        .map(com.hospio.identity.entity.RoleGrant::getRole).toList())) {
+            return true;
+        }
         Set<String> roles = Arrays.stream(requiredRoles.split(",")).map(String::trim).filter(s -> !s.isEmpty())
                 .map(s -> s.toUpperCase(Locale.ROOT)).collect(Collectors.toSet());
         if (roles.isEmpty()) {

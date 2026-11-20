@@ -117,6 +117,62 @@ app server's own address.
 
 QA: hospio-frontend `docs/qa/85-single-sign-in.md`.
 
+## Admin security settings (21 Nov 2026)
+
+Admin console → Settings → Security (SUPER_ADMIN saves it; platform-service `security` group, `SecuritySettings`). identity-service
+enforces two of its fields on **Hospio360 staff**: anyone holding a platform role (SUPER_ADMIN, SUPPORT, FINANCE_ADMIN;
+`AdminSecurityPolicy.isPlatformStaff`). Marketers are not staff here (they hold no platform role, their token is scope
+`marketer`, and the marketer console is their own area), so a MARKETER-only account is never affected; someone who is both a
+marketer and support is staff. Hotel accounts (owner, manager, staff, PIN sessions on shared devices) are never affected.
+
+**How identity reads them.** `GET platform /internal/settings/security` (internal key) through `PlatformClient`, kept for
+`hospio.auth.admin-security.cache-seconds` (30). Fail safe: when platform can't be read the last value read stays in force (a
+"require 2-step" that is on is never dropped because platform is down), retried after `retry-seconds` (10). Before the first
+successful read after a restart, the defaults apply: 2-step not required, 12 hours (a fresh database is the same).
+
+**Require 2-step sign-in for every admin** (`require2Step`, default off).
+
+- A staff member without 2-step who signs in with the right password (or arrives by a hand-over, or renews a session) gets
+  tokens limited to setting it up: the access token carries `setup: "TWO_STEP"` and sign-in / hand-over exchange answer
+  `twoStepSetupRequired: true`.
+- Server side, `JwtFilter` (common, every service) refuses such a token with **403** "Set up 2-step sign-in to continue.
+  Hospio360 requires it for every admin" (header `X-Hospio-Two-Step-Setup: required`) on every path except
+  (`TwoStepSetupPaths`): `GET /identity/users/me`, `/identity/users/me/two-step` and its `/setup` and `/enable`,
+  `/identity/auth/change-password`, `/identity/auth/handoff`, `/identity/auth/logout`, `/identity/auth/logout-everywhere`
+  (and the public `/identity/auth/refresh`).
+- The admin app's middleware sends a limited session to `/setup-two-step` (after `/reset-password` while the password is still
+  temporary), and away from it once it is a full session. The screen reuses My profile's setup (QR code + key, a code, the
+  recovery codes once); "I've saved them, continue" renews the session (`POST /auth/refresh`), which now comes back full
+  because the person has 2-step, and opens the dashboard.
+- Whether a session is limited is decided every time tokens are issued (sign-in, refresh, hand-over, password change), not
+  stored. So turning the setting on reaches people already signed in within the hour (their next refresh); turning it off
+  frees a limited session at its next refresh.
+- Nobody can be locked out by it: the limited session always allows setting 2-step up. The super admin turning it on without
+  2-step is asked first ("You'll be asked to set it up on your next sign-in", or "Set up now" in My profile).
+- The bootstrap super admin's first sign-in still works with it on: temporary password → `/reset-password` (change-password is
+  allowed and reissues a still-limited session) → `/setup-two-step` → dashboard.
+- Someone who turns 2-step off in My profile while it is required is limited again at their next refresh and sets it up anew
+  (how one moves to a new phone). `GET /users/me/two-step` reports `required: true` for staff while the setting is on.
+
+**Session length** (`sessionHours`, 4, 12 or 24; default 12; platform refuses other values with 400).
+
+- A staff session lasts `sessionHours` from its sign-in (`refresh_tokens.signed_in_at`, kept by every refresh): the refresh
+  token expires then, the access token never outlives it (its lifetime is cut to what is left, `expiresIn` says so), and a
+  refresh at or after it is refused with 401 "Your session has ended. Sign in again".
+- A hand-over keeps the family's sign-in time (the earliest live session of the family it joins), so hopping between the apps
+  never lengthens a session; a wrong-app sign-in's handed-over session starts at that sign-in. Sign out, sign out everywhere,
+  ending a session and forced sign-outs work as above.
+- Changing the setting applies to sessions already open at their next refresh: shortening it to 4 hours ends a 5-hour-old
+  session within the hour.
+- Hotel sessions are unchanged (`hospio.auth.refresh-days`, 30).
+
+**Only allow admin sign-in from office IPs** (`adminIpAllowlist`): **not implemented.** There is no IP list and nothing reads it;
+the switch was removed from the admin console on 21 Nov 2026 (the team is remote). The field stays in `SecuritySettings` so
+saved rows and older clients keep working.
+
+Tests: `TokenIssuerAdminSecurityTest`, `AdminSecurityPolicyTest` (identity), `JwtFilterTwoStepSetupTest` (common),
+`SecuritySettingsTest` (platform). QA: hospio-frontend `docs/qa/89-admin-security-settings.md`.
+
 ## The first super admin on a fresh environment
 
 A new environment has no one to sign in to the admin console. identity-service creates one platform super admin at start-up

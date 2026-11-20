@@ -31,6 +31,13 @@ public class JwtUtil {
     public static final String SCOPE_PLATFORM = "platform";
     /** Marketers: no business, no platform powers; row-level policies grant them nothing tenant-scoped. */
     public static final String SCOPE_MARKETER = "marketer";
+    /**
+     * Claim on a platform staff session that may do nothing but set up 2-step sign-in ("Require 2-step sign-in for every admin",
+     * docs/sign-in.md): {@code setup = TWO_STEP}. {@code JwtFilter} refuses such a token everywhere but the few identity paths of
+     * {@link TwoStepSetupPaths}.
+     */
+    public static final String CLAIM_SETUP = "setup";
+    public static final String SETUP_TWO_STEP = "TWO_STEP";
 
     @Value("${jwt.secret}")
     private String secret;
@@ -65,7 +72,22 @@ public class JwtUtil {
      */
     public String generateSessionToken(String userId, String email, String fullName, String businessId, List<String> hotelIds,
                                        Map<Role, AccessLevel> roles, String scope, String sessionId) {
-        return generateToken(userId, email, fullName, businessId, hotelIds, roles, scope, null, expirationMs, sessionId);
+        return generateToken(userId, email, fullName, businessId, hotelIds, roles, scope, null, expirationMs, sessionId, false);
+    }
+
+    /**
+     * A session token with its own lifetime ({@code ttlMs}: a platform staff session never outlives its session length) and,
+     * when {@code twoStepSetupOnly}, the {@link #CLAIM_SETUP} claim that limits it to setting up 2-step sign-in.
+     */
+    public String generateSessionToken(String userId, String email, String fullName, String businessId, List<String> hotelIds,
+                                       Map<Role, AccessLevel> roles, String scope, String sessionId, long ttlMs,
+                                       boolean twoStepSetupOnly) {
+        return generateToken(userId, email, fullName, businessId, hotelIds, roles, scope, null, ttlMs, sessionId, twoStepSetupOnly);
+    }
+
+    /** Whether the token is limited to setting up 2-step sign-in ({@link #CLAIM_SETUP}). */
+    public static boolean twoStepSetupOnly(Claims claims) {
+        return SETUP_TWO_STEP.equals(claims.get(CLAIM_SETUP, String.class));
     }
 
     /**
@@ -74,11 +96,12 @@ public class JwtUtil {
      */
     public String generateToken(String userId, String email, String fullName, String businessId, List<String> hotelIds,
                                 Map<Role, AccessLevel> roles, String scope, String actedBy, long ttlMs) {
-        return generateToken(userId, email, fullName, businessId, hotelIds, roles, scope, actedBy, ttlMs, null);
+        return generateToken(userId, email, fullName, businessId, hotelIds, roles, scope, actedBy, ttlMs, null, false);
     }
 
     private String generateToken(String userId, String email, String fullName, String businessId, List<String> hotelIds,
-                                 Map<Role, AccessLevel> roles, String scope, String actedBy, long ttlMs, String sessionId) {
+                                 Map<Role, AccessLevel> roles, String scope, String actedBy, long ttlMs, String sessionId,
+                                 boolean twoStepSetupOnly) {
         List<String> roleClaims = roles.entrySet().stream().map(e -> e.getKey().name() + ":" + e.getValue().name()).toList();
         var builder = Jwts.builder()
                 .subject(userId)
@@ -97,6 +120,9 @@ public class JwtUtil {
         }
         if (sessionId != null) {
             builder.claim("sid", sessionId);
+        }
+        if (twoStepSetupOnly) {
+            builder.claim(CLAIM_SETUP, SETUP_TWO_STEP);
         }
         return builder.signWith(signingKey()).compact();
     }
