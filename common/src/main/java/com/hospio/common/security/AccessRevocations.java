@@ -46,6 +46,12 @@ public class AccessRevocations {
     static final List<String> TOPICS = List.of(KafkaTopics.ACCESS_CHANGED, KafkaTopics.ROLE_GRANTED);
 
     private final Map<String, Long> changedAtSecond = new ConcurrentHashMap<>();
+    /**
+     * Sessions (the access token's {@code sid}) signed out on their own: "Sign out" ends only the browser's session family
+     * (docs/sign-in.md), so the person's other devices keep working while every token of these sessions is refused. An ended
+     * session can't refresh, so a token with its sid is refused whenever it was issued. Value: when it ended (epoch second).
+     */
+    private final Map<String, Long> endedSessions = new ConcurrentHashMap<>();
     private final ObjectMapper json = new ObjectMapper();
 
     @Value("${spring.kafka.bootstrap-servers:}")
@@ -67,6 +73,23 @@ public class AccessRevocations {
         }
         Long changed = changedAtSecond.get(userId);
         return changed != null && issuedAt.getEpochSecond() < changed;
+    }
+
+    /** True when the token's session ({@code sid}) was signed out, or the person's access changed after it was issued. */
+    public boolean isStale(String userId, Instant issuedAt, String sessionId) {
+        return (sessionId != null && endedSessions.containsKey(sessionId)) || isStale(userId, issuedAt);
+    }
+
+    /** Records sessions signed out on their own (only their tokens are refused, not the person's other sessions). */
+    public void sessionsEnded(Iterable<String> sessionIds, Instant at) {
+        if (sessionIds == null || at == null) {
+            return;
+        }
+        for (String sid : sessionIds) {
+            if (sid != null) {
+                endedSessions.put(sid, at.getEpochSecond());
+            }
+        }
     }
 
     /**
@@ -159,7 +182,13 @@ public class AccessRevocations {
         }
         try {
             AccessRecord access = json.readValue(value, AccessRecord.class);
-            if (access != null && access.userId() != null) {
+            if (access == null) {
+                return;
+            }
+            if (access.sessionIds() != null && !access.sessionIds().isEmpty()) {
+                // A sign-out of one browser: only those sessions end, the person's other sessions keep working.
+                sessionsEnded(access.sessionIds(), Instant.ofEpochMilli(timestampMs));
+            } else if (access.userId() != null) {
                 changed(access.userId(), Instant.ofEpochMilli(timestampMs));
             }
         } catch (Exception e) {
@@ -167,14 +196,18 @@ public class AccessRevocations {
         }
     }
 
-    /** The one field both topics' records share that matters here: whose access changed. */
+    /**
+     * What matters here: whose access changed, or (a browser's sign-out, docs/sign-in.md) which of their sessions ended. A record
+     * with {@code sessionIds} ends only those sessions.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record AccessRecord(String userId) {
+    record AccessRecord(String userId, List<String> sessionIds) {
     }
 
     private void prune() {
         long cutoff = (System.currentTimeMillis() - tokenLifetimeMs - 300_000L) / 1000;
         changedAtSecond.values().removeIf(at -> at < cutoff);
+        endedSessions.values().removeIf(at -> at < cutoff);
     }
 
     private Properties consumerProps() {

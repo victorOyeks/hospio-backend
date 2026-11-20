@@ -43,7 +43,15 @@ public class TokenIssuer {
 
     /** A new session (a sign-in, accepted invite or sign-up) for everything the person holds. */
     public AuthResponse issue(UserAccount user) {
-        return issue(user, null, null, null);
+        return issue(user, null, null, null, null);
+    }
+
+    /**
+     * A new session in an existing browser family: the session the other web app opens with a hand-over code joins the family of
+     * the session that asked for it, so "Sign out" in either app ends both (docs/sign-in.md).
+     */
+    public AuthResponse issueInFamily(UserAccount user, String familyId) {
+        return issue(user, null, null, null, familyId);
     }
 
     /**
@@ -51,7 +59,7 @@ public class TokenIssuer {
      * session id, device and the browser it was opened from (docs/profile.md).
      */
     public AuthResponse continueSession(UserAccount user, RefreshToken previous, String onlyHotel) {
-        return issue(user, onlyHotel, previous.getDeviceId(), previous);
+        return issue(user, onlyHotel, previous.getDeviceId(), previous, previous.family());
     }
 
     /**
@@ -59,7 +67,7 @@ public class TokenIssuer {
      * refresh token that names the device (docs/shared-devices.md). Roles and levels are otherwise exactly as for a sign-in.
      */
     public AuthResponse issueOnDevice(UserAccount user, String hotelId, String deviceId) {
-        return issue(user, hotelId, deviceId, null);
+        return issue(user, hotelId, deviceId, null, null);
     }
 
     /** The person's active roles at one hotel (or everywhere when {@code hotelId} is null), highest level per role. */
@@ -73,7 +81,7 @@ public class TokenIssuer {
         return roles;
     }
 
-    private AuthResponse issue(UserAccount user, String onlyHotel, String deviceId, RefreshToken previous) {
+    private AuthResponse issue(UserAccount user, String onlyHotel, String deviceId, RefreshToken previous, String familyId) {
         List<RoleGrant> grants = roleGrants.findByUserId(user.getId()).stream().filter(RoleGrant::isActive)
                 .filter(g -> onlyHotel == null || onlyHotel.equals(g.getHotelId())).toList();
         Map<Role, AccessLevel> roles = new EnumMap<>(Role.class);
@@ -101,6 +109,7 @@ public class TokenIssuer {
                 .expiresAt(now.plus(refreshDays, ChronoUnit.DAYS))
                 .deviceId(deviceId)
                 .sessionId(sessionId)
+                .familyId(familyId != null ? familyId : sessionId)
                 .userAgent(client.userAgent())
                 .location(client.location())
                 .signedInAt(previous != null && previous.getSignedInAt() != null ? previous.getSignedInAt() : now)

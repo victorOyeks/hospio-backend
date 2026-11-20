@@ -55,8 +55,10 @@ public class JwtFilter extends OncePerRequestFilter {
         try {
             if (StringUtils.hasText(token) && jwtUtil.isTokenValid(token)) {
                 HospioUserDetails user = jwtUtil.extractUserDetails(token);
-                java.util.Date issued = jwtUtil.extractAllClaims(token).getIssuedAt();
-                if (user.getActedBy() == null && issued != null && revocations.isStale(user.getUserId(), issued.toInstant())) {
+                io.jsonwebtoken.Claims claims = jwtUtil.extractAllClaims(token);
+                java.util.Date issued = claims.getIssuedAt();
+                String sid = claims.get("sid", String.class);
+                if (user.getActedBy() == null && issued != null && revocations.isStale(user.getUserId(), issued.toInstant(), sid)) {
                     request.setAttribute(ACCESS_CHANGED_ATTRIBUTE, Boolean.TRUE);
                     filterChain.doFilter(request, response);
                     return;

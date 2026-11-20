@@ -18,6 +18,11 @@ public class AccessChangedEvent extends HospioEvent {
     private String role;
     /** The new level (CHANGE_LEVEL), the last day (SET_UNTIL, EXPIRED) or the reason (PAUSE, REMOVE), when there is one. */
     private String detail;
+    /**
+     * Set for a sign-out of one browser (SESSION_FAMILY_ENDED, docs/sign-in.md): only these sessions (the access token's
+     * {@code sid}) end; the person's other devices keep working. Empty for every other change, which applies to the person.
+     */
+    private java.util.List<String> sessionIds;
 
     @Override
     public String summary() {
@@ -36,6 +41,7 @@ public class AccessChangedEvent extends HospioEvent {
             case "RESUMED" -> "pause ended";
             case "DETAILS_CHANGED" -> "details changed";
             case "SESSIONS_ENDED" -> "signed out elsewhere";
+            case "SESSION_FAMILY_ENDED" -> "signed out on one browser";
             default -> "access " + change;
         };
         return userName + ": " + (role == null ? "" : role + " ") + what + (detail == null || detail.isBlank() ? "" : " (" + detail + ")");

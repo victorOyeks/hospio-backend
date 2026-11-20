@@ -363,13 +363,33 @@ public class AuthService {
     }
 
     /**
-     * Sign out: every session of the person ends, in both web apps (docs/sign-in.md). Their refresh tokens are revoked and an
-     * access-changed event (SESSIONS_ENDED) makes every service refuse the access tokens issued before now, so the other app,
-     * still holding a live access token, drops to sign-in on its next page instead of working on for up to an hour.
+     * "Sign out" (docs/sign-in.md): ends this browser's session family only, in both web apps (the sign-in and the session a
+     * hand-over opened on the other app), never the person's other devices or shared-device PIN sessions. The family's refresh
+     * tokens are revoked and an access-changed event naming its sessions makes every service refuse their access tokens at once,
+     * so the other app in this browser drops to sign-in on its next page. A token from before sessions existed (no {@code sid})
+     * can't be told apart, so it signs out everywhere.
      */
     @Transactional
-    public void signOut(String userId) {
+    public void signOut(String userId, String sessionId) {
+        if (sessionId == null) {
+            signOutEverywhere(userId);
+            return;
+        }
         TenantContext.runWith(Tenant.system("sign-out"), () -> {
+            UserAccount user = users.lockById(userId).orElse(null);
+            if (user != null) {
+                sessions.endFamily(user, sessionId);
+            }
+        });
+    }
+
+    /**
+     * "Sign out everywhere": every session of the person ends, on every device and both apps. Their refresh tokens are revoked
+     * and an access-changed event (SESSIONS_ENDED) makes every service refuse the access tokens issued before now.
+     */
+    @Transactional
+    public void signOutEverywhere(String userId) {
+        TenantContext.runWith(Tenant.system("sign-out-everywhere"), () -> {
             Instant now = Instant.now();
             UserAccount user = users.lockById(userId).orElse(null);
             refreshTokens.findByUserIdAndRevokedAtIsNull(userId).forEach(t -> {

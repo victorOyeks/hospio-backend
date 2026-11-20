@@ -32,6 +32,19 @@ class AccessRevocationsTest {
     }
 
     @Test
+    void aBrowserSignOutEndsOnlyItsSessionsWhenEverIssued() {
+        Instant at = Instant.parse("2026-11-20T18:00:00Z");
+        revocations.record("{\"userId\":\"ada\",\"change\":\"SESSION_FAMILY_ENDED\",\"sessionIds\":[\"s-hotel\",\"s-admin\"]}", at.toEpochMilli());
+
+        // this browser's sessions, both apps: refused, even a token issued after the record
+        assertThat(revocations.isStale("ada", at.minusSeconds(60), "s-hotel")).isTrue();
+        assertThat(revocations.isStale("ada", at.plusSeconds(60), "s-admin")).isTrue();
+        // the person's phone keeps working: the record is not a change of the person's access
+        assertThat(revocations.isStale("ada", at.minusSeconds(60), "s-phone")).isFalse();
+        assertThat(revocations.isStale("ada", at.minusSeconds(60))).isFalse();
+    }
+
+    @Test
     void recordsWithoutAPersonAreIgnored() {
         revocations.record("{\"change\":\"REMOVE\",\"extra\":{\"nested\":1}}", Instant.parse("2026-11-10T10:00:00Z").toEpochMilli());
         revocations.record("null", Instant.parse("2026-11-10T10:00:00Z").toEpochMilli());

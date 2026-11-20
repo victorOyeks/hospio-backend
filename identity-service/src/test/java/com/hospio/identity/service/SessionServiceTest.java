@@ -178,22 +178,72 @@ class SessionServiceTest {
         verify(tokenIssuer, never()).continueSession(any(), any(), any());
     }
 
-    @Test
-    void signOutEndsEverySessionAndRefusesTheOtherAppsLiveAccessToken() {
-        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(4);
-        AuthService auth = new AuthService(users, refreshTokens, encoder, tokenIssuer, events, grants, devices, mock(TwoStepService.class), sessions);
+    private AuthService auth() {
+        return new AuthService(users, refreshTokens, new BCryptPasswordEncoder(4), tokenIssuer, events, grants, devices, mock(TwoStepService.class), sessions);
+    }
+
+    /** This browser: a sign-in on the hotel app and the admin session its hand-over opened (family F). Another device: P. */
+    private List<RefreshToken> twoBrowsers() {
         RefreshToken hotelApp = token("ada", "s-hotel", null, "Chrome", 5);
         RefreshToken adminApp = token("ada", "s-admin", null, "Chrome", 3);
-        when(refreshTokens.findByUserIdAndRevokedAtIsNull("ada")).thenReturn(List.of(hotelApp, adminApp));
+        RefreshToken phone = token("ada", "s-phone", null, "Safari", 2);
+        RefreshToken tablet = token("ada", "s-tablet", "dev-1", "Tablet", 1);
+        hotelApp.setFamilyId("F");
+        adminApp.setFamilyId("F");
+        phone.setFamilyId("P");
+        tablet.setFamilyId("s-tablet");
+        when(refreshTokens.findByUserIdAndRevokedAtIsNull("ada")).thenReturn(List.of(hotelApp, adminApp, phone, tablet));
+        return List.of(hotelApp, adminApp, phone, tablet);
+    }
 
-        auth.signOut("ada");
+    @Test
+    void signOutEndsThisBrowsersFamilyInBothAppsAndOtherDevicesSurvive() {
+        List<RefreshToken> t = twoBrowsers();
 
-        assertThat(hotelApp.getRevokedAt()).isNotNull();
-        assertThat(adminApp.getEndedAt()).isNotNull();
+        auth().signOut("ada", "s-admin");
+
+        assertThat(t.get(0).getRevokedAt()).isNotNull();
+        assertThat(t.get(0).getEndedAt()).isNotNull();
+        assertThat(t.get(1).getEndedAt()).isNotNull();
+        // the phone and the shared-device PIN session keep working
+        assertThat(t.get(2).getRevokedAt()).isNull();
+        assertThat(t.get(3).getRevokedAt()).isNull();
         ArgumentCaptor<com.hospio.common.kafka.events.HospioEvent> event = ArgumentCaptor.forClass(com.hospio.common.kafka.events.HospioEvent.class);
         verify(events).publish(eq(KafkaTopics.ACCESS_CHANGED), event.capture());
-        assertThat(((AccessChangedEvent) event.getValue()).getChange()).isEqualTo("SESSIONS_ENDED");
-        assertThat(((AccessChangedEvent) event.getValue()).getUserId()).isEqualTo("ada");
+        AccessChangedEvent e = (AccessChangedEvent) event.getValue();
+        assertThat(e.getChange()).isEqualTo("SESSION_FAMILY_ENDED");
+        assertThat(e.getSessionIds()).containsExactlyInAnyOrder("s-hotel", "s-admin");
+    }
+
+    @Test
+    void signOutEverywhereEndsEverySessionAndRefusesEveryOlderAccessToken() {
+        List<RefreshToken> t = twoBrowsers();
+
+        auth().signOutEverywhere("ada");
+
+        assertThat(t).allSatisfy(x -> assertThat(x.getEndedAt()).isNotNull());
+        ArgumentCaptor<com.hospio.common.kafka.events.HospioEvent> event = ArgumentCaptor.forClass(com.hospio.common.kafka.events.HospioEvent.class);
+        verify(events).publish(eq(KafkaTopics.ACCESS_CHANGED), event.capture());
+        AccessChangedEvent e = (AccessChangedEvent) event.getValue();
+        assertThat(e.getChange()).isEqualTo("SESSIONS_ENDED");
+        assertThat(e.getSessionIds()).isNull();
+    }
+
+    @Test
+    void aTokenWithoutASessionSignsOutEverywhere() {
+        List<RefreshToken> t = twoBrowsers();
+        auth().signOut("ada", null);
+        assertThat(t).allSatisfy(x -> assertThat(x.getRevokedAt()).isNotNull());
+    }
+
+    @Test
+    void olderTokensWithoutAFamilyAreTheirOwnFamily() {
+        RefreshToken old = token("ada", "s-old", null, "Chrome", 9);
+        RefreshToken other = token("ada", "s-other", null, "Chrome", 8);
+        when(refreshTokens.findByUserIdAndRevokedAtIsNull("ada")).thenReturn(List.of(old, other));
+        auth().signOut("ada", "s-old");
+        assertThat(old.getRevokedAt()).isNotNull();
+        assertThat(other.getRevokedAt()).isNull();
     }
 
     @Test

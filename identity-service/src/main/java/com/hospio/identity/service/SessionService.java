@@ -158,9 +158,30 @@ public class SessionService {
         }
     }
 
-    /** Signed out everywhere (AuthService.signOut has ended the tokens): the person's older access tokens are refused from now. */
+    /** Signed out everywhere (AuthService.signOutEverywhere has ended the tokens): the person's older access tokens are refused from now. */
     void signedOut(UserAccount user) {
-        published(user, "signed out (both apps)");
+        published(user, "signed out everywhere");
+    }
+
+    /**
+     * Ends the browser session family {@code sessionId} belongs to (docs/sign-in.md): every token of the person whose family is
+     * that one, revoked and marked ended, then an access-changed event naming just those sessions, so their access tokens are
+     * refused at once while the person's other sessions keep working. How many sessions ended.
+     */
+    int endFamily(UserAccount user, String sessionId) {
+        List<RefreshToken> mine = refreshTokens.findByUserIdAndRevokedAtIsNull(user.getId());
+        String family = mine.stream().filter(t -> sessionId.equals(t.getSessionId())).map(RefreshToken::family)
+                .findFirst().orElse(sessionId);
+        List<RefreshToken> tokens = mine.stream().filter(t -> family.equals(t.family())).toList();
+        end(tokens);
+        java.util.Set<String> ended = new java.util.LinkedHashSet<>();
+        ended.add(sessionId);
+        tokens.forEach(t -> ended.add(t.getSessionId() != null ? t.getSessionId() : t.getId()));
+        events.publish(KafkaTopics.ACCESS_CHANGED, AccessChangedEvent.builder()
+                .businessId(user.getBusinessId()).actorId(user.getId()).actorName(user.getFullName())
+                .userId(user.getId()).userName(user.getFullName()).change("SESSION_FAMILY_ENDED")
+                .detail("signed out on this browser").sessionIds(List.copyOf(ended)).build());
+        return ended.size();
     }
 
     private void published(UserAccount user, String detail) {

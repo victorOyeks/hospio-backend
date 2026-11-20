@@ -150,7 +150,9 @@ public class HandoffService {
             }
             Instant now = clock.instant();
             String raw = Hashing.randomToken();
+            String family = session.stream().map(RefreshToken::family).findFirst().orElse(sessionId);
             codes.save(HandoffCode.builder()
+                    .familyId(family)
                     .codeHash(Hashing.sha256(raw))
                     .userId(userId)
                     .target(target)
@@ -206,7 +208,8 @@ public class HandoffService {
             if (code.getSessionId() != null && refreshTokens.sessionEnded(code.getSessionId())) {
                 throw new UnauthorizedException("You signed out. Sign in again");
             }
-            AuthResponse tokens = tokenIssuer.issue(user);
+            // The new session joins the asking browser's family: "Sign out" in either app ends both (docs/sign-in.md).
+            AuthResponse tokens = code.getFamilyId() != null ? tokenIssuer.issueInFamily(user, code.getFamilyId()) : tokenIssuer.issue(user);
             log.info("Handoff code exchanged for user {} on {}", user.getId(), target);
             return new HandoffDtos.Exchanged(tokens.accessToken(), tokens.refreshToken(), tokens.expiresIn(), tokens.roles(),
                     tokens.mustChangePassword(), safeNext(code.getNextPath()));
