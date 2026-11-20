@@ -37,18 +37,18 @@ Both paths end in the same place: an owner with a business, one or more hotels w
 - Temporary passwords are returned once in the API response and shown once on screen. Every created user also gets an **invite token** (7 days) that opens `/accept-invite?token=…` on the right app; accepting sets the password and signs the user in. No email or WhatsApp is sent yet (messaging-service does not consume these events).
 - Phone verification uses a 6-digit code. The code is never logged (18 Nov 2026; before that identity-service logged it at INFO). Sign-in is not blocked by an unverified phone; the wizard just shows the step.
 
-### Fixed code on dev and staging (20 Nov 2026)
+### Backup code on dev and staging (20 Nov 2026)
 
 `hospio.otp.fixed-code` (env `OTP_FIXED_CODE`; identity-service `FixedOtp`) is **159753** on the `dev` and `staging` profiles
-(`application-dev.yml`, `application-staging.yml`) and empty everywhere else. While it is set:
+(`application-dev.yml`, `application-staging.yml`) and empty everywhere else. It is a **backup** code, so testers get in
+when the real code doesn't arrive (staging only texts the allow-listed number):
 
-- every phone code is 159753, and it is **still sent** (SMS by Termii, or WhatsApp) so delivery stays testable; numbers not on
-  staging's `TEXTS_ALLOW_ONLY` are still held back, and the tester just types 159753;
-- 159753 is accepted wherever a code is asked: phone confirmation, the 2-step sign-in step, and turning 2-step on, off or
-  getting new recovery codes (in place of the authenticator app's code; recovery codes still work as before);
+- codes are still random and sent as usual (SMS by Termii, or WhatsApp); 159753 is **never** put in any message;
+- 159753 is **also** accepted wherever a code is asked: phone confirmation, the 2-step sign-in step, and turning 2-step on,
+  off or getting new recovery codes (besides the authenticator app's code; recovery codes still work as before);
 - the forgotten-password link and a manager's PIN reset have no code, so they are unchanged.
 
-**Guard:** identity-service refuses to start when the fixed code is set with a `prod`, `production` or `live` profile, or with
+**Guard:** identity-service refuses to start when the code is set with a `prod`, `production` or `live` profile, or with
 none of `dev`, `staging`, `local`, `test` active, or when it is not 6 digits (`FixedOtpTest`). It logs a WARN on start when it
 is on. `OTP_FIXED_CODE=` (empty) in the staging env file turns it off there. It replaced `hospio.auth.otp-dev-code`
 (`OTP_DEV_CODE`, staging 123456), which is no longer read.
@@ -242,4 +242,4 @@ Live domains `tenant`, `identity`, `hotel-config` join the staging default (`NEX
 
 ## Staging accounts
 
-Unchanged seed accounts (password `Hospio123!`): owner `godwin@royalsuites.ng`, manager `tunde@royalsuites.ng`, super admin `amoria@hospio360.com`, support `kola@hospio360.com`. Onboarding is tested by creating new businesses; the QA script `docs/qa/01-onboarding.md` in hospio-frontend lists the steps and the accounts it creates. Every code on staging (phone, 2-step): `159753`.
+Unchanged seed accounts (password `Hospio123!`): owner `godwin@royalsuites.ng`, manager `tunde@royalsuites.ng`, super admin `amoria@hospio360.com`, support `kola@hospio360.com`. Onboarding is tested by creating new businesses; the QA script `docs/qa/01-onboarding.md` in hospio-frontend lists the steps and the accounts it creates. Backup code on staging (phone code, 2-step), accepted besides the real code and never sent: `159753`.

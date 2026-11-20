@@ -12,10 +12,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 /**
- * The fixed one-time code for dev and staging (docs/onboarding.md, "Fixed code on dev and staging"): when
- * {@code hospio.otp.fixed-code} (env {@code OTP_FIXED_CODE}) is set, every code identity makes is that code (the phone
- * code, still sent by SMS / WhatsApp so delivery stays testable) and it is accepted wherever a code is asked for (phone
- * confirmation, the 2-step sign-in step and turning 2-step on or off, in place of the authenticator app's code).
+ * The backup one-time code for dev and staging (docs/onboarding.md, "Backup code on dev and staging"): when
+ * {@code hospio.otp.fixed-code} (env {@code OTP_FIXED_CODE}) is set, it is ALSO accepted wherever a code is asked for (phone
+ * confirmation, the 2-step sign-in step and turning 2-step on or off), so testers get in when the real code doesn't arrive.
+ * It never replaces the real code and is never put in a message: codes are still random and sent as usual.
  *
  * <p>It is set only in {@code application-dev.yml} and {@code application-staging.yml} (159753) and is empty by default.
  * The guard: a fixed code with a production profile active ({@code prod}, {@code production}, {@code live}), or with none
@@ -38,7 +38,7 @@ public class FixedOtp {
     public FixedOtp(@Value("${hospio.otp.fixed-code:}") String configured, Environment environment) {
         this(check(configured, environment.getActiveProfiles()));
         if (this.code != null) {
-            log.warn("Fixed one-time code is ON (hospio.otp.fixed-code, profiles {}): every code is the fixed one. Never on production",
+            log.warn("Backup one-time code is ON (hospio.otp.fixed-code, profiles {}): accepted besides the real codes. Never on production",
                     Arrays.toString(environment.getActiveProfiles()));
         }
     }

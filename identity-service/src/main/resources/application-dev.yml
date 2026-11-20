@@ -17,5 +17,5 @@ hospio:
   seed:
     enabled: true
   otp:
-    # Every one-time code is 159753 on dev (FixedOtp; never on production).
+    # 159753 is also accepted as a backup one-time code on dev (FixedOtp; never sent, never on production).
     fixed-code: ${OTP_FIXED_CODE:159753}
