@@ -480,17 +480,88 @@ class PaymentServiceTest {
     }
 
     @Test
-    void managersAndLaundryHaveNoTillSoTheirCashIsNotRefused() {
+    void laundryHasNoTillSoItsCashIsNotRefused() {
         when(finance.till(anyString(), anyString())).thenReturn(Optional.of(com.hospio.payment.client.FinanceClient.TillState.closed()));
-        for (Role role : List.of(Role.MANAGER, Role.LAUNDRY)) {
-            HospioUserDetails user = new HospioUserDetails("u2", "m@x.ng", "Ada", "b1", List.of("h1"), Map.of(role, AccessLevel.FULL), JwtUtil.SCOPE_HOTEL);
-            SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities()));
-            TenantContext.set(Tenant.fromUser(user, "h1"));
-            assertThat(service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), null, null, "Walk-in", null, null, "Sales", null)).status())
-                    .isEqualTo(PaymentStatus.APPROVED);
-            assertThat(service.cashTill(null).needed()).isFalse();
-        }
+        signInAs("l1", Role.LAUNDRY, AccessLevel.FULL);
+        assertThat(service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), null, null, "Walk-in", null, null, "Laundry", null)).status())
+                .isEqualTo(PaymentStatus.APPROVED);
+        assertThat(service.cashTill(null).needed()).isFalse();
         verify(finance, org.mockito.Mockito.never()).till(anyString(), anyString());
+    }
+
+    // ---- managers' and owners' cash goes into the desk's till (docs/operating-day.md "Manager and owner cash") ----
+
+    @Test
+    void aManagersOrOwnersCashForABarSaleNeedsTheBarTillAndIsRecordedUnderTheBar() {
+        for (Role boss : List.of(Role.MANAGER, Role.OWNER)) {
+            org.mockito.Mockito.clearInvocations(payments, events);
+            signInAs("m1", boss, AccessLevel.FULL);
+            when(finance.till("h1", "BAR")).thenReturn(Optional.of(com.hospio.payment.client.FinanceClient.TillState.closed()));
+            assertThatThrownBy(() -> service.request(forOrder(PaymentMethod.CASH, boss)))
+                    .isInstanceOf(BadRequestException.class).hasMessageStartingWith("Open the bar till first: your cash goes into the till of the desk where it is taken (the bar for this sale)");
+            verify(payments, org.mockito.Mockito.never()).save(any());
+            PaymentService.CashTill closed = service.cashTill(boss, "order-7");
+            assertThat(closed.needed()).isTrue();
+            assertThat(closed.open()).isFalse();
+            assertThat(closed.manager()).isTrue();
+            assertThat(closed.takenAs()).isEqualTo(boss.name());
+            assertThat(closed.role()).isEqualTo("BAR");
+            assertThat(closed.tillRole()).isEqualTo("BAR");
+
+            when(finance.till("h1", "BAR")).thenReturn(Optional.of(com.hospio.payment.client.FinanceClient.TillState.openNow("Bisi")));
+            PaymentResponse p = service.request(forOrder(PaymentMethod.CASH, boss));
+            assertThat(p.status()).isEqualTo(PaymentStatus.APPROVED);
+            assertThat(p.role()).isEqualTo(Role.BAR);
+            org.mockito.ArgumentCaptor<com.hospio.common.kafka.events.HospioEvent> event = org.mockito.ArgumentCaptor.forClass(com.hospio.common.kafka.events.HospioEvent.class);
+            verify(events, org.mockito.Mockito.atLeastOnce()).publish(eq(com.hospio.common.kafka.KafkaTopics.PAYMENT_APPROVED), event.capture());
+            assertThat(((com.hospio.common.kafka.events.PaymentApprovedEvent) event.getValue()).getRole()).isEqualTo("BAR");
+            assertThat(service.cashTill(boss, "order-7").open()).isTrue();
+        }
+    }
+
+    @Test
+    void aManagersCashForAKitchenSaleGoesToTheKitchenTillAndAFolioOrWalkInToTheFrontOffice() {
+        signInAs("m1", Role.MANAGER, AccessLevel.FULL);
+        when(fnb.order(eq("order-7"), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of(
+                new com.hospio.payment.client.FnbClient.OrderDue("h1", "K-0007", "SERVED", false, new BigDecimal("3000"), "KITCHEN")));
+        when(finance.till("h1", "KITCHEN")).thenReturn(Optional.of(com.hospio.payment.client.FinanceClient.TillState.closed()));
+        assertThatThrownBy(() -> service.request(forOrder(PaymentMethod.CASH, null)))
+                .isInstanceOf(BadRequestException.class).hasMessageStartingWith("Open the kitchen till first");
+
+        when(finance.till("h1", "FRONT_OFFICE")).thenReturn(Optional.of(com.hospio.payment.client.FinanceClient.TillState.closed()));
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), "folio-1", null, "Ada", null, null, "Room", null)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageStartingWith("Open the front office till first: your cash goes into the till of the desk where it is taken (the front office for a folio, booking or walk-in)");
+        assertThat(service.cashTill(null).role()).isEqualTo("FRONT_OFFICE");
+
+        when(finance.till("h1", "FRONT_OFFICE")).thenReturn(Optional.of(com.hospio.payment.client.FinanceClient.TillState.openNow("Ada")));
+        assertThat(service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), null, null, "Walk-in", null, null, "Sales", null)).role())
+                .isEqualTo(Role.FRONT_OFFICE);
+    }
+
+    @Test
+    void aManagersCardStaysUnderTheirRoleAndAStaleDeskTillRefusesTheirCash() {
+        signInAs("m1", Role.MANAGER, AccessLevel.FULL);
+        java.time.Instant twoDaysAgo = java.time.Instant.now().minus(java.time.Duration.ofHours(45));
+        when(finance.till("h1", "BAR")).thenReturn(Optional.of(new com.hospio.payment.client.FinanceClient.TillState(true, "t-old", true, twoDaysAgo, "u9", "Bisi")));
+        assertThatThrownBy(() -> service.request(forOrder(PaymentMethod.CASH, null)))
+                .isInstanceOf(BadRequestException.class).hasMessageStartingWith("Open the bar till first: it was opened by Bisi on ")
+                .hasMessageContaining("Financials → Tills");
+
+        PosTerminal pos = PosTerminal.builder().name("Front POS").provider("logging").terminalRef("T-1").build();
+        pos.setId("t1");
+        when(terminals.forRole("h1", Role.MANAGER)).thenReturn(Optional.of(pos));
+        assertThat(service.request(forOrder(PaymentMethod.CARD, null)).role()).isEqualTo(Role.MANAGER);
+    }
+
+    @Test
+    void aManagersCashIsTakenWithNoTillWhenTheSalesOutletCantBeTold() {
+        signInAs("m1", Role.MANAGER, AccessLevel.FULL);
+        when(finance.till(anyString(), anyString())).thenReturn(Optional.of(com.hospio.payment.client.FinanceClient.TillState.closed()));
+        when(fnb.order(eq("order-7"), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of(
+                new com.hospio.payment.client.FnbClient.OrderDue(null, null, null, false, null, null)));
+        assertThat(service.request(forOrder(PaymentMethod.CASH, null)).role()).isEqualTo(Role.MANAGER);
+        assertThat(service.cashTill(null, "order-7").needed()).isFalse();
     }
 
     // ---- waiters and cashiers (docs/plan-venue-type.md, phase 3) ------------------------------------------------

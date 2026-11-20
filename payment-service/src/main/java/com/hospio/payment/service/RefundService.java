@@ -113,8 +113,9 @@ public class RefundService {
 
     /**
      * A cash refund comes out of the drawer of the desk that took the payment, so that desk's till must be open (and opened today):
-     * otherwise the cash would leave a drawer nobody is counting. Card and transfer refunds, and cash taken with no till (a manager's,
-     * laundry), are not asked. finance-service unreachable lets it through, as for taking cash.
+     * otherwise the cash would leave a drawer nobody is counting. A manager's or owner's cash since 20 Nov is recorded under the desk
+     * whose till it went into, so it is asked the same way. Card and transfer refunds, and cash taken with no till (laundry, a
+     * manager's or owner's before 20 Nov, recorded under MANAGER or OWNER), are not asked. finance-service unreachable lets it through, as for taking cash.
      */
     void requireTillForCash(Refund r) {
         PaymentRequest p = tx.execute(s -> payments.findById(r.getPaymentId()).orElse(null));
