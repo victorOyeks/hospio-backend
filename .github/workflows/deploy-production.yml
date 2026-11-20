@@ -183,7 +183,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     # Deploy whatever built, even if some matrix jobs failed; the script reports the ones that did not ship.
-    if: ${{ !cancelled() && needs.detect-changes.outputs.services != '[]' }}
+    if: ${{ !cancelled() && needs.detect-changes.result == 'success' && needs.detect-changes.outputs.services != '[]' }}
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
