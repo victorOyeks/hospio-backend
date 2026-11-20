@@ -555,6 +555,35 @@ class PaymentServiceTest {
     }
 
     @Test
+    void aManagersWalkInCashIsRefusedWhereThereIsNoAccommodationButASaleOrCardStillWorks() {
+        com.hospio.payment.client.TenantClient tenant = mock(com.hospio.payment.client.TenantClient.class);
+        when(tenant.hasAccommodation("h1")).thenReturn(false);
+        service.setTenantClient(tenant);
+        for (Role boss : List.of(Role.MANAGER, Role.OWNER)) {
+            signInAs("m1", boss, AccessLevel.FULL);
+            assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), null, null, "Walk-in", null, null, "Sales", null)))
+                    .isInstanceOf(BadRequestException.class).hasMessageStartingWith("Cash at a hotel is taken on the bar or kitchen sale screen");
+            PaymentService.CashTill walkIn = service.cashTill(null, null);
+            assertThat(walkIn.open()).isFalse();
+            assertThat(walkIn.noWalkInCash()).isTrue();
+            assertThat(walkIn.message()).startsWith("Cash at a hotel is taken on the bar or kitchen sale screen");
+            // A sale at that location goes into the outlet's till as before.
+            assertThat(service.request(forOrder(PaymentMethod.CASH, null)).role()).isEqualTo(Role.BAR);
+            assertThat(service.cashTill(null, "order-7").noWalkInCash()).isFalse();
+        }
+        // Card and transfer walk-ins are not asked: no drawer is involved.
+        PosTerminal pos = PosTerminal.builder().name("Front POS").provider("logging").terminalRef("T-1").build();
+        pos.setId("t1");
+        when(terminals.forRole("h1", Role.OWNER)).thenReturn(Optional.of(pos));
+        assertThat(service.request(new PaymentRequestDto(PaymentMethod.CARD, new BigDecimal("1000"), null, null, "Walk-in", null, null, "Sales", null)).role())
+                .isEqualTo(Role.OWNER);
+        // A location with accommodation keeps the front office till.
+        when(tenant.hasAccommodation("h1")).thenReturn(true);
+        assertThat(service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), null, null, "Walk-in", null, null, "Sales", null)).role())
+                .isEqualTo(Role.FRONT_OFFICE);
+    }
+
+    @Test
     void aManagersCashIsTakenWithNoTillWhenTheSalesOutletCantBeTold() {
         signInAs("m1", Role.MANAGER, AccessLevel.FULL);
         when(finance.till(anyString(), anyString())).thenReturn(Optional.of(com.hospio.payment.client.FinanceClient.TillState.closed()));
