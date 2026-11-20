@@ -48,8 +48,9 @@ class RefundRaceTest {
     private final PaymentRequestRepository payments = mock(PaymentRequestRepository.class);
     private final EventPublisher events = mock(EventPublisher.class);
     private final HotelConfigClient hotelConfig = mock(HotelConfigClient.class);
+    private final com.hospio.payment.client.FinanceClient finance = mock(com.hospio.payment.client.FinanceClient.class);
     private final RefundService service = new RefundService(refunds, mock(DisputeRepository.class), payments, events, hotelConfig,
-            new TransactionTemplate(mock(PlatformTransactionManager.class)));
+            new TransactionTemplate(mock(PlatformTransactionManager.class)), finance);
 
     @BeforeEach
     void signIn() {
@@ -104,6 +105,25 @@ class RefundRaceTest {
 
         assertThat(r.getStatus()).isEqualTo(Refund.Status.APPROVED);
         verify(events).publish(eq(KafkaTopics.REFUND_APPROVED), any());
+    }
+
+    @Test
+    void aCashRefundNeedsTheDesksTillOpenToComeOutOf() {
+        PaymentRequest p = PaymentRequest.builder().method(PaymentMethod.CASH).role(Role.BAR).amount(new BigDecimal("1000")).requestedBy("u1")
+                .status(PaymentStatus.APPROVED).build();
+        p.setId("p1");
+        p.setHotelId("h1");
+        when(payments.findById("p1")).thenReturn(Optional.of(p));
+        when(refunds.findById("r1")).thenReturn(Optional.of(refund(Refund.Status.PENDING_APPROVAL, "1000")));
+        when(refunds.lockById("r1")).thenReturn(Optional.of(refund(Refund.Status.PENDING_APPROVAL, "1000")));
+        when(finance.till("h1", "BAR")).thenReturn(Optional.of(com.hospio.payment.client.FinanceClient.TillState.closed()));
+
+        assertThatThrownBy(() -> service.approve("r1")).isInstanceOf(BadRequestException.class)
+                .hasMessage("This cash refund comes out of the bar till, and it isn't open. Open it first, then approve the refund");
+        verify(events, never()).publish(eq(KafkaTopics.REFUND_APPROVED), any());
+
+        when(finance.till("h1", "BAR")).thenReturn(Optional.of(com.hospio.payment.client.FinanceClient.TillState.openNow("Ada")));
+        assertThat(service.approve("r1").getStatus()).isEqualTo(Refund.Status.APPROVED);
     }
 
     @Test

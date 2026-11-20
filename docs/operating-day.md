@@ -32,7 +32,8 @@ Cash at a till desk needs the till open. The desks with a till are the front off
 | Method | Path | Who | Change |
 |---|---|---|---|
 | GET | `/tills` | manager view or FINANCE | unchanged list; add `entries` count and `openedByName` |
-| GET | `/tills/mine` | any | new: the open till of the caller's paying role, or null |
+| GET | `/tills/mine?role=` | any | the open till of the desk named (`BAR`, `KITCHEN`, `CASHIER`, `FRONT_OFFICE`, `FINANCE`; `WAITER` reads the cashier's), or null; 403 for a desk the caller doesn't work (managers, owners and finance may read any). Without `role`, the first of the caller's desks with a till open (older callers only: every Till page sends its desk). Each till carries `stale` |
+| GET | `/tills/mine/closed?role=` | any | that desk's tills closed in the last 7 days (all the caller's desks without `role`) |
 | POST | `/tills` | manager, FINANCE EDIT, or a holder of that role | body `{role, openingFloat?}`; float defaults to `PAYMENTS.tillFloat` |
 | POST | `/tills/{id}/movements` | till role holder, manager | new: `{kind: PAY_IN|PAY_OUT, amount, reason}` → TillEntry with negative amount for PAY_OUT; expectedCash recomputed |
 | POST | `/tills/{id}/close` | till role holder, manager | `note` required when variance ≠ 0; publishes `TillClosed{tillId, role, variance}`; a variance ≠ 0 raises a delivery to the hotel's managers |
@@ -40,7 +41,17 @@ Cash at a till desk needs the till open. The desks with a till are the front off
 | — | refunds | | consume `REFUND_APPROVED`: a CASH refund adds a negative TillEntry to that role's open till |
 | — | cash expenses | | an APPROVED/RECORDED expense with `paidFrom = TILL` adds a PAY_OUT to the caller's role till when marked paid |
 | — | cash with no open till | | `recordPayment` keeps a RevenueEntry flagged `unattachedCash = true`; `GET /today` returns `unattachedCash` so the manager sees it |
-| GET | `/internal/tills/open?hotelId&role` | internal key | `{open, tillId}`: payment-service asks before it takes cash |
+| GET | `/internal/tills/open?hotelId&role` | internal key | `{open, tillId, stale, openedAt, openedBy, openedByName}`: payment-service asks before it takes cash |
+
+#### One till per desk, one till per person, tills left open (20 Nov 2026, "Bar till and cash")
+
+- **Shared desk till.** A till belongs to a desk (role) at a location, not to a person: one open till per desk (`uq_tills_one_open_per_role`), and everyone working that desk takes cash into it (a waiter's cash goes into the cashier's). Whoever opened it is shown on the Till page ("Bar till · opened by …"). Each Till page reads its own desk's till (`/tills/mine?role=`): before this fix the bar page of someone who also works the front office showed the front office till (the first desk with a till open), its entries, and Count & close closed that one, then the bar till on the next press.
+- **One person, one till.** `POST /tills` refuses with 400 "You already have the front office till open (since Thu 19 Nov, 8:35am). One person holds one till: count and close it or hand it over first" when the caller works the desk and opened another desk's till that is still open. A handover to someone who holds another open till is refused the same way. A manager opening a desk's till they don't work is not asked.
+- **Already open.** Opening a desk's till that is open says who has it and since when ("The bar till is already open (opened by …, since …). Cash at the bar goes into it"), adding "it was left open from an earlier day, so count and close it first" when stale.
+- **Left open from an earlier day (`stale`).** A till opened on an earlier Lagos day and 12 hours or more ago (`Till.staleAt`): a night shift that runs past midnight is not stale, yesterday's till at noon today is. Cash can't go into it: `POST /payments` with CASH refuses with "Open your till first: the bar till was opened by … on Wed 18 Nov, 4:06pm and never closed. Count and close it on the Till page, then open today's till before taking cash. Card and transfer still work"; `GET /payments/cash-till` answers `open: false, stale: true` with the same message; a PAY_IN is refused. Count & close works as for any open till.
+- **Cash refunds.** A manager approving a CASH refund of a payment taken at a till desk needs that desk's till open and not stale ("This cash refund comes out of the bar till, and it isn't open. Open it first, then approve the refund"): the cash leaves a drawer someone is counting. An owner's answer to a refund sent for approval is not refused (it arrives as an event); the cash then comes out of the desk's till if it is open, as before.
+- **Count & close** closes the till whose id is sent and only while it is OPEN (the row is locked and its status re-read): a second close of the same till is 400 "This till is already closed".
+- `GET /payments/cash-till?role=` also returns `tillRole`, `tillId`, `openedByName`, `openedAt` and `stale`, so the payment step names the drawer the cash goes into.
 
 ### Expenses
 

@@ -23,7 +23,12 @@ public final class TillMath {
         return Money.of(Money.of(openingFloat).add(cashIn(entryAmounts)).subtract(cashOut(entryAmounts)));
     }
 
+    /**
+     * Counted minus expected. Under NGN 1 either way is a match (0): split bills leave kobo in what a drawer should hold
+     * (3,333.33) and there are no kobo coins to count, so such a till could never close without a "short NGN 0" note.
+     */
     public static BigDecimal variance(BigDecimal counted, BigDecimal expected) {
-        return Money.subtract(counted, expected);
+        BigDecimal v = Money.subtract(counted, expected);
+        return v.abs().compareTo(BigDecimal.ONE) < 0 ? Money.of(BigDecimal.ZERO) : v;
     }
 }

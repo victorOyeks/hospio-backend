@@ -90,6 +90,26 @@ public class Till extends TenantEntity {
     @lombok.Builder.Default
     private BigDecimal cashTips = BigDecimal.ZERO;
 
+    /**
+     * Left open from an earlier day: opened on an earlier Lagos day and more than {@link #STALE_AFTER_HOURS} hours ago. Cash can't go
+     * into such a till: the person counts and closes it, then opens today's (a night shift that runs past midnight is not stale).
+     */
+    public static final long STALE_AFTER_HOURS = 12;
+
+    public static boolean staleAt(Instant openedAt, Instant now) {
+        if (openedAt == null || now == null) {
+            return false;
+        }
+        java.time.ZoneId lagos = java.time.ZoneId.of("Africa/Lagos");
+        return openedAt.atZone(lagos).toLocalDate().isBefore(now.atZone(lagos).toLocalDate())
+                && java.time.Duration.between(openedAt, now).toHours() >= STALE_AFTER_HOURS;
+    }
+
+    /** Not stored: an open till left open from an earlier day (see {@link #staleAt}). */
+    public boolean isStale() {
+        return status == Status.OPEN && staleAt(openedAt, Instant.now());
+    }
+
     /** Not stored: how many entries the till has. */
     @jakarta.persistence.Transient
     private long entries;

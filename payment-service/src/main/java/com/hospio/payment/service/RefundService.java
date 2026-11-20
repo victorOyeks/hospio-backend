@@ -45,6 +45,7 @@ public class RefundService {
     private final EventPublisher events;
     private final com.hospio.payment.client.HotelConfigClient hotelConfig;
     private final TransactionTemplate tx;
+    private final com.hospio.payment.client.FinanceClient finance;
 
     @Value("${hospio.approvals.manager-spend-limit:500000}")
     private BigDecimal managerLimit;
@@ -83,6 +84,7 @@ public class RefundService {
         }
         Refund seen = tx.execute(s -> find(refundId));
         requirePending(seen);
+        requireTillForCash(seen);
         com.hospio.payment.client.HotelConfigClient.ApprovalLimits hotel = hotelConfig.approvalLimits(seen.getHotelId());
         BigDecimal limit = hotel.managerExpenseLimit() != null ? hotel.managerExpenseLimit() : managerLimit;
         Refund[] settled = new Refund[1];
@@ -107,6 +109,28 @@ public class RefundService {
                     : "A refund over " + limit + " goes to the owner. It has been sent for approval");
         }
         return settled[0];
+    }
+
+    /**
+     * A cash refund comes out of the drawer of the desk that took the payment, so that desk's till must be open (and opened today):
+     * otherwise the cash would leave a drawer nobody is counting. Card and transfer refunds, and cash taken with no till (a manager's,
+     * laundry), are not asked. finance-service unreachable lets it through, as for taking cash.
+     */
+    void requireTillForCash(Refund r) {
+        PaymentRequest p = tx.execute(s -> payments.findById(r.getPaymentId()).orElse(null));
+        if (p == null || p.getMethod() != com.hospio.common.enums.PaymentMethod.CASH || p.getRole() == null
+                || !PaymentService.TILL_DESKS.contains(p.getRole())) {
+            return;
+        }
+        com.hospio.common.enums.Role desk = PaymentService.tillOf(p.getRole());
+        com.hospio.payment.client.FinanceClient.TillState till = finance.till(p.getHotelId() == null ? r.getHotelId() : p.getHotelId(), desk.name()).orElse(null);
+        if (till == null || (till.isOpen() && !till.isStale())) {
+            return;
+        }
+        String name = PaymentService.deskName(desk);
+        throw new BadRequestException("This cash refund comes out of the " + name + " till, and " + (till.isStale()
+                ? "that till was left open " + PaymentService.since(till.openedAt()) + ". Count and close it, open today's till, then approve the refund"
+                : "it isn't open. Open it first, then approve the refund"));
     }
 
     private static void requirePending(Refund r) {

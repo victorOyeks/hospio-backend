@@ -155,16 +155,16 @@ public class FinanceController {
         return ApiResponse.ok(service.tillsToday());
     }
 
-    /** The open till of the caller's paying role, or null. */
+    /** The open till of a desk ({@code role}: the Till page's desk), or null; without it, the caller's first desk with a till open. */
     @GetMapping("/tills/mine")
-    public ApiResponse<Till> myTill() {
-        return ApiResponse.ok(service.myTill());
+    public ApiResponse<Till> myTill(@RequestParam(required = false) String role) {
+        return ApiResponse.ok(service.myTill(role));
     }
 
-    /** The caller's role's tills closed in the last 7 days. */
+    /** The desk's ({@code role}) tills closed in the last 7 days; without it, those of all the caller's desks. */
     @GetMapping("/tills/mine/closed")
-    public ApiResponse<List<Till>> myClosedTills() {
-        return ApiResponse.ok(service.myClosedTills());
+    public ApiResponse<List<Till>> myClosedTills(@RequestParam(required = false) String role) {
+        return ApiResponse.ok(service.myClosedTills(role));
     }
 
     @PostMapping("/tills")

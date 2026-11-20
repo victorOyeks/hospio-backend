@@ -16,12 +16,30 @@ import org.springframework.web.client.RestClient;
 @Component
 public class FinanceClient {
 
-    /** finance-service's answer to GET /internal/tills/open. */
+    /**
+     * finance-service's answer to GET /internal/tills/open: whether the desk's till is open, which one, who opened it and when, and
+     * whether it was left open from an earlier day ({@code stale}: cash can't go into it until it is counted and closed).
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record OpenTill(Boolean open, String tillId) {
+    public record TillState(Boolean open, String tillId, Boolean stale, java.time.Instant openedAt, String openedBy, String openedByName) {
+        public boolean isOpen() {
+            return Boolean.TRUE.equals(open);
+        }
+
+        public boolean isStale() {
+            return isOpen() && Boolean.TRUE.equals(stale);
+        }
+
+        public static TillState closed() {
+            return new TillState(false, null, false, null, null, null);
+        }
+
+        public static TillState openNow(String openedByName) {
+            return new TillState(true, "t1", false, java.time.Instant.now(), null, openedByName);
+        }
     }
 
-    private static final ParameterizedTypeReference<ApiResponse<OpenTill>> OPEN = new ParameterizedTypeReference<>() {
+    private static final ParameterizedTypeReference<ApiResponse<TillState>> OPEN = new ParameterizedTypeReference<>() {
     };
 
     private final RestClient restClient;
@@ -31,12 +49,12 @@ public class FinanceClient {
         this.restClient = ServiceClients.system(financeUrl, jwtUtil, internalApiKey);
     }
 
-    /** True or false when finance-service answered; empty when it couldn't be reached (the caller lets the cash through). */
-    public Optional<Boolean> tillOpen(String hotelId, String role) {
+    /** The desk's till when finance-service answered (closed when it has none open); empty when it couldn't be reached (the caller lets the cash through). */
+    public Optional<TillState> till(String hotelId, String role) {
         try {
-            ApiResponse<OpenTill> body = restClient.get().uri(u -> u.path("/internal/tills/open").queryParam("hotelId", hotelId)
+            ApiResponse<TillState> body = restClient.get().uri(u -> u.path("/internal/tills/open").queryParam("hotelId", hotelId)
                     .queryParam("role", role).build()).retrieve().body(OPEN);
-            return Optional.of(body != null && body.data() != null && Boolean.TRUE.equals(body.data().open()));
+            return Optional.of(body == null || body.data() == null ? TillState.closed() : body.data());
         } catch (Exception e) {
             log.warn("Could not ask finance-service whether the {} till is open at hotel {}: {}", role, hotelId, e.getMessage());
             return Optional.empty();

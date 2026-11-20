@@ -190,26 +190,56 @@ public class PaymentService {
     }
 
     /**
-     * Cash at a till desk needs that desk's till open: 400 "Open your till first" otherwise. When finance-service can't be reached the
-     * cash is let through (it is then recorded as cash with no till, as before), so a finance outage never stops the desk.
+     * Cash at a till desk needs that desk's till open and opened today (or overnight): 400 "Open your till first" when it is closed,
+     * 400 "...left open since..." when it was left open from an earlier day (docs/operating-day.md "Tills left open"). When
+     * finance-service can't be reached the cash is let through (it is then recorded as cash with no till, as before), so a finance
+     * outage never stops the desk.
      */
     void requireOpenTill(String hotelId, Role role) {
         if (!TILL_DESKS.contains(role)) {
             return;
         }
-        if (finance.tillOpen(hotelId, tillOf(role).name()).orElse(true)) {
+        com.hospio.payment.client.FinanceClient.TillState till = finance.till(hotelId, tillOf(role).name()).orElse(null);
+        if (till == null || (till.isOpen() && !till.isStale())) {
             return;
         }
-        if (role == Role.WAITER) {
-            throw new BadRequestException("The cashier's till isn't open: a waiter's cash goes into it. Ask the cashier to open the till, or take card or transfer");
-        }
-        String desk = deskName(role);
-        throw new BadRequestException("Open your till first: cash taken at the " + desk + " goes into the " + desk
-                + " till, and it isn't open. Open it on the Till page (count the float), then take the cash. Card and transfer still work");
+        throw new BadRequestException(refusal(role, till));
     }
 
-    /** {@code needed}: cash taken for {@code role} goes into a till; {@code open}: that till is open (true when it isn't needed). */
-    public record CashTill(String role, boolean needed, boolean open, String message) {
+    /** Why cash can't be taken for {@code role} right now: its till is closed, or left open from an earlier day. */
+    static String refusal(Role role, com.hospio.payment.client.FinanceClient.TillState till) {
+        String desk = deskName(tillOf(role));
+        if (till.isStale()) {
+            String who = till.openedByName() == null || till.openedByName().isBlank() ? "" : " by " + till.openedByName();
+            return "Open your till first: the " + desk + " till was opened" + who + " " + since(till.openedAt()) + " and never closed. Count and close it on the Till page, "
+                    + "then open today's till before taking cash. Card and transfer still work";
+        }
+        if (role == Role.WAITER) {
+            return "The cashier's till isn't open: a waiter's cash goes into it. Ask the cashier to open the till, or take card or transfer";
+        }
+        return "Open your till first: cash taken at the " + desk + " goes into the " + desk
+                + " till, and it isn't open. Open it on the Till page (count the float), then take the cash. Card and transfer still work";
+    }
+
+    /** "on Wed 18 Nov, 4:06pm" in Lagos time. */
+    static String since(Instant at) {
+        if (at == null) {
+            return "on an earlier day";
+        }
+        return "on " + java.time.format.DateTimeFormatter.ofPattern("EEE d MMM, h:mma", java.util.Locale.UK)
+                .format(at.atZone(java.time.ZoneId.of("Africa/Lagos"))).replace("AM", "am").replace("PM", "pm");
+    }
+
+    /**
+     * {@code needed}: cash taken for {@code role} goes into a till; {@code open}: that till is open and can take cash (true when it isn't
+     * needed); {@code stale}: it is open but left from an earlier day. {@code tillRole}, {@code tillId}, {@code openedByName} and
+     * {@code openedAt} say which drawer the cash goes into, so the payment step can name it.
+     */
+    public record CashTill(String role, boolean needed, boolean open, String message, String tillRole, String tillId, String openedByName,
+                           Instant openedAt, boolean stale) {
+        CashTill(String role, boolean needed, boolean open, String message) {
+            this(role, needed, open, message, null, null, null, null, false);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -223,12 +253,13 @@ public class PaymentService {
         if (role == Role.WAITER && !hotelConfig.waiterRules(hotelId).cash()) {
             return new CashTill(role.name(), true, false, "Waiters don't take cash here: the cashier does. Card and transfer still work");
         }
-        boolean open = finance.tillOpen(hotelId, tillOf(role).name()).orElse(true);
-        if (role == Role.WAITER) {
-            return new CashTill(role.name(), true, open, open ? null : "The cashier's till isn't open: a waiter's cash goes into it");
+        com.hospio.payment.client.FinanceClient.TillState till = finance.till(hotelId, tillOf(role).name()).orElse(null);
+        if (till == null) {
+            return new CashTill(role.name(), true, true, null); // finance unreachable: the cash goes through, as on POST /payments
         }
-        String desk = deskName(role);
-        return new CashTill(role.name(), true, open, open ? null : "Open your till first: cash taken at the " + desk + " goes into the " + desk + " till, and it isn't open");
+        boolean ok = till.isOpen() && !till.isStale();
+        String message = ok ? null : role == Role.WAITER && !till.isStale() ? "The cashier's till isn't open: a waiter's cash goes into it" : refusal(role, till);
+        return new CashTill(role.name(), true, ok, message, tillOf(role).name(), till.tillId(), till.openedByName(), till.openedAt(), till.isStale());
     }
 
     /** The outlet desk of an order's payment (BAR or KITCHEN): a cashier or waiter with no POS of their own uses that desk's. */
@@ -252,7 +283,10 @@ public class PaymentService {
             }
             return requested;
         }
-        return ROLE_PREFERENCE.stream().filter(user::has).findFirst()
+        // A desk the caller can work (Edit or Full) before one they can only view: someone who works the bar and only views the
+        // front office takes cash for the bar, into the bar till.
+        return ROLE_PREFERENCE.stream().filter(r -> user.has(r, com.hospio.common.enums.AccessLevel.EDIT)).findFirst()
+                .or(() -> ROLE_PREFERENCE.stream().filter(user::has).findFirst())
                 .orElseThrow(() -> new BadRequestException("Your role doesn't take payments"));
     }
 
