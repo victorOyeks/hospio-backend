@@ -20,7 +20,7 @@ spring:
   application:
     name: finance-service
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:hospio}?currentSchema=finance
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:hospio}?currentSchema=finance&sslmode=${DB_SSLMODE:prefer}
     username: ${DB_USERNAME:hospio}
     password: ${DB_PASSWORD:hospio}
     hikari:
