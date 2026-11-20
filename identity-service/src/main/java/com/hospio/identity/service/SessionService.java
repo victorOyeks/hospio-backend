@@ -158,6 +158,11 @@ public class SessionService {
         }
     }
 
+    /** Signed out everywhere (AuthService.signOut has ended the tokens): the person's older access tokens are refused from now. */
+    void signedOut(UserAccount user) {
+        published(user, "signed out (both apps)");
+    }
+
     private void published(UserAccount user, String detail) {
         events.publish(KafkaTopics.ACCESS_CHANGED, AccessChangedEvent.builder()
                 .businessId(user.getBusinessId()).actorId(user.getId()).actorName(user.getFullName())

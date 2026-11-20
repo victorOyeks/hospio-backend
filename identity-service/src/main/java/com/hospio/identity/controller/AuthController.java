@@ -5,6 +5,7 @@ import com.hospio.common.security.CurrentUser;
 import com.hospio.identity.dto.AcceptInviteRequest;
 import com.hospio.identity.dto.AuthResponse;
 import com.hospio.identity.dto.ChangePasswordRequest;
+import com.hospio.identity.dto.HandoffDtos;
 import com.hospio.identity.dto.InviteResponse;
 import com.hospio.identity.dto.LoginRequest;
 import com.hospio.identity.dto.MeResponse;
@@ -16,6 +17,7 @@ import com.hospio.identity.dto.SharedDeviceDtos;
 import com.hospio.identity.dto.SignUpRequest;
 import com.hospio.identity.dto.VerifyPhoneRequest;
 import com.hospio.identity.service.AuthService;
+import com.hospio.identity.service.HandoffService;
 import com.hospio.identity.service.InviteService;
 import com.hospio.identity.service.PhoneVerificationService;
 import com.hospio.identity.service.SharedDeviceService;
@@ -44,6 +46,7 @@ public class AuthController {
     private final InviteService invites;
     private final SharedDeviceService devices;
     private final SessionService sessions;
+    private final HandoffService handoffs;
 
     public static final String DEVICE_HEADER = "X-Device-Token";
 
@@ -89,6 +92,22 @@ public class AuthController {
     @PostMapping("/refresh")
     public ApiResponse<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
         return ApiResponse.ok("Refreshed", authService.refresh(request));
+    }
+
+    @Operation(summary = "A one-time code that opens the other web app signed in as the caller (docs/sign-in.md): target hotel or admin, "
+            + "an optional relative next page, endSession=true when this sign-in was made on the wrong app. Answers the target app's "
+            + "/auth/handoff URL with the code; it works once, within 30 seconds")
+    @PostMapping("/handoff")
+    public ApiResponse<HandoffDtos.Issued> handoff(@Valid @RequestBody HandoffDtos.Issue request) {
+        var me = CurrentUser.require();
+        return ApiResponse.ok("Code issued", handoffs.issue(me.getUserId(), sessions.currentSessionId().orElse(null), me.getActedBy(), request));
+    }
+
+    @Operation(summary = "The target app swaps a handoff code for its own session (public; the code is the credential). 401 when unknown, "
+            + "expired, already used or for the other app; 403 when the account lost access")
+    @PostMapping("/handoff/exchange")
+    public ApiResponse<HandoffDtos.Exchanged> exchangeHandoff(@Valid @RequestBody HandoffDtos.Exchange request) {
+        return ApiResponse.ok("Signed in", handoffs.exchange(request));
     }
 
     @PostMapping("/logout")

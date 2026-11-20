@@ -22,7 +22,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * A per-address backstop for the endpoints that guess passwords, PINs or send mail: sign-in, PIN sign-in, sign-up and
- * forgotten password. At most {@code hospio.auth.rate-limit-per-minute} (default 30) POSTs a minute from one client
+ * forgotten password, and the handoff code exchange (docs/sign-in.md). At most {@code hospio.auth.rate-limit-per-minute} (default 30) POSTs a minute from one client
  * address (first X-Forwarded-For hop) on this instance; more answer 429 with a plain sentence. nginx limits the same
  * paths first; this catches whatever reaches the service another way. The per-account wrong-PIN lock is separate.
  */
@@ -30,7 +30,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
 public class AuthRateLimitFilter extends OncePerRequestFilter {
 
-    static final Set<String> LIMITED = Set.of("/auth/sign-in", "/auth/pin-sign-in", "/auth/forgot-password", "/auth/sign-up");
+    static final Set<String> LIMITED = Set.of("/auth/sign-in", "/auth/pin-sign-in", "/auth/forgot-password", "/auth/sign-up", "/auth/handoff/exchange");
     private static final long WINDOW_MS = 60_000L;
     private static final int MAX_TRACKED = 50_000;
     private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules()
