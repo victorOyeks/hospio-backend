@@ -30,8 +30,10 @@ public class ExpenseCategories {
 
     /** The list every hotel starts with, in this order. */
     public static final List<String> DEFAULTS = List.of("Fuel & power", "Kitchen supplies", "Bar supplies", "Housekeeping", "Laundry", "Repairs",
-            "Utilities", "Staff welfare", "Marketing", "Transport", "Office", "Other");
+            "Utilities", "Staff welfare", "Marketing", "Transport", "Office", "Stock purchases", "Other");
     static final String OTHER = "OTHER";
+    /** Where supplier bills from deliveries go (added to a hotel that doesn't have it the first time one arrives). */
+    public static final String STOCK_PURCHASES = "Stock purchases";
 
     private final ExpenseCategoryRepository categories;
 
@@ -142,6 +144,27 @@ public class ExpenseCategories {
         }
         int next = existing.stream().mapToInt(ExpenseCategory::getSortOrder).max().orElse(0) + 1;
         return CategoryView.of(categories.save(ExpenseCategory.builder().code(code).label(label).sortOrder(next).build()));
+    }
+
+    /**
+     * The code of the hotel's category with this label, adding it (just before Other) when the hotel has none; an archived one is used
+     * as it is. Supplier bills from deliveries go to {@link #STOCK_PURCHASES} this way, whoever is signed in.
+     */
+    @Transactional
+    public String ensure(String hotelId, String label) {
+        String code = codeOf(label);
+        List<ExpenseCategory> existing = all(hotelId);
+        Optional<ExpenseCategory> found = existing.stream().filter(c -> c.getCode().equals(code)).findFirst();
+        if (found.isPresent()) {
+            return found.get().getCode();
+        }
+        ExpenseCategory other = existing.stream().filter(c -> OTHER.equals(c.getCode())).findFirst().orElse(null);
+        int order = other != null ? other.getSortOrder() : existing.stream().mapToInt(ExpenseCategory::getSortOrder).max().orElse(0) + 1;
+        if (other != null) {
+            other.setSortOrder(order + 1);
+            categories.save(other);
+        }
+        return categories.save(ExpenseCategory.builder().code(code).label(label).sortOrder(order).build()).getCode();
     }
 
     /** Rename (the code stays, so past expenses keep their category) or archive / bring back. */

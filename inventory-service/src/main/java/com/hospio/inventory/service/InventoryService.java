@@ -15,6 +15,7 @@ import com.hospio.common.kafka.EventPublisher;
 import com.hospio.common.kafka.KafkaTopics;
 import com.hospio.common.kafka.events.ApprovalRequestedEvent;
 import com.hospio.common.kafka.events.DeliveryReceivedEvent;
+import com.hospio.common.util.PaymentTerms;
 import com.hospio.common.kafka.events.OrderSettledEvent;
 import com.hospio.common.kafka.events.StockIssuedEvent;
 import com.hospio.common.kafka.events.StockLowEvent;
@@ -1148,7 +1149,7 @@ public class InventoryService {
                     l.quantity(), l.unitCost(), z(l.damaged()), l.ordered(), z(l.shortQty()), z(l.overQty()), l.note());
         }).toList();
         return new InventoryViews.DeliveryView(d.getId(), d.getPurchaseOrderId(), po == null ? null : po.getNumber(), d.getSupplierName(), d.getStoreId(),
-                st == null ? null : st.getName(), lines, d.getTotal(), d.getInvoiceNumber(), d.getNote(), d.getSummary(), d.getReceivedByName(), d.getCreatedAt());
+                st == null ? null : st.getName(), lines, d.getTotal(), d.getInvoiceNumber(), d.getNote(), d.getSummary(), d.getReceivedByName(), d.getCreatedAt(), null, null);
     }
 
     @Transactional
@@ -1267,9 +1268,27 @@ public class InventoryService {
         com.hospio.inventory.entity.Delivery d = deliveries.save(com.hospio.inventory.entity.Delivery.builder().purchaseOrderId(po == null ? null : po.getId())
                 .supplierName(supplierName).storeId(store.getId()).lines(write(lines)).total(Money.of(total)).note(trim(request.note(), 300))
                 .invoiceNumber(trim(request.invoiceNumber(), 60)).summary(summary).receivedBy(u.getUserId()).receivedByName(u.getFullName()).build());
+        // Finance makes one supplier bill of it (the value received, due by the supplier's terms): docs/inventory-stores.md, Supplier bills.
+        Supplier supplier = po != null && po.getSupplierId() != null ? suppliers.findById(po.getSupplierId()).orElse(null)
+                : supplierNamed(supplierName);
+        String terms = supplier == null ? null : supplier.getPaymentTerms();
+        int termsDays = PaymentTerms.days(terms);
+        LocalDate receivedOn = LocalDate.now(LAGOS);
         events.publish(KafkaTopics.DELIVERY_RECEIVED, DeliveryReceivedEvent.builder().deliveryId(d.getId()).purchaseOrderId(d.getPurchaseOrderId())
-                .supplierName(supplierName).total(d.getTotal()).build());
-        return deliveryView(d, po == null ? Map.of() : Map.of(po.getId(), po), storeMap(), itemMap());
+                .purchaseOrderNumber(po == null ? null : po.getNumber()).supplierId(supplier == null ? null : supplier.getId())
+                .supplierName(supplierName).total(d.getTotal()).invoiceNumber(d.getInvoiceNumber()).receivedOn(receivedOn.toString())
+                .paymentTerms(terms).termsDays(termsDays).build());
+        InventoryViews.DeliveryView view = deliveryView(d, po == null ? Map.of() : Map.of(po.getId(), po), storeMap(), itemMap());
+        return d.getTotal().signum() > 0 ? view.withBill(d.getTotal(), PaymentTerms.due(receivedOn, termsDays)) : view;
+    }
+
+    /** The hotel's supplier with this name (a delivery without an order names its supplier), active ones first. */
+    private Supplier supplierNamed(String name) {
+        if (name == null) {
+            return null;
+        }
+        return suppliers.findByHotelIdOrderByName(TenantContext.requireHotel()).stream().filter(s -> s.getName().equalsIgnoreCase(name.trim()))
+                .min(java.util.Comparator.comparing(s -> !s.isActive())).orElse(null);
     }
 
     // ---- counts -------------------------------------------------------------------------------------

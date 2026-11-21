@@ -72,6 +72,28 @@ public class PayablesController {
         return ApiResponse.ok(bills.page(status, q, from, to, sort, page, size));
     }
 
+    /** Owed to suppliers: bills grouped per payee; status UNPAID (default), OVERDUE or PAID (last 90 days). */
+    @GetMapping("/bills/owed")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<BillService.Owed> owed(@RequestParam(required = false) String status) {
+        return ApiResponse.ok(bills.owed(status));
+    }
+
+    /** Unpaid supplier bills an expense of this amount (and text) may be paying again: the expense form's hint. */
+    @GetMapping("/bills/matches")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<List<BillService.BillView>> matches(@RequestParam(required = false) java.math.BigDecimal amount,
+                                                           @RequestParam(required = false) String q) {
+        return ApiResponse.ok(bills.matches(amount, q));
+    }
+
+    /** The bill made from a delivery (null while there is none): the store sees whether it is paid. */
+    @GetMapping("/bills/delivery/{deliveryId}")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<BillService.DeliveryBill> deliveryBill(@PathVariable String deliveryId) {
+        return ApiResponse.ok(bills.forDelivery(deliveryId).orElse(null));
+    }
+
     @GetMapping("/bills/{id}")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<BillService.BillView> bill(@PathVariable String id) {

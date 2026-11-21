@@ -91,6 +91,25 @@ curl -s -X POST https://api-staging.hospio360.com/inventory/admin/stores/backfil
 | GET | `/deliveries` | STORE, FINANCE, manager | adds `poNumber, storeName, receivedByName, lines:[{itemId, name, unit, quantity, unitCost, damaged, ordered, note}], short, over, damaged` |
 | POST | `/deliveries` | STORE | `{purchaseOrderId?, supplierName?, storeId?, invoiceNumber?, lines:[{itemId, quantity, unitCost?, damaged?, note?}], note}`. Against an order: PO must be SENT or PARTIAL (400 "PO-… is waiting for approval" / "… is cancelled" / "… is already received"), items must be on it (400 "Paper towels isn't on PO-…"); store defaults to the PO's. Without an order: `supplierName` and `storeId` required. Good quantity goes into stock (RECEIVED at the delivered cost), damaged is noted not stocked, short/over computed per line; item cost re-averaged; PO becomes PARTIAL or RECEIVED. 400: nothing received, negative numbers |
 
+### Supplier bills (21 Nov 2026)
+Receiving a delivery (with or without an order) now hands Finance the bill for it; nothing is ever paid automatically.
+
+- **Event.** `POST /deliveries` publishes `DeliveryReceivedEvent` (topic `hospio-delivery-received`, after commit) with `deliveryId, purchaseOrderId, purchaseOrderNumber, supplierId, supplierName, total, invoiceNumber, receivedOn (Lagos yyyy-MM-dd), paymentTerms, termsDays`. The supplier is the order's; without an order it is the hotel's supplier with that name (case-insensitive), if any.
+- **Amount.** `total` = good units × unit cost. "Received" on the form is the good units (they go into stock); damaged units are noted for the supplier, never stocked and never billed; short units are simply not received. So 4 soap at ₦2,500 plus 2 good and 1 damaged bleach at ₦1,000 bills ₦12,000.
+- **Due date.** The received date plus the supplier's payment terms read as days (`PaymentTerms`: "14 days" 14, "Net 30" 30, "2 weeks" 14, "1 month" 30); "Pay on delivery", blank or no supplier → due the day it arrived.
+- **Finance (`SupplierBills`).** finance-service consumes the event and makes ONE unpaid bill: payee = supplier name (plus `supplierId`), category **Stock purchases** (added to the hotel's categories, just before Other, the first time; new hotels get it in the standard list), repeats NONE, note `Delivery 3F9A2C1B · PO-2026-00007 · invoice INV-77 · 14 days` (the delivery reference is the first eight characters of its id), `createdByName` = who received it, plus `deliveryId`, `purchaseOrderId`, `invoiceNumber`.
+- **Idempotent.** One bill per delivery: the handler skips a delivery that already has one, and `finance.bills.delivery_id` is unique (finance-008), so a replay or a retry never makes a second. A delivery worth ₦0 (only damaged goods) makes none. Events published before this release (no `receivedOn`) are left unbilled.
+- **Retries.** The listener uses the shared consumer defaults: a failure is retried with back-off (about half a minute) and then parked on `hospio-delivery-received.DLT`; while finance-service is down the events wait on the topic.
+- **Receive answer.** The delivery view returned by `POST /deliveries` carries `billAmount` and `billDueOn` (null when nothing is billed; null on every other read). The hotel app says "Bill of ₦12,000 added for Finance, due 5 Dec".
+- **Delivery's bill.** `GET /finance/bills/delivery/{deliveryId}` (the store INVENTORY VIEW, managers, the owner, Finance VIEW; others 403) → `{id, status UNPAID/PAID/CANCELLED, overdue, amount, dueDate, paidAt, paidFrom}`, or `data: null` while Finance hasn't made it (or there is none). The delivery panel shows "Bill · Unpaid · due 5 Dec" or "Paid 22 Nov · from bank".
+- **Paying.** Finance pays it like any bill (Bills → Mark paid → bank, cash or a till → a PAID expense under Stock purchases). Pay in full only: there are no part payments.
+- **Owner decisions (21 Nov 2026).**
+  1. No backfill: deliveries received before this release get no bill; they are paid by hand (production had no real deliveries yet).
+  2. Full payment only for now; no part payments.
+  3. The category stays named "Stock purchases".
+  4. Paying a bill needs no approval (as for every bill): only a manager, the owner or Finance with Can edit can pay one.
+  5. "Received" on the receive form means the good units, and the form says so; damaged units are not stocked or billed. Stock handling is unchanged.
+
 ### Stock counts
 | Method | Path | Who | Change |
 |---|---|---|---|
@@ -117,11 +136,13 @@ For Royal Suites · Simpas Ikeja (missing rows only): "Main store" (MAIN, id `80
 - Data seam `data.inventory.*` is live for every read (stores, items with levels, item detail, requests, purchase orders, deliveries, counts, suppliers, transfers, value, usage); `routes-inventory.ts`; actions `actions/inventory.ts` returning `ActionResult` with `withDeliveries()` where the server echoes. No inventory button fakes success or uses demo rows when inventory is live.
 - INVENTORY role: Stores & stock (KPIs: items, low, on order, stock value; store cards with value; low stock with Reorder → prefilled order; item panel with levels per store and movements; add/edit item; correct level; move stock), Requests (issue partly or fully from a chosen store, decline with reason), Purchase orders (new / draft / submit / cancel / close; approval state; what was sent to the supplier), Deliveries (receive against an order with received, damaged and cost per line; without an order), Stock counts (start, count sheet, submit, cancel; approval state), Suppliers (add/edit, items they supply, deactivate), Usage (stock used and issued per outlet for a date range).
 - Manager and owner: Inventory is the same set of screens behind tabs, plus approving counts; purchase-order approvals arrive on Approvals.
-- Finance: the financials overview shows stock value and last-30-days stock used.
+- Finance: the financials overview shows stock value and last-30-days stock used; Bills (sidebar) holds the supplier bills from deliveries with Owed to suppliers.
+- Deliveries: Receive says the bill Finance gets ("Bill of ₦X added for Finance, due …"); a delivery's panel shows its bill (Unpaid, due … / Paid on … from …).
 - Kitchen store and Bar stock keep working (ask the store, use/waste, end-of-night count; their requests list shows issued/declined with the reason).
 - Housekeeping, laundry and maintenance ask the store from their own screens (Housekeeping store, Laundry store, Maintenance store), on the same `/requests` routes.
 
 ## Known limits
+- Supplier bills are paid in full only (no part payments); a bill made from a delivery is changed or cancelled in Finance, not by changing the delivery. Deliveries received before 21 Nov 2026 have no bill.
 - Cancelling an order that is waiting for approval leaves the approval on the approver's list; deciding it later does nothing.
 - Units are free text; there is no unit conversion (a carton is not 24 bottles).
 - A settled order's stock draw (restaurant & bar) is not reversed when the order is cancelled afterwards.
