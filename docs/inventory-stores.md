@@ -103,6 +103,12 @@ Receiving a delivery (with or without an order) now hands Finance the bill for i
 - **Receive answer.** The delivery view returned by `POST /deliveries` carries `billAmount` and `billDueOn` (null when nothing is billed; null on every other read). The hotel app says "Bill of ₦12,000 added for Finance, due 5 Dec".
 - **Delivery's bill.** `GET /finance/bills/delivery/{deliveryId}` (the store INVENTORY VIEW, managers, the owner, Finance VIEW; others 403) → `{id, status UNPAID/PAID/CANCELLED, overdue, amount, dueDate, paidAt, paidFrom}`, or `data: null` while Finance hasn't made it (or there is none). The delivery panel shows "Bill · Unpaid · due 5 Dec" or "Paid 22 Nov · from bank".
 - **Paying.** Finance pays it like any bill (Bills → Mark paid → bank, cash or a till → a PAID expense under Stock purchases). Pay in full only: there are no part payments.
+- **Owner decisions (21 Nov 2026).**
+  1. No backfill: deliveries received before this release get no bill; they are paid by hand (production had no real deliveries yet).
+  2. Full payment only for now; no part payments.
+  3. The category stays named "Stock purchases".
+  4. Paying a bill needs no approval (as for every bill): only a manager, the owner or Finance with Can edit can pay one.
+  5. "Received" on the receive form means the good units, and the form says so; damaged units are not stocked or billed. Stock handling is unchanged.
 
 ### Stock counts
 | Method | Path | Who | Change |
