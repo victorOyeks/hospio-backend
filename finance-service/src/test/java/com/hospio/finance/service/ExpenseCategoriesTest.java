@@ -25,9 +25,9 @@ class ExpenseCategoriesTest {
 
     @Test
     void theStandardListHasTwelveDistinctCodesEndingWithOther() {
-        assertThat(ExpenseCategories.DEFAULTS).hasSize(12);
-        assertThat(ExpenseCategories.DEFAULTS.stream().map(ExpenseCategories::codeOf).distinct()).hasSize(12);
-        assertThat(ExpenseCategories.codeOf(ExpenseCategories.DEFAULTS.get(11))).isEqualTo(ExpenseCategories.OTHER);
+        assertThat(ExpenseCategories.DEFAULTS).hasSize(13);
+        assertThat(ExpenseCategories.DEFAULTS.stream().map(ExpenseCategories::codeOf).distinct()).hasSize(13);
+        assertThat(ExpenseCategories.codeOf(ExpenseCategories.DEFAULTS.get(12))).isEqualTo(ExpenseCategories.OTHER);
     }
 
     @Test

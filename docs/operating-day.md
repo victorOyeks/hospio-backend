@@ -83,6 +83,12 @@ Before this, a manager's or owner's cash (Sales, Payments → Record a payment, 
 | POST | `/expenses/{id}/answer` | the requester | new: `{note}` answers a QUESTION; the approval goes back to PENDING via `ApprovalAnswered` |
 | POST | `/expenses/{id}/paid` | manager, FINANCE EDIT | `{paidFrom?}` |
 
+Supplier bills (21 Nov 2026): a delivery received in Inventory becomes an unpaid bill under Stock purchases (docs/inventory-stores.md,
+Supplier bills). Finance pays it from Bills (Mark paid → bank, cash or a till), which records the PAID expense that shows in Expenses and
+in Today's money "Paid out"; paying a bill is for a manager, the owner or Finance EDIT and is not routed for approval, like every bill. The
+Record expense form hints at an unpaid supplier bill of about the same amount ("pay that instead?") so a delivery isn't paid twice; it is
+only a hint.
+
 ### Night audit
 
 | Method | Path | Who | Change |

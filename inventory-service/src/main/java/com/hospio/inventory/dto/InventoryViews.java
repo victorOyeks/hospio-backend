@@ -64,7 +64,16 @@ public final class InventoryViews {
 
     public record DeliveryView(String id, String purchaseOrderId, String poNumber, String supplierName, String storeId, String storeName,
                                List<DeliveryLine> lines, BigDecimal total, String invoiceNumber, String note, String summary,
-                               String receivedByName, Instant receivedAt) {
+                               String receivedByName, Instant receivedAt, BigDecimal billAmount, LocalDate billDueOn) {
+
+        /**
+         * The supplier bill Finance gets for this delivery (only on the receive response; null elsewhere): the value received,
+         * due on the date the supplier's payment terms give. A delivery worth nothing makes no bill.
+         */
+        public DeliveryView withBill(BigDecimal amount, LocalDate dueOn) {
+            return new DeliveryView(id, purchaseOrderId, poNumber, supplierName, storeId, storeName, lines, total, invoiceNumber, note, summary,
+                    receivedByName, receivedAt, amount, dueOn);
+        }
     }
 
     public record CountLine(String itemId, String name, String unit, BigDecimal expected, BigDecimal quantity, BigDecimal variance,

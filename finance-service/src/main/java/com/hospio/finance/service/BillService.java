@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Sort;
@@ -67,7 +68,21 @@ public class BillService {
 
     public record BillView(String id, String payee, String category, String categoryLabel, BigDecimal amount, LocalDate dueDate, String repeats,
                            String status, boolean overdue, String note, Instant paidAt, String paidByName, String paidFrom, String expenseId,
-                           String nextBillId, String createdByName, Instant createdAt) {
+                           String nextBillId, String createdByName, Instant createdAt, String supplierId, String deliveryId,
+                           String purchaseOrderId, String invoiceNumber) {
+    }
+
+    /** One payee's bills in the Owed to suppliers view: how many, their total, how much of it is overdue, the oldest due date. */
+    public record SupplierOwed(String payee, String supplierId, int bills, BigDecimal total, int overdueBills, BigDecimal overdue,
+                               LocalDate oldestDue, Instant lastPaidAt) {
+    }
+
+    /** Owed to suppliers: one row per payee (most owed first) and the totals over them. */
+    public record Owed(String status, List<SupplierOwed> suppliers, BigDecimal total, BigDecimal overdue, int bills) {
+    }
+
+    /** What a delivery's bill looks like to the store: unpaid or paid (on, from), its amount and due date. */
+    public record DeliveryBill(String id, String status, boolean overdue, BigDecimal amount, LocalDate dueDate, Instant paidAt, String paidFrom) {
     }
 
     public record Paid(BillView bill, Expense expense, BillView next) {
@@ -193,6 +208,143 @@ public class BillService {
         return new Paid(view(b), e, next == null ? null : view(next));
     }
 
+    /** How long back the Paid filter of Owed to suppliers reaches. */
+    static final int PAID_DAYS = 90;
+
+    /**
+     * Owed to suppliers: the bills grouped by payee (a supplier's name, read case-insensitively). {@code status} UNPAID (the default; every
+     * unpaid bill), OVERDUE (unpaid and due before today) or PAID (paid in the last 90 days). Most owed first.
+     */
+    @Transactional
+    public Owed owed(String status) {
+        requireRead();
+        String hotel = TenantContext.requireHotel();
+        LocalDate today = LocalDate.now(MoneyService.LAGOS);
+        String st = StringUtils.hasText(status) ? status.trim().toUpperCase(Locale.ROOT) : "UNPAID";
+        if (!List.of("UNPAID", "OVERDUE", "PAID").contains(st)) {
+            throw new BadRequestException("status is one of UNPAID, OVERDUE, PAID");
+        }
+        Specification<Bill> spec = ((Specification<Bill>) (r, q, cb) -> cb.equal(r.get("hotelId"), hotel)).and(status(st, today));
+        if (st.equals("PAID")) {
+            Instant since = today.minusDays(PAID_DAYS).atStartOfDay(MoneyService.LAGOS).toInstant();
+            spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("paidAt"), since));
+        }
+        return group(st, bills.findAll(spec), today);
+    }
+
+    static Owed group(String status, List<Bill> rows, LocalDate today) {
+        Map<String, List<Bill>> by = new LinkedHashMap<>();
+        for (Bill b : rows) {
+            by.computeIfAbsent(b.getPayee().trim().toLowerCase(Locale.ROOT), k -> new ArrayList<>()).add(b);
+        }
+        List<SupplierOwed> out = new ArrayList<>();
+        for (List<Bill> list : by.values()) {
+            BigDecimal total = BigDecimal.ZERO;
+            BigDecimal overdue = BigDecimal.ZERO;
+            int overdueBills = 0;
+            LocalDate oldest = null;
+            Instant lastPaid = null;
+            String supplierId = null;
+            for (Bill b : list) {
+                total = total.add(b.getAmount());
+                if (b.getStatus() == Bill.Status.UNPAID && b.getDueDate().isBefore(today)) {
+                    overdue = overdue.add(b.getAmount());
+                    overdueBills++;
+                }
+                if (b.getStatus() == Bill.Status.UNPAID && (oldest == null || b.getDueDate().isBefore(oldest))) {
+                    oldest = b.getDueDate();
+                }
+                if (b.getPaidAt() != null && (lastPaid == null || b.getPaidAt().isAfter(lastPaid))) {
+                    lastPaid = b.getPaidAt();
+                }
+                if (supplierId == null) {
+                    supplierId = b.getSupplierId();
+                }
+            }
+            // The name as it was last written.
+            String payee = list.stream().max(java.util.Comparator.comparing(Bill::getCreatedAt, java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())))
+                    .map(Bill::getPayee).orElse(list.get(0).getPayee());
+            out.add(new SupplierOwed(payee, supplierId, list.size(), total.setScale(2, RoundingMode.HALF_UP), overdueBills,
+                    overdue.setScale(2, RoundingMode.HALF_UP), oldest, lastPaid));
+        }
+        out.sort(java.util.Comparator.comparing(SupplierOwed::total).reversed().thenComparing(SupplierOwed::payee));
+        BigDecimal total = out.stream().map(SupplierOwed::total).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal overdue = out.stream().map(SupplierOwed::overdue).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return new Owed(status, out, total.setScale(2, RoundingMode.HALF_UP), overdue.setScale(2, RoundingMode.HALF_UP), rows.size());
+    }
+
+    /**
+     * The bill made from a delivery, for the delivery's page: the store (Inventory), managers, the owner and Finance may see whether it
+     * is paid. Empty while Finance hasn't made it yet, or when the delivery was worth nothing or came before supplier bills.
+     */
+    @Transactional(readOnly = true)
+    public Optional<DeliveryBill> forDelivery(String deliveryId) {
+        HospioUserDetails u = CurrentUser.require();
+        if (!(u.isPlatform() || u.isManagerOrOwner() || u.has(Role.FINANCE, AccessLevel.VIEW) || u.has(Role.INVENTORY, AccessLevel.VIEW))) {
+            throw new ForbiddenException("Only the store, managers, the owner and Finance can see a delivery's bill");
+        }
+        String hotel = TenantContext.requireHotel();
+        LocalDate today = LocalDate.now(MoneyService.LAGOS);
+        return bills.findFirstByDeliveryId(deliveryId).filter(b -> hotel.equals(b.getHotelId()))
+                .map(b -> new DeliveryBill(b.getId(), b.getStatus().name(), b.getStatus() == Bill.Status.UNPAID && b.getDueDate().isBefore(today),
+                        b.getAmount(), b.getDueDate(), b.getPaidAt(), b.getPaidFrom()));
+    }
+
+    /** How far back the double-payment hint looks, and how close an amount must be to count as the same. */
+    static final int MATCH_DAYS = 30;
+    static final BigDecimal MATCH_SHARE = new BigDecimal("0.10");
+
+    /**
+     * Unpaid supplier bills (from deliveries, the last 30 days) an expense being recorded may be paying again: the amount within 10%, or
+     * the text names the supplier and the amount is within half. Those naming the supplier first, then the closest amount; at most three.
+     * A hint for the expense form, never a block.
+     */
+    @Transactional(readOnly = true)
+    public List<BillView> matches(BigDecimal amount, String text) {
+        requireRead();
+        if (amount == null || amount.signum() <= 0) {
+            return List.of();
+        }
+        String hotel = TenantContext.requireHotel();
+        Instant since = Instant.now().minus(java.time.Duration.ofDays(MATCH_DAYS));
+        Map<String, String> labels = categories.labels(hotel);
+        LocalDate today = LocalDate.now(MoneyService.LAGOS);
+        return match(bills.findByHotelIdAndStatusAndDeliveryIdIsNotNullAndCreatedAtGreaterThanEqual(hotel, Bill.Status.UNPAID, since), amount, text)
+                .stream().map(b -> view(b, labels, today)).toList();
+    }
+
+    static List<Bill> match(List<Bill> candidates, BigDecimal amount, String text) {
+        String t = text == null ? "" : text.toLowerCase(Locale.ROOT);
+        record Scored(Bill bill, boolean named, BigDecimal gap) {
+        }
+        List<Scored> hits = new ArrayList<>();
+        for (Bill b : candidates) {
+            BigDecimal gap = b.getAmount().subtract(amount).abs();
+            BigDecimal share = b.getAmount().signum() == 0 ? BigDecimal.ONE : gap.divide(b.getAmount(), 4, RoundingMode.HALF_UP);
+            boolean named = !t.isBlank() && names(t, b.getPayee());
+            if (share.compareTo(MATCH_SHARE) <= 0 || (named && share.compareTo(new BigDecimal("0.50")) <= 0)) {
+                hits.add(new Scored(b, named, gap));
+            }
+        }
+        hits.sort(java.util.Comparator.comparing((Scored s) -> !s.named()).thenComparing(Scored::gap));
+        return hits.stream().limit(3).map(Scored::bill).toList();
+    }
+
+    /** The text names the payee: the whole name, or one of its words of four letters or more ("cleanpro" for "CleanPro Supplies"). */
+    private static boolean names(String text, String payee) {
+        String p = payee.toLowerCase(Locale.ROOT).trim();
+        if (text.contains(p)) {
+            return true;
+        }
+        for (String w : p.split("[^a-z0-9]+")) {
+            if (w.length() >= 4 && !List.of("supplies", "supply", "limited", "ltd", "enterprises", "ventures", "company", "nigeria").contains(w)
+                    && text.contains(w)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private BillRules.Clean clean(BillRequest r) {
         if (r == null) {
             throw new BadRequestException("Say who the bill is from");
@@ -216,7 +368,8 @@ public class BillService {
         boolean overdue = b.getStatus() == Bill.Status.UNPAID && b.getDueDate().isBefore(today);
         return new BillView(b.getId(), b.getPayee(), b.getCategory(), ExpenseCategories.labelOf(labels, b.getCategory()), b.getAmount(), b.getDueDate(),
                 b.getRepeats().name(), b.getStatus().name(), overdue, b.getNote(), b.getPaidAt(), b.getPaidByName(), b.getPaidFrom(), b.getExpenseId(),
-                b.getNextBillId(), b.getCreatedByName(), b.getCreatedAt());
+                b.getNextBillId(), b.getCreatedByName(), b.getCreatedAt(), b.getSupplierId(), b.getDeliveryId(), b.getPurchaseOrderId(),
+                b.getInvoiceNumber());
     }
 
     private static Specification<Bill> status(String status, LocalDate today) {

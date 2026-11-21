@@ -2,23 +2,30 @@ package com.hospio.finance.kafka;
 
 import com.hospio.common.kafka.KafkaTopics;
 import com.hospio.common.kafka.events.ApprovalDecidedEvent;
+import com.hospio.common.kafka.events.DeliveryReceivedEvent;
 import com.hospio.common.kafka.events.PaymentApprovedEvent;
 import com.hospio.common.kafka.events.RefundApprovedEvent;
 import com.hospio.common.tenancy.TenantBinder;
 import com.hospio.common.tenancy.TenantContext;
 import com.hospio.finance.service.MoneyService;
+import com.hospio.finance.service.SupplierBills;
 import lombok.RequiredArgsConstructor;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Every approved payment lands in the ledger (and a cash one in the role's till); approvals settle expenses. */
+/**
+ * Every approved payment lands in the ledger (and a cash one in the role's till); approvals settle expenses; a delivery received in
+ * Inventory becomes a supplier bill (one per delivery). A handler that fails is retried and then parked on its dead-letter topic
+ * (KafkaConsumerDefaults); while finance-service is down the events wait on the topic for it.
+ */
 @Component
 @RequiredArgsConstructor
 public class FinanceEventListener {
 
     private final MoneyService money;
     private final TenantBinder tenant;
+    private final SupplierBills supplierBills;
 
     @Transactional
     @KafkaListener(topics = KafkaTopics.PAYMENT_APPROVED)
@@ -53,6 +60,20 @@ public class FinanceEventListener {
         tenant.bind(e);
         try {
             money.onExpenseDecided(e.getApprovalId(), e.getDecision(), e.getDecidedBy(), e.getNote());
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Transactional
+    @KafkaListener(topics = KafkaTopics.DELIVERY_RECEIVED)
+    public void onDeliveryReceived(DeliveryReceivedEvent e) {
+        if (e.getHotelId() == null) {
+            return;
+        }
+        tenant.bind(e);
+        try {
+            supplierBills.fromDelivery(e);
         } finally {
             TenantContext.clear();
         }

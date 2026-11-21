@@ -15,7 +15,10 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
-/** A bill to pay (supplier, utility): due on a date, maybe every week or month. Paying it records a paid expense. */
+/**
+ * A bill to pay (supplier, utility): due on a date, maybe every week or month. Paying it records a paid expense. A supplier bill made from
+ * a delivery received in Inventory carries the delivery (one bill per delivery), its order, the supplier and the supplier's invoice number.
+ */
 @Getter
 @Setter
 @SuperBuilder
@@ -74,4 +77,17 @@ public class Bill extends TenantEntity {
 
     @Column(name = "created_by_name", length = 150)
     private String createdByName;
+
+    @Column(name = "supplier_id", length = 36)
+    private String supplierId;
+
+    /** The delivery this bill was made from; unique, so a replayed delivery never makes a second bill. */
+    @Column(name = "delivery_id", length = 36)
+    private String deliveryId;
+
+    @Column(name = "purchase_order_id", length = 36)
+    private String purchaseOrderId;
+
+    @Column(name = "invoice_number", length = 60)
+    private String invoiceNumber;
 }
