@@ -81,7 +81,11 @@ class HotelApplicationServiceTest {
         when(rows.save(any())).thenAnswer(i -> i.getArgument(0));
         when(rows.findFirstByEmailIgnoreCaseAndStatusNotIn(anyString(), anyCollection())).thenAnswer(i -> {
             Collection<String> closed = i.getArgument(1);
-            return table.stream().filter(a -> a.getEmail().equalsIgnoreCase(i.getArgument(0)) && !closed.contains(a.getStatus())).findFirst();
+            return table.stream().filter(a -> ((String) i.getArgument(0)).equalsIgnoreCase(a.getEmail()) && !closed.contains(a.getStatus())).findFirst();
+        });
+        when(rows.findFirstByPhoneAndStatusNotInOrderByCreatedAtDesc(anyString(), anyCollection())).thenAnswer(i -> {
+            Collection<String> closed = i.getArgument(1);
+            return table.stream().filter(a -> a.getPhone().equals(i.getArgument(0)) && !closed.contains(a.getStatus())).reduce((x, y) -> y);
         });
         when(rows.findForUpdate(anyString())).thenAnswer(i -> table.stream().filter(a -> a.getId().equals(i.getArgument(0))).findFirst());
         when(rows.findById(anyString())).thenAnswer(i -> table.stream().filter(a -> a.getId().equals(i.getArgument(0))).findFirst());
@@ -170,8 +174,8 @@ class HotelApplicationServiceTest {
 
     @Test
     void theFormSaysWhatIsWrongFieldByField() {
-        Submission s = service.submit(new ApplyRequest("1", "12345", "not-an-email", "!!", "CASINO", "", "Atlantis", 0, null, "midnight",
-                "x".repeat(1001), null, null, null), "1.1.1.1", null);
+        Submission s = service.submit(new ApplyRequest("1", "12345", "not-an-email", "!!", "CASINO", "x", "Atlantis", 0, "tv", "midnight",
+                "x".repeat(1001), null, null, "lots"), "1.1.1.1", null);
 
         assertThat(s.outcome()).isEqualTo(Submission.INVALID);
         assertThat(s.errors()).containsOnlyKeys("ownerName", "phone", "email", "businessName", "businessType", "city", "state", "heardFrom",
@@ -179,6 +183,102 @@ class HotelApplicationServiceTest {
         assertThat(s.errors().get("phone")).contains("Nigerian phone number");
         assertThat(table).isEmpty();
         verify(deliveries, never()).send(any(Delivery.class));
+    }
+
+    /** The short form (22 Nov 2026): name, phone, business name and type are all a request needs. */
+    private static ApplyRequest shortRequest(String phone) {
+        return new ApplyRequest("QA Short Demo", phone, "  ", "QA Short Demo Ltd", "HOTEL", "", null, null, "", null, "", null, null, "");
+    }
+
+    @Test
+    void aShortRequestIsStoredWithTheOptionalFieldsNullAndOnlyTheTeamIsEmailed() {
+        assertThat(service.submit(shortRequest("0803 555 0111"), "1.1.1.1", null).outcome()).isEqualTo(Submission.RECEIVED);
+
+        HotelApplication a = table.get(0);
+        assertThat(a.getPhone()).isEqualTo("+2348035550111");
+        assertThat(a.getEmail()).isNull();
+        assertThat(a.getCity()).isNull();
+        assertThat(a.getState()).isNull();
+        assertThat(a.getHeardFrom()).isNull();
+        assertThat(a.getMonthlySales()).isNull();
+        assertThat(a.getPreferredTime()).isNull();
+        assertThat(a.getMessage()).isNull();
+
+        // No email given: no acknowledgement, only the team's email, with no "(null)" in the subject and "Not given" in the body.
+        ArgumentCaptor<Delivery> mail = ArgumentCaptor.forClass(Delivery.class);
+        verify(deliveries).send(mail.capture());
+        assertThat(mail.getValue().to()).isEqualTo("hello@oyeksglobal.com");
+        assertThat(mail.getValue().subject()).isEqualTo("New demo request: QA Short Demo Ltd");
+        assertThat(mail.getValue().text()).contains("Email: Not given").contains("Where: Not given").contains("Heard about us: Not given")
+                .contains("Monthly sales (all outlets): Not asked").doesNotContain("null");
+        ArgumentCaptor<NoticeEvent> notice = ArgumentCaptor.forClass(NoticeEvent.class);
+        verify(events).publish(eq(KafkaTopics.NOTICE), notice.capture());
+        assertThat(notice.getValue().getBody()).isEqualTo("QA Short Demo of QA Short Demo Ltd (hotel) asked for a demo.");
+    }
+
+    @Test
+    void theRequiredFourAreStillRequired() {
+        Submission s = service.submit(new ApplyRequest(" ", "", null, "", null, null, null, null, null, null, null, null, null, null), "1.1.1.1", null);
+        assertThat(s.outcome()).isEqualTo(Submission.INVALID);
+        assertThat(s.errors()).containsOnlyKeys("ownerName", "phone", "businessName", "businessType");
+        assertThat(s.errors()).containsEntry("ownerName", "Enter your full name").containsEntry("phone", "Enter your phone number")
+                .containsEntry("businessName", "Enter your business name").containsEntry("businessType", "Choose what kind of business it is");
+    }
+
+    @Test
+    void optionalFieldsAreCheckedWhenFilledWithTheSameMessages() {
+        Submission s = service.submit(new ApplyRequest("QA Short Demo", "0803 555 0112", "nope@", "QA Short Demo Ltd", "HOTEL", "#", "Narnia",
+                null, "radio", "NIGHT", null, null, null, "MILLIONS"), "1.1.1.1", null);
+        assertThat(s.errors()).containsOnlyKeys("email", "city", "state", "heardFrom", "preferredTime", "monthlySales");
+        assertThat(s.errors()).containsEntry("email", "Enter a real email address, like ada@example.com")
+                .containsEntry("city", "Enter the name of your city").containsEntry("state", "Choose your state")
+                .containsEntry("heardFrom", "Tell us how you heard about Hospio360")
+                .containsEntry("monthlySales", "Choose your average monthly sales (an estimate is fine)");
+        assertThat(table).isEmpty();
+    }
+
+    @Test
+    void withNoEmailARepeatIsFoundByPhoneAndBecomesANote() {
+        service.submit(shortRequest("0803 555 0113"), "1.1.1.1", null);
+        HotelApplication a = table.get(0);
+        ApplyRequest v = shortRequest("+234 803 555 0113");
+        Submission again = service.submit(new ApplyRequest(v.ownerName(), v.phone(), null, "QA Short Demo Two", "BAR", null, null, null, null,
+                null, "Still waiting", null, null, null), "1.1.1.2", null);
+
+        assertThat(again.outcome()).isEqualTo(Submission.RECEIVED);
+        assertThat(table).hasSize(1);
+        assertThat(timeline).singleElement().satisfies(n -> {
+            assertThat(n.getApplicationId()).isEqualTo(a.getId());
+            assertThat(n.getBody()).contains("Sent the Book a demo form again").contains("business: QA Short Demo Two").contains("type: Bar")
+                    .contains("Still waiting").doesNotContain("monthly sales");
+        });
+        verify(deliveries, times(1)).send(any(Delivery.class));
+
+        // A short request from a phone whose earlier request is closed is a new one.
+        a.setStatus(HotelApplication.DECLINED);
+        service.submit(shortRequest("0803 555 0113"), "1.1.1.3", null);
+        assertThat(table).hasSize(2);
+    }
+
+    @Test
+    void withNoEmailTheHourlyLimitCountsThePhone() {
+        for (int i = 0; i < 3; i++) {
+            service.submit(shortRequest("0803 555 0114"), "7.7.7." + i, null);
+        }
+        assertThat(service.submit(shortRequest("0803 555 0114"), "7.7.7.99", null).outcome()).isEqualTo(Submission.LIMITED);
+        assertThat(service.submit(shortRequest("0803 555 0115"), "7.7.7.98", null).outcome()).isEqualTo(Submission.RECEIVED);
+    }
+
+    @Test
+    void aFullRequestWithOnlyACityShowsItAloneInWhere() {
+        ApplyRequest v = valid("city@hospio-qa.test");
+        service.submit(new ApplyRequest(v.ownerName(), v.phone(), v.email(), v.businessName(), v.businessType(), "Ikeja", null, null, null, null,
+                null, null, null, null), "1.1.1.1", null);
+        ArgumentCaptor<Delivery> mail = ArgumentCaptor.forClass(Delivery.class);
+        verify(deliveries, times(2)).send(mail.capture());
+        assertThat(mail.getAllValues().get(0).to()).isEqualTo("city@hospio-qa.test");
+        assertThat(mail.getAllValues().get(0).text()).contains("Where: Ikeja\n").doesNotContain("null");
+        assertThat(mail.getAllValues().get(1).subject()).isEqualTo("New demo request: QA Palm bSuites/b (Ikeja)");
     }
 
     @Test
@@ -395,8 +495,8 @@ class HotelApplicationServiceTest {
     }
 
     @Test
-    void monthlySalesIsRequiredAndMustBeOneOfTheFiveBands() {
-        for (String missing : new String[] {null, "", "  ", "LOTS", "5000000", "NOT_ASKED"}) {
+    void monthlySalesIsOptionalButWhenGivenMustBeOneOfTheFiveBands() {
+        for (String missing : new String[] {"LOTS", "5000000", "NOT_ASKED"}) {
             Submission s = service.submit(withSales("none@hospio-qa.test", missing), "1.1.1.1", null);
             assertThat(s.outcome()).isEqualTo(Submission.INVALID);
             assertThat(s.errors()).containsOnlyKeys("monthlySales");
@@ -411,6 +511,13 @@ class HotelApplicationServiceTest {
         }
         assertThat(table).extracting(HotelApplication::getMonthlySales)
                 .containsExactly("UNDER_1M", "FROM_1M_TO_5M", "FROM_5M_TO_20M", "ABOVE_20M", "PREFER_NOT");
+
+        // Left out (the short form): stored null, read "Not asked" like a request from before the question.
+        String[] blanks = {null, "", "  "};
+        for (int i = 0; i < blanks.length; i++) {
+            assertThat(service.submit(withSales("blank" + i + "@hospio-qa.test", blanks[i]), "3.3.3." + i, null).outcome()).isEqualTo(Submission.RECEIVED);
+        }
+        assertThat(table.subList(5, 8)).extracting(HotelApplication::getMonthlySales).containsOnlyNulls();
     }
 
     @Test

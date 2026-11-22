@@ -22,7 +22,8 @@ public final class HotelApplicationDtos {
     /**
      * The public form. {@code website} is the honeypot: people never see the field, so anything in it means a script filled the
      * form. {@code referralCode}: the marketer's code from the link (?ref=), optional. {@code monthlySales}: a
-     * {@link com.hospio.platform.entity.MonthlySales} band, required.
+     * {@link com.hospio.platform.entity.MonthlySales} band. Required: ownerName, phone, businessName, businessType. Everything else
+     * (email, city, state, rooms, monthlySales, heardFrom, preferredTime, message) is optional, checked when filled; blank → null.
      */
     public record ApplyRequest(String ownerName, String phone, String email, String businessName, String businessType, String city,
                                String state, Integer rooms, String heardFrom, String preferredTime, String message, String referralCode,

@@ -39,7 +39,8 @@ public class HotelApplication extends BaseEntity {
     @Column(name = "owner_name", nullable = false, length = 150)
     private String ownerName;
 
-    @Column(nullable = false, length = 255)
+    /** Lower case; null when not given (optional since platform-030). */
+    @Column(length = 255)
     private String email;
 
     /** +234XXXXXXXXXX. */
@@ -53,16 +54,18 @@ public class HotelApplication extends BaseEntity {
     @Column(name = "business_type", nullable = false, length = 20)
     private String businessType;
 
-    @Column(nullable = false, length = 100)
+    /** Null when not given (optional since platform-030). */
+    @Column(length = 100)
     private String city;
 
-    @Column(nullable = false, length = 60)
+    /** Null when not given (optional since platform-030). */
+    @Column(length = 60)
     private String state;
 
     /** Only for a hotel or a mixed business; null when not given. */
     private Integer rooms;
 
-    /** A {@link MonthlySales} band (required on the form since platform-029); null on requests sent before the question ("Not asked"). */
+    /** A {@link MonthlySales} band; null on requests sent before the question (platform-029) or, since the short form (platform-030), when not given ("Not asked"). */
     @Column(name = "monthly_sales", length = 20)
     private String monthlySales;
 
@@ -71,8 +74,8 @@ public class HotelApplication extends BaseEntity {
     @Setter(lombok.AccessLevel.NONE)
     private Integer monthlySalesRank;
 
-    /** SEARCH, SOCIAL, FRIEND, MARKETER, EVENT or OTHER. */
-    @Column(name = "heard_from", nullable = false, length = 30)
+    /** SEARCH, SOCIAL, FRIEND, MARKETER, EVENT or OTHER; null when not given (optional since platform-030). */
+    @Column(name = "heard_from", length = 30)
     private String heardFrom;
 
     /** MORNING, AFTERNOON, EVENING or ANYTIME; null when not given. */
