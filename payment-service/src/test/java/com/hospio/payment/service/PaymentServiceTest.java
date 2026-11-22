@@ -467,7 +467,7 @@ class PaymentServiceTest {
     }
 
     @Test
-    void cardIsNotAskedForATillAndFinanceDownLetsCashThrough() {
+    void cardIsNotAskedForATillAndFinanceDownRefusesCash() {
         when(finance.till("h1", "BAR")).thenReturn(Optional.of(com.hospio.payment.client.FinanceClient.TillState.closed()));
         PosTerminal pos = PosTerminal.builder().name("Bar POS").provider("logging").terminalRef("T-1").build();
         pos.setId("t1");
@@ -475,8 +475,12 @@ class PaymentServiceTest {
         service.request(new PaymentRequestDto(PaymentMethod.CARD, new BigDecimal("5000"), null, null, "Walk-in", null, null, "Drinks", null));
 
         when(finance.till("h1", "BAR")).thenReturn(Optional.empty());
-        assertThat(service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), null, null, "Walk-in", null, null, "Drinks", null)).status())
-                .isEqualTo(PaymentStatus.APPROVED);
+        assertThatThrownBy(() -> service.request(new PaymentRequestDto(PaymentMethod.CASH, new BigDecimal("1000"), null, null, "Walk-in", null, null, "Drinks", null)))
+                .hasMessageContaining("couldn't check the till");
+        PaymentService.CashTill till = service.cashTill(null);
+        assertThat(till.needed()).isTrue();
+        assertThat(till.open()).isFalse();
+        assertThat(till.message()).contains("couldn't check the till");
     }
 
     @Test
@@ -584,13 +588,15 @@ class PaymentServiceTest {
     }
 
     @Test
-    void aManagersCashIsTakenWithNoTillWhenTheSalesOutletCantBeTold() {
+    void aManagersCashIsRefusedWhenTheSalesOutletCantBeTold() {
         signInAs("m1", Role.MANAGER, AccessLevel.FULL);
         when(finance.till(anyString(), anyString())).thenReturn(Optional.of(com.hospio.payment.client.FinanceClient.TillState.closed()));
         when(fnb.order(eq("order-7"), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of(
                 new com.hospio.payment.client.FnbClient.OrderDue(null, null, null, false, null, null)));
-        assertThat(service.request(forOrder(PaymentMethod.CASH, null)).role()).isEqualTo(Role.MANAGER);
-        assertThat(service.cashTill(null, "order-7").needed()).isFalse();
+        assertThatThrownBy(() -> service.request(forOrder(PaymentMethod.CASH, null))).hasMessageContaining("couldn't check the till");
+        PaymentService.CashTill till = service.cashTill(null, "order-7");
+        assertThat(till.needed()).isTrue();
+        assertThat(till.open()).isFalse();
     }
 
     // ---- waiters and cashiers (docs/plan-venue-type.md, phase 3) ------------------------------------------------

@@ -91,6 +91,12 @@ public class PaymentService {
      */
     static final Set<Role> TILL_DESKS = Set.of(Role.FRONT_OFFICE, Role.BAR, Role.KITCHEN, Role.CASHIER, Role.WAITER);
 
+    /**
+     * Cash at a till desk when the till can't be checked (finance-service, or for a manager's sale fnb-service, unreachable): refused,
+     * so no cash lands outside every till (owner's decision 22 Nov; it used to be let through).
+     */
+    static final String TILL_UNKNOWN = "We couldn't check the till just now, so cash can't be taken yet. Try again in a moment. Card and transfer still work";
+
     /** A manager or owner: no drawer of their own (docs/operating-day.md "Manager and owner cash"). */
     static boolean noDrawerOfTheirOwn(Role role) {
         return role == Role.MANAGER || role == Role.OWNER;
@@ -100,7 +106,7 @@ public class PaymentService {
      * The desk whose till a manager's or owner's cash goes into (docs/operating-day.md "Manager and owner cash"): for an outlet sale,
      * the outlet's desk (BAR for a bar, KITCHEN for a kitchen or restaurant), the till its attendants use; for anything else (a folio,
      * a booking, a walk-in), the front office. Null when the sale's outlet can't be told (fnb-service unreachable): the cash is then
-     * taken with no till, as when finance-service can't be reached.
+     * refused ({@link #TILL_UNKNOWN}), as when finance-service can't be reached.
      */
     static Role managerTill(String orderId, String orderDesk) {
         if (orderId == null) {
@@ -222,10 +228,11 @@ public class PaymentService {
                 throw new BadRequestException(noDesk);
             }
             Role till = managerTill(blankToNull(dto.orderId()), desk);
-            if (till != null) {
-                role = till;
-                managerCash = true;
+            if (till == null) {
+                throw new BadRequestException(TILL_UNKNOWN);
             }
+            role = till;
+            managerCash = true;
         }
         PaymentRequest p = PaymentRequest.builder().folioId(dto.folioId()).bookingId(bookingId).orderId(blankToNull(dto.orderId())).desk(desk).guestName(dto.guestName())
                 .guestPhone(dto.guestPhone()).guestEmail(dto.guestEmail()).requestedBy(user.getUserId()).requestedByName(user.getFullName())
@@ -247,8 +254,8 @@ public class PaymentService {
     /**
      * Cash at a till desk needs that desk's till open and opened today (or overnight): 400 "Open your till first" when it is closed,
      * 400 "...left open since..." when it was left open from an earlier day (docs/operating-day.md "Tills left open"). When
-     * finance-service can't be reached the cash is let through (it is then recorded as cash with no till, as before), so a finance
-     * outage never stops the desk.
+     * finance-service can't be reached the cash is refused too ({@link #TILL_UNKNOWN}, owner's decision 22 Nov): cash outside every
+     * till can't be counted at the close. Card and transfer still go through.
      */
     void requireOpenTill(String hotelId, Role role) {
         requireOpenTill(hotelId, role, false);
@@ -260,7 +267,10 @@ public class PaymentService {
             return;
         }
         com.hospio.payment.client.FinanceClient.TillState till = finance.till(hotelId, tillOf(role).name()).orElse(null);
-        if (till == null || (till.isOpen() && !till.isStale())) {
+        if (till == null) {
+            throw new BadRequestException(TILL_UNKNOWN);
+        }
+        if (till.isOpen() && !till.isStale()) {
             return;
         }
         throw new BadRequestException(manager ? managerRefusal(role, till) : refusal(role, till));
@@ -344,7 +354,7 @@ public class PaymentService {
             String orderDesk = oid == null ? null : fnb.order(oid, null, null).map(com.hospio.payment.client.FnbClient.OrderDue::desk).orElse(null);
             Role till = managerTill(oid, orderDesk);
             if (till == null) {
-                return new CashTill(role.name(), false, true, null); // the outlet can't be told: the cash is taken with no till
+                return new CashTill(role.name(), true, false, TILL_UNKNOWN); // the outlet can't be told: cash is refused
             }
             takenAs = role.name();
             role = till;
@@ -358,8 +368,8 @@ public class PaymentService {
         }
         com.hospio.payment.client.FinanceClient.TillState till = finance.till(hotelId, tillOf(role).name()).orElse(null);
         if (till == null) {
-            // finance unreachable: the cash goes through, as on POST /payments
-            return new CashTill(role.name(), true, true, null, tillOf(role).name(), null, null, null, false, manager, takenAs, false);
+            // finance unreachable: cash is refused, as on POST /payments
+            return new CashTill(role.name(), true, false, TILL_UNKNOWN, tillOf(role).name(), null, null, null, false, manager, takenAs, false);
         }
         boolean ok = till.isOpen() && !till.isStale();
         String message = ok ? null : manager ? managerRefusal(role, till)
