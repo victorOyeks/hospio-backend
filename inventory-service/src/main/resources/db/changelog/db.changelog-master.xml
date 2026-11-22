@@ -14,5 +14,6 @@
     <include file="db/changelog/002-restaurant-bar.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/003-inventory-stores.sql" relativeToChangelogFile="false"/>
     <include file="db/changelog/004-purchase-order-numbers.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/005-supplier-contact-phone.sql" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

@@ -30,6 +30,10 @@ public class Supplier extends TenantEntity {
     @Column(name = "contact_name", length = 150)
     private String contactName;
 
+    /** The contact person's own number (optional), checked like the company phone. */
+    @Column(name = "contact_phone", length = 30)
+    private String contactPhone;
+
     private String phone;
     private String email;
 

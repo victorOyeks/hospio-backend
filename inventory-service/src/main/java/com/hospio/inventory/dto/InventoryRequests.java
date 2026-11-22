@@ -51,6 +51,7 @@ public final class InventoryRequests {
     }
 
     public record SupplierRequest(@NotBlank(message = "Give the supplier a name") String name, String contactName, String phone, String email,
+                                  String contactPhone,
                                   String paymentTerms, String address, String notes, Boolean active, List<String> itemIds) {
     }
 
