@@ -70,7 +70,7 @@ curl -s -X POST https://api-staging.hospio360.com/inventory/admin/stores/backfil
 | Method | Path | Who | Change |
 |---|---|---|---|
 | GET | `/suppliers` | STORE, FINANCE, manager | adds `items` (count), `itemIds`, `openOrders`, `lastOrderAt`, `spent` (received value, last 30 days) |
-| POST / PUT | `/suppliers`, `/suppliers/{id}` | STORE | `{name, contactName, phone, email, paymentTerms, address, notes, active, itemIds?}`; `itemIds` (when sent) become the items this supplier supplies. 400: name missing/duplicate, bad phone ("Enter a phone number like 0803 123 4567"), bad email; deactivating with open orders: 400 "X has 2 open orders · cancel or close them first" |
+| POST / PUT | `/suppliers`, `/suppliers/{id}` | STORE | `{name, contactName, contactPhone, phone, email, paymentTerms, address, notes, active, itemIds?}`; `itemIds` (when sent) become the items this supplier supplies (none is allowed: an item has one usual supplier, so a new supplier is often added before its items are moved to it). 400: name missing/duplicate, bad phone ("Enter a phone number like 0803 123 4567"), bad contact phone (optional; "Enter a phone number like 0803 123 4567 for the contact person"), a contact name with no letters ("Enter the contact person's name · their number goes under Contact phone"), bad email; deactivating with open orders: 400 "X has 2 open orders · cancel or close them first" |
 
 ### Purchase orders
 | Method | Path | Who | Change |
@@ -115,14 +115,14 @@ Receiving a delivery (with or without an order) now hands Finance the bill for i
 |---|---|---|---|
 | GET | `/counts` | STORE, FINANCE, manager; outlet teams see their own stores' | rows: `storeName, startedByName, countedByName, approvedByName, lines:[{itemId, name, unit, expected, quantity, variance, unitCost, value}], varianceValue, note` |
 | POST | `/counts` | STORE, the store's team | `{storeId}`; 400 "The Bar store already has a count open (started by X) · finish or cancel it first" while one is OPEN or COUNTED |
-| PUT | `/counts/{id}` | STORE, the store's team | `{lines:[{itemId, quantity}], note}`; OPEN or COUNTED (recount); expected = system level now; variance and value worked out; 400 negative / no lines / approved already |
-| POST | `/counts/{id}/approve` | manager, owner | COUNTED → APPROVED; each line's variance (counted − expected at submission) is posted as a COUNTED movement against the current level (sales since then are kept), never below zero. 403 "Approving a count is for a manager"; 400 "Nothing counted yet" |
+| PUT | `/counts/{id}` | STORE, the store's team | `{lines:[{itemId, quantity}], note}`; OPEN or COUNTED (recount); expected = system level now; variance and value worked out; the managers get a bell notice "Stock count to approve · <store>" ("<name> counted the <store> · missing worth ₦…", link opens the count); 400 negative / no lines / approved already |
+| POST | `/counts/{id}/approve` | manager, owner | COUNTED → APPROVED; each line's variance (counted − expected at submission) is posted as a COUNTED movement against the current level (sales since then are kept), never below zero. Whoever counted it gets a bell notice "Your count was approved · <store>" (not when they approved it themselves). 403 "Approving a count is for a manager"; 400 "Nothing counted yet" |
 | POST | `/counts/{id}/cancel` | STORE, manager | `{reason}`; OPEN or COUNTED → CANCELLED |
 
 ### Money
 | Method | Path | Who | Response |
 |---|---|---|---|
-| GET | `/value` | STORE, FINANCE, manager, owner | `{total, stores:[{storeId, name, kind, items, lowItems, value}], low:[{itemId, name, unit, storeId, storeName, quantity, minLevel, parLevel, suggest, unitCost, supplierId, supplierName}], onOrder}`; `suggest` = par (or 2 × min) − quantity; `onOrder` = value still to arrive on SENT/PARTIAL orders |
+| GET | `/value` | STORE, FINANCE, manager, owner | `{total, stores:[{storeId, name, kind, items, lowItems, value}], low:[{itemId, name, unit, storeId, storeName, quantity, minLevel, parLevel, suggest, unitCost, supplierId, supplierName}], onOrder}`; `suggest` = par (or 2 × min) − quantity; `onOrder` = value still to arrive on SENT/PARTIAL orders, `ordersOnTheWay` = how many such orders (the On order tile and Finance's Still on order both show these two) |
 | GET | `/usage?from=&to=` | same | `{from, to, stores:[{storeId, name, kind, received, transferredIn, issuedOut, used, wasted, counted}], teams:[{team, issued}], totals:{received, used, wasted, counted, issued}}`; values at each movement's cost; dates are Lagos days, default the last 30 days |
 
 ### Seed (`hospio.seed.enabled`)

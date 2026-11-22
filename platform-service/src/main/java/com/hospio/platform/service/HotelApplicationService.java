@@ -59,7 +59,7 @@ import org.springframework.util.StringUtils;
  * on the landing site and the team works the request in the admin portal's Hotel applications: call them (CONTACTED), meet them
  * (MEETING_BOOKED), agree terms (APPROVED), onboard the business with the back-office wizard and link it here (ONBOARDED), or
  * decline it. The public form is checked and cut to length like the partner form: hidden field, hourly limit per address and
- * email, and a repeat from an email with an open request becomes a note on that request (answered "received" like a new one).
+ * email (or phone when no email is given), and a repeat from an email (or, with no email, a phone) with an open request becomes a note on that request (answered "received" like a new one).
  * Everyone on the platform may read; super admins and support change (the partner-application DECIDE rule).
  */
 @Slf4j
@@ -143,9 +143,10 @@ public class HotelApplicationService {
         if (phone == null) {
             errors.put("phone", StringUtils.hasText(r.phone()) ? "Enter a Nigerian phone number, like 0803 555 0192 or +234 803 555 0192" : "Enter your phone number");
         }
-        String email = r.email() == null ? "" : r.email().trim().toLowerCase(Locale.ROOT);
-        if (email.isEmpty() || email.length() > 255 || !EMAIL.matcher(email).matches()) {
-            errors.put("email", email.isEmpty() ? "Enter your email address" : "Enter a real email address, like ada@example.com");
+        // Optional (the short form, 22 Nov 2026): only name, phone, business name and type are required; the rest is checked when filled.
+        String email = StringUtils.hasText(r.email()) ? r.email().trim().toLowerCase(Locale.ROOT) : null;
+        if (email != null && (email.length() > 255 || !EMAIL.matcher(email).matches())) {
+            errors.put("email", "Enter a real email address, like ada@example.com");
         }
         String businessName = PartnerApplicationService.text(r.businessName());
         if (businessName == null || !BUSINESS.matcher(businessName).matches() || !Phones.meaningfulName(businessName)) {
@@ -156,11 +157,11 @@ public class HotelApplicationService {
             errors.put("businessType", "Choose what kind of business it is");
         }
         String city = PartnerApplicationService.text(r.city());
-        if (city == null || !PLACE.matcher(city).matches()) {
-            errors.put("city", city == null ? "Enter your city" : "Enter the name of your city");
+        if (city != null && !PLACE.matcher(city).matches()) {
+            errors.put("city", "Enter the name of your city");
         }
         String state = PartnerApplicationService.text(r.state());
-        if (state == null || !PartnerApplicationService.STATES.contains(state)) {
+        if (state != null && !PartnerApplicationService.STATES.contains(state)) {
             errors.put("state", "Choose your state");
         }
         Integer rooms = type != null && WITH_ROOMS.contains(type) ? r.rooms() : null;
@@ -168,11 +169,11 @@ public class HotelApplicationService {
             errors.put("rooms", "Enter the number of rooms (1 to " + MAX_ROOMS + "), or leave it empty");
         }
         MonthlySales sales = MonthlySales.parse(r.monthlySales()).orElse(null);
-        if (sales == null) {
+        if (sales == null && StringUtils.hasText(r.monthlySales())) {
             errors.put("monthlySales", "Choose your average monthly sales (an estimate is fine)");
         }
-        String heard = r.heardFrom() == null ? null : r.heardFrom().trim().toUpperCase(Locale.ROOT);
-        if (heard == null || !HEARD.containsKey(heard)) {
+        String heard = StringUtils.hasText(r.heardFrom()) ? r.heardFrom().trim().toUpperCase(Locale.ROOT) : null;
+        if (heard != null && !HEARD.containsKey(heard)) {
             errors.put("heardFrom", "Tell us how you heard about Hospio360");
         }
         String time = StringUtils.hasText(r.preferredTime()) ? r.preferredTime().trim().toUpperCase(Locale.ROOT) : null;
@@ -186,7 +187,8 @@ public class HotelApplicationService {
         if (!errors.isEmpty()) {
             return new Submission(Submission.INVALID, errors);
         }
-        if (!limiter.allowAddress(address) || !limiter.allowEmail(email)) {
+        // No email: the phone (as stored) is counted in its place.
+        if (!limiter.allowAddress(address) || !limiter.allowEmail(email != null ? email : phone)) {
             log.info("Hotel application from {} refused: over the hour's limit", address);
             return new Submission(Submission.LIMITED, Map.of());
         }
@@ -194,8 +196,10 @@ public class HotelApplicationService {
         Optional<MarketerService.ReferralCodeInfo> marketer = code == null ? Optional.empty()
                 : marketers.referralCode(code).filter(MarketerService.ReferralCodeInfo::canRefer);
         return TenantContext.runWith(Tenant.system("hotel-applications"), () -> {
-            Optional<HotelApplication> open = applications.findFirstByEmailIgnoreCaseAndStatusNotIn(email,
-                    List.of(HotelApplication.ONBOARDED, HotelApplication.DECLINED));
+            List<String> closed = List.of(HotelApplication.ONBOARDED, HotelApplication.DECLINED);
+            // A repeat is found by email; a request without one by phone (stored +234…).
+            Optional<HotelApplication> open = email != null ? applications.findFirstByEmailIgnoreCaseAndStatusNotIn(email, closed)
+                    : applications.findFirstByPhoneAndStatusNotInOrderByCreatedAtDesc(phone, closed);
             if (open.isPresent()) {
                 // Same answer as a new request (the form never says an email is known here); the team sees it on the open one.
                 repeatNote(open.get(), businessName, type, phone, sales, message);
@@ -205,21 +209,23 @@ public class HotelApplicationService {
             HotelApplication a;
             try {
                 a = applications.saveAndFlush(HotelApplication.builder().ownerName(ownerName).email(email).phone(phone)
-                        .businessName(businessName).businessType(type).city(city).state(state).rooms(rooms).monthlySales(sales.name()).heardFrom(heard)
+                        .businessName(businessName).businessType(type).city(city).state(state).rooms(rooms).monthlySales(sales == null ? null : sales.name()).heardFrom(heard)
                         .preferredTime(time).message(message).referralCode(code)
                         .marketerProfileId(marketer.map(MarketerService.ReferralCodeInfo::profileId).orElse(null))
                         .marketerName(marketer.map(MarketerService.ReferralCodeInfo::fullName).orElse(null))
                         .status(HotelApplication.NEW).statusChangedAt(Instant.now())
                         .ip(cut(PartnerApplicationService.text(address), 64)).userAgent(cut(PartnerApplicationService.text(userAgent), 300)).build());
             } catch (DataIntegrityViolationException e) {
-                log.info("Hotel application from {} not stored: another request for the same email got there first", address);
+                log.info("Hotel application from {} not stored: another request for the same email or phone got there first", address);
                 return Submission.received();
             }
             log.info("Hotel application {} stored ({}, {}, {})", a.getId(), a.getBusinessType(), a.getCity(),
                     a.getMarketerProfileId() == null ? "no marketer" : "marketer " + a.getMarketerProfileId());
-            deliveries.send(Delivery.email(email, "We received your Hospio360 demo request", receivedEmail(a), Delivery.Kind.NOTICE,
-                    a.getId() + ":received"));
-            deliveries.send(Delivery.email(supportEmail(), "New demo request: " + a.getBusinessName() + " (" + a.getCity() + ")", teamEmail(a),
+            if (email != null) {
+                deliveries.send(Delivery.email(email, "We received your Hospio360 demo request", receivedEmail(a), Delivery.Kind.NOTICE,
+                        a.getId() + ":received"));
+            }
+            deliveries.send(Delivery.email(supportEmail(), teamSubject(a), teamEmail(a),
                     Delivery.Kind.NOTICE, a.getId() + ":team"));
             tellStaff(a);
             return Submission.received();
@@ -238,7 +244,7 @@ public class HotelApplicationService {
             if (!phone.equals(a.getPhone())) {
                 b.append(" · phone: ").append(phone);
             }
-            if (!sales.name().equals(a.getMonthlySales())) {
+            if (sales != null && !sales.name().equals(a.getMonthlySales())) {
                 b.append(" · monthly sales: ").append(sales.label());
             }
             if (message != null) {
@@ -274,7 +280,7 @@ public class HotelApplicationService {
             }
             events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().kind(NOTICE_KIND).title("New demo request")
                     .body(a.getOwnerName() + " of " + a.getBusinessName() + " (" + TYPE_WORDS.get(a.getBusinessType()).split(" ")[0].toLowerCase(Locale.ROOT)
-                            + ", " + a.getCity() + ") asked for a demo" + (a.getMarketerName() == null ? "" : ", referred by " + a.getMarketerName()) + ".")
+                            + (a.getCity() == null ? "" : ", " + a.getCity()) + ") asked for a demo" + (a.getMarketerName() == null ? "" : ", referred by " + a.getMarketerName()) + ".")
                     .link("/dashboard/hotel-applications?app=" + a.getId()).userIds(new ArrayList<>(who)).build());
         } catch (RuntimeException e) {
             log.warn("Hotel application {}: the team was not told ({})", a.getId(), e.getMessage());
@@ -384,9 +390,10 @@ public class HotelApplicationService {
             }
             if (StringUtils.hasText(q)) {
                 String like = Paging.like(q);
-                ps.add(cb.or(cb.like(cb.lower(root.get("ownerName")), like, '\\'), cb.like(cb.lower(root.get("email")), like, '\\'),
+                ps.add(cb.or(cb.like(cb.lower(root.get("ownerName")), like, '\\'), cb.like(cb.lower(cb.coalesce(root.get("email"), "")), like, '\\'),
                         cb.like(root.get("phone"), like, '\\'), cb.like(cb.lower(root.get("businessName")), like, '\\'),
-                        cb.like(cb.lower(root.get("city")), like, '\\'), cb.like(cb.lower(root.get("state")), like, '\\'),
+                        cb.like(cb.lower(cb.coalesce(root.get("city"), "")), like, '\\'),
+                        cb.like(cb.lower(cb.coalesce(root.get("state"), "")), like, '\\'),
                         cb.like(cb.lower(cb.coalesce(root.get("referralCode"), "")), like, '\\'),
                         cb.like(cb.lower(cb.coalesce(root.get("marketerName"), "")), like, '\\')));
             }
@@ -644,7 +651,7 @@ public class HotelApplicationService {
                 + (a.getPreferredTime() == null || "ANYTIME".equals(a.getPreferredTime()) ? "" : ", in the " + a.getPreferredTime().toLowerCase(Locale.ROOT) + " if we can")
                 + ".\n\nWhat you told us:\n"
                 + "Business: " + a.getBusinessName() + " (" + TYPE_WORDS.get(a.getBusinessType()) + ")\n"
-                + "Where: " + a.getCity() + ", " + a.getState() + "\n"
+                + (where(a) == null ? "" : "Where: " + where(a) + "\n")
                 + (a.getRooms() == null ? "" : "Rooms: " + a.getRooms() + "\n")
                 + "\nOn the call we will show you Hospio360, agree what you need and set your business up with you. Your login comes "
                 + "by email once your business is ready. If you did not ask for a demo, ignore this email or tell us at "
@@ -655,17 +662,29 @@ public class HotelApplicationService {
         return "A new demo request came in on hospio360.com.\n\n"
                 + "Owner: " + a.getOwnerName() + "\n"
                 + "Phone: " + a.getPhone() + "\n"
-                + "Email: " + a.getEmail() + "\n"
+                + "Email: " + (a.getEmail() == null ? "Not given" : a.getEmail()) + "\n"
                 + "Business: " + a.getBusinessName() + " (" + TYPE_WORDS.get(a.getBusinessType()) + ")\n"
-                + "Where: " + a.getCity() + ", " + a.getState() + "\n"
+                + "Where: " + (where(a) == null ? "Not given" : where(a)) + "\n"
                 + (a.getRooms() == null ? "" : "Rooms: " + a.getRooms() + "\n")
                 + "Monthly sales (all outlets): " + MonthlySales.labelOf(a.getMonthlySales()) + "\n"
-                + "Heard about us: " + HEARD.get(a.getHeardFrom()) + "\n"
+                + "Heard about us: " + (a.getHeardFrom() == null ? "Not given" : HEARD.get(a.getHeardFrom())) + "\n"
                 + (a.getPreferredTime() == null ? "" : "Best time to call: " + TIMES.get(a.getPreferredTime()) + "\n")
                 + (a.getMarketerName() == null ? (a.getReferralCode() == null ? "" : "Referral code: " + a.getReferralCode() + " (not an active partner)\n")
                         : "Referred by: " + a.getMarketerName() + " (" + a.getReferralCode() + ")\n")
                 + (a.getMessage() == null ? "" : "\nMessage:\n" + a.getMessage() + "\n")
                 + "\nWe promised a call within 1 working day. Open it in the admin portal: Hotel applications.\n\nHospio360\n";
+    }
+
+    /** "New demo request: Business (City)", the city only when given. */
+    static String teamSubject(HotelApplication a) {
+        return "New demo request: " + a.getBusinessName() + (a.getCity() == null ? "" : " (" + a.getCity() + ")");
+    }
+
+    /** "City, State", either alone, or null when neither was given. */
+    static String where(HotelApplication a) {
+        String w = java.util.stream.Stream.of(a.getCity(), a.getState()).filter(StringUtils::hasText)
+                .collect(java.util.stream.Collectors.joining(", "));
+        return w.isEmpty() ? null : w;
     }
 
     // ---- helpers -------------------------------------------------------------------------------------

@@ -115,7 +115,7 @@ public class RefundService {
      * A cash refund comes out of the drawer of the desk that took the payment, so that desk's till must be open (and opened today):
      * otherwise the cash would leave a drawer nobody is counting. A manager's or owner's cash since 20 Nov is recorded under the desk
      * whose till it went into, so it is asked the same way. Card and transfer refunds, and cash taken with no till (laundry, a
-     * manager's or owner's before 20 Nov, recorded under MANAGER or OWNER), are not asked. finance-service unreachable lets it through, as for taking cash.
+     * manager's or owner's before 20 Nov, recorded under MANAGER or OWNER), are not asked. finance-service unreachable refuses it, as for taking cash.
      */
     void requireTillForCash(Refund r) {
         PaymentRequest p = tx.execute(s -> payments.findById(r.getPaymentId()).orElse(null));
@@ -125,7 +125,10 @@ public class RefundService {
         }
         com.hospio.common.enums.Role desk = PaymentService.tillOf(p.getRole());
         com.hospio.payment.client.FinanceClient.TillState till = finance.till(p.getHotelId() == null ? r.getHotelId() : p.getHotelId(), desk.name()).orElse(null);
-        if (till == null || (till.isOpen() && !till.isStale())) {
+        if (till == null) {
+            throw new BadRequestException("We couldn't check the till just now, so this cash refund can't be approved yet. Try again in a moment");
+        }
+        if (till.isOpen() && !till.isStale()) {
             return;
         }
         String name = PaymentService.deskName(desk);

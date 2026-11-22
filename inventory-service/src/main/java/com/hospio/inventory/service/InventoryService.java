@@ -15,6 +15,7 @@ import com.hospio.common.kafka.EventPublisher;
 import com.hospio.common.kafka.KafkaTopics;
 import com.hospio.common.kafka.events.ApprovalRequestedEvent;
 import com.hospio.common.kafka.events.DeliveryReceivedEvent;
+import com.hospio.common.kafka.events.NoticeEvent;
 import com.hospio.common.util.PaymentTerms;
 import com.hospio.common.kafka.events.OrderSettledEvent;
 import com.hospio.common.kafka.events.StockIssuedEvent;
@@ -64,6 +65,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
@@ -812,7 +814,7 @@ public class InventoryService {
                     || (d.getPurchaseOrderId() == null && s.getName().equalsIgnoreCase(Objects.toString(d.getSupplierName(), ""))))
                     .map(com.hospio.inventory.entity.Delivery::getTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
             return new InventoryViews.SupplierView(s.getId(), s.getName(), s.getContactName(), s.getPhone(), s.getEmail(), s.getPaymentTerms(),
-                    s.getAddress(), s.getNotes(), s.isActive(), ids.size(), ids, open, last, Money.of(spent));
+                    s.getAddress(), s.getNotes(), s.isActive(), ids.size(), ids, open, last, Money.of(spent), s.getContactPhone());
         }).toList();
     }
 
@@ -833,6 +835,15 @@ public class InventoryService {
         if (phone != null && !validPhone(phone)) {
             throw new BadRequestException("Enter a phone number like 0803 123 4567");
         }
+        String contactPhone = StringUtils.hasText(request.contactPhone()) ? request.contactPhone().trim() : null;
+        if (contactPhone != null && !validPhone(contactPhone)) {
+            throw new BadRequestException("Enter a phone number like 0803 123 4567 for the contact person");
+        }
+        String contactName = trim(request.contactName(), 150);
+        if (contactName != null && contactName.replaceAll("[^\\p{L}]", "").isEmpty()) {
+            // Someone typed a number into the name box (QA DEF-097): the number has its own box.
+            throw new BadRequestException("Enter the contact person's name · their number goes under Contact phone");
+        }
         String email = StringUtils.hasText(request.email()) ? request.email().trim() : null;
         if (email != null && !email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]{2,}$")) {
             throw new BadRequestException("Enter an email address like orders@supplier.ng");
@@ -844,8 +855,9 @@ public class InventoryService {
             }
         }
         s.setName(name);
-        s.setContactName(trim(request.contactName(), 150));
+        s.setContactName(contactName);
         s.setPhone(phone);
+        s.setContactPhone(contactPhone);
         s.setEmail(email);
         s.setPaymentTerms(trim(request.paymentTerms(), 100));
         s.setAddress(trim(request.address(), 300));
@@ -1366,7 +1378,20 @@ public class InventoryService {
         c.setStatus(StockCount.Status.COUNTED);
         c.setCountedBy(u.getUserId());
         c.setCountedByName(u.getFullName());
-        return countView(counts.save(c), storeMap());
+        StockCount saved = counts.save(c);
+        // The manager's bell: a count is waiting for them (QA DEF-100). The link opens the count on the manager's Inventory.
+        events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().kind("STOCK_COUNT").title("Stock count to approve · " + store.getName())
+                .body(u.getFullName() + " counted the " + store.getName() + " · " + countDifference(saved.getVarianceValue()))
+                .link("/inventory?screen=counts&open=" + saved.getId()).roles(List.of("MANAGER")).build());
+        return countView(saved, storeMap());
+    }
+
+    /** "missing worth ₦2,400", "extra worth ₦600" or "no difference". */
+    static String countDifference(BigDecimal value) {
+        if (value == null || value.signum() == 0) {
+            return "no difference";
+        }
+        return (value.signum() < 0 ? "missing worth " : "extra worth ") + StockRules.naira(value.abs());
     }
 
     @Transactional
@@ -1399,7 +1424,15 @@ public class InventoryService {
         c.setApprovedBy(u.getUserId());
         c.setApprovedByName(u.getFullName());
         c.setClosedAt(Instant.now());
-        return countView(counts.save(c), storeMap());
+        StockCount saved = counts.save(c);
+        // The person who counted hears it was approved (QA DEF-101), unless they approved it themselves.
+        if (saved.getCountedBy() != null && !saved.getCountedBy().equals(u.getUserId())) {
+            String storeName = Optional.ofNullable(storeMap().get(saved.getStoreId())).map(Store::getName).orElse("store");
+            events.publish(KafkaTopics.NOTICE, NoticeEvent.builder().kind("STOCK_COUNT").title("Your count was approved · " + storeName)
+                    .body(u.getFullName() + " approved it · levels corrected (" + countDifference(saved.getVarianceValue()) + ")")
+                    .link("/counts?open=" + saved.getId()).userIds(List.of(saved.getCountedBy())).build());
+        }
+        return countView(saved, storeMap());
     }
 
     @Transactional
@@ -1440,13 +1473,14 @@ public class InventoryService {
         }
         low.sort(Comparator.comparing(InventoryViews.LowItem::storeName).thenComparing(InventoryViews.LowItem::name));
         BigDecimal onOrder = BigDecimal.ZERO;
-        for (PurchaseOrder p : orders.findByHotelIdAndStatusIn(hotel, EnumSet.of(PurchaseOrder.Status.SENT, PurchaseOrder.Status.PARTIAL))) {
+        List<PurchaseOrder> onTheWay = orders.findByHotelIdAndStatusIn(hotel, EnumSet.of(PurchaseOrder.Status.SENT, PurchaseOrder.Status.PARTIAL));
+        for (PurchaseOrder p : onTheWay) {
             for (OrderLine ol : orderLines(p, im)) {
                 onOrder = onOrder.add(ol.quantity().subtract(ol.received()).max(BigDecimal.ZERO).multiply(ol.unitCost()));
             }
         }
         BigDecimal total = sv.stream().map(InventoryViews.StoreView::value).reduce(BigDecimal.ZERO, BigDecimal::add);
-        return new InventoryViews.ValueReport(Money.of(total), sv, low, Money.of(onOrder));
+        return new InventoryViews.ValueReport(Money.of(total), sv, low, Money.of(onOrder), onTheWay.size());
     }
 
     @Transactional(readOnly = true)

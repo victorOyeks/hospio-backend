@@ -15,6 +15,9 @@ public interface HotelApplicationRepository extends JpaRepository<HotelApplicati
     /** The open application (not onboarded or declined) with this email, if any. */
     Optional<HotelApplication> findFirstByEmailIgnoreCaseAndStatusNotIn(String email, Collection<String> statuses);
 
+    /** The newest open application with this phone (+234…, as stored): how a request without an email finds its repeat. */
+    Optional<HotelApplication> findFirstByPhoneAndStatusNotInOrderByCreatedAtDesc(String phone, Collection<String> statuses);
+
     long countByStatus(String status);
 
     boolean existsByBusinessId(String businessId);

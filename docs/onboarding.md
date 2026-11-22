@@ -45,19 +45,26 @@ The hotel app's sign-in page has no sign-up link (it offers "New to Hospio360? B
 ### The form (platform-service, public)
 
 `POST /platform/public/hotel-applications` (no session; the landing site posts through its own server action and passes the
-visitor's address in `X-Client-Address`, believed only from our own servers, as for partner applications):
+visitor's address in `X-Client-Address`, believed only from our own servers, as for partner applications).
+
+**The short form (22 Nov 2026, owner decision).** The Meta ad sends phone visitors (mostly the Facebook/Instagram in-app browser)
+here, and the long form got no submissions. Only **four fields are required: name, phone, business name and business type**.
+Everything else is optional; the landing page puts it under a closed "Tell us more (optional)" section. An optional field that is
+filled is still checked, with the same message; blank or missing → stored **null** (changeset `platform-030` drops NOT NULL on
+`email`, `city`, `state`, `heard_from`; `monthly_sales` was already nullable).
+
 
 | Field | Rule |
 |---|---|
 | `ownerName` | required, letters, 2–150 |
 | `phone` | required, a Nigerian mobile (0803…, +234803…), stored `+234…` |
-| `email` | required, a real address |
+| `email` | optional (22 Nov 2026); when given, a real address, stored lower case |
 | `businessName` | required, 2–150, must contain letters |
-| `businessType` | `HOTEL`, `LOUNGE`, `BAR`, `RESTAURANT` or `MIXED` |
-| `city`, `state` | required; the state is one of the 36 states or FCT |
+| `businessType` | required: `HOTEL`, `LOUNGE`, `BAR`, `RESTAURANT` or `MIXED` |
+| `city`, `state` | optional (22 Nov 2026); when given, a city name and one of the 36 states or FCT |
 | `rooms` | optional, 1–5000, kept only for `HOTEL` and `MIXED` (the form hides it otherwise) |
-| `monthlySales` | **required** (from 21 Nov 2026), "Average monthly sales (all outlets combined)": `UNDER_1M` "Under ₦1 million", `FROM_1M_TO_5M` "₦1 million – ₦5 million", `FROM_5M_TO_20M` "₦5 million – ₦20 million", `ABOVE_20M` "Above ₦20 million", `PREFER_NOT` "Prefer not to say"; missing or anything else → 400 "Choose your average monthly sales (an estimate is fine)" |
-| `heardFrom` | `SEARCH`, `SOCIAL`, `FRIEND`, `MARKETER`, `EVENT` or `OTHER` |
+| `monthlySales` | optional (required 21–22 Nov 2026, optional with the short form), "Average monthly sales (all outlets combined)": `UNDER_1M` "Under ₦1 million", `FROM_1M_TO_5M` "₦1 million – ₦5 million", `FROM_5M_TO_20M` "₦5 million – ₦20 million", `ABOVE_20M` "Above ₦20 million", `PREFER_NOT` "Prefer not to say"; missing → null ("Not asked"); anything else → 400 "Choose your average monthly sales (an estimate is fine)" |
+| `heardFrom` | optional (22 Nov 2026): `SEARCH`, `SOCIAL`, `FRIEND`, `MARKETER`, `EVENT` or `OTHER` |
 | `preferredTime` | optional: `MORNING`, `AFTERNOON`, `EVENING`, `ANYTIME` |
 | `message` | optional, up to 1000 characters, plain text |
 | `referralCode` | optional, the marketer's code from `?ref=`; recorded with the marketer when that marketer can refer (active, agreement accepted), else kept as the code only |
@@ -65,14 +72,18 @@ visitor's address in `X-Client-Address`, believed only from our own servers, as 
 
 Answers: **200** "Thanks — we've received your request. Our team will call you within 1 working day." (the same for a new
 request, a repeat and a filled honeypot, so the form never tells anyone whose email is known); **400** with a message per field
-under `data`; **429** (`Retry-After: 3600`) after 5 requests from one address or 3 for one email in an hour
-(`HOTEL_APPLICATIONS_PER_ADDRESS`, `HOTEL_APPLICATIONS_PER_EMAIL`; Redis, in memory when Redis is down). A repeat from an email
-that already has an open request is not a second row: it becomes a SYSTEM note on the open one ("Sent the Book a demo form
-again", with any new phone, business, monthly sales band or message).
+under `data`; **429** (`Retry-After: 3600`) after 5 requests from one address or 3 for one email (for a request with no email:
+one phone) in an hour (`HOTEL_APPLICATIONS_PER_ADDRESS`, `HOTEL_APPLICATIONS_PER_EMAIL`; Redis, in memory when Redis is down). A
+repeat from an email that already has an open request is not a second row: it becomes a SYSTEM note on the open one ("Sent the
+Book a demo form again", with any new phone, business, type, monthly sales band or message). **A request with no email is matched
+by phone** (as stored, `+234…`) against open requests instead; a unique index (`platform-030`) allows one open request per phone
+among those without an email, so two arriving together still make one row.
 
-On a new request: an acknowledgement email to the applicant ("We received your Hospio360 demo request"), a notice to the
+On a new request: an acknowledgement email to the applicant ("We received your Hospio360 demo request", **only when an email
+was given**; its "Where:" line only when a city or state was given), a notice to the
 platform support email (Settings · General `supportEmail`, `hello@oyeksglobal.com` by default) with everything they sent
-(including "Monthly sales (all outlets): <band>"; the applicant's acknowledgement never repeats the band), and a
+(including "Monthly sales (all outlets): <band>"; the applicant's acknowledgement never repeats the band; subject "New demo
+request: <business> (<city>)", the "(<city>)" only when given; a missing email, place or "heard about us" reads "Not given"), and a
 bell to every super admin and support admin (kind `HOTEL_APPLICATION`, link `/dashboard/hotel-applications?app=<id>`). Emails go
 through the usual delivery path, so test addresses (`.test`, `example.com` …) are recorded SKIPPED "Not sent: test address".
 

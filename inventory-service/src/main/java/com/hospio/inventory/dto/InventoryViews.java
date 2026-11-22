@@ -44,7 +44,7 @@ public final class InventoryViews {
 
     public record SupplierView(String id, String name, String contactName, String phone, String email, String paymentTerms, String address,
                                String notes, boolean active, int items, List<String> itemIds, int openOrders, Instant lastOrderAt,
-                               BigDecimal spent) {
+                               BigDecimal spent, String contactPhone) {
     }
 
     /** An order line: ordered, received so far (good) and damaged so far. */
@@ -89,7 +89,8 @@ public final class InventoryViews {
                           BigDecimal parLevel, BigDecimal suggest, BigDecimal unitCost, String supplierId, String supplierName) {
     }
 
-    public record ValueReport(BigDecimal total, List<StoreView> stores, List<LowItem> low, BigDecimal onOrder) {
+    /** {@code onOrder}: what is still to arrive on sent and part-received orders; {@code ordersOnTheWay}: how many such orders. */
+    public record ValueReport(BigDecimal total, List<StoreView> stores, List<LowItem> low, BigDecimal onOrder, int ordersOnTheWay) {
     }
 
     public record StoreUsage(String storeId, String name, String kind, BigDecimal received, BigDecimal transferredIn, BigDecimal issuedOut,
